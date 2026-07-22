@@ -1,0 +1,87 @@
+{
+  "app": "shop",
+  "api_prefix": "api/v1/shop",
+  "purpose": "Product catalog management: products, variants, categories, brands, taxes, pricing rules",
+  "architecture": {
+    "models": [
+      "Category",
+      "Brand",
+      "Product",
+      "ProductVariant",
+      "ProductImage",
+      "ProductReview",
+      "Tax",
+      "ProductCostRule",
+      "ProductCostAssignment",
+      "Condition",
+      "TaxType"
+    ],
+    "viewsets": [
+      "ProductViewSet",
+      "ProductVariantViewSet",
+      "CategoryViewSet",
+      "BrandViewSet",
+      "TaxViewSet"
+    ],
+    "serializers": [
+      "CategorySerializer",
+      "CategoryInputSerializer",
+      "BrandSerializer",
+      "BrandInputSerializer",
+      "TaxSerializer",
+      "TaxInputSerializer",
+      "ProductImageSerializer",
+      "ProductVariantSerializer",
+      "ProductVariantInputSerializer",
+      "ProductReviewSerializer",
+      "ProductSerializer",
+      "ProductInputSerializer",
+      "ProductCostRuleSerializer",
+      "ProductCostRuleInputSerializer",
+      "ProductCostAssignmentInputSerializer"
+    ],
+    "url_patterns": [
+      "products",
+      "variants",
+      "categories",
+      "brands",
+      "taxes"
+    ],
+    "management_commands": [
+      "create_product",
+      "seed_product_sale_flow"
+    ],
+    "celery_tasks": [],
+    "consumers": [],
+    "migrations": 8
+  },
+  "key_models": [
+    "Product",
+    "ProductVariant",
+    "Category",
+    "Brand",
+    "Tax",
+    "ProductCostRule"
+  ],
+  "services": [
+    "ProductPricingService",
+    "ProductCostRuleSelector"
+  ],
+  "constraints": [
+    "vendor FK NOT NULL — always pass User.objects.filter(is_superuser=True).first() when creating Products via shell",
+    "ProductVariant requires sku + pricing_strategy; FIXED strategy requires fixed_price"
+  ],
+  "events": [],
+  "patterns": {
+    "command_class": "ShopCommands",
+    "selector_class": "ShopSelector",
+    "service_layer": true,
+    "soft_delete": true
+  },
+  "known_issues": [],
+  "TODO": [],
+  "BUG": [],
+  "HOT_FIX": [],
+  "decisions": [],
+  "generated_at": "2026-07-19T14:55:36.345244+00:00"
+}

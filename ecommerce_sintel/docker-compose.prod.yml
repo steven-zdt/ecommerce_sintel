@@ -1,0 +1,255 @@
+# =============================================================================
+# DOCKER COMPOSE -- E-Commerce Sintel REST -- PRODUCCION
+# =============================================================================
+#
+# Publicacion via Cloudflare Tunnel unicamente. Ningun servicio publica
+# puertos al host: cloudflared entra por la red interna a nginx, y nginx
+# proxea a django. Ver docs/deployment/ROADMAP_CLOUDFLARE_TUNNEL.md.
+#
+# Servicios (7, segun Fase 2 del roadmap): nginx, django, db, redis,
+# celery_worker, celery_beat, cloudflared.
+#
+# NO incluye (permanecen privados, solo en docker-compose.yml de desarrollo):
+# sintel_ollama, sintel_chromadb, sintel_ai, frontend (vite dev server).
+# El bundle de Vue ya viene compilado dentro de la imagen runtime (ver
+# Dockerfile, stage frontend-builder), por lo que no hace falta un
+# contenedor de frontend en produccion.
+#
+# Requiere (se completan en fases posteriores del roadmap):
+#   - .env.production            (Fase 16)
+#   - cloudflared/config.yml     (Fase 4)
+#   - cloudflared/<tunnel>.json  (credenciales del tunel, Fase 4)
+#   - certs/origin.pem + origin.key (Cloudflare Origin Certificate, Fase 8)
+#   - nginx.prod.conf            (Fase 9)
+#
+# ⚠️  IMPORTANTE: siempre usar --env-file .env.production al invocar este
+#     compose. El servicio "db" usa sustitucion ${DB_NAME}/${DB_USER}/
+#     ${DB_PASSWORD} en su bloque "environment", y Docker Compose SOLO
+#     resuelve ese estilo de variable desde un archivo literalmente llamado
+#     ".env" o desde --env-file -- "env_file:" (usado en django/celery/etc.)
+#     NO alimenta esta sustitucion, son mecanismos distintos. Sin el flag,
+#     Postgres arranca con credenciales vacias. Ejemplo:
+#       docker compose -f docker-compose.prod.yml --env-file .env.production up -d
+#
+# =============================================================================
+
+# Rotacion de logs (Fase 17): driver nativo de Docker, funciona igual en
+# cualquier SO -- no depende de logrotate (poco practico en un host Windows).
+# 10MB x 5 archivos = 50MB max por servicio, log mas viejo se descarta solo.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+name: sintel_production
+
+services:
+
+  # ─── INFRAESTRUCTURA (sin puertos publicados al host) ─────────────────────
+  redis:
+    image: redis:7.2-alpine
+    container_name: sintel_prod_redis
+    restart: unless-stopped
+    logging: *default-logging
+    volumes:
+      - sintel_prod_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - sintel-network
+
+  db:
+    image: postgres:16-alpine
+    container_name: sintel_prod_db
+    restart: unless-stopped
+    logging: *default-logging
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - sintel_prod_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - sintel-network
+
+  # ─── APLICACIÓN ────────────────────────────────────────────────────────────
+  django:
+    build:
+      context: ..
+      dockerfile: ecommerce_sintel/Dockerfile
+      target: runtime
+    image: ecommerce_sintel:runtime
+    container_name: sintel_prod_django
+    restart: unless-stopped
+    logging: *default-logging
+    stop_grace_period: 30s
+    # Sin bind mount de codigo fuente: el codigo vive horneado en la imagen
+    # (COPY ecommerce_sintel/ /code/ en el Dockerfile). Solo se montan
+    # volumenes de datos persistentes (estaticos, media y documentos KYC).
+    volumes:
+      - sintel_prod_static_volume:/code/staticfiles
+      - sintel_prod_media_volume:/code/media
+      - sintel_prod_kyc_volume:/code/private_media/kyc
+    env_file: .env.production
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      # Host header explicito: ALLOWED_HOSTS en produccion (Fase 16) solo
+      # tiene los 4 dominios reales, sin "localhost" -- sin este header
+      # Django rechaza el propio healthcheck con DisallowedHost (bug real
+      # encontrado en el primer despliegue, Fase 22). Se prefiere esto sobre
+      # agregar "localhost" a ALLOWED_HOSTS, que hubiera debilitado esa lista
+      # sin necesidad real.
+      test: ["CMD", "curl", "-f", "-H", "Host: api.sintel.net.co", "http://localhost:8000/api/v1/health/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - sintel-network
+
+  # ─── WORKERS ASINCRONOS ────────────────────────────────────────────────────
+  celery_worker:
+    image: ecommerce_sintel:runtime
+    container_name: sintel_prod_celery_worker
+    restart: unless-stopped
+    logging: *default-logging
+    command: celery -A ecommerce worker --loglevel=info --concurrency=4 -Q default,marketing,notifications
+    env_file: .env.production
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      django:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A ecommerce inspect ping || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    volumes:
+      - sintel_prod_media_volume:/code/media
+    networks:
+      - sintel-network
+
+  celery_beat:
+    image: ecommerce_sintel:runtime
+    container_name: sintel_prod_celery_beat
+    restart: unless-stopped
+    logging: *default-logging
+    command: celery -A ecommerce beat --loglevel=info --scheduler django_celery_beat.schedulers:DatabaseScheduler
+    env_file: .env.production
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      django:
+        condition: service_healthy
+    volumes:
+      - sintel_prod_beat_schedule:/tmp/celery_beat
+    networks:
+      - sintel-network
+
+  # ─── REVERSE PROXY (unico punto de entrada interno) ────────────────────────
+  nginx:
+    image: nginx:1.26-alpine
+    container_name: sintel_prod_nginx
+    restart: unless-stopped
+    logging: *default-logging
+    # Sin "ports": nginx NO se publica al host. Solo es alcanzable dentro de
+    # sintel-network -- unicamente cloudflared le habla por nombre de servicio.
+    expose:
+      - "80"
+      - "443"
+    volumes:
+      - ./nginx.prod.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx-upgrade-map.conf:/etc/nginx/conf.d/00-upgrade-map.conf:ro
+      # Fase 2 (ADR-001, aislamiento de dominio del panel): directivas
+      # compartidas por los dos virtual hosts (publico y panel.sintel.net.co).
+      # Montado FUERA de conf.d/ a proposito -- ver cabecera de nginx-common.conf.
+      - ./nginx-common.conf:/etc/nginx/nginx-common.conf:ro
+      # Ruta ABSOLUTA del host, fuera del repositorio (mismo patron que
+      # cloudflared en Fase 4): contiene el Cloudflare Origin Certificate
+      # real (Fase 8). Nunca copiar origin.pem/origin.key dentro de ecommerce_sintel/.
+      - "C:/Users/Administrator/sintel_secrets/certs:/etc/nginx/certs:ro"
+      - sintel_prod_static_volume:/code/staticfiles:ro
+      - sintel_prod_media_volume:/code/media:ro
+      # Logs de acceso/error en archivos reales (Fase 17) ademas de stdout
+      # (nginx.prod.conf define ambos destinos -- ver Fase 17 del roadmap).
+      - ./logs/nginx:/var/log/nginx
+      - /dev/null:/docker-entrypoint.d/10-listen-on-ipv6-by-default.sh:ro
+    depends_on:
+      django:
+        condition: service_healthy
+    healthcheck:
+      # Puerto 80 (redirect a https, ver nginx.prod.conf): confirma que el
+      # propio Nginx responde sin depender de ALLOWED_HOSTS/TLS de Django.
+      test: ["CMD", "curl", "-f", "http://localhost/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    networks:
+      - sintel-network
+
+  # ─── TUNEL (unico punto de salida hacia Internet) ──────────────────────────
+  cloudflared:
+    image: cloudflare/cloudflared:2026.7.1
+    container_name: sintel_prod_cloudflared
+    restart: unless-stopped
+    logging: *default-logging
+    command: tunnel --config /etc/cloudflared/config.yml run
+    # Sin "ports": cloudflared inicia la conexion saliente hacia el edge de
+    # Cloudflare (outbound), no necesita ningun puerto publicado ni abierto
+    # en el router.
+    # Ruta ABSOLUTA del host, fuera del repositorio a proposito: contiene las
+    # credenciales reales del tunel (Fase 4). NUNCA copiar este contenido
+    # dentro de ecommerce_sintel/. Solo config.yml + <tunnel-id>.json, sin el
+    # cert.pem de cuenta (ese se queda en ~/.cloudflared, el contenedor no lo necesita).
+    volumes:
+      - "C:/Users/Administrator/.cloudflared/sintel-production:/etc/cloudflared:ro"
+    depends_on:
+      - nginx
+    networks:
+      - sintel-network
+
+# ═════════════════════════════════════════════════════════════════════════════
+# VOLÚMENES — Nombres distintos a docker-compose.yml (desarrollo) a proposito,
+# para que dev y produccion nunca compartan datos aunque corran en el mismo host.
+# ═════════════════════════════════════════════════════════════════════════════
+volumes:
+  sintel_prod_postgres_data:
+    driver: local
+  sintel_prod_redis_data:
+    driver: local
+  sintel_prod_static_volume:
+    driver: local
+  sintel_prod_media_volume:
+    driver: local
+  sintel_prod_kyc_volume:
+    driver: local
+  sintel_prod_beat_schedule:
+    driver: local
+
+# ═════════════════════════════════════════════════════════════════════════════
+# NETWORKS — Una sola red para todo el stack de produccion (Fase 3).
+# ═════════════════════════════════════════════════════════════════════════════
+networks:
+  sintel-network:
+    driver: bridge
+    name: sintel-network

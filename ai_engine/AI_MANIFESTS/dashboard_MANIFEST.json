@@ -1,0 +1,2427 @@
+{
+  "app": "dashboard",
+  "generated_at": "2026-07-19T14:55:36.484663+00:00",
+  "api_prefix": "api/v1/dashboard",
+  "purpose": "BFF (Backend for Frontend) — orchestrates data for admin panel. No business logic.",
+  "architecture": {
+    "models": [],
+    "serializers": [],
+    "viewsets": [
+      {
+        "name": "AdminServicePackageViewSet",
+        "file": "dashboard/api/package_views.py",
+        "bases": [
+          "viewsets.ViewSet"
+        ],
+        "actions": [
+          "list",
+          "create",
+          "partial_update",
+          "destroy",
+          "toggle_active",
+          "duplicate",
+          "reorder"
+        ]
+      },
+      {
+        "name": "PackageChildViewSet",
+        "file": "dashboard/api/package_views.py",
+        "bases": [
+          "viewsets.ViewSet"
+        ],
+        "actions": [
+          "list",
+          "create",
+          "partial_update",
+          "destroy",
+          "toggle_active",
+          "duplicate",
+          "reorder"
+        ]
+      },
+      {
+        "name": "AdminPackageIncludedItemViewSet",
+        "file": "dashboard/api/package_views.py",
+        "bases": [
+          "PackageChildViewSet"
+        ],
+        "actions": []
+      },
+      {
+        "name": "AdminPackageAdditionalCostViewSet",
+        "file": "dashboard/api/package_views.py",
+        "bases": [
+          "PackageChildViewSet"
+        ],
+        "actions": []
+      },
+      {
+        "name": "EquipmentCatalogChildViewSet",
+        "file": "dashboard/api/renting_catalog_views.py",
+        "bases": [
+          "viewsets.ViewSet"
+        ],
+        "actions": [
+          "list",
+          "create",
+          "partial_update",
+          "destroy",
+          "toggle_active",
+          "duplicate",
+          "reorder"
+        ]
+      },
+      {
+        "name": "AdminRentalIncludedItemViewSet",
+        "file": "dashboard/api/renting_catalog_views.py",
+        "bases": [
+          "EquipmentCatalogChildViewSet"
+        ],
+        "actions": []
+      },
+      {
+        "name": "AdminRentalExcludedItemViewSet",
+        "file": "dashboard/api/renting_catalog_views.py",
+        "bases": [
+          "EquipmentCatalogChildViewSet"
+        ],
+        "actions": []
+      },
+      {
+        "name": "AdminRentalFeatureViewSet",
+        "file": "dashboard/api/renting_catalog_views.py",
+        "bases": [
+          "EquipmentCatalogChildViewSet"
+        ],
+        "actions": []
+      },
+      {
+        "name": "AdminRentalSpecificationGroupViewSet",
+        "file": "dashboard/api/renting_catalog_views.py",
+        "bases": [
+          "EquipmentCatalogChildViewSet"
+        ],
+        "actions": []
+      },
+      {
+        "name": "AdminRentalRequirementViewSet",
+        "file": "dashboard/api/renting_catalog_views.py",
+        "bases": [
+          "EquipmentCatalogChildViewSet"
+        ],
+        "actions": []
+      },
+      {
+        "name": "AdminRentalServiceIncludedViewSet",
+        "file": "dashboard/api/renting_catalog_views.py",
+        "bases": [
+          "EquipmentCatalogChildViewSet"
+        ],
+        "actions": []
+      },
+      {
+        "name": "AdminRentalOptionalServiceViewSet",
+        "file": "dashboard/api/renting_catalog_views.py",
+        "bases": [
+          "EquipmentCatalogChildViewSet"
+        ],
+        "actions": []
+      },
+      {
+        "name": "AdminRentalFAQViewSet",
+        "file": "dashboard/api/renting_catalog_views.py",
+        "bases": [
+          "EquipmentCatalogChildViewSet"
+        ],
+        "actions": []
+      },
+      {
+        "name": "AdminRentalVideoViewSet",
+        "file": "dashboard/api/renting_catalog_views.py",
+        "bases": [
+          "EquipmentCatalogChildViewSet"
+        ],
+        "actions": []
+      },
+      {
+        "name": "AdminEquipmentImageViewSet",
+        "file": "dashboard/api/renting_catalog_views.py",
+        "bases": [
+          "EquipmentCatalogChildViewSet"
+        ],
+        "actions": [
+          "create",
+          "set_primary"
+        ]
+      },
+      {
+        "name": "AdminRentalSpecificationViewSet",
+        "file": "dashboard/api/renting_catalog_views.py",
+        "bases": [
+          "EquipmentCatalogChildViewSet"
+        ],
+        "actions": [
+          "list",
+          "create",
+          "partial_update",
+          "destroy",
+          "toggle_active",
+          "duplicate",
+          "reorder"
+        ]
+      },
+      {
+        "name": "AdminRentalDocumentViewSet",
+        "file": "dashboard/api/renting_catalog_views.py",
+        "bases": [
+          "EquipmentCatalogChildViewSet"
+        ],
+        "actions": [
+          "create"
+        ]
+      },
+      {
+        "name": "AdminMetricsView",
+        "file": "dashboard/api/views.py",
+        "bases": [
+          "APIView"
+        ],
+        "actions": [
+          "get"
+        ]
+      },
+      {
+        "name": "AdminProductViewSet",
+        "file": "dashboard/api/views.py",
+        "bases": [
+          "viewsets.ViewSet"
+        ],
+        "actions": [
+          "list",
+          "create",
+          "retrieve",
+          "partial_update",
+          "destroy",
+          "variants",
+          "create_variant",
+          "update_variant",
+          "delete_variant",
+          "add_image",
+          "delete_image",
+          "set_primary_image"
+        ]
+      },
+      {
+        "name": "AdminCategoryViewSet",
+        "file": "dashboard/api/views.py",
+        "bases": [
+          "viewsets.ViewSet"
+        ],
+        "actions": [
+          "list",
+          "create",
+          "retrieve",
+          "partial_update",
+          "destroy"
+        ]
+      },
+      {
+        "name": "AdminBrandViewSet",
+        "file": "dashboard/api/views.py",
+        "bases": [
+          "viewsets.ViewSet"
+        ],
+        "actions": [
+          "list",
+          "create",
+          "retrieve",
+          "partial_update",
+          "destroy"
+        ]
+      },
+      {
+        "name": "AdminTaxViewSet",
+        "file": "dashboard/api/views.py",
+        "bases": [
+          "viewsets.ViewSet"
+        ],
+        "actions": [
+          "list",
+          "create",
+          "retrieve",
+          "partial_update",
+          "destroy"
+        ]
+      },
+      {
+        "name": "AdminOrderViewSet",
+        "file": "dashboard/api/views.py",
+        "bases": [
+          "viewsets.ViewSet"
+        ],
+        "actions": [
+          "list",
+          "retrieve"
+        ]
+      },
+      {
+        "name": "AdminEquipmentViewSet",
+        "file": "dashboard/api/views.py",
+        "bases": [
+          "viewsets.ViewSet"
+        ],
+        "actions": [
+          "list",
+          "create",
+          "retrieve",
+          "partial_update",
+          "destroy",
+          "variants",
+          "create_variant",
+          "update_variant",
+          "delete_variant",
+          "logistics",
+          "marketing"
+        ]
+      },
+      {
+        "name": "AdminRentingCategoryViewSet",
+        "file": "dashboard/api/views.py",
+        "bases": [
+          "viewsets.ViewSet"
+        ],
+        "actions": [
+          "list",
+          "create",
+          "retrieve",
+          "partial_update",
+          "destroy"
+        ]
+      },
+      {
+        "name": "AdminRentingBrandViewSet",
+        "file": "dashboard/api/views.py",
+        "bases": [
+          "viewsets.ViewSet"
+        ],
+        "actions": [
+          "list",
+          "create",
+          "retrieve",
+          "partial_update",
+          "destroy"
+        ]
+      },
+      {
+        "name": "AdminRentalLaborViewSet",
+        "file": "dashboard/api/views.py",
+        "bases": [
+          "viewsets.ViewSet"
+        ],
+        "actions": [
+          "list",
+          "create",
+          "retrieve",
+          "partial_update",
+          "destroy"
+        ]
+      },
+      {
+        "name": "AdminQuotationViewSet",
+        "file": "dashboard/api/views.py",
+        "bases": [
+          "viewsets.ViewSet"
+        ],
+        "actions": [
+          "list",
+          "create",
+          "retrieve",
+          "partial_update",
+          "change_status",
+          "add_item",
+          "add_service"
+        ]
+      },
+      {
+        "name": "AdminQuoteTemplateCategoryViewSet",
+        "file": "dashboard/api/views.py",
+        "bases": [
+          "viewsets.ViewSet"
+        ],
+        "actions": [
+          "list",
+          "create",
+          "retrieve",
+          "partial_update",
+          "destroy"
+        ]
+      },
+      {
+        "name": "AdminQuoteTemplateViewSet",
+        "file": "dashboard/api/views.py",
+        "bases": [
+          "viewsets.ViewSet"
+        ],
+        "actions": [
+          "list",
+          "create",
+          "retrieve",
+          "partial_update",
+          "destroy",
+          "clone"
+        ]
+      },
+      {
+        "name": "AdminQuoteTemplateAttributeViewSet",
+        "file": "dashboard/api/views.py",
+        "bases": [
+          "viewsets.ViewSet"
+        ],
+        "actions": [
+          "list",
+          "create",
+          "retrieve",
+          "partial_update",
+          "destroy"
+        ]
+      },
+      {
+        "name": "AdminQuoteEquipmentTypeViewSet",
+        "file": "dashboard/api/views.py",
+        "bases": [
+          "viewsets.ViewSet"
+        ],
+        "actions": [
+          "list",
+          "create",
+          "retrieve",
+          "partial_update",
+          "destroy"
+        ]
+      },
+      {
+        "name": "AdminQuoteTemplateSubcategoryViewSet",
+        "file": "dashboard/api/views.py",
+        "bases": [
+          "viewsets.ViewSet"
+        ],
+        "actions": [
+          "list",
+          "create",
+          "retrieve",
+          "partial_update",
+          "destroy"
+        ]
+      },
+      {
+        "name": "AdminQuoteTemplateModuleViewSet",
+        "file": "dashboard/api/views.py",
+        "bases": [
+          "viewsets.ViewSet"
+        ],
+        "actions": [
+          "list",
+          "create",
+          "retrieve",
+          "partial_update",
+          "destroy",
+          "duplicate",
+          "reorder"
+        ]
+      },
+      {
+        "name": "AdminQuoteQuestionViewSet",
+        "file": "dashboard/api/views.py",
+        "bases": [
+          "viewsets.ViewSet"
+        ],
+        "actions": [
+          "list",
+          "create",
+          "retrieve",
+          "partial_update",
+          "destroy",
+          "duplicate_to_module"
+        ]
+      },
+      {
+        "name": "AdminQuoteQuestionOptionViewSet",
+        "file": "dashboard/api/views.py",
+        "bases": [
+          "viewsets.ViewSet"
+        ],
+        "actions": [
+          "list",
+          "create",
+          "retrieve",
+          "partial_update",
+          "destroy"
+        ]
+      },
+      {
+        "name": "AdminTechnicalServiceViewSet",
+        "file": "dashboard/api/views.py",
+        "bases": [
+          "viewsets.ViewSet"
+        ],
+        "actions": [
+          "list",
+          "create",
+          "retrieve",
+          "partial_update",
+          "destroy",
+          "add_image",
+          "delete_image",
+          "set_primary_image",
+          "duplicate",
+          "marketing"
+        ]
+      },
+      {
+        "name": "AdminServiceFAQViewSet",
+        "file": "dashboard/api/views.py",
+        "bases": [
+          "viewsets.ViewSet"
+        ],
+        "actions": [
+          "list",
+          "create",
+          "partial_update",
+          "destroy",
+          "toggle_active",
+          "reorder"
+        ]
+      },
+      {
+        "name": "AdminServiceCategoryViewSet",
+        "file": "dashboard/api/views.py",
+        "bases": [
+          "viewsets.ViewSet"
+        ],
+        "actions": [
+          "list",
+          "create",
+          "retrieve",
+          "partial_update",
+          "destroy"
+        ]
+      },
+      {
+        "name": "AdminServiceLevelViewSet",
+        "file": "dashboard/api/views.py",
+        "bases": [
+          "viewsets.ViewSet"
+        ],
+        "actions": [
+          "list",
+          "create",
+          "retrieve",
+          "partial_update",
+          "destroy"
+        ]
+      },
+      {
+        "name": "AdminServiceVariantViewSet",
+        "file": "dashboard/api/views.py",
+        "bases": [
+          "viewsets.ViewSet"
+        ],
+        "actions": [
+          "list",
+          "create",
+          "retrieve",
+          "partial_update",
+          "destroy",
+          "price_history"
+        ]
+      },
+      {
+        "name": "AdminShopCostRuleViewSet",
+        "file": "dashboard/api/views.py",
+        "bases": [
+          "mixins.ListModelMixin",
+          "mixins.RetrieveModelMixin",
+          "mixins.CreateModelMixin",
+          "viewsets.GenericViewSet"
+        ],
+        "actions": [
+          "list",
+          "retrieve",
+          "create",
+          "partial_update_rule",
+          "deactivate",
+          "assign"
+        ]
+      },
+      {
+        "name": "AdminRentalCostRuleViewSet",
+        "file": "dashboard/api/views.py",
+        "bases": [
+          "mixins.ListModelMixin",
+          "mixins.RetrieveModelMixin",
+          "mixins.CreateModelMixin",
+          "viewsets.GenericViewSet"
+        ],
+        "actions": [
+          "list",
+          "retrieve",
+          "create",
+          "partial_update_rule",
+          "deactivate",
+          "destroy",
+          "assign"
+        ]
+      },
+      {
+        "name": "AdminServiceCostRuleViewSet",
+        "file": "dashboard/api/views.py",
+        "bases": [
+          "mixins.ListModelMixin",
+          "mixins.RetrieveModelMixin",
+          "mixins.CreateModelMixin",
+          "viewsets.GenericViewSet"
+        ],
+        "actions": [
+          "list",
+          "retrieve",
+          "create",
+          "partial_update_rule",
+          "deactivate",
+          "assign"
+        ]
+      },
+      {
+        "name": "AdminMarketingViewSet",
+        "file": "dashboard/api/views.py",
+        "bases": [
+          "viewsets.ViewSet"
+        ],
+        "actions": [
+          "summary",
+          "campaigns",
+          "flash_offers"
+        ]
+      },
+      {
+        "name": "AdminHomeConfigViewSet",
+        "file": "dashboard/api/views.py",
+        "bases": [
+          "viewsets.ViewSet"
+        ],
+        "actions": [
+          "list_banners",
+          "create_banner",
+          "update_banner",
+          "delete_banner",
+          "list_modules",
+          "update_module",
+          "create_module",
+          "delete_module"
+        ]
+      },
+      {
+        "name": "AdminHomeCardViewSet",
+        "file": "dashboard/api/views.py",
+        "bases": [
+          "viewsets.ViewSet"
+        ],
+        "actions": [
+          "list",
+          "create_card",
+          "update_card",
+          "delete_card"
+        ]
+      },
+      {
+        "name": "AdminHomeCardGroupViewSet",
+        "file": "dashboard/api/views.py",
+        "bases": [
+          "viewsets.ViewSet"
+        ],
+        "actions": [
+          "list",
+          "upsert",
+          "update_group",
+          "delete_group"
+        ]
+      },
+      {
+        "name": "AdminFooterViewSet",
+        "file": "dashboard/api/views.py",
+        "bases": [
+          "viewsets.ViewSet"
+        ],
+        "actions": [
+          "list",
+          "save_contact",
+          "create_link",
+          "update_link",
+          "delete_link",
+          "reorder_links"
+        ]
+      },
+      {
+        "name": "AdminFooterGroupViewSet",
+        "file": "dashboard/api/views.py",
+        "bases": [
+          "viewsets.ViewSet"
+        ],
+        "actions": [
+          "list",
+          "create_group",
+          "update_group",
+          "delete_group",
+          "reorder"
+        ]
+      },
+      {
+        "name": "AdminSiteBrandViewSet",
+        "file": "dashboard/api/views.py",
+        "bases": [
+          "viewsets.ViewSet"
+        ],
+        "actions": [
+          "list",
+          "update_brand"
+        ]
+      },
+      {
+        "name": "AdminNavbarViewSet",
+        "file": "dashboard/api/views.py",
+        "bases": [
+          "viewsets.ViewSet"
+        ],
+        "actions": [
+          "list",
+          "create_link",
+          "update_link",
+          "delete_link"
+        ]
+      },
+      {
+        "name": "AdminFooterCTAViewSet",
+        "file": "dashboard/api/views.py",
+        "bases": [
+          "viewsets.ViewSet"
+        ],
+        "actions": [
+          "list",
+          "update_cta"
+        ]
+      },
+      {
+        "name": "AdminBrandSliderViewSet",
+        "file": "dashboard/api/views.py",
+        "bases": [
+          "viewsets.ViewSet"
+        ],
+        "actions": [
+          "list",
+          "create_item",
+          "update_item",
+          "delete_item",
+          "reorder",
+          "get_config",
+          "update_config"
+        ]
+      },
+      {
+        "name": "AdminSupportChatViewSet",
+        "file": "dashboard/api/views.py",
+        "bases": [
+          "viewsets.ViewSet"
+        ],
+        "actions": [
+          "list",
+          "retrieve",
+          "close_room",
+          "assign",
+          "attach_context",
+          "customer_360"
+        ]
+      },
+      {
+        "name": "AdminSecurityViewSet",
+        "file": "dashboard/api/views.py",
+        "bases": [
+          "viewsets.ViewSet"
+        ],
+        "actions": [
+          "list",
+          "health"
+        ]
+      },
+      {
+        "name": "AdminNotificationTemplateViewSet",
+        "file": "dashboard/api/views.py",
+        "bases": [
+          "viewsets.ViewSet"
+        ],
+        "actions": [
+          "list",
+          "partial_update"
+        ]
+      },
+      {
+        "name": "AdminNotificationLogViewSet",
+        "file": "dashboard/api/views.py",
+        "bases": [
+          "viewsets.ViewSet"
+        ],
+        "actions": [
+          "list"
+        ]
+      },
+      {
+        "name": "AdminPaymentViewSet",
+        "file": "dashboard/api/views.py",
+        "bases": [
+          "viewsets.ViewSet"
+        ],
+        "actions": [
+          "list",
+          "nequi",
+          "cod",
+          "resync",
+          "events",
+          "feature_flags"
+        ]
+      }
+    ],
+    "services": [],
+    "selectors": [],
+    "management_commands": [],
+    "consumers": [],
+    "tasks": [],
+    "permissions": [],
+    "file_map": {
+      "misc": [
+        "dashboard/__init__.py",
+        "dashboard/api/__init__.py",
+        "dashboard/migrations/__init__.py",
+        "dashboard/services/__init__.py",
+        "dashboard/services/admin_orchestrators.py"
+      ],
+      "viewset": [
+        "dashboard/api/package_views.py",
+        "dashboard/api/renting_catalog_views.py",
+        "dashboard/api/views.py"
+      ],
+      "serializer": [
+        "dashboard/api/serializers.py"
+      ],
+      "url": [
+        "dashboard/api/urls.py"
+      ],
+      "app_config": [
+        "dashboard/apps.py"
+      ],
+      "model": [
+        "dashboard/models.py"
+      ],
+      "test": [
+        "dashboard/tests.py"
+      ]
+    },
+    "migrations": 0
+  },
+  "endpoints": [
+    {
+      "endpoint": "api/v1/dashboard/products",
+      "app": "dashboard",
+      "viewset": "AdminProductViewSet",
+      "actions": [
+        "list",
+        "create",
+        "retrieve",
+        "partial_update",
+        "destroy",
+        "variants",
+        "create_variant",
+        "update_variant",
+        "delete_variant",
+        "add_image",
+        "delete_image",
+        "set_primary_image"
+      ],
+      "basename": "admin-products",
+      "http_methods": [
+        "GET"
+      ]
+    },
+    {
+      "endpoint": "api/v1/dashboard/categories",
+      "app": "dashboard",
+      "viewset": "AdminCategoryViewSet",
+      "actions": [
+        "list",
+        "create",
+        "retrieve",
+        "partial_update",
+        "destroy"
+      ],
+      "basename": "admin-categories",
+      "http_methods": [
+        "GET"
+      ]
+    },
+    {
+      "endpoint": "api/v1/dashboard/brands",
+      "app": "dashboard",
+      "viewset": "AdminBrandViewSet",
+      "actions": [
+        "list",
+        "create",
+        "retrieve",
+        "partial_update",
+        "destroy"
+      ],
+      "basename": "admin-brands",
+      "http_methods": [
+        "GET"
+      ]
+    },
+    {
+      "endpoint": "api/v1/dashboard/taxes",
+      "app": "dashboard",
+      "viewset": "AdminTaxViewSet",
+      "actions": [
+        "list",
+        "create",
+        "retrieve",
+        "partial_update",
+        "destroy"
+      ],
+      "basename": "admin-taxes",
+      "http_methods": [
+        "GET"
+      ]
+    },
+    {
+      "endpoint": "api/v1/dashboard/orders",
+      "app": "dashboard",
+      "viewset": "AdminOrderViewSet",
+      "actions": [
+        "list",
+        "retrieve"
+      ],
+      "basename": "admin-orders",
+      "http_methods": [
+        "GET"
+      ]
+    },
+    {
+      "endpoint": "api/v1/dashboard/equipment",
+      "app": "dashboard",
+      "viewset": "AdminEquipmentViewSet",
+      "actions": [
+        "list",
+        "create",
+        "retrieve",
+        "partial_update",
+        "destroy",
+        "variants",
+        "create_variant",
+        "update_variant",
+        "delete_variant",
+        "logistics",
+        "marketing"
+      ],
+      "basename": "admin-equipment",
+      "http_methods": [
+        "GET"
+      ]
+    },
+    {
+      "endpoint": "api/v1/dashboard/renting-categories",
+      "app": "dashboard",
+      "viewset": "AdminRentingCategoryViewSet",
+      "actions": [
+        "list",
+        "create",
+        "retrieve",
+        "partial_update",
+        "destroy"
+      ],
+      "basename": "admin-renting-categories",
+      "http_methods": [
+        "GET"
+      ]
+    },
+    {
+      "endpoint": "api/v1/dashboard/renting-brands",
+      "app": "dashboard",
+      "viewset": "AdminRentingBrandViewSet",
+      "actions": [
+        "list",
+        "create",
+        "retrieve",
+        "partial_update",
+        "destroy"
+      ],
+      "basename": "admin-renting-brands",
+      "http_methods": [
+        "GET"
+      ]
+    },
+    {
+      "endpoint": "api/v1/dashboard/rental-labor",
+      "app": "dashboard",
+      "viewset": "AdminRentalLaborViewSet",
+      "actions": [
+        "list",
+        "create",
+        "retrieve",
+        "partial_update",
+        "destroy"
+      ],
+      "basename": "admin-rental-labor",
+      "http_methods": [
+        "GET"
+      ]
+    },
+    {
+      "endpoint": "api/v1/dashboard/equipment-images",
+      "app": "dashboard",
+      "viewset": "AdminEquipmentImageViewSet",
+      "actions": [
+        "create",
+        "set_primary"
+      ],
+      "basename": "admin-equipment-images",
+      "http_methods": [
+        "GET"
+      ]
+    },
+    {
+      "endpoint": "api/v1/dashboard/rental-included-items",
+      "app": "dashboard",
+      "viewset": "AdminRentalIncludedItemViewSet",
+      "actions": [],
+      "basename": "admin-rental-included-items",
+      "http_methods": [
+        "GET"
+      ]
+    },
+    {
+      "endpoint": "api/v1/dashboard/rental-excluded-items",
+      "app": "dashboard",
+      "viewset": "AdminRentalExcludedItemViewSet",
+      "actions": [],
+      "basename": "admin-rental-excluded-items",
+      "http_methods": [
+        "GET"
+      ]
+    },
+    {
+      "endpoint": "api/v1/dashboard/rental-features",
+      "app": "dashboard",
+      "viewset": "AdminRentalFeatureViewSet",
+      "actions": [],
+      "basename": "admin-rental-features",
+      "http_methods": [
+        "GET"
+      ]
+    },
+    {
+      "endpoint": "api/v1/dashboard/rental-specification-groups",
+      "app": "dashboard",
+      "viewset": "AdminRentalSpecificationGroupViewSet",
+      "actions": [],
+      "basename": "admin-rental-specification-groups",
+      "http_methods": [
+        "GET"
+      ]
+    },
+    {
+      "endpoint": "api/v1/dashboard/rental-specifications",
+      "app": "dashboard",
+      "viewset": "AdminRentalSpecificationViewSet",
+      "actions": [
+        "list",
+        "create",
+        "partial_update",
+        "destroy",
+        "toggle_active",
+        "duplicate",
+        "reorder"
+      ],
+      "basename": "admin-rental-specifications",
+      "http_methods": [
+        "GET"
+      ]
+    },
+    {
+      "endpoint": "api/v1/dashboard/rental-requirements",
+      "app": "dashboard",
+      "viewset": "AdminRentalRequirementViewSet",
+      "actions": [],
+      "basename": "admin-rental-requirements",
+      "http_methods": [
+        "GET"
+      ]
+    },
+    {
+      "endpoint": "api/v1/dashboard/rental-services-included",
+      "app": "dashboard",
+      "viewset": "AdminRentalServiceIncludedViewSet",
+      "actions": [],
+      "basename": "admin-rental-services-included",
+      "http_methods": [
+        "GET"
+      ]
+    },
+    {
+      "endpoint": "api/v1/dashboard/rental-optional-services",
+      "app": "dashboard",
+      "viewset": "AdminRentalOptionalServiceViewSet",
+      "actions": [],
+      "basename": "admin-rental-optional-services",
+      "http_methods": [
+        "GET"
+      ]
+    },
+    {
+      "endpoint": "api/v1/dashboard/rental-faqs",
+      "app": "dashboard",
+      "viewset": "AdminRentalFAQViewSet",
+      "actions": [],
+      "basename": "admin-rental-faqs",
+      "http_methods": [
+        "GET"
+      ]
+    },
+    {
+      "endpoint": "api/v1/dashboard/rental-videos",
+      "app": "dashboard",
+      "viewset": "AdminRentalVideoViewSet",
+      "actions": [],
+      "basename": "admin-rental-videos",
+      "http_methods": [
+        "GET"
+      ]
+    },
+    {
+      "endpoint": "api/v1/dashboard/rental-documents",
+      "app": "dashboard",
+      "viewset": "AdminRentalDocumentViewSet",
+      "actions": [
+        "create"
+      ],
+      "basename": "admin-rental-documents",
+      "http_methods": [
+        "GET"
+      ]
+    },
+    {
+      "endpoint": "api/v1/dashboard/service-packages",
+      "app": "dashboard",
+      "viewset": "AdminServicePackageViewSet",
+      "actions": [
+        "list",
+        "create",
+        "partial_update",
+        "destroy",
+        "toggle_active",
+        "duplicate",
+        "reorder"
+      ],
+      "basename": "admin-service-packages",
+      "http_methods": [
+        "GET"
+      ]
+    },
+    {
+      "endpoint": "api/v1/dashboard/package-included-items",
+      "app": "dashboard",
+      "viewset": "AdminPackageIncludedItemViewSet",
+      "actions": [],
+      "basename": "admin-package-included-items",
+      "http_methods": [
+        "GET"
+      ]
+    },
+    {
+      "endpoint": "api/v1/dashboard/package-additional-costs",
+      "app": "dashboard",
+      "viewset": "AdminPackageAdditionalCostViewSet",
+      "actions": [],
+      "basename": "admin-package-additional-costs",
+      "http_methods": [
+        "GET"
+      ]
+    },
+    {
+      "endpoint": "api/v1/dashboard/quotations",
+      "app": "dashboard",
+      "viewset": "AdminQuotationViewSet",
+      "actions": [
+        "list",
+        "create",
+        "retrieve",
+        "partial_update",
+        "change_status",
+        "add_item",
+        "add_service"
+      ],
+      "basename": "admin-quotations",
+      "http_methods": [
+        "GET"
+      ]
+    },
+    {
+      "endpoint": "api/v1/dashboard/quote-template-categories",
+      "app": "dashboard",
+      "viewset": "AdminQuoteTemplateCategoryViewSet",
+      "actions": [
+        "list",
+        "create",
+        "retrieve",
+        "partial_update",
+        "destroy"
+      ],
+      "basename": "admin-quote-template-categories",
+      "http_methods": [
+        "GET"
+      ]
+    },
+    {
+      "endpoint": "api/v1/dashboard/quote-template-subcategories",
+      "app": "dashboard",
+      "viewset": "AdminQuoteTemplateSubcategoryViewSet",
+      "actions": [
+        "list",
+        "create",
+        "retrieve",
+        "partial_update",
+        "destroy"
+      ],
+      "basename": "admin-quote-template-subcategories",
+      "http_methods": [
+        "GET"
+      ]
+    },
+    {
+      "endpoint": "api/v1/dashboard/quote-templates",
+      "app": "dashboard",
+      "viewset": "AdminQuoteTemplateViewSet",
+      "actions": [
+        "list",
+        "create",
+        "retrieve",
+        "partial_update",
+        "destroy",
+        "clone"
+      ],
+      "basename": "admin-quote-templates",
+      "http_methods": [
+        "GET"
+      ]
+    },
+    {
+      "endpoint": "api/v1/dashboard/quote-template-attributes",
+      "app": "dashboard",
+      "viewset": "AdminQuoteTemplateAttributeViewSet",
+      "actions": [
+        "list",
+        "create",
+        "retrieve",
+        "partial_update",
+        "destroy"
+      ],
+      "basename": "admin-quote-template-attributes",
+      "http_methods": [
+        "GET"
+      ]
+    },
+    {
+      "endpoint": "api/v1/dashboard/quote-equipment-types",
+      "app": "dashboard",
+      "viewset": "AdminQuoteEquipmentTypeViewSet",
+      "actions": [
+        "list",
+        "create",
+        "retrieve",
+        "partial_update",
+        "destroy"
+      ],
+      "basename": "admin-quote-equipment-types",
+      "http_methods": [
+        "GET"
+      ]
+    },
+    {
+      "endpoint": "api/v1/dashboard/quote-template-modules",
+      "app": "dashboard",
+      "viewset": "AdminQuoteTemplateModuleViewSet",
+      "actions": [
+        "list",
+        "create",
+        "retrieve",
+        "partial_update",
+        "destroy",
+        "duplicate",
+        "reorder"
+      ],
+      "basename": "admin-quote-template-modules",
+      "http_methods": [
+        "GET"
+      ]
+    },
+    {
+      "endpoint": "api/v1/dashboard/quote-questions",
+      "app": "dashboard",
+      "viewset": "AdminQuoteQuestionViewSet",
+      "actions": [
+        "list",
+        "create",
+        "retrieve",
+        "partial_update",
+        "destroy",
+        "duplicate_to_module"
+      ],
+      "basename": "admin-quote-questions",
+      "http_methods": [
+        "GET"
+      ]
+    },
+    {
+      "endpoint": "api/v1/dashboard/quote-question-options",
+      "app": "dashboard",
+      "viewset": "AdminQuoteQuestionOptionViewSet",
+      "actions": [
+        "list",
+        "create",
+        "retrieve",
+        "partial_update",
+        "destroy"
+      ],
+      "basename": "admin-quote-question-options",
+      "http_methods": [
+        "GET"
+      ]
+    },
+    {
+      "endpoint": "api/v1/dashboard/services",
+      "app": "dashboard",
+      "viewset": "AdminTechnicalServiceViewSet",
+      "actions": [
+        "list",
+        "create",
+        "retrieve",
+        "partial_update",
+        "destroy",
+        "add_image",
+        "delete_image",
+        "set_primary_image",
+        "duplicate",
+        "marketing"
+      ],
+      "basename": "admin-services",
+      "http_methods": [
+        "GET"
+      ]
+    },
+    {
+      "endpoint": "api/v1/dashboard/service-categories",
+      "app": "dashboard",
+      "viewset": "AdminServiceCategoryViewSet",
+      "actions": [
+        "list",
+        "create",
+        "retrieve",
+        "partial_update",
+        "destroy"
+      ],
+      "basename": "admin-service-categories",
+      "http_methods": [
+        "GET"
+      ]
+    },
+    {
+      "endpoint": "api/v1/dashboard/service-levels",
+      "app": "dashboard",
+      "viewset": "AdminServiceLevelViewSet",
+      "actions": [
+        "list",
+        "create",
+        "retrieve",
+        "partial_update",
+        "destroy"
+      ],
+      "basename": "admin-service-levels",
+      "http_methods": [
+        "GET"
+      ]
+    },
+    {
+      "endpoint": "api/v1/dashboard/service-variants",
+      "app": "dashboard",
+      "viewset": "AdminServiceVariantViewSet",
+      "actions": [
+        "list",
+        "create",
+        "retrieve",
+        "partial_update",
+        "destroy",
+        "price_history"
+      ],
+      "basename": "admin-service-variants",
+      "http_methods": [
+        "GET"
+      ]
+    },
+    {
+      "endpoint": "api/v1/dashboard/service-faqs",
+      "app": "dashboard",
+      "viewset": "AdminServiceFAQViewSet",
+      "actions": [
+        "list",
+        "create",
+        "partial_update",
+        "destroy",
+        "toggle_active",
+        "reorder"
+      ],
+      "basename": "admin-service-faqs",
+      "http_methods": [
+        "GET"
+      ]
+    },
+    {
+      "endpoint": "api/v1/dashboard/shop-cost-rules",
+      "app": "dashboard",
+      "viewset": "AdminShopCostRuleViewSet",
+      "actions": [
+        "list",
+        "retrieve",
+        "create",
+        "partial_update_rule",
+        "deactivate",
+        "assign"
+      ],
+      "basename": "admin-shop-cost-rules",
+      "http_methods": [
+        "POST"
+      ]
+    },
+    {
+      "endpoint": "api/v1/dashboard/rental-cost-rules",
+      "app": "dashboard",
+      "viewset": "AdminRentalCostRuleViewSet",
+      "actions": [
+        "list",
+        "retrieve",
+        "create",
+        "partial_update_rule",
+        "deactivate",
+        "destroy",
+        "assign"
+      ],
+      "basename": "admin-rental-cost-rules",
+      "http_methods": [
+        "POST"
+      ]
+    },
+    {
+      "endpoint": "api/v1/dashboard/service-cost-rules",
+      "app": "dashboard",
+      "viewset": "AdminServiceCostRuleViewSet",
+      "actions": [
+        "list",
+        "retrieve",
+        "create",
+        "partial_update_rule",
+        "deactivate",
+        "assign"
+      ],
+      "basename": "admin-service-cost-rules",
+      "http_methods": [
+        "POST"
+      ]
+    },
+    {
+      "endpoint": "api/v1/dashboard/marketing",
+      "app": "dashboard",
+      "viewset": "AdminMarketingViewSet",
+      "actions": [
+        "summary",
+        "campaigns",
+        "flash_offers"
+      ],
+      "basename": "admin-marketing",
+      "http_methods": [
+        "GET"
+      ]
+    },
+    {
+      "endpoint": "api/v1/dashboard/home-config",
+      "app": "dashboard",
+      "viewset": "AdminHomeConfigViewSet",
+      "actions": [
+        "list_banners",
+        "create_banner",
+        "update_banner",
+        "delete_banner",
+        "list_modules",
+        "update_module",
+        "create_module",
+        "delete_module"
+      ],
+      "basename": "admin-home-config",
+      "http_methods": [
+        "GET"
+      ]
+    },
+    {
+      "endpoint": "api/v1/dashboard/home-cards",
+      "app": "dashboard",
+      "viewset": "AdminHomeCardViewSet",
+      "actions": [
+        "list",
+        "create_card",
+        "update_card",
+        "delete_card"
+      ],
+      "basename": "admin-home-cards",
+      "http_methods": [
+        "GET"
+      ]
+    },
+    {
+      "endpoint": "api/v1/dashboard/home-card-groups",
+      "app": "dashboard",
+      "viewset": "AdminHomeCardGroupViewSet",
+      "actions": [
+        "list",
+        "upsert",
+        "update_group",
+        "delete_group"
+      ],
+      "basename": "admin-home-card-groups",
+      "http_methods": [
+        "GET"
+      ]
+    },
+    {
+      "endpoint": "api/v1/dashboard/footer",
+      "app": "dashboard",
+      "viewset": "AdminFooterViewSet",
+      "actions": [
+        "list",
+        "save_contact",
+        "create_link",
+        "update_link",
+        "delete_link",
+        "reorder_links"
+      ],
+      "basename": "admin-footer",
+      "http_methods": [
+        "GET"
+      ]
+    },
+    {
+      "endpoint": "api/v1/dashboard/footer-groups",
+      "app": "dashboard",
+      "viewset": "AdminFooterGroupViewSet",
+      "actions": [
+        "list",
+        "create_group",
+        "update_group",
+        "delete_group",
+        "reorder"
+      ],
+      "basename": "admin-footer-groups",
+      "http_methods": [
+        "GET"
+      ]
+    },
+    {
+      "endpoint": "api/v1/dashboard/site-brand",
+      "app": "dashboard",
+      "viewset": "AdminSiteBrandViewSet",
+      "actions": [
+        "list",
+        "update_brand"
+      ],
+      "basename": "admin-site-brand",
+      "http_methods": [
+        "GET"
+      ]
+    },
+    {
+      "endpoint": "api/v1/dashboard/navbar",
+      "app": "dashboard",
+      "viewset": "AdminNavbarViewSet",
+      "actions": [
+        "list",
+        "create_link",
+        "update_link",
+        "delete_link"
+      ],
+      "basename": "admin-navbar",
+      "http_methods": [
+        "GET"
+      ]
+    },
+    {
+      "endpoint": "api/v1/dashboard/footer-cta",
+      "app": "dashboard",
+      "viewset": "AdminFooterCTAViewSet",
+      "actions": [
+        "list",
+        "update_cta"
+      ],
+      "basename": "admin-footer-cta",
+      "http_methods": [
+        "GET"
+      ]
+    },
+    {
+      "endpoint": "api/v1/dashboard/brand-slider",
+      "app": "dashboard",
+      "viewset": "AdminBrandSliderViewSet",
+      "actions": [
+        "list",
+        "create_item",
+        "update_item",
+        "delete_item",
+        "reorder",
+        "get_config",
+        "update_config"
+      ],
+      "basename": "admin-brand-slider",
+      "http_methods": [
+        "GET"
+      ]
+    },
+    {
+      "endpoint": "api/v1/dashboard/support/chats",
+      "app": "dashboard",
+      "viewset": "AdminSupportChatViewSet",
+      "actions": [
+        "list",
+        "retrieve",
+        "close_room",
+        "assign",
+        "attach_context",
+        "customer_360"
+      ],
+      "basename": "admin-support-chats",
+      "http_methods": [
+        "GET"
+      ]
+    },
+    {
+      "endpoint": "api/v1/dashboard/operations",
+      "app": "dashboard",
+      "viewset": "AdminOperationViewSet",
+      "actions": [],
+      "basename": "admin-operations",
+      "http_methods": [
+        "GET"
+      ]
+    },
+    {
+      "endpoint": "api/v1/dashboard/dispatchers",
+      "app": "dashboard",
+      "viewset": "AdminDispatcherViewSet",
+      "actions": [],
+      "basename": "admin-dispatchers",
+      "http_methods": [
+        "GET"
+      ]
+    },
+    {
+      "endpoint": "api/v1/dashboard/security-events",
+      "app": "dashboard",
+      "viewset": "AdminSecurityViewSet",
+      "actions": [
+        "list",
+        "health"
+      ],
+      "basename": "admin-security-events",
+      "http_methods": [
+        "GET"
+      ]
+    },
+    {
+      "endpoint": "api/v1/dashboard/notification-templates",
+      "app": "dashboard",
+      "viewset": "AdminNotificationTemplateViewSet",
+      "actions": [
+        "list",
+        "partial_update"
+      ],
+      "basename": "admin-notification-templates",
+      "http_methods": [
+        "GET"
+      ]
+    },
+    {
+      "endpoint": "api/v1/dashboard/notification-logs",
+      "app": "dashboard",
+      "viewset": "AdminNotificationLogViewSet",
+      "actions": [
+        "list"
+      ],
+      "basename": "admin-notification-logs",
+      "http_methods": [
+        "GET"
+      ]
+    },
+    {
+      "endpoint": "api/v1/dashboard/payment-transactions",
+      "app": "dashboard",
+      "viewset": "AdminPaymentViewSet",
+      "actions": [
+        "list",
+        "nequi",
+        "cod",
+        "resync",
+        "events",
+        "feature_flags"
+      ],
+      "basename": "admin-payment-transactions",
+      "http_methods": [
+        "GET"
+      ]
+    }
+  ],
+  "frontend_consumers": {
+    "api/v1/dashboard/products": [
+      {
+        "type": "FrontendComponent",
+        "name": "ProductForm",
+        "file": "modules/shop/ProductForm.vue"
+      },
+      {
+        "type": "FrontendComponent",
+        "name": "ProductList",
+        "file": "modules/shop/ProductList.vue"
+      }
+    ],
+    "api/v1/dashboard/categories": [
+      {
+        "type": "FrontendView",
+        "name": "ContractorOnboardingWizard",
+        "file": "views/customer/account/ContractorOnboardingWizard.vue"
+      },
+      {
+        "type": "FrontendView",
+        "name": "RentalCatalogView",
+        "file": "views/customer/renting/RentalCatalogView.vue"
+      },
+      {
+        "type": "FrontendComponent",
+        "name": "RentingCategoryList",
+        "file": "modules/renting/RentingCategoryList.vue"
+      },
+      {
+        "type": "FrontendComponent",
+        "name": "RentingForm",
+        "file": "modules/renting/RentingForm.vue"
+      },
+      {
+        "type": "FrontendComponent",
+        "name": "RentingList",
+        "file": "modules/renting/RentingList.vue"
+      },
+      {
+        "type": "FrontendComponent",
+        "name": "CategoryList",
+        "file": "modules/shop/CategoryList.vue"
+      },
+      {
+        "type": "FrontendComponent",
+        "name": "ProductForm",
+        "file": "modules/shop/ProductForm.vue"
+      },
+      {
+        "type": "FrontendComponent",
+        "name": "ProductList",
+        "file": "modules/shop/ProductList.vue"
+      },
+      {
+        "type": "FrontendComponent",
+        "name": "TechnicianAssignmentBoard",
+        "file": "modules/technical_services/TechnicianAssignmentBoard.vue"
+      }
+    ],
+    "api/v1/dashboard/brands": [
+      {
+        "type": "FrontendView",
+        "name": "RentalCatalogView",
+        "file": "views/customer/renting/RentalCatalogView.vue"
+      },
+      {
+        "type": "FrontendComponent",
+        "name": "RentingBrandList",
+        "file": "modules/renting/RentingBrandList.vue"
+      },
+      {
+        "type": "FrontendComponent",
+        "name": "RentingForm",
+        "file": "modules/renting/RentingForm.vue"
+      },
+      {
+        "type": "FrontendComponent",
+        "name": "RentingList",
+        "file": "modules/renting/RentingList.vue"
+      },
+      {
+        "type": "FrontendComponent",
+        "name": "BrandList",
+        "file": "modules/shop/BrandList.vue"
+      },
+      {
+        "type": "FrontendComponent",
+        "name": "ProductForm",
+        "file": "modules/shop/ProductForm.vue"
+      }
+    ],
+    "api/v1/dashboard/taxes": [
+      {
+        "type": "FrontendComponent",
+        "name": "ProductForm",
+        "file": "modules/shop/ProductForm.vue"
+      },
+      {
+        "type": "FrontendComponent",
+        "name": "TaxForm",
+        "file": "modules/shop/TaxForm.vue"
+      },
+      {
+        "type": "FrontendComponent",
+        "name": "TaxList",
+        "file": "modules/shop/TaxList.vue"
+      }
+    ],
+    "api/v1/dashboard/orders": [
+      {
+        "type": "FrontendView",
+        "name": "CustomerOrdersView",
+        "file": "views/customer/account/CustomerOrdersView.vue"
+      },
+      {
+        "type": "FrontendComponent",
+        "name": "OrderList",
+        "file": "modules/orders/OrderList.vue"
+      }
+    ],
+    "api/v1/dashboard/equipment": [
+      {
+        "type": "FrontendView",
+        "name": "RentalCatalogView",
+        "file": "views/customer/renting/RentalCatalogView.vue"
+      },
+      {
+        "type": "FrontendComponent",
+        "name": "RentingForm",
+        "file": "modules/renting/RentingForm.vue"
+      },
+      {
+        "type": "Composable",
+        "name": "useCatalogQuoteWizard",
+        "file": "composables/useCatalogQuoteWizard.js"
+      }
+    ],
+    "api/v1/dashboard/renting-categories": [
+      {
+        "type": "FrontendComponent",
+        "name": "RentingCategoryList",
+        "file": "modules/renting/RentingCategoryList.vue"
+      },
+      {
+        "type": "FrontendComponent",
+        "name": "RentingForm",
+        "file": "modules/renting/RentingForm.vue"
+      },
+      {
+        "type": "FrontendComponent",
+        "name": "RentingList",
+        "file": "modules/renting/RentingList.vue"
+      }
+    ],
+    "api/v1/dashboard/renting-brands": [
+      {
+        "type": "FrontendComponent",
+        "name": "RentingBrandList",
+        "file": "modules/renting/RentingBrandList.vue"
+      },
+      {
+        "type": "FrontendComponent",
+        "name": "RentingForm",
+        "file": "modules/renting/RentingForm.vue"
+      },
+      {
+        "type": "FrontendComponent",
+        "name": "RentingList",
+        "file": "modules/renting/RentingList.vue"
+      }
+    ],
+    "api/v1/dashboard/rental-labor": [
+      {
+        "type": "FrontendComponent",
+        "name": "RentalLaborForm",
+        "file": "modules/renting/RentalLaborForm.vue"
+      },
+      {
+        "type": "FrontendComponent",
+        "name": "RentalLaborList",
+        "file": "modules/renting/RentalLaborList.vue"
+      }
+    ],
+    "api/v1/dashboard/quotations": [
+      {
+        "type": "FrontendView",
+        "name": "CustomerQuotesView",
+        "file": "views/customer/account/CustomerQuotesView.vue"
+      }
+    ],
+    "api/v1/dashboard/service-faqs": [
+      {
+        "type": "FrontendComponent",
+        "name": "ServiceFAQManager",
+        "file": "modules/technical_services/ServiceFAQManager.vue"
+      }
+    ],
+    "api/v1/dashboard/shop-cost-rules": [
+      {
+        "type": "FrontendComponent",
+        "name": "ProductForm",
+        "file": "modules/shop/ProductForm.vue"
+      }
+    ],
+    "api/v1/dashboard/rental-cost-rules": [
+      {
+        "type": "FrontendComponent",
+        "name": "RentingForm",
+        "file": "modules/renting/RentingForm.vue"
+      }
+    ],
+    "api/v1/dashboard/marketing": [
+      {
+        "type": "FrontendComponent",
+        "name": "RentingForm",
+        "file": "modules/renting/RentingForm.vue"
+      },
+      {
+        "type": "FrontendComponent",
+        "name": "ServiceForm",
+        "file": "modules/technical_services/ServiceForm.vue"
+      }
+    ],
+    "api/v1/dashboard/home-cards": [
+      {
+        "type": "FrontendComponent",
+        "name": "HomeConfigView",
+        "file": "modules/core/HomeConfigView.vue"
+      }
+    ],
+    "api/v1/dashboard/home-card-groups": [
+      {
+        "type": "FrontendComponent",
+        "name": "HomeConfigView",
+        "file": "modules/core/HomeConfigView.vue"
+      }
+    ],
+    "api/v1/dashboard/footer": [
+      {
+        "type": "FrontendComponent",
+        "name": "CustomerFooter",
+        "file": "components/customer/CustomerFooter.vue"
+      },
+      {
+        "type": "FrontendComponent",
+        "name": "HomeConfigView",
+        "file": "modules/core/HomeConfigView.vue"
+      }
+    ],
+    "api/v1/dashboard/footer-groups": [
+      {
+        "type": "FrontendComponent",
+        "name": "HomeConfigView",
+        "file": "modules/core/HomeConfigView.vue"
+      }
+    ],
+    "api/v1/dashboard/site-brand": [
+      {
+        "type": "FrontendComponent",
+        "name": "HomeConfigView",
+        "file": "modules/core/HomeConfigView.vue"
+      }
+    ],
+    "api/v1/dashboard/navbar": [
+      {
+        "type": "FrontendComponent",
+        "name": "HomeConfigView",
+        "file": "modules/core/HomeConfigView.vue"
+      }
+    ],
+    "api/v1/dashboard/footer-cta": [
+      {
+        "type": "FrontendComponent",
+        "name": "HomeConfigView",
+        "file": "modules/core/HomeConfigView.vue"
+      }
+    ],
+    "api/v1/dashboard/brand-slider": [
+      {
+        "type": "FrontendComponent",
+        "name": "HomeConfigView",
+        "file": "modules/core/HomeConfigView.vue"
+      }
+    ],
+    "api/v1/dashboard/support/chats": [
+      {
+        "type": "FrontendComponent",
+        "name": "SupportDashboardView",
+        "file": "modules/support/SupportDashboardView.vue"
+      }
+    ],
+    "api/v1/dashboard/operations": [
+      {
+        "type": "FrontendComponent",
+        "name": "OperationBoard",
+        "file": "modules/operations/OperationBoard.vue"
+      },
+      {
+        "type": "FrontendComponent",
+        "name": "ShopOperationBoard",
+        "file": "modules/orders/ShopOperationBoard.vue"
+      },
+      {
+        "type": "FrontendComponent",
+        "name": "RentalOperationBoard",
+        "file": "modules/renting/RentalOperationBoard.vue"
+      },
+      {
+        "type": "FrontendComponent",
+        "name": "ServiceOperationBoard",
+        "file": "modules/technical_services/ServiceOperationBoard.vue"
+      }
+    ],
+    "api/v1/dashboard/dispatchers": [
+      {
+        "type": "FrontendComponent",
+        "name": "DispatcherList",
+        "file": "modules/operations/DispatcherList.vue"
+      },
+      {
+        "type": "FrontendComponent",
+        "name": "ShopOperationBoard",
+        "file": "modules/orders/ShopOperationBoard.vue"
+      },
+      {
+        "type": "FrontendComponent",
+        "name": "RentalOperationBoard",
+        "file": "modules/renting/RentalOperationBoard.vue"
+      }
+    ],
+    "api/v1/dashboard/security-events": [
+      {
+        "type": "FrontendComponent",
+        "name": "SecurityDashboardView",
+        "file": "modules/security/SecurityDashboardView.vue"
+      }
+    ],
+    "api/v1/dashboard/notification-templates": [
+      {
+        "type": "FrontendComponent",
+        "name": "NotificationsAdminView",
+        "file": "modules/notifications/NotificationsAdminView.vue"
+      }
+    ],
+    "api/v1/dashboard/notification-logs": [
+      {
+        "type": "FrontendComponent",
+        "name": "NotificationsAdminView",
+        "file": "modules/notifications/NotificationsAdminView.vue"
+      }
+    ]
+  },
+  "dependencies": {
+    "depends_on": [],
+    "depended_by": []
+  },
+  "blast_radius": {},
+  "service_contracts": {
+    "commands": [],
+    "selectors": []
+  },
+  "events": {
+    "produces": [],
+    "consumes": []
+  },
+  "constraints": [
+    "Dashboard ViewSets are read-only aggregators — no writes",
+    "All writes must go through the domain app's endpoints"
+  ],
+  "known_issues": [],
+  "business_rules": [],
+  "url_patterns": [
+    {
+      "type": "router",
+      "prefix": "products",
+      "viewset": "AdminProductViewSet",
+      "basename": "admin-products"
+    },
+    {
+      "type": "router",
+      "prefix": "categories",
+      "viewset": "AdminCategoryViewSet",
+      "basename": "admin-categories"
+    },
+    {
+      "type": "router",
+      "prefix": "brands",
+      "viewset": "AdminBrandViewSet",
+      "basename": "admin-brands"
+    },
+    {
+      "type": "router",
+      "prefix": "taxes",
+      "viewset": "AdminTaxViewSet",
+      "basename": "admin-taxes"
+    },
+    {
+      "type": "router",
+      "prefix": "orders",
+      "viewset": "AdminOrderViewSet",
+      "basename": "admin-orders"
+    },
+    {
+      "type": "router",
+      "prefix": "equipment",
+      "viewset": "AdminEquipmentViewSet",
+      "basename": "admin-equipment"
+    },
+    {
+      "type": "router",
+      "prefix": "renting-categories",
+      "viewset": "AdminRentingCategoryViewSet",
+      "basename": "admin-renting-categories"
+    },
+    {
+      "type": "router",
+      "prefix": "renting-brands",
+      "viewset": "AdminRentingBrandViewSet",
+      "basename": "admin-renting-brands"
+    },
+    {
+      "type": "router",
+      "prefix": "rental-labor",
+      "viewset": "AdminRentalLaborViewSet",
+      "basename": "admin-rental-labor"
+    },
+    {
+      "type": "router",
+      "prefix": "equipment-images",
+      "viewset": "AdminEquipmentImageViewSet",
+      "basename": "admin-equipment-images"
+    },
+    {
+      "type": "router",
+      "prefix": "rental-included-items",
+      "viewset": "AdminRentalIncludedItemViewSet",
+      "basename": "admin-rental-included-items"
+    },
+    {
+      "type": "router",
+      "prefix": "rental-excluded-items",
+      "viewset": "AdminRentalExcludedItemViewSet",
+      "basename": "admin-rental-excluded-items"
+    },
+    {
+      "type": "router",
+      "prefix": "rental-features",
+      "viewset": "AdminRentalFeatureViewSet",
+      "basename": "admin-rental-features"
+    },
+    {
+      "type": "router",
+      "prefix": "rental-specification-groups",
+      "viewset": "AdminRentalSpecificationGroupViewSet",
+      "basename": "admin-rental-specification-groups"
+    },
+    {
+      "type": "router",
+      "prefix": "rental-specifications",
+      "viewset": "AdminRentalSpecificationViewSet",
+      "basename": "admin-rental-specifications"
+    },
+    {
+      "type": "router",
+      "prefix": "rental-requirements",
+      "viewset": "AdminRentalRequirementViewSet",
+      "basename": "admin-rental-requirements"
+    },
+    {
+      "type": "router",
+      "prefix": "rental-services-included",
+      "viewset": "AdminRentalServiceIncludedViewSet",
+      "basename": "admin-rental-services-included"
+    },
+    {
+      "type": "router",
+      "prefix": "rental-optional-services",
+      "viewset": "AdminRentalOptionalServiceViewSet",
+      "basename": "admin-rental-optional-services"
+    },
+    {
+      "type": "router",
+      "prefix": "rental-faqs",
+      "viewset": "AdminRentalFAQViewSet",
+      "basename": "admin-rental-faqs"
+    },
+    {
+      "type": "router",
+      "prefix": "rental-videos",
+      "viewset": "AdminRentalVideoViewSet",
+      "basename": "admin-rental-videos"
+    },
+    {
+      "type": "router",
+      "prefix": "rental-documents",
+      "viewset": "AdminRentalDocumentViewSet",
+      "basename": "admin-rental-documents"
+    },
+    {
+      "type": "router",
+      "prefix": "service-packages",
+      "viewset": "AdminServicePackageViewSet",
+      "basename": "admin-service-packages"
+    },
+    {
+      "type": "router",
+      "prefix": "package-included-items",
+      "viewset": "AdminPackageIncludedItemViewSet",
+      "basename": "admin-package-included-items"
+    },
+    {
+      "type": "router",
+      "prefix": "package-additional-costs",
+      "viewset": "AdminPackageAdditionalCostViewSet",
+      "basename": "admin-package-additional-costs"
+    },
+    {
+      "type": "router",
+      "prefix": "quotations",
+      "viewset": "AdminQuotationViewSet",
+      "basename": "admin-quotations"
+    },
+    {
+      "type": "router",
+      "prefix": "quote-template-categories",
+      "viewset": "AdminQuoteTemplateCategoryViewSet",
+      "basename": "admin-quote-template-categories"
+    },
+    {
+      "type": "router",
+      "prefix": "quote-template-subcategories",
+      "viewset": "AdminQuoteTemplateSubcategoryViewSet",
+      "basename": "admin-quote-template-subcategories"
+    },
+    {
+      "type": "router",
+      "prefix": "quote-templates",
+      "viewset": "AdminQuoteTemplateViewSet",
+      "basename": "admin-quote-templates"
+    },
+    {
+      "type": "router",
+      "prefix": "quote-template-attributes",
+      "viewset": "AdminQuoteTemplateAttributeViewSet",
+      "basename": "admin-quote-template-attributes"
+    },
+    {
+      "type": "router",
+      "prefix": "quote-equipment-types",
+      "viewset": "AdminQuoteEquipmentTypeViewSet",
+      "basename": "admin-quote-equipment-types"
+    },
+    {
+      "type": "router",
+      "prefix": "quote-template-modules",
+      "viewset": "AdminQuoteTemplateModuleViewSet",
+      "basename": "admin-quote-template-modules"
+    },
+    {
+      "type": "router",
+      "prefix": "quote-questions",
+      "viewset": "AdminQuoteQuestionViewSet",
+      "basename": "admin-quote-questions"
+    },
+    {
+      "type": "router",
+      "prefix": "quote-question-options",
+      "viewset": "AdminQuoteQuestionOptionViewSet",
+      "basename": "admin-quote-question-options"
+    },
+    {
+      "type": "router",
+      "prefix": "services",
+      "viewset": "AdminTechnicalServiceViewSet",
+      "basename": "admin-services"
+    },
+    {
+      "type": "router",
+      "prefix": "service-categories",
+      "viewset": "AdminServiceCategoryViewSet",
+      "basename": "admin-service-categories"
+    },
+    {
+      "type": "router",
+      "prefix": "service-levels",
+      "viewset": "AdminServiceLevelViewSet",
+      "basename": "admin-service-levels"
+    },
+    {
+      "type": "router",
+      "prefix": "service-variants",
+      "viewset": "AdminServiceVariantViewSet",
+      "basename": "admin-service-variants"
+    },
+    {
+      "type": "router",
+      "prefix": "service-faqs",
+      "viewset": "AdminServiceFAQViewSet",
+      "basename": "admin-service-faqs"
+    },
+    {
+      "type": "router",
+      "prefix": "shop-cost-rules",
+      "viewset": "AdminShopCostRuleViewSet",
+      "basename": "admin-shop-cost-rules"
+    },
+    {
+      "type": "router",
+      "prefix": "rental-cost-rules",
+      "viewset": "AdminRentalCostRuleViewSet",
+      "basename": "admin-rental-cost-rules"
+    },
+    {
+      "type": "router",
+      "prefix": "service-cost-rules",
+      "viewset": "AdminServiceCostRuleViewSet",
+      "basename": "admin-service-cost-rules"
+    },
+    {
+      "type": "router",
+      "prefix": "marketing",
+      "viewset": "AdminMarketingViewSet",
+      "basename": "admin-marketing"
+    },
+    {
+      "type": "router",
+      "prefix": "home-config",
+      "viewset": "AdminHomeConfigViewSet",
+      "basename": "admin-home-config"
+    },
+    {
+      "type": "router",
+      "prefix": "home-cards",
+      "viewset": "AdminHomeCardViewSet",
+      "basename": "admin-home-cards"
+    },
+    {
+      "type": "router",
+      "prefix": "home-card-groups",
+      "viewset": "AdminHomeCardGroupViewSet",
+      "basename": "admin-home-card-groups"
+    },
+    {
+      "type": "router",
+      "prefix": "footer",
+      "viewset": "AdminFooterViewSet",
+      "basename": "admin-footer"
+    },
+    {
+      "type": "router",
+      "prefix": "footer-groups",
+      "viewset": "AdminFooterGroupViewSet",
+      "basename": "admin-footer-groups"
+    },
+    {
+      "type": "router",
+      "prefix": "site-brand",
+      "viewset": "AdminSiteBrandViewSet",
+      "basename": "admin-site-brand"
+    },
+    {
+      "type": "router",
+      "prefix": "navbar",
+      "viewset": "AdminNavbarViewSet",
+      "basename": "admin-navbar"
+    },
+    {
+      "type": "router",
+      "prefix": "footer-cta",
+      "viewset": "AdminFooterCTAViewSet",
+      "basename": "admin-footer-cta"
+    },
+    {
+      "type": "router",
+      "prefix": "brand-slider",
+      "viewset": "AdminBrandSliderViewSet",
+      "basename": "admin-brand-slider"
+    },
+    {
+      "type": "router",
+      "prefix": "support/chats",
+      "viewset": "AdminSupportChatViewSet",
+      "basename": "admin-support-chats"
+    },
+    {
+      "type": "router",
+      "prefix": "operations",
+      "viewset": "AdminOperationViewSet",
+      "basename": "admin-operations"
+    },
+    {
+      "type": "router",
+      "prefix": "dispatchers",
+      "viewset": "AdminDispatcherViewSet",
+      "basename": "admin-dispatchers"
+    },
+    {
+      "type": "router",
+      "prefix": "security-events",
+      "viewset": "AdminSecurityViewSet",
+      "basename": "admin-security-events"
+    },
+    {
+      "type": "router",
+      "prefix": "notification-templates",
+      "viewset": "AdminNotificationTemplateViewSet",
+      "basename": "admin-notification-templates"
+    },
+    {
+      "type": "router",
+      "prefix": "notification-logs",
+      "viewset": "AdminNotificationLogViewSet",
+      "basename": "admin-notification-logs"
+    },
+    {
+      "type": "router",
+      "prefix": "payment-transactions",
+      "viewset": "AdminPaymentViewSet",
+      "basename": "admin-payment-transactions"
+    },
+    {
+      "type": "path",
+      "route": "metrics/"
+    }
+  ],
+  "patterns": {
+    "command_class": "DashboardCommands",
+    "selector_class": "DashboardSelector",
+    "service_layer": true,
+    "soft_delete": true
+  },
+  "TODO": [],
+  "BUG": [],
+  "HOT_FIX": [],
+  "decisions": []
+}

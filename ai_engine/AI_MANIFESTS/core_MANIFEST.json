@@ -1,0 +1,545 @@
+{
+  "app": "core",
+  "generated_at": "2026-07-19T14:55:36.458767+00:00",
+  "api_prefix": "api/v1/core",
+  "purpose": "Public home feed, featured products/services, Home Config (banners/modules/cards/CTA/brand slider) and footer/navbar site customization",
+  "architecture": {
+    "models": [
+      {
+        "name": "HomeBanner",
+        "file": "core/models.py",
+        "fk_relations": []
+      },
+      {
+        "name": "HomeModuleConfig",
+        "file": "core/models.py",
+        "fk_relations": []
+      },
+      {
+        "name": "HomeCard",
+        "file": "core/models.py",
+        "fk_relations": []
+      },
+      {
+        "name": "HomeCardGroup",
+        "file": "core/models.py",
+        "fk_relations": []
+      },
+      {
+        "name": "FooterCTAConfig",
+        "file": "core/models.py",
+        "fk_relations": []
+      },
+      {
+        "name": "FooterGroup",
+        "file": "core/models.py",
+        "fk_relations": []
+      },
+      {
+        "name": "FooterLink",
+        "file": "core/models.py",
+        "fk_relations": [
+          {
+            "name": "group",
+            "field_type": "ForeignKey",
+            "related_model": "FooterGroup"
+          }
+        ]
+      },
+      {
+        "name": "NavbarLink",
+        "file": "core/models.py",
+        "fk_relations": []
+      },
+      {
+        "name": "BrandSliderItem",
+        "file": "core/models.py",
+        "fk_relations": []
+      },
+      {
+        "name": "BrandSliderConfig",
+        "file": "core/models.py",
+        "fk_relations": []
+      }
+    ],
+    "serializers": [
+      {
+        "name": "FlashOfferCardSerializer",
+        "file": "core/api/serializers.py"
+      },
+      {
+        "name": "FeaturedProductCardSerializer",
+        "file": "core/api/serializers.py"
+      },
+      {
+        "name": "FeaturedEquipmentCardSerializer",
+        "file": "core/api/serializers.py"
+      },
+      {
+        "name": "FeaturedServiceCardSerializer",
+        "file": "core/api/serializers.py"
+      },
+      {
+        "name": "HomeBannerSerializer",
+        "file": "core/api/serializers.py"
+      },
+      {
+        "name": "HomeBannerInputSerializer",
+        "file": "core/api/serializers.py"
+      },
+      {
+        "name": "HomeModuleConfigSerializer",
+        "file": "core/api/serializers.py"
+      },
+      {
+        "name": "HomeModuleConfigInputSerializer",
+        "file": "core/api/serializers.py"
+      },
+      {
+        "name": "HomeModuleCreateSerializer",
+        "file": "core/api/serializers.py"
+      },
+      {
+        "name": "HomeCardSerializer",
+        "file": "core/api/serializers.py"
+      },
+      {
+        "name": "HomeCardInputSerializer",
+        "file": "core/api/serializers.py"
+      },
+      {
+        "name": "HomeCardGroupSerializer",
+        "file": "core/api/serializers.py"
+      },
+      {
+        "name": "HomeCardGroupInputSerializer",
+        "file": "core/api/serializers.py"
+      },
+      {
+        "name": "FooterGroupSerializer",
+        "file": "core/api/serializers.py"
+      },
+      {
+        "name": "FooterGroupInputSerializer",
+        "file": "core/api/serializers.py"
+      },
+      {
+        "name": "FooterGroupReorderSerializer",
+        "file": "core/api/serializers.py"
+      },
+      {
+        "name": "FooterGroupPublicSerializer",
+        "file": "core/api/serializers.py"
+      },
+      {
+        "name": "FooterLinkSerializer",
+        "file": "core/api/serializers.py"
+      },
+      {
+        "name": "FooterLinkInputSerializer",
+        "file": "core/api/serializers.py"
+      },
+      {
+        "name": "FooterLinkReorderSerializer",
+        "file": "core/api/serializers.py"
+      },
+      {
+        "name": "NavbarLinkSerializer",
+        "file": "core/api/serializers.py"
+      },
+      {
+        "name": "NavbarLinkInputSerializer",
+        "file": "core/api/serializers.py"
+      },
+      {
+        "name": "FooterCTAConfigSerializer",
+        "file": "core/api/serializers.py"
+      },
+      {
+        "name": "FooterCTAConfigInputSerializer",
+        "file": "core/api/serializers.py"
+      },
+      {
+        "name": "BrandSliderItemSerializer",
+        "file": "core/api/serializers.py"
+      },
+      {
+        "name": "BrandSliderItemInputSerializer",
+        "file": "core/api/serializers.py"
+      },
+      {
+        "name": "BrandSliderConfigSerializer",
+        "file": "core/api/serializers.py"
+      },
+      {
+        "name": "BrandSliderConfigInputSerializer",
+        "file": "core/api/serializers.py"
+      }
+    ],
+    "viewsets": [
+      {
+        "name": "HomeFeedView",
+        "file": "core/api/views.py",
+        "bases": [
+          "GenericViewSet"
+        ],
+        "actions": [
+          "home_feed",
+          "footer",
+          "site_config",
+          "enums"
+        ]
+      }
+    ],
+    "services": [
+      {
+        "name": "HomeConfigCommands",
+        "file": "core/services/commands.py",
+        "role": "command",
+        "methods": [
+          "create_banner",
+          "update_banner",
+          "deactivate_banner",
+          "update_module_config",
+          "create_module",
+          "delete_module"
+        ]
+      },
+      {
+        "name": "HomeCardSelector",
+        "file": "core/services/commands.py",
+        "role": "command",
+        "methods": [
+          "list_active",
+          "list_for_admin",
+          "get_by_uuid"
+        ]
+      },
+      {
+        "name": "HomeCardGroupSelector",
+        "file": "core/services/commands.py",
+        "role": "command",
+        "methods": [
+          "list_all",
+          "get_titles_map",
+          "get_by_uuid",
+          "get_by_name"
+        ]
+      },
+      {
+        "name": "HomeCardGroupCommands",
+        "file": "core/services/commands.py",
+        "role": "command",
+        "methods": [
+          "upsert",
+          "update",
+          "delete"
+        ]
+      },
+      {
+        "name": "HomeCardCommands",
+        "file": "core/services/commands.py",
+        "role": "command",
+        "methods": [
+          "create_card",
+          "update_card",
+          "delete_card"
+        ]
+      },
+      {
+        "name": "HomeFeedSelector",
+        "file": "core/services/commands.py",
+        "role": "command",
+        "methods": [
+          "_get_limit",
+          "get_flash_offers",
+          "get_featured_products",
+          "get_featured_equipment",
+          "get_featured_services",
+          "get_module_configs",
+          "build_home_feed"
+        ]
+      },
+      {
+        "name": "NavbarLinkSelector",
+        "file": "core/services/commands.py",
+        "role": "command",
+        "methods": [
+          "list_visible",
+          "list_all",
+          "get_by_uuid"
+        ]
+      },
+      {
+        "name": "NavbarLinkCommands",
+        "file": "core/services/commands.py",
+        "role": "command",
+        "methods": [
+          "create",
+          "update",
+          "delete"
+        ]
+      },
+      {
+        "name": "FooterGroupSelector",
+        "file": "core/services/commands.py",
+        "role": "command",
+        "methods": [
+          "list_all",
+          "list_visible",
+          "get_by_uuid"
+        ]
+      },
+      {
+        "name": "FooterGroupCommands",
+        "file": "core/services/commands.py",
+        "role": "command",
+        "methods": [
+          "create",
+          "update",
+          "delete",
+          "reorder_groups"
+        ]
+      },
+      {
+        "name": "FooterSelector",
+        "file": "core/services/commands.py",
+        "role": "command",
+        "methods": [
+          "list_active_links",
+          "list_all_links",
+          "get_link_by_uuid",
+          "build_footer_payload"
+        ]
+      },
+      {
+        "name": "FooterCommands",
+        "file": "core/services/commands.py",
+        "role": "command",
+        "methods": [
+          "create_link",
+          "update_link",
+          "delete_link",
+          "reorder_links"
+        ]
+      },
+      {
+        "name": "FooterCTASelector",
+        "file": "core/services/commands.py",
+        "role": "command",
+        "methods": [
+          "get_active"
+        ]
+      },
+      {
+        "name": "FooterCTACommands",
+        "file": "core/services/commands.py",
+        "role": "command",
+        "methods": [
+          "upsert"
+        ]
+      },
+      {
+        "name": "BrandSliderSelector",
+        "file": "core/services/commands.py",
+        "role": "command",
+        "methods": [
+          "list_items_active",
+          "list_items_for_admin",
+          "get_item_by_uuid",
+          "get_config",
+          "get_or_create_config"
+        ]
+      },
+      {
+        "name": "BrandSliderCommands",
+        "file": "core/services/commands.py",
+        "role": "command",
+        "methods": [
+          "create_item",
+          "update_item",
+          "delete_item",
+          "reorder_items",
+          "upsert_config"
+        ]
+      },
+      {
+        "name": "HomeConfigSelector",
+        "file": "core/services/selectors.py",
+        "role": "selector",
+        "methods": [
+          "list_banners_active",
+          "list_banners_for_admin",
+          "get_banner_by_uuid",
+          "list_module_configs",
+          "get_module_config_by_uuid",
+          "get_or_create_default_modules"
+        ]
+      }
+    ],
+    "selectors": [],
+    "management_commands": [],
+    "consumers": [],
+    "tasks": [],
+    "permissions": [],
+    "file_map": {
+      "misc": [
+        "core/__init__.py",
+        "core/api/__init__.py",
+        "core/api/internal_ai.py",
+        "core/audit_queries.py",
+        "core/migrations/__init__.py",
+        "core/services/__init__.py"
+      ],
+      "serializer": [
+        "core/api/serializers.py"
+      ],
+      "viewset": [
+        "core/api/views.py"
+      ],
+      "app_config": [
+        "core/apps.py"
+      ],
+      "model": [
+        "core/models.py"
+      ],
+      "command": [
+        "core/services/commands.py"
+      ],
+      "selector": [
+        "core/services/selectors.py"
+      ],
+      "signal": [
+        "core/signals.py"
+      ],
+      "test": [
+        "core/tests/__init__.py",
+        "core/tests/test_models_and_signals.py"
+      ],
+      "url": [
+        "core/urls.py"
+      ]
+    },
+    "migrations": 25
+  },
+  "endpoints": [],
+  "frontend_consumers": {},
+  "dependencies": {
+    "depends_on": [],
+    "depended_by": []
+  },
+  "blast_radius": {
+    "HomeBanner": {
+      "types_affected": [
+        "Serializer"
+      ],
+      "total": 1
+    },
+    "HomeModuleConfig": {
+      "types_affected": [
+        "Serializer"
+      ],
+      "total": 1
+    },
+    "HomeCard": {
+      "types_affected": [
+        "Serializer"
+      ],
+      "total": 1
+    },
+    "HomeCardGroup": {
+      "types_affected": [
+        "Serializer"
+      ],
+      "total": 1
+    },
+    "FooterCTAConfig": {
+      "types_affected": [
+        "Serializer"
+      ],
+      "total": 1
+    },
+    "FooterGroup": {
+      "types_affected": [
+        "Serializer",
+        "Model"
+      ],
+      "total": 3
+    },
+    "FooterLink": {
+      "types_affected": [
+        "Serializer"
+      ],
+      "total": 1
+    },
+    "NavbarLink": {
+      "types_affected": [
+        "Serializer"
+      ],
+      "total": 1
+    },
+    "BrandSliderItem": {
+      "types_affected": [
+        "Model",
+        "ViewSet",
+        "Serializer"
+      ],
+      "total": 76
+    },
+    "BrandSliderConfig": {
+      "types_affected": [
+        "Model",
+        "ViewSet",
+        "Serializer"
+      ],
+      "total": 76
+    }
+  },
+  "service_contracts": {
+    "commands": [
+      "HomeConfigCommands",
+      "HomeCardSelector",
+      "HomeCardGroupSelector",
+      "HomeCardGroupCommands",
+      "HomeCardCommands",
+      "HomeFeedSelector",
+      "NavbarLinkSelector",
+      "NavbarLinkCommands",
+      "FooterGroupSelector",
+      "FooterGroupCommands",
+      "FooterSelector",
+      "FooterCommands",
+      "FooterCTASelector",
+      "FooterCTACommands",
+      "BrandSliderSelector",
+      "BrandSliderCommands"
+    ],
+    "selectors": [
+      "HomeConfigSelector"
+    ]
+  },
+  "events": {
+    "produces": [],
+    "consumes": []
+  },
+  "constraints": [
+    "GET /api/v1/core/home-feed/ is public (no auth), cached 5 min (sintel_home_feed_v1); incluye 'brand_slider': {config, items}",
+    "GET /api/v1/core/footer/ es publico, cache separado (sintel_footer_v1); 'groups' (FooterGroup+FooterLink por FK) reemplazo a 'nav_groups' (texto libre) el 2026-07-15",
+    "FooterLink.group_name (CharField) fue eliminado -- ahora FooterLink.group es FK a FooterGroup (migraciones core 0023-0025)",
+    "SiteBrandConfig y CompanyContactInfo fueron eliminados de core el 2026-07-12 (migrados a organization.Company/Branding/ContactInfo)",
+    "IconRenderer.vue (frontend/src/components/ui/IconRenderer.vue) es el unico componente de render de iconos Bootstrap Icons, con fallback y normalizacion de atajos (core/api/serializers.py::normalize_icon_class)"
+  ],
+  "known_issues": [],
+  "business_rules": [],
+  "url_patterns": [],
+  "patterns": {
+    "command_class": "CoreCommands",
+    "selector_class": "CoreSelector",
+    "service_layer": true,
+    "soft_delete": true
+  },
+  "TODO": [],
+  "BUG": [],
+  "HOT_FIX": [],
+  "decisions": []
+}

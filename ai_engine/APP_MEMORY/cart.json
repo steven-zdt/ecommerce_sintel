@@ -1,0 +1,53 @@
+{
+  "app": "cart",
+  "api_prefix": "api/v1/cart",
+  "purpose": "Shopping cart: add/remove items, quantity updates, cart summary",
+  "architecture": {
+    "models": [
+      "Cart",
+      "CartItem",
+      "WishlistItem"
+    ],
+    "viewsets": [
+      "CartViewSet",
+      "WishlistViewSet"
+    ],
+    "serializers": [
+      "CartItemSerializer",
+      "CartSerializer",
+      "AddCartItemSerializer",
+      "UpdateCartItemSerializer"
+    ],
+    "url_patterns": [
+      "wishlist"
+    ],
+    "management_commands": [],
+    "celery_tasks": [],
+    "consumers": [],
+    "migrations": 5
+  },
+  "key_models": [
+    "Cart",
+    "CartItem"
+  ],
+  "services": [
+    "CartCommands",
+    "CartSelector"
+  ],
+  "constraints": [
+    "CartItem is one of 2 exceptions to soft-delete — cart.items.all().delete() is allowed"
+  ],
+  "events": [],
+  "patterns": {
+    "command_class": "CartCommands",
+    "selector_class": "CartSelector",
+    "service_layer": true,
+    "soft_delete": true
+  },
+  "known_issues": [],
+  "TODO": [],
+  "BUG": [],
+  "HOT_FIX": [],
+  "decisions": [],
+  "generated_at": "2026-07-19T14:55:36.345244+00:00"
+}

@@ -1,0 +1,58 @@
+{
+  "app": "inventory",
+  "api_prefix": "api/v1/inventory",
+  "purpose": "Stock management: entries, exits, kardex, select_for_update on stock writes",
+  "architecture": {
+    "models": [
+      "StockRecord",
+      "InventoryTransaction"
+    ],
+    "viewsets": [
+      "StockRecordViewSet",
+      "InventoryTransactionViewSet"
+    ],
+    "serializers": [
+      "StockRecordListSerializer",
+      "StockRecordSerializer",
+      "InventoryTransactionSerializer",
+      "StockAdjustmentInputSerializer",
+      "StockRecordCreateSerializer"
+    ],
+    "url_patterns": [
+      "stock-records",
+      "transactions"
+    ],
+    "management_commands": [],
+    "celery_tasks": [],
+    "consumers": [],
+    "migrations": 5
+  },
+  "key_models": [
+    "InventoryRecord",
+    "StockRecord"
+  ],
+  "services": [
+    "InventoryCommands",
+    "InventorySelector"
+  ],
+  "constraints": [
+    "Use stock_record.stock (select_for_update) for writes — never InventorySelector.get_current_stock() which may be stale",
+    "register_entry / register_exit must be atomic"
+  ],
+  "events": [
+    "stock_updated",
+    "stock_low"
+  ],
+  "patterns": {
+    "command_class": "InventoryCommands",
+    "selector_class": "InventorySelector",
+    "service_layer": true,
+    "soft_delete": true
+  },
+  "known_issues": [],
+  "TODO": [],
+  "BUG": [],
+  "HOT_FIX": [],
+  "decisions": [],
+  "generated_at": "2026-07-19T14:55:36.345244+00:00"
+}

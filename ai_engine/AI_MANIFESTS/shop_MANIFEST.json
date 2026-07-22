@@ -1,0 +1,847 @@
+{
+  "app": "shop",
+  "generated_at": "2026-07-19T14:55:36.865847+00:00",
+  "api_prefix": "api/v1/shop",
+  "purpose": "Product catalog management: products, variants, categories, brands, taxes, pricing rules",
+  "architecture": {
+    "models": [
+      {
+        "name": "Category",
+        "file": "shop/models.py",
+        "fk_relations": [
+          {
+            "name": "parent",
+            "field_type": "ForeignKey",
+            "related_model": "self"
+          }
+        ]
+      },
+      {
+        "name": "Brand",
+        "file": "shop/models.py",
+        "fk_relations": []
+      },
+      {
+        "name": "Product",
+        "file": "shop/models.py",
+        "fk_relations": [
+          {
+            "name": "vendor",
+            "field_type": "ForeignKey",
+            "related_model": "settings.AUTH_USER_MODEL"
+          },
+          {
+            "name": "category",
+            "field_type": "ForeignKey",
+            "related_model": "Category"
+          },
+          {
+            "name": "brand",
+            "field_type": "ForeignKey",
+            "related_model": "Brand"
+          }
+        ]
+      },
+      {
+        "name": "ProductVariant",
+        "file": "shop/models.py",
+        "fk_relations": [
+          {
+            "name": "product",
+            "field_type": "ForeignKey",
+            "related_model": "Product"
+          }
+        ]
+      },
+      {
+        "name": "ProductImage",
+        "file": "shop/models.py",
+        "fk_relations": [
+          {
+            "name": "product",
+            "field_type": "ForeignKey",
+            "related_model": "Product"
+          },
+          {
+            "name": "variant",
+            "field_type": "ForeignKey",
+            "related_model": "ProductVariant"
+          }
+        ]
+      },
+      {
+        "name": "ProductReview",
+        "file": "shop/models.py",
+        "fk_relations": [
+          {
+            "name": "user",
+            "field_type": "ForeignKey",
+            "related_model": "settings.AUTH_USER_MODEL"
+          },
+          {
+            "name": "product",
+            "field_type": "ForeignKey",
+            "related_model": "Product"
+          }
+        ]
+      },
+      {
+        "name": "Tax",
+        "file": "shop/models.py",
+        "fk_relations": []
+      },
+      {
+        "name": "ProductCostRule",
+        "file": "shop/models.py",
+        "fk_relations": []
+      },
+      {
+        "name": "ProductCostAssignment",
+        "file": "shop/models.py",
+        "fk_relations": [
+          {
+            "name": "rule",
+            "field_type": "ForeignKey",
+            "related_model": "ProductCostRule"
+          },
+          {
+            "name": "variant",
+            "field_type": "ForeignKey",
+            "related_model": "shop.ProductVariant"
+          }
+        ]
+      },
+      {
+        "name": "Condition",
+        "file": "shop/models.py",
+        "fk_relations": []
+      },
+      {
+        "name": "TaxType",
+        "file": "shop/models.py",
+        "fk_relations": []
+      }
+    ],
+    "serializers": [
+      {
+        "name": "CategorySerializer",
+        "file": "shop/api/serializers.py"
+      },
+      {
+        "name": "CategoryInputSerializer",
+        "file": "shop/api/serializers.py"
+      },
+      {
+        "name": "BrandSerializer",
+        "file": "shop/api/serializers.py"
+      },
+      {
+        "name": "BrandInputSerializer",
+        "file": "shop/api/serializers.py"
+      },
+      {
+        "name": "TaxSerializer",
+        "file": "shop/api/serializers.py"
+      },
+      {
+        "name": "TaxInputSerializer",
+        "file": "shop/api/serializers.py"
+      },
+      {
+        "name": "ProductImageSerializer",
+        "file": "shop/api/serializers.py"
+      },
+      {
+        "name": "ProductVariantSerializer",
+        "file": "shop/api/serializers.py"
+      },
+      {
+        "name": "ProductVariantInputSerializer",
+        "file": "shop/api/serializers.py"
+      },
+      {
+        "name": "ProductReviewSerializer",
+        "file": "shop/api/serializers.py"
+      },
+      {
+        "name": "ProductSerializer",
+        "file": "shop/api/serializers.py"
+      },
+      {
+        "name": "ProductInputSerializer",
+        "file": "shop/api/serializers.py"
+      },
+      {
+        "name": "ProductCostRuleSerializer",
+        "file": "shop/api/serializers.py"
+      },
+      {
+        "name": "ProductCostRuleInputSerializer",
+        "file": "shop/api/serializers.py"
+      },
+      {
+        "name": "ProductCostAssignmentInputSerializer",
+        "file": "shop/api/serializers.py"
+      }
+    ],
+    "viewsets": [
+      {
+        "name": "ProductViewSet",
+        "file": "shop/api/views.py",
+        "bases": [
+          "viewsets.ReadOnlyModelViewSet"
+        ],
+        "actions": [
+          "get_object",
+          "reviews",
+          "review"
+        ]
+      },
+      {
+        "name": "ProductVariantViewSet",
+        "file": "shop/api/views.py",
+        "bases": [
+          "viewsets.ViewSet"
+        ],
+        "actions": [
+          "list",
+          "retrieve",
+          "price_breakdown"
+        ]
+      },
+      {
+        "name": "CategoryViewSet",
+        "file": "shop/api/views.py",
+        "bases": [
+          "viewsets.ReadOnlyModelViewSet"
+        ],
+        "actions": [
+          "get_object"
+        ]
+      },
+      {
+        "name": "BrandViewSet",
+        "file": "shop/api/views.py",
+        "bases": [
+          "viewsets.ReadOnlyModelViewSet"
+        ],
+        "actions": [
+          "get_object"
+        ]
+      },
+      {
+        "name": "TaxViewSet",
+        "file": "shop/api/views.py",
+        "bases": [
+          "viewsets.ReadOnlyModelViewSet"
+        ],
+        "actions": [
+          "get_object"
+        ]
+      }
+    ],
+    "services": [
+      {
+        "name": "ProductVariantCommands",
+        "file": "shop/services/commands.py",
+        "role": "command",
+        "methods": [
+          "create_variant",
+          "update_variant",
+          "delete_variant"
+        ]
+      },
+      {
+        "name": "ProductReviewCommands",
+        "file": "shop/services/commands.py",
+        "role": "command",
+        "methods": [
+          "create_review"
+        ]
+      },
+      {
+        "name": "ProductCommands",
+        "file": "shop/services/commands.py",
+        "role": "command",
+        "methods": [
+          "create_product",
+          "update_product",
+          "delete_product"
+        ]
+      },
+      {
+        "name": "CategoryCommands",
+        "file": "shop/services/commands.py",
+        "role": "command",
+        "methods": [
+          "create_category",
+          "update_category",
+          "delete_category"
+        ]
+      },
+      {
+        "name": "BrandCommands",
+        "file": "shop/services/commands.py",
+        "role": "command",
+        "methods": [
+          "create_brand",
+          "update_brand",
+          "delete_brand"
+        ]
+      },
+      {
+        "name": "TaxCommands",
+        "file": "shop/services/commands.py",
+        "role": "command",
+        "methods": [
+          "create_tax",
+          "update_tax",
+          "delete_tax"
+        ]
+      },
+      {
+        "name": "PricingService",
+        "file": "shop/services/commands.py",
+        "role": "command",
+        "methods": [
+          "calculate_variant_price"
+        ]
+      },
+      {
+        "name": "ProductImageCommands",
+        "file": "shop/services/commands.py",
+        "role": "command",
+        "methods": [
+          "add_image",
+          "delete_image",
+          "set_primary_image"
+        ]
+      },
+      {
+        "name": "ProductCostRuleSelector",
+        "file": "shop/services/pricing.py",
+        "role": "pricing",
+        "methods": [
+          "list_all_for_admin",
+          "list_active",
+          "get_by_uuid",
+          "get_rules_for_variant"
+        ]
+      },
+      {
+        "name": "ProductCostRuleCommands",
+        "file": "shop/services/pricing.py",
+        "role": "pricing",
+        "methods": [
+          "create_rule",
+          "update_rule",
+          "deactivate_rule",
+          "assign_to_variant",
+          "remove_from_variant"
+        ]
+      },
+      {
+        "name": "ShopPricingCalculator",
+        "file": "shop/services/pricing.py",
+        "role": "pricing",
+        "methods": [
+          "calculate_breakdown",
+          "get_tax_rate"
+        ]
+      },
+      {
+        "name": "PricingService",
+        "file": "shop/services/pricing_service.py",
+        "role": "service",
+        "methods": [
+          "calculate_tax_amount",
+          "calculate_total_tax",
+          "calculate_final_price",
+          "calculate_variant_price"
+        ]
+      },
+      {
+        "name": "ProductSelector",
+        "file": "shop/services/selectors.py",
+        "role": "selector",
+        "methods": [
+          "_get_detail_queryset",
+          "list_active",
+          "list_featured",
+          "list_all_for_admin",
+          "get_by_slug",
+          "get_by_uuid",
+          "get_by_id"
+        ]
+      },
+      {
+        "name": "CategorySelector",
+        "file": "shop/services/selectors.py",
+        "role": "selector",
+        "methods": [
+          "list_all",
+          "list_all_for_admin",
+          "get_by_uuid",
+          "get_by_id"
+        ]
+      },
+      {
+        "name": "BrandSelector",
+        "file": "shop/services/selectors.py",
+        "role": "selector",
+        "methods": [
+          "list_all",
+          "list_all_for_admin",
+          "get_by_slug",
+          "get_by_uuid"
+        ]
+      },
+      {
+        "name": "ProductVariantSelector",
+        "file": "shop/services/selectors.py",
+        "role": "selector",
+        "methods": [
+          "list_for_product",
+          "get_by_uuid"
+        ]
+      },
+      {
+        "name": "TaxSelector",
+        "file": "shop/services/selectors.py",
+        "role": "selector",
+        "methods": [
+          "list_active",
+          "list_all",
+          "get_by_uuid"
+        ]
+      }
+    ],
+    "selectors": [],
+    "management_commands": [
+      {
+        "name": "create_product",
+        "file": "shop/management/commands/create_product.py"
+      },
+      {
+        "name": "seed_product_sale_flow",
+        "file": "shop/management/commands/seed_product_sale_flow.py"
+      }
+    ],
+    "consumers": [],
+    "tasks": [],
+    "permissions": [],
+    "file_map": {
+      "serializer": [
+        "shop/api/serializers.py"
+      ],
+      "viewset": [
+        "shop/api/views.py"
+      ],
+      "app_config": [
+        "shop/apps.py"
+      ],
+      "misc": [
+        "shop/management/__init__.py",
+        "shop/management/commands/__init__.py",
+        "shop/migrations/__init__.py",
+        "shop/services/__init__.py",
+        "shop/services/summary.py"
+      ],
+      "management_cmd": [
+        "shop/management/commands/create_product.py",
+        "shop/management/commands/seed_product_sale_flow.py"
+      ],
+      "model": [
+        "shop/models.py"
+      ],
+      "command": [
+        "shop/services/commands.py"
+      ],
+      "pricing": [
+        "shop/services/pricing.py"
+      ],
+      "service": [
+        "shop/services/pricing_service.py"
+      ],
+      "selector": [
+        "shop/services/selectors.py"
+      ],
+      "test": [
+        "shop/tests.py"
+      ],
+      "url": [
+        "shop/urls.py"
+      ]
+    },
+    "migrations": 8
+  },
+  "endpoints": [
+    {
+      "endpoint": "api/v1/shop/products",
+      "app": "shop",
+      "viewset": "ProductViewSet",
+      "actions": [
+        "get_object",
+        "reviews",
+        "review"
+      ],
+      "basename": "product",
+      "http_methods": [
+        "GET",
+        "POST",
+        "PUT",
+        "PATCH",
+        "DELETE"
+      ]
+    },
+    {
+      "endpoint": "api/v1/shop/variants",
+      "app": "shop",
+      "viewset": "ProductVariantViewSet",
+      "actions": [
+        "list",
+        "retrieve",
+        "price_breakdown"
+      ],
+      "basename": "variant",
+      "http_methods": [
+        "GET"
+      ]
+    },
+    {
+      "endpoint": "api/v1/shop/categories",
+      "app": "shop",
+      "viewset": "CategoryViewSet",
+      "actions": [
+        "get_object"
+      ],
+      "basename": "category",
+      "http_methods": [
+        "GET",
+        "POST",
+        "PUT",
+        "PATCH",
+        "DELETE"
+      ]
+    },
+    {
+      "endpoint": "api/v1/shop/brands",
+      "app": "shop",
+      "viewset": "BrandViewSet",
+      "actions": [
+        "get_object"
+      ],
+      "basename": "brand",
+      "http_methods": [
+        "GET",
+        "POST",
+        "PUT",
+        "PATCH",
+        "DELETE"
+      ]
+    },
+    {
+      "endpoint": "api/v1/shop/taxes",
+      "app": "shop",
+      "viewset": "TaxViewSet",
+      "actions": [
+        "get_object"
+      ],
+      "basename": "tax",
+      "http_methods": [
+        "GET",
+        "POST",
+        "PUT",
+        "PATCH",
+        "DELETE"
+      ]
+    }
+  ],
+  "frontend_consumers": {
+    "api/v1/shop/products": [
+      {
+        "type": "FrontendComponent",
+        "name": "ProductForm",
+        "file": "modules/shop/ProductForm.vue"
+      },
+      {
+        "type": "FrontendComponent",
+        "name": "ProductList",
+        "file": "modules/shop/ProductList.vue"
+      }
+    ],
+    "api/v1/shop/variants": [
+      {
+        "type": "FrontendComponent",
+        "name": "RentingForm",
+        "file": "modules/renting/RentingForm.vue"
+      },
+      {
+        "type": "FrontendComponent",
+        "name": "ProductForm",
+        "file": "modules/shop/ProductForm.vue"
+      }
+    ],
+    "api/v1/shop/categories": [
+      {
+        "type": "FrontendView",
+        "name": "ContractorOnboardingWizard",
+        "file": "views/customer/account/ContractorOnboardingWizard.vue"
+      },
+      {
+        "type": "FrontendView",
+        "name": "RentalCatalogView",
+        "file": "views/customer/renting/RentalCatalogView.vue"
+      },
+      {
+        "type": "FrontendComponent",
+        "name": "RentingCategoryList",
+        "file": "modules/renting/RentingCategoryList.vue"
+      },
+      {
+        "type": "FrontendComponent",
+        "name": "RentingForm",
+        "file": "modules/renting/RentingForm.vue"
+      },
+      {
+        "type": "FrontendComponent",
+        "name": "RentingList",
+        "file": "modules/renting/RentingList.vue"
+      },
+      {
+        "type": "FrontendComponent",
+        "name": "CategoryList",
+        "file": "modules/shop/CategoryList.vue"
+      },
+      {
+        "type": "FrontendComponent",
+        "name": "ProductForm",
+        "file": "modules/shop/ProductForm.vue"
+      },
+      {
+        "type": "FrontendComponent",
+        "name": "ProductList",
+        "file": "modules/shop/ProductList.vue"
+      },
+      {
+        "type": "FrontendComponent",
+        "name": "TechnicianAssignmentBoard",
+        "file": "modules/technical_services/TechnicianAssignmentBoard.vue"
+      }
+    ],
+    "api/v1/shop/brands": [
+      {
+        "type": "FrontendView",
+        "name": "RentalCatalogView",
+        "file": "views/customer/renting/RentalCatalogView.vue"
+      },
+      {
+        "type": "FrontendComponent",
+        "name": "RentingBrandList",
+        "file": "modules/renting/RentingBrandList.vue"
+      },
+      {
+        "type": "FrontendComponent",
+        "name": "RentingForm",
+        "file": "modules/renting/RentingForm.vue"
+      },
+      {
+        "type": "FrontendComponent",
+        "name": "RentingList",
+        "file": "modules/renting/RentingList.vue"
+      },
+      {
+        "type": "FrontendComponent",
+        "name": "BrandList",
+        "file": "modules/shop/BrandList.vue"
+      },
+      {
+        "type": "FrontendComponent",
+        "name": "ProductForm",
+        "file": "modules/shop/ProductForm.vue"
+      }
+    ],
+    "api/v1/shop/taxes": [
+      {
+        "type": "FrontendComponent",
+        "name": "ProductForm",
+        "file": "modules/shop/ProductForm.vue"
+      },
+      {
+        "type": "FrontendComponent",
+        "name": "TaxForm",
+        "file": "modules/shop/TaxForm.vue"
+      },
+      {
+        "type": "FrontendComponent",
+        "name": "TaxList",
+        "file": "modules/shop/TaxList.vue"
+      }
+    ]
+  },
+  "dependencies": {
+    "depends_on": [],
+    "depended_by": [
+      "cart",
+      "marketing",
+      "orders",
+      "quotes",
+      "technical_services"
+    ]
+  },
+  "blast_radius": {
+    "Category": {
+      "types_affected": [
+        "Model",
+        "Serializer",
+        "ViewSet"
+      ],
+      "total": 77
+    },
+    "Brand": {
+      "types_affected": [
+        "Model",
+        "Serializer",
+        "ViewSet"
+      ],
+      "total": 77
+    },
+    "Product": {
+      "types_affected": [
+        "Serializer",
+        "Model",
+        "ViewSet"
+      ],
+      "total": 84
+    },
+    "ProductVariant": {
+      "types_affected": [
+        "Serializer",
+        "Model",
+        "ViewSet"
+      ],
+      "total": 83
+    },
+    "ProductImage": {
+      "types_affected": [
+        "Serializer",
+        "Model",
+        "ViewSet"
+      ],
+      "total": 83
+    },
+    "ProductReview": {
+      "types_affected": [
+        "Serializer",
+        "Model",
+        "ViewSet"
+      ],
+      "total": 83
+    },
+    "Tax": {
+      "types_affected": [
+        "ViewSet",
+        "Serializer"
+      ],
+      "total": 2
+    },
+    "ProductCostRule": {
+      "types_affected": [
+        "Serializer",
+        "Model",
+        "ViewSet"
+      ],
+      "total": 84
+    },
+    "ProductCostAssignment": {
+      "types_affected": [
+        "Serializer",
+        "Model",
+        "ViewSet"
+      ],
+      "total": 83
+    }
+  },
+  "service_contracts": {
+    "commands": [
+      "ProductVariantCommands",
+      "ProductReviewCommands",
+      "ProductCommands",
+      "CategoryCommands",
+      "BrandCommands",
+      "TaxCommands",
+      "PricingService",
+      "ProductImageCommands"
+    ],
+    "selectors": [
+      "ProductSelector",
+      "CategorySelector",
+      "BrandSelector",
+      "ProductVariantSelector",
+      "TaxSelector"
+    ]
+  },
+  "events": {
+    "produces": [],
+    "consumes": []
+  },
+  "constraints": [
+    "vendor FK NOT NULL — always pass User.objects.filter(is_superuser=True).first() when creating Products via shell",
+    "ProductVariant requires sku + pricing_strategy; FIXED strategy requires fixed_price"
+  ],
+  "known_issues": [],
+  "business_rules": [
+    {
+      "id": "DECIMAL_MONEY",
+      "rule": "All monetary values must be Decimal('X.XX'). Never float.",
+      "why": "Float arithmetic causes rounding errors in financial calculations."
+    },
+    {
+      "id": "NO_EMOJI_IN_PY",
+      "rule": "No emoji or multibyte Unicode in .py files. Plain ASCII only.",
+      "why": "Causes SyntaxError in Python which generates 500 in production."
+    }
+  ],
+  "url_patterns": [
+    {
+      "type": "router",
+      "prefix": "products",
+      "viewset": "ProductViewSet",
+      "basename": "product"
+    },
+    {
+      "type": "router",
+      "prefix": "variants",
+      "viewset": "ProductVariantViewSet",
+      "basename": "variant"
+    },
+    {
+      "type": "router",
+      "prefix": "categories",
+      "viewset": "CategoryViewSet",
+      "basename": "category"
+    },
+    {
+      "type": "router",
+      "prefix": "brands",
+      "viewset": "BrandViewSet",
+      "basename": "brand"
+    },
+    {
+      "type": "router",
+      "prefix": "taxes",
+      "viewset": "TaxViewSet",
+      "basename": "tax"
+    }
+  ],
+  "patterns": {
+    "command_class": "ShopCommands",
+    "selector_class": "ShopSelector",
+    "service_layer": true,
+    "soft_delete": true
+  },
+  "TODO": [],
+  "BUG": [],
+  "HOT_FIX": [],
+  "decisions": []
+}

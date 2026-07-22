@@ -1,0 +1,53 @@
+{
+  "generated_at": "2026-07-19T14:55:36.951743+00:00",
+  "apps": [
+    "accounts",
+    "cart",
+    "core",
+    "dashboard",
+    "ecommerce",
+    "inventory",
+    "kyc",
+    "marketing",
+    "notifications",
+    "operations",
+    "organization",
+    "orders",
+    "payment",
+    "quotes",
+    "renting",
+    "security",
+    "shop",
+    "support",
+    "technical_services",
+    "users"
+  ],
+  "manifests": {
+    "accounts": "C:\\Users\\Administrator\\Documents\\ecommerce_sintel_rest\\ai_engine\\AI_MANIFESTS\\accounts_MANIFEST.json",
+    "cart": "C:\\Users\\Administrator\\Documents\\ecommerce_sintel_rest\\ai_engine\\AI_MANIFESTS\\cart_MANIFEST.json",
+    "core": "C:\\Users\\Administrator\\Documents\\ecommerce_sintel_rest\\ai_engine\\AI_MANIFESTS\\core_MANIFEST.json",
+    "dashboard": "C:\\Users\\Administrator\\Documents\\ecommerce_sintel_rest\\ai_engine\\AI_MANIFESTS\\dashboard_MANIFEST.json",
+    "ecommerce": "C:\\Users\\Administrator\\Documents\\ecommerce_sintel_rest\\ai_engine\\AI_MANIFESTS\\ecommerce_MANIFEST.json",
+    "inventory": "C:\\Users\\Administrator\\Documents\\ecommerce_sintel_rest\\ai_engine\\AI_MANIFESTS\\inventory_MANIFEST.json",
+    "kyc": "C:\\Users\\Administrator\\Documents\\ecommerce_sintel_rest\\ai_engine\\AI_MANIFESTS\\kyc_MANIFEST.json",
+    "marketing": "C:\\Users\\Administrator\\Documents\\ecommerce_sintel_rest\\ai_engine\\AI_MANIFESTS\\marketing_MANIFEST.json",
+    "notifications": "C:\\Users\\Administrator\\Documents\\ecommerce_sintel_rest\\ai_engine\\AI_MANIFESTS\\notifications_MANIFEST.json",
+    "operations": "C:\\Users\\Administrator\\Documents\\ecommerce_sintel_rest\\ai_engine\\AI_MANIFESTS\\operations_MANIFEST.json",
+    "organization": "C:\\Users\\Administrator\\Documents\\ecommerce_sintel_rest\\ai_engine\\AI_MANIFESTS\\organization_MANIFEST.json",
+    "orders": "C:\\Users\\Administrator\\Documents\\ecommerce_sintel_rest\\ai_engine\\AI_MANIFESTS\\orders_MANIFEST.json",
+    "payment": "C:\\Users\\Administrator\\Documents\\ecommerce_sintel_rest\\ai_engine\\AI_MANIFESTS\\payment_MANIFEST.json",
+    "quotes": "C:\\Users\\Administrator\\Documents\\ecommerce_sintel_rest\\ai_engine\\AI_MANIFESTS\\quotes_MANIFEST.json",
+    "renting": "C:\\Users\\Administrator\\Documents\\ecommerce_sintel_rest\\ai_engine\\AI_MANIFESTS\\renting_MANIFEST.json",
+    "security": "C:\\Users\\Administrator\\Documents\\ecommerce_sintel_rest\\ai_engine\\AI_MANIFESTS\\security_MANIFEST.json",
+    "shop": "C:\\Users\\Administrator\\Documents\\ecommerce_sintel_rest\\ai_engine\\AI_MANIFESTS\\shop_MANIFEST.json",
+    "support": "C:\\Users\\Administrator\\Documents\\ecommerce_sintel_rest\\ai_engine\\AI_MANIFESTS\\support_MANIFEST.json",
+    "technical_services": "C:\\Users\\Administrator\\Documents\\ecommerce_sintel_rest\\ai_engine\\AI_MANIFESTS\\technical_services_MANIFEST.json",
+    "users": "C:\\Users\\Administrator\\Documents\\ecommerce_sintel_rest\\ai_engine\\AI_MANIFESTS\\users_MANIFEST.json"
+  },
+  "stats": {
+    "total_apps": 20,
+    "total_endpoints": 118,
+    "total_models": 166
+  },
+  "global_rules_count": 14
+}

@@ -1,0 +1,380 @@
+{
+  "app": "kyc",
+  "generated_at": "2026-07-19T14:55:36.579979+00:00",
+  "api_prefix": "api/v1/auth",
+  "purpose": "Identity verification (KYC) — required only for CUSTOMER-to-professional upgrade, not for base registration",
+  "architecture": {
+    "models": [
+      {
+        "name": "UserVerification",
+        "file": "kyc/models.py",
+        "fk_relations": [
+          {
+            "name": "user",
+            "field_type": "OneToOneField",
+            "related_model": "settings.AUTH_USER_MODEL"
+          },
+          {
+            "name": "reviewed_by",
+            "field_type": "ForeignKey",
+            "related_model": "settings.AUTH_USER_MODEL"
+          }
+        ]
+      },
+      {
+        "name": "VerificationDocument",
+        "file": "kyc/models.py",
+        "fk_relations": [
+          {
+            "name": "verification",
+            "field_type": "ForeignKey",
+            "related_model": "UserVerification"
+          },
+          {
+            "name": "uploaded_by",
+            "field_type": "ForeignKey",
+            "related_model": "settings.AUTH_USER_MODEL"
+          },
+          {
+            "name": "reviewed_by",
+            "field_type": "ForeignKey",
+            "related_model": "settings.AUTH_USER_MODEL"
+          }
+        ]
+      },
+      {
+        "name": "VerificationEvent",
+        "file": "kyc/models.py",
+        "fk_relations": [
+          {
+            "name": "verification",
+            "field_type": "ForeignKey",
+            "related_model": "UserVerification"
+          },
+          {
+            "name": "document",
+            "field_type": "ForeignKey",
+            "related_model": "VerificationDocument"
+          },
+          {
+            "name": "actor",
+            "field_type": "ForeignKey",
+            "related_model": "settings.AUTH_USER_MODEL"
+          }
+        ]
+      },
+      {
+        "name": "ConsentRecord",
+        "file": "kyc/models.py",
+        "fk_relations": [
+          {
+            "name": "user",
+            "field_type": "ForeignKey",
+            "related_model": "settings.AUTH_USER_MODEL"
+          }
+        ]
+      }
+    ],
+    "serializers": [
+      {
+        "name": "KycRegistrationFieldsMixin",
+        "file": "kyc/api/serializers.py"
+      },
+      {
+        "name": "VerificationEventSerializer",
+        "file": "kyc/api/serializers.py"
+      },
+      {
+        "name": "VerificationDocumentSerializer",
+        "file": "kyc/api/serializers.py"
+      },
+      {
+        "name": "UserVerificationSerializer",
+        "file": "kyc/api/serializers.py"
+      },
+      {
+        "name": "AdminVerificationListSerializer",
+        "file": "kyc/api/serializers.py"
+      },
+      {
+        "name": "AdminVerificationDetailSerializer",
+        "file": "kyc/api/serializers.py"
+      },
+      {
+        "name": "DocumentUploadSerializer",
+        "file": "kyc/api/serializers.py"
+      },
+      {
+        "name": "RequestUpgradeSerializer",
+        "file": "kyc/api/serializers.py"
+      },
+      {
+        "name": "AdminForceApproveSerializer",
+        "file": "kyc/api/serializers.py"
+      },
+      {
+        "name": "AdminRejectSerializer",
+        "file": "kyc/api/serializers.py"
+      },
+      {
+        "name": "AdminRequestInfoSerializer",
+        "file": "kyc/api/serializers.py"
+      },
+      {
+        "name": "AdminBlockSerializer",
+        "file": "kyc/api/serializers.py"
+      },
+      {
+        "name": "AdminDocReviewSerializer",
+        "file": "kyc/api/serializers.py"
+      },
+      {
+        "name": "Meta",
+        "file": "kyc/api/serializers.py"
+      }
+    ],
+    "viewsets": [
+      {
+        "name": "KycViewSet",
+        "file": "kyc/api/views.py",
+        "bases": [
+          "viewsets.ViewSet"
+        ],
+        "actions": [
+          "get_throttles",
+          "verification",
+          "submit_for_review",
+          "upload_document",
+          "request_upgrade"
+        ]
+      },
+      {
+        "name": "VerificationDocumentViewSet",
+        "file": "kyc/api/views.py",
+        "bases": [
+          "mixins.ListModelMixin",
+          "mixins.DestroyModelMixin",
+          "viewsets.GenericViewSet"
+        ],
+        "actions": [
+          "download"
+        ]
+      },
+      {
+        "name": "AdminKycViewSet",
+        "file": "kyc/api/views.py",
+        "bases": [
+          "viewsets.GenericViewSet"
+        ],
+        "actions": [
+          "list",
+          "retrieve",
+          "metrics",
+          "approve",
+          "force_approve",
+          "reject",
+          "request_info",
+          "block",
+          "review_document"
+        ]
+      }
+    ],
+    "services": [
+      {
+        "name": "KycCommands",
+        "file": "kyc/services/commands.py",
+        "role": "command",
+        "methods": [
+          "bootstrap_approved",
+          "upload_document",
+          "delete_document",
+          "submit_for_review",
+          "approve",
+          "force_approve",
+          "request_upgrade",
+          "_apply_requested_user_type",
+          "reject",
+          "request_more_info",
+          "block",
+          "review_document",
+          "mark_document_opened",
+          "_transition"
+        ]
+      },
+      {
+        "name": "KycSelector",
+        "file": "kyc/services/selectors.py",
+        "role": "selector",
+        "methods": [
+          "get_own_verification",
+          "list_own_documents",
+          "get_own_document",
+          "list_queue",
+          "get_admin_metrics",
+          "get_verification_for_admin",
+          "get_timeline"
+        ]
+      }
+    ],
+    "selectors": [],
+    "management_commands": [],
+    "consumers": [],
+    "tasks": [],
+    "permissions": [],
+    "file_map": {
+      "misc": [
+        "kyc/__init__.py",
+        "kyc/api/__init__.py",
+        "kyc/api/internal_ai.py",
+        "kyc/migrations/__init__.py",
+        "kyc/services/__init__.py",
+        "kyc/services/config.py",
+        "kyc/services/scanner.py",
+        "kyc/services/storage.py"
+      ],
+      "admin": [
+        "kyc/admin.py"
+      ],
+      "serializer": [
+        "kyc/api/serializers.py"
+      ],
+      "url": [
+        "kyc/api/urls.py"
+      ],
+      "viewset": [
+        "kyc/api/views.py"
+      ],
+      "app_config": [
+        "kyc/apps.py"
+      ],
+      "model": [
+        "kyc/models.py"
+      ],
+      "command": [
+        "kyc/services/commands.py"
+      ],
+      "selector": [
+        "kyc/services/selectors.py"
+      ],
+      "test": [
+        "kyc/tests.py"
+      ]
+    },
+    "migrations": 6
+  },
+  "endpoints": [
+    {
+      "endpoint": "api/v1/auth/documents",
+      "app": "kyc",
+      "viewset": "VerificationDocumentViewSet",
+      "actions": [
+        "download"
+      ],
+      "basename": "kyc-document",
+      "http_methods": [
+        "GET"
+      ]
+    },
+    {
+      "endpoint": "api/v1/auth/admin/verifications",
+      "app": "kyc",
+      "viewset": "AdminKycViewSet",
+      "actions": [
+        "list",
+        "retrieve",
+        "metrics",
+        "approve",
+        "force_approve",
+        "reject",
+        "request_info",
+        "block",
+        "review_document"
+      ],
+      "basename": "admin-kyc",
+      "http_methods": [
+        "GET"
+      ]
+    }
+  ],
+  "frontend_consumers": {},
+  "dependencies": {
+    "depends_on": [],
+    "depended_by": []
+  },
+  "blast_radius": {
+    "UserVerification": {
+      "types_affected": [
+        "ViewSet",
+        "Serializer",
+        "Model"
+      ],
+      "total": 6
+    },
+    "VerificationDocument": {
+      "types_affected": [
+        "ViewSet",
+        "Serializer",
+        "Model"
+      ],
+      "total": 4
+    },
+    "VerificationEvent": {
+      "types_affected": [
+        "Serializer"
+      ],
+      "total": 1
+    }
+  },
+  "service_contracts": {
+    "commands": [
+      "KycCommands"
+    ],
+    "selectors": [
+      "KycSelector"
+    ]
+  },
+  "events": {
+    "produces": [
+      "kyc_submitted_for_review",
+      "kyc_approved",
+      "kyc_rejected",
+      "kyc_info_requested",
+      "kyc_blocked"
+    ],
+    "consumes": []
+  },
+  "constraints": [
+    "SSoT identidad CUSTOMER-first: el registro SIEMPRE crea un CUSTOMER instantaneo — KYC ya no es un gate universal de registro",
+    "El upgrade a profesional (request_upgrade) reabre la MISMA UserVerification en vez de crear una nueva",
+    "first_approved_at (no reviewed_at) es la senal correcta de 'aprobado alguna vez' — reviewed_at cambia en cada revision",
+    "force_approve permite aprobacion manual desde /panel/usuarios sin pasar por el flujo de documentos",
+    "REQUIRED_DOC_TYPES_BY_TYPE define los documentos requeridos segun el tipo de perfil solicitado",
+    "kyc.api.urls esta montado en api/v1/auth/ — comparte namespace con accounts, no tiene prefijo propio"
+  ],
+  "known_issues": [],
+  "business_rules": [],
+  "url_patterns": [
+    {
+      "type": "router",
+      "prefix": "documents",
+      "viewset": "VerificationDocumentViewSet",
+      "basename": "kyc-document"
+    },
+    {
+      "type": "router",
+      "prefix": "admin/verifications",
+      "viewset": "AdminKycViewSet",
+      "basename": "admin-kyc"
+    }
+  ],
+  "patterns": {
+    "command_class": "KycCommands",
+    "selector_class": "KycSelector",
+    "service_layer": true,
+    "soft_delete": true
+  },
+  "TODO": [],
+  "BUG": [],
+  "HOT_FIX": [],
+  "decisions": []
+}

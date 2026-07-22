@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(/c/Users/Administrator/Documents/ecommerce_sintel_rest/ecommerce_sintel/venv/Scripts/python.exe -c ':*)"
+    ]
+  }
+}

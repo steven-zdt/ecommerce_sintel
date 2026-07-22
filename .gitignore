@@ -1,0 +1,46 @@
+# =============================================================================
+# .gitignore -- creado durante Fase 4 del roadmap de despliegue
+# (docs/deployment/ROADMAP_CLOUDFLARE_TUNNEL.md) tras un incidente real:
+# se estuvo a punto de copiar credenciales del tunel de Cloudflare dentro
+# del repositorio. Cobertura minima de secretos primero; se puede ampliar
+# en Fase 16 (.env.production).
+# =============================================================================
+
+# ── Secretos / credenciales ─────────────────────────────────────────────────
+.env
+.env.*
+!.env.*.example
+# No es secreto (solo VITE_API_BASE_URL, publico en el bundle JS de todas
+# formas) -- necesario versionarlo para que el build de produccion sea
+# reproducible sin depender de que alguien lo recree a mano (ver Fase 22).
+!frontend/.env.production
+*.pem
+*.key
+*.crt
+*.cert
+cert.pem
+cloudflared/
+certs/
+
+# ── Python / Django ──────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.sqlite3
+staticfiles/
+media/
+.venv/
+*.egg-info/
+
+# ── Node / Vite ───────────────────────────────────────────────────────────────
+node_modules/
+dist/
+
+# ── Logs de runtime (Fase 17) ───────────────────────────────────────────────
+logs/
+
+# ── Editor / OS ────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ── Notas con credenciales en texto plano (hallazgo 2026-07-22) ────────────
+notas.txt

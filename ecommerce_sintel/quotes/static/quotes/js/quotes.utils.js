@@ -1,0 +1,1 @@
+Sintel.Quotes.Utils = {};

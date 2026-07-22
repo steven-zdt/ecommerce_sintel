@@ -1,0 +1,1 @@
+Sintel.Cart.Utils = {};

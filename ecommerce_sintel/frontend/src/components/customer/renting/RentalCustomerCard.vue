@@ -1,0 +1,1 @@
+<template><section class="rental-card"><h3>Responsable</h3><p>Solicitamos estos datos únicamente al confirmar.</p><slot /></section></template><style scoped>.rental-card{background:#fff;border:1px solid #e8e7ee;border-radius:20px;padding:1.4rem}.rental-card h3{font-size:1.05rem;font-weight:750}.rental-card p{color:#64748b}</style>

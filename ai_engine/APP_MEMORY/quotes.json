@@ -1,0 +1,107 @@
+{
+  "app": "quotes",
+  "api_prefix": "api/v1/quotes",
+  "purpose": "Quotation requests for custom orders and services",
+  "architecture": {
+    "models": [
+      "Quotation",
+      "QuotationTimeline",
+      "QuoteProduct",
+      "QuoteProductVariant",
+      "QuotationItem",
+      "QuotationService",
+      "QuotationMaterial",
+      "QuotationRentalItem",
+      "QuotationAttachment",
+      "QuotationItemCostSnapshot",
+      "QuoteTemplateCategory",
+      "QuoteTemplateSubcategory",
+      "QuoteTemplateAttribute",
+      "QuoteTemplate",
+      "QuoteEquipmentType",
+      "QuoteTemplateModule",
+      "QuoteQuestion",
+      "QuoteQuestionOption"
+    ],
+    "viewsets": [
+      "QuotationViewSet",
+      "QuoteTemplateCategoryViewSet",
+      "QuoteTemplateSubcategoryViewSet",
+      "QuoteTemplateViewSet"
+    ],
+    "serializers": [
+      "QuotationItemSerializer",
+      "QuotationMaterialSerializer",
+      "QuotationServiceSerializer",
+      "QuotationRentalItemSerializer",
+      "QuotationAttachmentSerializer",
+      "QuotationTimelineSerializer",
+      "QuotationListSerializer",
+      "QuotationSerializer",
+      "RentalItemInputSerializer",
+      "CustomMaterialInputSerializer",
+      "CustomServiceInputSerializer",
+      "QuotationCreateInputSerializer",
+      "QuotationFromTemplateInputSerializer",
+      "QuotationStatusChangeInputSerializer",
+      "QuotationAddItemInputSerializer",
+      "QuotationAddServiceInputSerializer",
+      "QuotationItemCostSnapshotSerializer",
+      "QuoteTemplateAttributeSerializer",
+      "QuoteTemplateCategorySerializer",
+      "QuoteTemplateSubcategorySerializer",
+      "QuoteQuestionOptionSerializer",
+      "QuoteQuestionSerializer",
+      "QuoteEquipmentTypeSerializer",
+      "QuoteTemplateModuleSerializer",
+      "QuoteTemplateListSerializer",
+      "QuoteTemplateSerializer",
+      "QuoteTemplateCategoryInputSerializer",
+      "QuoteTemplateSubcategoryInputSerializer",
+      "QuoteTemplateInputSerializer",
+      "QuoteTemplateAttributeInputSerializer",
+      "QuoteEquipmentTypeInputSerializer",
+      "QuoteTemplateModuleInputSerializer",
+      "QuoteModuleReorderInputSerializer",
+      "QuoteQuestionInputSerializer",
+      "QuoteQuestionOptionInputSerializer",
+      "QuoteQuestionDuplicateToModuleInputSerializer"
+    ],
+    "url_patterns": [
+      "quotations",
+      "quote-template-categories",
+      "quote-template-subcategories",
+      "quote-templates"
+    ],
+    "management_commands": [],
+    "celery_tasks": [],
+    "consumers": [],
+    "migrations": 26
+  },
+  "key_models": [
+    "Quote",
+    "QuoteItem"
+  ],
+  "services": [
+    "QuoteCommands",
+    "QuoteSelector"
+  ],
+  "constraints": [
+    "quotes.AdditionalCost was eliminated — cost rules are now per-app"
+  ],
+  "events": [
+    "quote_created"
+  ],
+  "patterns": {
+    "command_class": "QuotesCommands",
+    "selector_class": "QuotesSelector",
+    "service_layer": true,
+    "soft_delete": true
+  },
+  "known_issues": [],
+  "TODO": [],
+  "BUG": [],
+  "HOT_FIX": [],
+  "decisions": [],
+  "generated_at": "2026-07-19T14:55:36.345244+00:00"
+}

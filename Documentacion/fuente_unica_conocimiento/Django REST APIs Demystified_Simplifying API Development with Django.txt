@@ -1,0 +1,489 @@
+
+CHAPTER 1
+
+
+Introduction to APIs
+API stands for Application Programming Interface. It is a set of rules and protocols that allows different software applications to communicate with each other without having to know how they are implemented. It defines how different components of software systems can interact and exchange data. It acts as a middleman or agent for transferring data from one application to another.
+   APIs use a common format, JSON, to interact with applications. Front-end applications may be mobile applications developed by React Native or web applications developed by React; they all can get their required data by interacting with server application using an API. For example, mobile application may require data from a database that can be retrieved by using an API from a server. Similarly, a web application also gets the same data from the database using the same API. The figure below shows how different applications can get their required data using APIs:
+
+
+
+
+
+
+
+
+1
+(c) Ganeshkumar Patil 2025
+G. Patil, Django REST APIs Demystified, https://doi.org/10.1007/979-8-8688-1850-9_1
+
+
+APIs can be classified into three types:
+1. Private
+2. Public
+3. Partner
+
+
+Private API
+Private APIs are APIs that are intended for internal use within an organization or a specific application. They are not publicly available or accessible to external developers or users. Private APIs are commonly used to enable communication between
+different components or services within a system or to expose functionality within an organization's infrastructure.
+
+Public API
+Public APIs, also known as Open APIs, are APIs that are made available to external developers and the general public. Public APIs allow third-party developers to integrate their applications, services, or platforms with the API provider's system or data. They typically have documentation, usage guidelines, and developer resources to facilitate integration by external parties.
+   Examples of public APIs include social media APIs (e.g., Twitter API, Facebook Graph API), payment gateway APIs (e.g., PayPal API), and mapping APIs (e.g., Google Maps API).
+
+Partner API
+Partner APIs are APIs that are provided to specific partners or trusted entities for integration purposes. They are accessible only to authorized partners who have a business relationship or agreement with the API provider. They may offer additional features or privileged access compared to public APIs. Partner APIs are commonly used for integrating with trusted third-party services, building value-added services, or enabling collaboration between organizations.
+
+Chapter 1	IntroduCtIon to apIs
+
+   It's important to note that the specific definitions and distinctions between these types of APIs can vary depending on the context and the organization providing the APIs. The access levels and capabilities of an API can be defined and managed by the API provider based on their specific requirements and policies.
+   There are several types of APIs based on their architectural styles and communication protocols. Here are some common types of APIs.
+
+RESTful APIs (Representational State Transfer)
+RESTful APIs are based on the principles of REST, which is an architectural style for designing networked applications. They use standard HTTP methods like GET, POST, PUT, and DELETE to perform operations on resources identified by URLs (Uniform Resource Locators).
+   RESTful APIs typically return data in formats like JSON (JavaScript Object Notation) or XML (Extensible Markup Language). They are widely used for web development due to their simplicity, scalability, and statelessness.
+
+SOAP APIs (Simple Object Access Protocol)
+SOAP is a protocol for exchanging structured information in web services using
+XML. SOAP APIs define an XML-based message format and communication protocol for remote procedure calls (RPC) between systems. They often use the HTTP or HTTPS protocol for transport and provide functionality for defining complex data structures, security, and error handling.
+
+GraphQL APIs
+GraphQL is a query language and runtime for APIs developed by Facebook. They allow clients to request specific data fields and shape the response according to their needs. Clients can send a single request to the GraphQL API endpoint, specifying the desired data structure, and receive a response containing exactly what was requested. GraphQL APIs provide more flexibility to clients by reducing over-fetching or under-fetching
+of data.
+
+
+3
+
+JSON-RPC and XML-RPC APIs
+JSON-RPC (JavaScript Object Notation-RPC) and XML-RPC (Extensible Markup Language-RPC) are remote procedure call (RPC) protocols using JSON and XML formats, respectively. They allow clients to invoke methods on a remote server by sending requests with method names and parameters and receiving responses with results. JSON-RPC and XML-RPC APIs are relatively simple and lightweight compared to other API types.
+
+WebSocket APIs
+WebSocket APIs provide full-duplex communication channels over a single TCP connection. They enable real-time, bidirectional communication between clients and servers, allowing server-initiated updates and eliminating the need for frequent polling. WebSocket APIs are commonly used for applications requiring real-time data updates, such as chat applications or live dashboards.
+
+gRPC APIs
+gRPC stands for Google Remote Procedure Call, and it is an open source framework developed by Google for building high-performance, language-agnostic APIs. It uses Protocol Buffers (protobuf) as the interface definition language and provides features like bidirectional streaming, authentication, and flow control. gRPC APIs are designed for efficient communication between microservices and can be used in a wide range of programming languages.
+   These are some of the most widely used types of APIs. Each type has its own strengths and use cases, and the choice of API type depends on the specific requirements of your application.
+   In this book, we are concentrating on developing REST API using the Django framework.
+
+CHAPTER 2
+
+
+REST API Concepts
+REST is an acronym for Representational State Transfer. REST API is an architectural style for designing networked applications, particularly web services. It defines a set of constraints and principles that enable communication between different systems over the internet. If we design an API using REST architecture, that API is called REST API.
+    Before getting into REST APIs, let us understand some of the terms commonly used in REST Framework.
+
+Web APIs
+Web APIs, also known as HTTP APIs or RESTful APIs, are APIs that are accessed over the web using the HTTP protocol. They allow applications to request and exchange data using standard HTTP methods such as GET, POST, PUT, and DELETE. Web APIs are widely used for building web applications, mobile apps, and integrating different systems.
+
+Endpoint
+It is a specific URL or URI (Uniform Resource Identifier) that corresponds to a specific resource or functionality of the API. Each endpoint typically represents a specific operation or data entity that the API provides access to.
+   The API might have an endpoint like ????????????????????????????????. This endpoint is responsible for retrieving weather forecasts.
+
+
+
+
+
+
+
+5
+(c) Ganeshkumar Patil 2025
+G. Patil, Django REST APIs Demystified, https://doi.org/10.1007/979-8-8688-1850-9_2
+
+HTTP Methods
+HTTP methods, also known as HTTP verbs, are used to indicate the type of operation being performed on a resource through an API.
+The most common HTTP methods used in web APIs are as follows.
+
+
+GET Method
+The primary purpose of an HTTP GET request is to retrieve data from a server. It is used when a client wants to access or fetch a specific resource or information from a server. GET requests commonly include parameters appended to the URL as a query string.
+Parameters are key-value pairs separated by ampersands (&).
+   For example: ????????????????????????????????????????????????????. The server can use these parameters to provide specific data or filter the response.
+    Unlike other HTTP methods like POST or PUT, a GET request does not include a request body. The parameters or data associated with the request are usually sent as part of the URL itself.
+
+POST Method
+The primary purpose of an HTTP POST request is to submit or send data to a server for processing or storage. It is used when a client wants to create a new resource, update an existing resource, or perform other actions that involve sending data to the server.
+    Unlike an HTTP GET request, a POST request includes a request body that carries the data being sent to the server. The data can be in various formats such as JSON, XML, form data, or binary data, depending on the requirements of the server-side application. The data to be sent is encapsulated within the request body. It can contain any necessary parameters, fields, or content that the server expects for the requested action or operation.
+    POST requests are commonly used when submitting sensitive or confidential data, such as user credentials or payment information. It is important to ensure the use of secure connections (HTTPS) and proper authentication and authorization mechanisms to protect the transmitted data.
+
+
+PUT Method
+The primary purpose of an HTTP PUT request is to update or replace an existing resource on the server. It is used when a client wants to modify the state or content of a resource with a new representation provided in the request.
+    Similar to an HTTP POST request, a PUT request includes a request body that carries the data being sent to the server. The data contains the new representation of the resource to be updated or replaced. When making a PUT request, the client typically sends the complete representation of the resource, including any unchanged fields. The server uses this complete representation to update or replace the existing resource.
+
+PATCH Method
+The primary purpose of an HTTP PATCH request is to perform a partial update on an existing resource. It is used when a client wants to modify specific fields or properties of a resource without sending the complete representation of the resource.
+    Similar to an HTTP PUT request, a PATCH request includes a request body that carries the data being sent to the server. The data contains the changes or updates to be applied to the resource. Unlike a PUT request, which typically replaces the entire resource, a PATCH request only modifies the specific fields or properties specified in the request body. Other fields or properties not included in the request body remain unchanged. When making a PATCH request, the client does not need to provide the complete representation of the resource. It can send only the fields or properties that require updating, minimizing the amount of data sent over the network.
+
+DELETE Method
+The primary purpose of an HTTP DELETE request is to request the removal or deletion of a specific resource on the server. It is used when a client wants to delete a resource permanently. An HTTP DELETE request typically does not include a request body. Since the request is focused on resource deletion, no additional data is needed in the request body. The DELETE request is sent to a specific URL that represents the resource to be deleted. The server identifies and deletes the corresponding resource based on the URL provided.
+
+
+Other Methods
+In addition to the commonly used HTTP methods described above, there are other methods defined by the HTTP specification, such as HEAD and OPTIONS. These methods are typically used in more advanced scenarios-for example, HEAD is used to fetch response headers without the response body, and OPTIONS is used to determine what HTTP methods and operations are supported by the server at a specific endpoint.
+    These methods are less commonly used in everyday API development and are therefore not covered in depth in this book. Readers interested in these methods can refer to the HTTP specification or relevant API documentation for further details.
+
+HTTP Request
+An HTTP request is a message sent by a client to a server using the Hypertext Transfer Protocol (HTTP). It is the fundamental means of communication between clients (such as web browsers or applications) and servers on the World Wide Web.
+An HTTP request consists of several components:
+1. HTTP Methods
+2. Request URL: The Uniform Resource Locator (URL) or Uniform Resource Identifier (URI) specifies the location and identifier of the requested resource. It typically consists of a protocol (e.g., "http://" or "https://"), domain name or IP address, and optional path, query parameters, or fragment identifier.
+3. Request Headers: HTTP headers provide additional information about the request or the client to the server. They include details such as the client's User-Agent, Accept-Language, Content-Type, and more. Headers can be used for authentication, content negotiation, caching directives, and other purposes.
+4. Request Body (Optional): In certain HTTP methods like POST, PUT, or PATCH, a request body can be included to send data to the server. The request body contains the payload or content being sent, typically in a specified format such as JSON, XML, or form data.
+
+
+5. Cookies (Optional): HTTP requests can include cookies, which are small pieces of data stored by the client and sent to the server with each request. Cookies are often used for session
+management, user authentication, and tracking user preferences.
+
+
+HTTP Response
+An HTTP response is a message sent by a server to a client in response to an HTTP request. It is the server's way of communicating the outcome of the request and providing the requested data or other relevant information.
+An HTTP response consists of several components:
+1. Response Status Line: The response status line includes the HTTP version, a numeric status code, and a brief textual
+description of the status. The status code indicates the outcome of the request, such as success, redirection, client or server errors, or other conditions.
+2. Response Headers: HTTP response headers provide additional information about the response, server, and requested resource. They include details such as Content-Type, Content-Length, Cache-Control, Set-Cookie, and more. Headers can provide instructions for caching, content negotiation, security, and other purposes.
+3. Response Body: The response body contains the actual content or data requested by the client. The format and content of the response body depend on the server's implementation and the nature of the requested resource. It can be HTML, JSON, XML, binary data, or any other supported format.
+4. Cookies (Optional): HTTP responses can include cookies, which are small pieces of data sent by the server and stored by the client. Cookies can be used for session management, user authentication, and other purposes. The client typically includes these cookies in subsequent requests.
+
+
+
+Permissions (cont.) rules, 245
+scalability, 241
+separation, 241
+types of, 243
+   view-level checks, 245 Postman
+automation, 23
+collaboration, 23
+definition, 23
+dynamic environments, 24
+integrations, 24
+testing, 23
+use of, 24
+Project configuration admin.py, 18
+concepts, 14
+drfproject/settings.py, 15
+environment, 13
+repository, 13
+setup, 14-18
+VSCode, 13
+   watchlist_app/models.py file, 15-17 Protocol Buffers (protobuf), 4
+
+R
+RBAC, see Role-based access control (RBAC)
+ReadOnlyModelViewSet class, 169, 170 Remote procedure calls (RPC), 3 RemoteUserAuthentication class, 233-235 Representational State Transfer (REST), 5
+endpoint, 5
+HTTP methods, 6-8
+   Web APIs, 5 Representational State Transfer
+(RESTful APIs), 3
+
+REST, see Representational State Transfer (REST)
+Role-based access control (RBAC), 240 Routers
+basename argument, 173 complex URL structures, 182 custom actions, 182
+DynamicRoute arguments, 183
+features, 171
+granular control, 182
+HTTP method, 180, 181
+list/detail/extra actions, 186
+nested resources, 182
+optional arguments, 172
+query parameters, 182
+register() method, 172
+regular/extra actions, 177-180
+request data, 186
+routers.py, 184, 185
+routes attribute, 182
+serializers.py, 175
+SimpleRouter/DefaultRouter, 171, 172
+StreamPlatform, 180
+trailing slashes, 176
+URL patterns, 171
+urls.py, 176, 185
+versioning, 182
+views.py, 176
+
+S
+Searching option, see Filtering data Serialization
+BaseSerializer class, 105-112
+context property, 112, 113
+creation, 27
+definition, 25
+delete method, 50, 51
+
+
+
+field classes, 25, 26
+HTTP status codes, 51-75 initial_data, 115, 116
+ListSerializer class, 100-105 ModelSerializer (see ModelSerializer) nested serializer, 31, 32
+object creation, 41-43
+project setup, 26, 27
+relational fields, 32
+differences, 40, 41
+hyperlink, 36-38
+HyperlinkedIdentityField, 38, 39
+primary key, 32-34
+slug field, 40, 41
+StreamPlatform model, 36
+string representation, 35, 36
+single object, 45-47
+source keyword, 113-115 structure and format, 28
+update (PUT/PATCH) requests, 47-50 validation process
+definition, 43
+error responses, 43
+field-level model, 44
+object-level method, 45
+WatchlistSerializer, 32
+SessionAuthentication class, 231, 232 Simple Object Access Protocol (SOAP), 3 Single Sign-On (SSO) system, 217
+SOAP, see Simple Object Access Protocol (SOAP)
+
+T
+Testing
+APIClient class
+vs. APIRequestFactory, 412, 413
+baseTests.py, 409
+
+built-in methods, 408
+credentials(), 409-412
+login(), 408
+request methods, 407
+   session-based authentication, 408 APIRequestFactory (see
+     APIRequestFactory class) BaseViewSetTest class, 419 CoreAPIClient class
+actions, 432
+authentication headers, 433
+comparison, 435, 436
+coreapi package, 432, 433
+CSRF token, 433
+dynamic discovery, 434
+scenarios, 435
+token-based authentication, 433
+factory_boy package, 412-420 mocking external dependencies
+attributes/methods, 422
+context manager, 421
+decorator, 421
+external dependencies, 425
+external functions, 423
+patch object, 421-429
+unittest module, 420
+project setup, 398, 399 RequestsClient class
+CSRF handling, 431
+external clients, 429
+headers/authentication, 430
+scenarios, 431
+setup/assertions, 430
+   tools, 397 Throttling
+allow_request method, 310
+AnonRateThrottle class, 291
+endpoints, 293
+
+
+
+Throttling (cont.)
+features, 291-293
+IP address, 291
+request rate, 292
+scenario, 293
+unauthenticated sources, 291
+attributes, 309
+business logic policies, 290
+cache back end (LocMemCache), 302 concurrency, 311, 312
+custom class, 302
+customization, 307-310
+drfproject/settings.py, 304-306
+fair access, 290
+get_cache_key method, 310
+key components, 309
+malicious activities, 289
+mitigate issues, 289
+network-level controls, 290
+performance, 290
+permissions/authentication, 300
+preventing abuse, 290
+project setup section, 298-300 ScopedRateThrottle, 296
+benefits, 298
+configuration, 297, 298
+fine-grained control, 297
+isolate, 298
+rate configuration, 296
+scopes/keys, 296
+shared policy, 297
+settings.py file, 303
+strategies, 291
+UserRateThrottle, 293
+class-level, 294
+features, 293-295
+global settings, 294
+multiple instances, 294
+
+request limiting, 293
+scenarios, 295
+settings file, 295
+wait() method, 307
+   X-Forwarded-For header, 300, 301 Token-based authentication
+authorization, 216
+credentials, 217
+cross-platform compatibility, 216
+flexibility, 217
+generation, 218
+admin interface, 225
+endpoints, 222-224
+manage.py command, 225-230
+ObtainAuthToken view, 224
+RegistrationView, 221
+signals, 218-222
+header file, 217
+scalability, 216
+security, 216
+SSO system, 217
+stateless, 216
+steps, 218
+third-party integration, 216
+user control, 217
+web and mobile applications, 216
+
+U
+Uniform Resource Identifier (URI), 5, 8
+Uniform Resource Locators (URLs), 3, 8
+filtering data, 317-319
+ModelSerializer, 88
+routers, 171
+routing system, 20
+URI (see Uniform Resource Identifier (URI))
+versioning scheme
+
+
+
+access version, 377
+concepts, 378
+endpoints, 380
+regular expressions, 377
+request.version, 379
+source code, 378
+URLPathVersioning, 384, 385
+viewsets, 20
+URI, see Uniform Resource Identifier (URI)
+URLs, see Uniform Resource Locators (URLs)
+
+V
+Validation
+advantageous, 191
+business rules, 187
+class-based validators, 199
+code smells/anti-patterns, 188
+compliance, 188
+components, 187
+consistency, 188
+data integrity, 187
+debugging, 188
+Django models, 190
+documentation, 188
+error prevention, 187
+function-based validators, 198
+functions/classes, 191
+middleware level, 191
+performance optimization, 188
+security, 187
+serializers, 189
+serializers.py, 199-201
+source code, 196-199 unique
+date/month/year, 194, 195
+
+optional messages, 192, 193
+together constraints, 193, 194
+urls.py, 201
+user experience, 188
+view-level model, 190
+views.py, 201
+watchlist model, 201
+   writing options, 195 Versioning
+accept header, 388-390
+configuration, 373
+global scheme, 373
+per-view/per-viewset, 374
+URLPathVersioning, 374, 375
+custom mechanism, 392-396
+determine_version() method, 394
+features, 371
+hostname/subdomain, 391
+hyperlinked serializers, 372
+key concepts, 371
+namespace, 380-385
+project setup section, 375-377 query parameter, 385-387
+request.version, 371
+reverse function, 372
+reverse() method, 392
+URL path, 377-380
+View-level caching, 277-280
+@cache_page decorator, 278
+cache timeout, 277
+class-based views, 278, 279
+entire response, 277
+function-based views, 279, 280
+   query parameters, 277 Views
+class-based views, 28, 29 function-based views (FBVs), 29 generic views (see Generic views)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

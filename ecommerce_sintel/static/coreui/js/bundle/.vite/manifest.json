@@ -1,0 +1,234 @@
+{
+  "_SintelOffcanvas-BlAqIMAh.js": {
+    "file": "assets/SintelOffcanvas-BlAqIMAh.js",
+    "name": "SintelOffcanvas",
+    "imports": [
+      "_axios-CSyKQ5fh.js",
+      "_runtime-core.esm-bundler-C35tXABV.js"
+    ],
+    "css": [
+      "assets/SintelOffcanvas-CIDFxyQf.css"
+    ]
+  },
+  "_SintelOffcanvas-CIDFxyQf.css": {
+    "file": "assets/SintelOffcanvas-CIDFxyQf.css",
+    "src": "_SintelOffcanvas-CIDFxyQf.css"
+  },
+  "_axios-CSyKQ5fh.js": {
+    "file": "assets/axios-CSyKQ5fh.js",
+    "name": "axios"
+  },
+  "_pinia-BA1grDdD.js": {
+    "file": "assets/pinia-BA1grDdD.js",
+    "name": "pinia",
+    "imports": [
+      "_runtime-core.esm-bundler-C35tXABV.js"
+    ]
+  },
+  "_runtime-core.esm-bundler-C35tXABV.js": {
+    "file": "assets/runtime-core.esm-bundler-C35tXABV.js",
+    "name": "runtime-core.esm-bundler"
+  },
+  "_runtime-dom.esm-bundler-zmLvBD8f.js": {
+    "file": "assets/runtime-dom.esm-bundler-zmLvBD8f.js",
+    "name": "runtime-dom.esm-bundler",
+    "imports": [
+      "_runtime-core.esm-bundler-C35tXABV.js"
+    ]
+  },
+  "_useApi-DxTOgHM2.js": {
+    "file": "assets/useApi-DxTOgHM2.js",
+    "name": "useApi",
+    "imports": [
+      "_axios-CSyKQ5fh.js"
+    ]
+  },
+  "_useToast-j8CT4x67.js": {
+    "file": "assets/useToast-j8CT4x67.js",
+    "name": "useToast",
+    "imports": [
+      "_runtime-core.esm-bundler-C35tXABV.js"
+    ]
+  },
+  "src/apps/admin/main.js": {
+    "file": "assets/admin-Cm_48x6f.js",
+    "name": "admin",
+    "src": "src/apps/admin/main.js",
+    "isEntry": true,
+    "imports": [
+      "_axios-CSyKQ5fh.js",
+      "_runtime-core.esm-bundler-C35tXABV.js",
+      "_runtime-dom.esm-bundler-zmLvBD8f.js",
+      "_pinia-BA1grDdD.js"
+    ],
+    "dynamicImports": [
+      "src/views/auth/LoginView.vue",
+      "src/components/layout/AppShell.vue",
+      "src/views/admin/DashboardView.vue",
+      "src/views/admin/ProfileView.vue",
+      "src/modules/shop/ProductList.vue",
+      "src/modules/shop/CategoryList.vue",
+      "src/modules/inventory/InventoryList.vue",
+      "src/modules/orders/OrderList.vue",
+      "src/modules/users/UserList.vue"
+    ],
+    "css": [
+      "assets/admin-Di9Xi6fV.css"
+    ]
+  },
+  "src/apps/customer/main.js": {
+    "file": "assets/customer-Dcrk-dmx.js",
+    "name": "customer",
+    "src": "src/apps/customer/main.js",
+    "isEntry": true,
+    "imports": [
+      "_runtime-dom.esm-bundler-zmLvBD8f.js",
+      "_pinia-BA1grDdD.js"
+    ]
+  },
+  "src/components/layout/AppShell.vue": {
+    "file": "assets/AppShell-BylfBpfm.js",
+    "name": "AppShell",
+    "src": "src/components/layout/AppShell.vue",
+    "isDynamicEntry": true,
+    "imports": [
+      "_axios-CSyKQ5fh.js",
+      "src/apps/admin/main.js",
+      "_runtime-core.esm-bundler-C35tXABV.js",
+      "_runtime-dom.esm-bundler-zmLvBD8f.js",
+      "_useToast-j8CT4x67.js"
+    ],
+    "css": [
+      "assets/AppShell-BipMGmlm.css"
+    ]
+  },
+  "src/modules/inventory/InventoryList.vue": {
+    "file": "assets/InventoryList-BJtla9u0.js",
+    "name": "InventoryList",
+    "src": "src/modules/inventory/InventoryList.vue",
+    "isDynamicEntry": true,
+    "imports": [
+      "_axios-CSyKQ5fh.js",
+      "_runtime-core.esm-bundler-C35tXABV.js",
+      "_runtime-dom.esm-bundler-zmLvBD8f.js",
+      "_SintelOffcanvas-BlAqIMAh.js",
+      "_useApi-DxTOgHM2.js",
+      "_useToast-j8CT4x67.js"
+    ],
+    "css": [
+      "assets/InventoryList-CSimXLYc.css"
+    ]
+  },
+  "src/modules/orders/OrderList.vue": {
+    "file": "assets/OrderList-DeRPnenw.js",
+    "name": "OrderList",
+    "src": "src/modules/orders/OrderList.vue",
+    "isDynamicEntry": true,
+    "imports": [
+      "_axios-CSyKQ5fh.js",
+      "_runtime-core.esm-bundler-C35tXABV.js",
+      "_SintelOffcanvas-BlAqIMAh.js",
+      "_useApi-DxTOgHM2.js"
+    ],
+    "css": [
+      "assets/OrderList-BQ2uKoRq.css"
+    ]
+  },
+  "src/modules/shop/CategoryList.vue": {
+    "file": "assets/CategoryList-BcfxYqLk.js",
+    "name": "CategoryList",
+    "src": "src/modules/shop/CategoryList.vue",
+    "isDynamicEntry": true,
+    "imports": [
+      "_axios-CSyKQ5fh.js",
+      "_runtime-core.esm-bundler-C35tXABV.js",
+      "_runtime-dom.esm-bundler-zmLvBD8f.js",
+      "_SintelOffcanvas-BlAqIMAh.js",
+      "_useApi-DxTOgHM2.js",
+      "_useToast-j8CT4x67.js"
+    ],
+    "css": [
+      "assets/CategoryList-B9MyU95l.css"
+    ]
+  },
+  "src/modules/shop/ProductList.vue": {
+    "file": "assets/ProductList-DgDK1iE0.js",
+    "name": "ProductList",
+    "src": "src/modules/shop/ProductList.vue",
+    "isDynamicEntry": true,
+    "imports": [
+      "_axios-CSyKQ5fh.js",
+      "_runtime-core.esm-bundler-C35tXABV.js",
+      "_runtime-dom.esm-bundler-zmLvBD8f.js",
+      "_SintelOffcanvas-BlAqIMAh.js",
+      "_useApi-DxTOgHM2.js",
+      "_useToast-j8CT4x67.js"
+    ],
+    "css": [
+      "assets/ProductList-BdF8yKCo.css"
+    ]
+  },
+  "src/modules/users/UserList.vue": {
+    "file": "assets/UserList-WWgeE7RN.js",
+    "name": "UserList",
+    "src": "src/modules/users/UserList.vue",
+    "isDynamicEntry": true,
+    "imports": [
+      "_axios-CSyKQ5fh.js",
+      "_runtime-core.esm-bundler-C35tXABV.js",
+      "_runtime-dom.esm-bundler-zmLvBD8f.js",
+      "_SintelOffcanvas-BlAqIMAh.js",
+      "_useApi-DxTOgHM2.js",
+      "_useToast-j8CT4x67.js"
+    ],
+    "css": [
+      "assets/UserList-C9sg-9oG.css"
+    ]
+  },
+  "src/views/admin/DashboardView.vue": {
+    "file": "assets/DashboardView-CS-2ITHm.js",
+    "name": "DashboardView",
+    "src": "src/views/admin/DashboardView.vue",
+    "isDynamicEntry": true,
+    "imports": [
+      "_axios-CSyKQ5fh.js",
+      "_runtime-core.esm-bundler-C35tXABV.js",
+      "_useApi-DxTOgHM2.js",
+      "_useToast-j8CT4x67.js"
+    ],
+    "css": [
+      "assets/DashboardView-CNYOI6Q9.css"
+    ]
+  },
+  "src/views/admin/ProfileView.vue": {
+    "file": "assets/ProfileView-D3lUd04p.js",
+    "name": "ProfileView",
+    "src": "src/views/admin/ProfileView.vue",
+    "isDynamicEntry": true,
+    "imports": [
+      "_axios-CSyKQ5fh.js",
+      "src/apps/admin/main.js",
+      "_runtime-core.esm-bundler-C35tXABV.js",
+      "_runtime-dom.esm-bundler-zmLvBD8f.js",
+      "_useApi-DxTOgHM2.js"
+    ],
+    "css": [
+      "assets/ProfileView-QCTgToXG.css"
+    ]
+  },
+  "src/views/auth/LoginView.vue": {
+    "file": "assets/LoginView-DKOGGUft.js",
+    "name": "LoginView",
+    "src": "src/views/auth/LoginView.vue",
+    "isDynamicEntry": true,
+    "imports": [
+      "_axios-CSyKQ5fh.js",
+      "src/apps/admin/main.js",
+      "_runtime-core.esm-bundler-C35tXABV.js",
+      "_runtime-dom.esm-bundler-zmLvBD8f.js"
+    ],
+    "css": [
+      "assets/LoginView-CRHYNlaB.css"
+    ]
+  }
+}

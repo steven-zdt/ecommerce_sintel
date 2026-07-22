@@ -1,0 +1,72 @@
+# =============================================================================
+# .dockerignore -- en la RAIZ del repo a proposito.
+# El build context de docker-compose.yml y docker-compose.prod.yml es ".."
+# (la raiz del repo, ver "context: .." + "dockerfile: ecommerce_sintel/Dockerfile"),
+# no ecommerce_sintel/ -- Docker solo lee .dockerignore desde la raiz del
+# contexto. Habia un .dockerignore en ecommerce_sintel/.dockerignore que
+# nunca se aplicaba por estar en el lugar equivocado (hallazgo real, Fase 22
+# del roadmap de despliegue). Este es el que realmente toma efecto.
+# =============================================================================
+
+# ── Entornos virtuales y dependencias ────────────────────────────────────────
+# NOTA (hallazgo real, auditoria 2026-07-21): el context de build es ".."
+# (esta raiz) pero el codigo real vive en ecommerce_sintel/ -- un patron sin
+# "**/" ancla SOLO a la raiz del contexto, no a cualquier profundidad como en
+# .gitignore. Sin "**/" estos patrones nunca excluian nada dentro de
+# ecommerce_sintel/ (incluidos .env/.env.production con secretos reales,
+# horneados en la imagen de produccion sin que nadie lo notara). Todo patron
+# que deba aplicar a cualquier profundidad necesita el prefijo "**/".
+**/.venv/
+**/venv/
+**/__pycache__/
+*.pyc
+*.pyo
+**/*.egg-info/
+**/node_modules/
+**/dist/
+**/build/
+
+# ── Control de versiones ──────────────────────────────────────────────────────
+.git/
+.gitignore
+.gitattributes
+
+# ── Entorno y secretos ───────────────────────────────────────────────────────
+**/.env
+**/.env.*
+!**/.env.*.example
+# ecommerce_sintel/frontend/.env.production NO es secreto (solo
+# VITE_API_BASE_URL, termina visible en el bundle JS de todas formas) -- el
+# build de Vite lo necesita dentro de la imagen para hornear la URL correcta
+# de la API (bug real encontrado en Fase 22: sin esto, el JS deployado
+# apuntaba a localhost).
+!ecommerce_sintel/frontend/.env.production
+**/*.pem
+**/*.key
+**/*.crt
+
+# ── IDE y editores ───────────────────────────────────────────────────────────
+.vscode/
+.idea/
+**/*.swp
+**/*.swo
+
+# ── Archivos estáticos/media (se generan en tiempo de ejecución) ─────────────
+**/staticfiles/
+**/media/
+**/logs/
+**/*.sqlite3
+
+# ── Documentación (no hace falta dentro de la imagen) ────────────────────────
+Documentacion/
+docs/
+**/*.md
+
+# ── Otros proyectos/carpetas del monorepo no usadas por esta imagen ─────────
+ai_engine/
+ai_skills/
+.claude/
+.antigravity/
+.copilot/
+.github/
+scripts/

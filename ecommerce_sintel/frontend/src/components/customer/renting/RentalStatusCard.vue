@@ -1,0 +1,5 @@
+<template><article class="status-card"><div class="thumb"><img v-if="image" :src="image" :alt="title"><i v-else class="bi bi-truck"></i></div><div class="flex-grow-1"><span class="badge rounded-pill text-bg-light">{{ statusLabel }}</span><h3>{{ title }}</h3><p>{{ dates }}</p><strong>{{ paymentLabel }}</strong></div><RouterLink :to="to" class="btn btn-outline-primary align-self-center">Ver alquiler</RouterLink></article></template>
+<script setup>
+defineProps({title:String,image:String,statusLabel:String,dates:String,paymentLabel:String,to:{type:[String,Object],default:'/mi-cuenta/alquileres'}});
+</script>
+<style scoped>.status-card{display:flex;gap:1rem;background:#fff;border:1px solid #e7e5ef;border-radius:20px;padding:1rem;box-shadow:0 10px 30px rgba(30,20,60,.05)}.thumb{width:120px;height:100px;border-radius:14px;background:#f5f3ff;display:grid;place-items:center;overflow:hidden;font-size:2rem;color:#7c3aed}.thumb img{width:100%;height:100%;object-fit:contain}h3{font-size:1.05rem;margin:.5rem 0 .2rem}p{color:#64748b;margin:0 0 .3rem}@media(max-width:600px){.status-card{flex-wrap:wrap}.thumb{width:88px;height:78px}}</style>

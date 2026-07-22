@@ -1,0 +1,447 @@
+{
+  "app": "marketing",
+  "generated_at": "2026-07-19T14:55:36.607515+00:00",
+  "api_prefix": "api/v1/marketing",
+  "purpose": "Campaigns, flash offers, promotional pricing",
+  "architecture": {
+    "models": [
+      {
+        "name": "FlashOffer",
+        "file": "marketing/models.py",
+        "fk_relations": [
+          {
+            "name": "variant",
+            "field_type": "ForeignKey",
+            "related_model": "ProductVariant"
+          },
+          {
+            "name": "service_variant",
+            "field_type": "ForeignKey",
+            "related_model": "ServiceVariant"
+          },
+          {
+            "name": "equipment_variant",
+            "field_type": "ForeignKey",
+            "related_model": "EquipmentVariant"
+          }
+        ]
+      },
+      {
+        "name": "PersonalOffer",
+        "file": "marketing/models.py",
+        "fk_relations": [
+          {
+            "name": "user",
+            "field_type": "ForeignKey",
+            "related_model": "settings.AUTH_USER_MODEL"
+          },
+          {
+            "name": "variant",
+            "field_type": "ForeignKey",
+            "related_model": "ProductVariant"
+          },
+          {
+            "name": "service_variant",
+            "field_type": "ForeignKey",
+            "related_model": "ServiceVariant"
+          },
+          {
+            "name": "equipment_variant",
+            "field_type": "ForeignKey",
+            "related_model": "EquipmentVariant"
+          }
+        ]
+      },
+      {
+        "name": "MarketingCampaign",
+        "file": "marketing/models.py",
+        "fk_relations": []
+      },
+      {
+        "name": "SalesAnalysis",
+        "file": "marketing/models.py",
+        "fk_relations": [
+          {
+            "name": "top_product",
+            "field_type": "ForeignKey",
+            "related_model": "ProductVariant"
+          },
+          {
+            "name": "top_service",
+            "field_type": "ForeignKey",
+            "related_model": "ServiceVariant"
+          },
+          {
+            "name": "top_equipment",
+            "field_type": "ForeignKey",
+            "related_model": "EquipmentVariant"
+          }
+        ]
+      },
+      {
+        "name": "CampaignLog",
+        "file": "marketing/models.py",
+        "fk_relations": [
+          {
+            "name": "campaign",
+            "field_type": "ForeignKey",
+            "related_model": "MarketingCampaign"
+          }
+        ]
+      },
+      {
+        "name": "AgentRun",
+        "file": "marketing/models.py",
+        "fk_relations": [
+          {
+            "name": "campaign",
+            "field_type": "ForeignKey",
+            "related_model": "MarketingCampaign"
+          }
+        ]
+      }
+    ],
+    "serializers": [
+      {
+        "name": "CampaignLogSerializer",
+        "file": "marketing/api/serializers.py"
+      },
+      {
+        "name": "MarketingCampaignSerializer",
+        "file": "marketing/api/serializers.py"
+      },
+      {
+        "name": "FlashOfferSerializer",
+        "file": "marketing/api/serializers.py"
+      },
+      {
+        "name": "AgentRunSerializer",
+        "file": "marketing/api/serializers.py"
+      },
+      {
+        "name": "ConsolidatedDashboardSerializer",
+        "file": "marketing/api/serializers.py"
+      }
+    ],
+    "viewsets": [
+      {
+        "name": "MarketingCampaignViewSet",
+        "file": "marketing/api/views.py",
+        "bases": [
+          "viewsets.ModelViewSet"
+        ],
+        "actions": []
+      },
+      {
+        "name": "FlashOfferViewSet",
+        "file": "marketing/api/views.py",
+        "bases": [
+          "viewsets.ReadOnlyModelViewSet"
+        ],
+        "actions": []
+      },
+      {
+        "name": "AgentRunViewSet",
+        "file": "marketing/api/views.py",
+        "bases": [
+          "viewsets.ReadOnlyModelViewSet"
+        ],
+        "actions": []
+      },
+      {
+        "name": "DashboardViewSet",
+        "file": "marketing/api/views.py",
+        "bases": [
+          "viewsets.ViewSet"
+        ],
+        "actions": [
+          "list"
+        ]
+      }
+    ],
+    "services": [
+      {
+        "name": "MarketingCommands",
+        "file": "marketing/services/commands.py",
+        "role": "command",
+        "methods": [
+          "dispatch",
+          "send_now"
+        ]
+      },
+      {
+        "name": "MarketingSelector",
+        "file": "marketing/services/selectors.py",
+        "role": "selector",
+        "methods": [
+          "list_campaigns_for_admin",
+          "get_campaign_by_uuid",
+          "list_flash_offers",
+          "list_active_flash_offers",
+          "list_agent_runs",
+          "get_consolidated_dashboard",
+          "get_stale_stock_alerts",
+          "get_user_marketing_profile",
+          "get_campaign_targets_for_stale_products"
+        ]
+      }
+    ],
+    "selectors": [],
+    "management_commands": [],
+    "consumers": [],
+    "tasks": [],
+    "permissions": [],
+    "file_map": {
+      "misc": [
+        "marketing/__init__.py",
+        "marketing/agent/__init__.py",
+        "marketing/agent/brain.py",
+        "marketing/agent/llm_router.py",
+        "marketing/agent/prompts.py",
+        "marketing/api/internal_ai.py",
+        "marketing/channels/__init__.py",
+        "marketing/channels/base.py",
+        "marketing/channels/email_channel.py",
+        "marketing/channels/facebook_channel.py",
+        "marketing/channels/google_business_channel.py",
+        "marketing/channels/instagram_channel.py",
+        "marketing/channels/registry.py",
+        "marketing/channels/tiktok_channel.py",
+        "marketing/channels/whatsapp_channel.py",
+        "marketing/channels/x_channel.py",
+        "marketing/channels/youtube_channel.py",
+        "marketing/migrations/__init__.py",
+        "marketing/services/__init__.py"
+      ],
+      "serializer": [
+        "marketing/api/serializers.py"
+      ],
+      "url": [
+        "marketing/api/urls.py",
+        "marketing/urls.py"
+      ],
+      "viewset": [
+        "marketing/api/views.py"
+      ],
+      "app_config": [
+        "marketing/apps.py"
+      ],
+      "model": [
+        "marketing/models.py"
+      ],
+      "command": [
+        "marketing/services/commands.py"
+      ],
+      "selector": [
+        "marketing/services/selectors.py"
+      ],
+      "task": [
+        "marketing/tasks.py"
+      ],
+      "test": [
+        "marketing/tests.py"
+      ]
+    },
+    "migrations": 5
+  },
+  "endpoints": [
+    {
+      "endpoint": "api/v1/marketing/campaigns",
+      "app": "marketing",
+      "viewset": "MarketingCampaignViewSet",
+      "actions": [],
+      "basename": "marketing-campaign",
+      "http_methods": [
+        "GET",
+        "POST",
+        "PUT",
+        "PATCH",
+        "DELETE"
+      ]
+    },
+    {
+      "endpoint": "api/v1/marketing/offers",
+      "app": "marketing",
+      "viewset": "FlashOfferViewSet",
+      "actions": [],
+      "basename": "flash-offer",
+      "http_methods": [
+        "GET",
+        "POST",
+        "PUT",
+        "PATCH",
+        "DELETE"
+      ]
+    },
+    {
+      "endpoint": "api/v1/marketing/agent-runs",
+      "app": "marketing",
+      "viewset": "AgentRunViewSet",
+      "actions": [],
+      "basename": "agent-run",
+      "http_methods": [
+        "GET",
+        "POST",
+        "PUT",
+        "PATCH",
+        "DELETE"
+      ]
+    },
+    {
+      "endpoint": "api/v1/marketing/dashboard",
+      "app": "marketing",
+      "viewset": "DashboardViewSet",
+      "actions": [
+        "list"
+      ],
+      "basename": "marketing-dashboard",
+      "http_methods": [
+        "GET"
+      ]
+    }
+  ],
+  "frontend_consumers": {
+    "api/v1/marketing/campaigns": [
+      {
+        "type": "FrontendComponent",
+        "name": "CampaignForm",
+        "file": "modules/marketing/CampaignForm.vue"
+      },
+      {
+        "type": "FrontendComponent",
+        "name": "MarketingView",
+        "file": "modules/marketing/MarketingView.vue"
+      },
+      {
+        "type": "Composable",
+        "name": "useFormValidation",
+        "file": "composables/useFormValidation.js"
+      }
+    ],
+    "api/v1/marketing/offers": [
+      {
+        "type": "FrontendComponent",
+        "name": "MarketingView",
+        "file": "modules/marketing/MarketingView.vue"
+      }
+    ],
+    "api/v1/marketing/agent-runs": [
+      {
+        "type": "FrontendComponent",
+        "name": "MarketingView",
+        "file": "modules/marketing/MarketingView.vue"
+      }
+    ],
+    "api/v1/marketing/dashboard": [
+      {
+        "type": "FrontendView",
+        "name": "DashboardView",
+        "file": "views/admin/DashboardView.vue"
+      },
+      {
+        "type": "FrontendComponent",
+        "name": "ShopOperationBoard",
+        "file": "modules/orders/ShopOperationBoard.vue"
+      },
+      {
+        "type": "FrontendComponent",
+        "name": "RentalOperationBoard",
+        "file": "modules/renting/RentalOperationBoard.vue"
+      },
+      {
+        "type": "FrontendComponent",
+        "name": "ServiceOperationBoard",
+        "file": "modules/technical_services/ServiceOperationBoard.vue"
+      }
+    ]
+  },
+  "dependencies": {
+    "depends_on": [
+      "renting",
+      "shop",
+      "technical_services"
+    ],
+    "depended_by": []
+  },
+  "blast_radius": {
+    "FlashOffer": {
+      "types_affected": [
+        "ViewSet",
+        "Serializer"
+      ],
+      "total": 2
+    },
+    "MarketingCampaign": {
+      "types_affected": [
+        "Serializer",
+        "ViewSet",
+        "Model"
+      ],
+      "total": 7
+    },
+    "CampaignLog": {
+      "types_affected": [
+        "Serializer"
+      ],
+      "total": 1
+    },
+    "AgentRun": {
+      "types_affected": [
+        "ViewSet",
+        "Serializer"
+      ],
+      "total": 2
+    }
+  },
+  "service_contracts": {
+    "commands": [
+      "MarketingCommands"
+    ],
+    "selectors": [
+      "MarketingSelector"
+    ]
+  },
+  "events": {
+    "produces": [],
+    "consumes": []
+  },
+  "constraints": [],
+  "known_issues": [],
+  "business_rules": [],
+  "url_patterns": [
+    {
+      "type": "router",
+      "prefix": "campaigns",
+      "viewset": "MarketingCampaignViewSet",
+      "basename": "marketing-campaign"
+    },
+    {
+      "type": "router",
+      "prefix": "offers",
+      "viewset": "FlashOfferViewSet",
+      "basename": "flash-offer"
+    },
+    {
+      "type": "router",
+      "prefix": "agent-runs",
+      "viewset": "AgentRunViewSet",
+      "basename": "agent-run"
+    },
+    {
+      "type": "router",
+      "prefix": "dashboard",
+      "viewset": "DashboardViewSet",
+      "basename": "marketing-dashboard"
+    }
+  ],
+  "patterns": {
+    "command_class": "MarketingCommands",
+    "selector_class": "MarketingSelector",
+    "service_layer": true,
+    "soft_delete": true
+  },
+  "TODO": [],
+  "BUG": [],
+  "HOT_FIX": [],
+  "decisions": []
+}

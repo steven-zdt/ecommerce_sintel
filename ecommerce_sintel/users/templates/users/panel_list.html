@@ -1,0 +1,141 @@
+{% extends "base_panel.html" %}
+{% load static %}
+
+{% block title %}Usuarios | Sintel UI{% endblock %}
+
+{% block breadcrumb %}
+<li class="breadcrumb-item active" aria-current="page">Usuarios</li>
+{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h2 class="fw-bold mb-1">Usuarios y Perfiles</h2>
+        <p class="text-muted">Gestión de staff, clientes y proveedores.</p>
+    </div>
+    <button class="btn btn-primary" onclick="Sintel.Users.UI.openCreate()">
+        <i class="bi bi-person-plus me-1"></i> Nuevo Usuario
+    </button>
+</div>
+
+<div class="card border-0 shadow-sm">
+    <div class="card-body p-0">
+        <div id="table-users"></div>
+    </div>
+</div>
+
+<!-- Offcanvas Detail Container -->
+<div id="offcanvas-container"></div>
+
+<!-- ── MODAL: CREAR USUARIO ──────────────────────────────────── -->
+<div class="modal fade" id="modal-user-create" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header border-0">
+                <h5 class="modal-title fw-bold"><i class="bi bi-person-plus me-2"></i>Nuevo Usuario</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="form-create-user" novalidate>
+                    <div class="row g-3">
+                        <div class="col-6">
+                            <label class="form-label small fw-bold">Nombre</label>
+                            <input type="text" name="first_name" class="form-control" placeholder="Juan" required>
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label small fw-bold">Apellido</label>
+                            <input type="text" name="last_name" class="form-control" placeholder="García" required>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label small fw-bold">Correo electrónico</label>
+                            <input type="email" name="email" class="form-control" placeholder="user@sintel.co" required>
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label small fw-bold">Teléfono</label>
+                            <input type="text" name="phone_number" class="form-control" placeholder="+573001234567">
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label small fw-bold">Rol</label>
+                            <select name="role" class="form-select">
+                                <option value="2">Customer</option>
+                                <option value="3">Vendor</option>
+                                <option value="1">Admin</option>
+                            </select>
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label small fw-bold">Contraseña</label>
+                            <input type="password" name="password" class="form-control" placeholder="••••••••" required>
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label small fw-bold">Confirmar contraseña</label>
+                            <input type="password" name="password_confirm" class="form-control" placeholder="••••••••" required>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer border-0">
+                <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-primary" onclick="Sintel.Users.UI.saveCreate()">
+                    <i class="bi bi-check me-1"></i>Crear Usuario
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ── MODAL: EDITAR USUARIO ──────────────────────────────────── -->
+<div class="modal fade" id="modal-user-edit" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header border-0">
+                <h5 class="modal-title fw-bold"><i class="bi bi-pencil-square me-2"></i>Editar Usuario</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="edit-user-id">
+                <div class="row g-3">
+                    <div class="col-6">
+                        <label class="form-label small fw-bold">Nombre</label>
+                        <input type="text" id="edit-first-name" class="form-control" placeholder="Juan">
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label small fw-bold">Apellido</label>
+                        <input type="text" id="edit-last-name" class="form-control" placeholder="García">
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label small fw-bold">Rol</label>
+                        <select id="edit-role" class="form-select">
+                            <option value="2">Customer</option>
+                            <option value="3">Vendor</option>
+                            <option value="1">Admin</option>
+                        </select>
+                    </div>
+                    <div class="col-6 d-flex align-items-center pt-4">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="edit-is-active">
+                            <label class="form-check-label fw-bold" for="edit-is-active">Activo</label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer border-0">
+                <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-primary" onclick="Sintel.Users.UI.saveEdit()">
+                    <i class="bi bi-check me-1"></i>Guardar Cambios
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block styles %}
+<link rel="stylesheet" href="{% static 'users/css/users.css' %}">
+{% endblock %}
+
+{% block scripts %}
+<script src="{% static 'users/js/users.utils.js' %}"></script>
+<script src="{% static 'users/js/users.api.js' %}"></script>
+<script src="{% static 'users/js/users.table.js' %}"></script>
+<script src="{% static 'users/js/users.ui.js' %}"></script>
+{% endblock %}

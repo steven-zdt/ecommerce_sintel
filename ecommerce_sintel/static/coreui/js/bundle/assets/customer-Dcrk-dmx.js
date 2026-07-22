@@ -1,0 +1,1 @@
+import{n as e}from"./runtime-dom.esm-bundler-zmLvBD8f.js";import{t}from"./pinia-BA1grDdD.js";var n=e({template:`<router-view />`});n.use(t());var r=document.getElementById(`customer-spa-root`);r&&n.mount(r);

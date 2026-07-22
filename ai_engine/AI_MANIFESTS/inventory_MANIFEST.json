@@ -1,0 +1,264 @@
+{
+  "app": "inventory",
+  "generated_at": "2026-07-19T14:55:36.548637+00:00",
+  "api_prefix": "api/v1/inventory",
+  "purpose": "Stock management: entries, exits, kardex, select_for_update on stock writes",
+  "architecture": {
+    "models": [
+      {
+        "name": "StockRecord",
+        "file": "inventory/models.py",
+        "fk_relations": [
+          {
+            "name": "content_type",
+            "field_type": "ForeignKey",
+            "related_model": "ContentType"
+          }
+        ]
+      },
+      {
+        "name": "InventoryTransaction",
+        "file": "inventory/models.py",
+        "fk_relations": [
+          {
+            "name": "stock_record",
+            "field_type": "ForeignKey",
+            "related_model": "StockRecord"
+          }
+        ]
+      }
+    ],
+    "serializers": [
+      {
+        "name": "StockRecordListSerializer",
+        "file": "inventory/api/serializers.py"
+      },
+      {
+        "name": "StockRecordSerializer",
+        "file": "inventory/api/serializers.py"
+      },
+      {
+        "name": "InventoryTransactionSerializer",
+        "file": "inventory/api/serializers.py"
+      },
+      {
+        "name": "StockAdjustmentInputSerializer",
+        "file": "inventory/api/serializers.py"
+      },
+      {
+        "name": "StockRecordCreateSerializer",
+        "file": "inventory/api/serializers.py"
+      }
+    ],
+    "viewsets": [
+      {
+        "name": "StockRecordViewSet",
+        "file": "inventory/api/views.py",
+        "bases": [
+          "mixins.CreateModelMixin",
+          "mixins.RetrieveModelMixin",
+          "mixins.ListModelMixin",
+          "viewsets.GenericViewSet"
+        ],
+        "actions": [
+          "handle_exception",
+          "create",
+          "movements",
+          "adjust_stock"
+        ]
+      },
+      {
+        "name": "InventoryTransactionViewSet",
+        "file": "inventory/api/views.py",
+        "bases": [
+          "viewsets.ReadOnlyModelViewSet"
+        ],
+        "actions": []
+      }
+    ],
+    "services": [
+      {
+        "name": "InventoryCommands",
+        "file": "inventory/services/commands.py",
+        "role": "command",
+        "methods": [
+          "register_entry",
+          "create_stock_record",
+          "register_exit"
+        ]
+      },
+      {
+        "name": "StockRecordSelector",
+        "file": "inventory/services/selectors.py",
+        "role": "selector",
+        "methods": [
+          "list_all_active",
+          "list_all_for_admin",
+          "batch_load_item_variants",
+          "get_by_uuid"
+        ]
+      },
+      {
+        "name": "InventorySelector",
+        "file": "inventory/services/selectors.py",
+        "role": "selector",
+        "methods": [
+          "get_current_stock",
+          "get_stock_for_variant",
+          "list_movements"
+        ]
+      }
+    ],
+    "selectors": [],
+    "management_commands": [],
+    "consumers": [],
+    "tasks": [],
+    "permissions": [],
+    "file_map": {
+      "misc": [
+        "inventory/api/internal_ai.py",
+        "inventory/migrations/__init__.py",
+        "inventory/services/__init__.py",
+        "inventory/services/dtos.py",
+        "inventory/services/kardex.py"
+      ],
+      "serializer": [
+        "inventory/api/serializers.py"
+      ],
+      "url": [
+        "inventory/api/urls.py",
+        "inventory/urls.py"
+      ],
+      "viewset": [
+        "inventory/api/views.py"
+      ],
+      "app_config": [
+        "inventory/apps.py"
+      ],
+      "model": [
+        "inventory/models.py"
+      ],
+      "command": [
+        "inventory/services/commands.py"
+      ],
+      "selector": [
+        "inventory/services/selectors.py"
+      ],
+      "test": [
+        "inventory/tests.py"
+      ]
+    },
+    "migrations": 5
+  },
+  "endpoints": [
+    {
+      "endpoint": "api/v1/inventory/stock-records",
+      "app": "inventory",
+      "viewset": "StockRecordViewSet",
+      "actions": [
+        "handle_exception",
+        "create",
+        "movements",
+        "adjust_stock"
+      ],
+      "basename": "stock-record",
+      "http_methods": [
+        "POST"
+      ]
+    },
+    {
+      "endpoint": "api/v1/inventory/transactions",
+      "app": "inventory",
+      "viewset": "InventoryTransactionViewSet",
+      "actions": [],
+      "basename": "inventory-transaction",
+      "http_methods": [
+        "GET",
+        "POST",
+        "PUT",
+        "PATCH",
+        "DELETE"
+      ]
+    }
+  ],
+  "frontend_consumers": {},
+  "dependencies": {
+    "depends_on": [],
+    "depended_by": []
+  },
+  "blast_radius": {
+    "StockRecord": {
+      "types_affected": [
+        "Model",
+        "ViewSet",
+        "Serializer"
+      ],
+      "total": 7
+    },
+    "InventoryTransaction": {
+      "types_affected": [
+        "ViewSet",
+        "Model",
+        "Serializer"
+      ],
+      "total": 4
+    }
+  },
+  "service_contracts": {
+    "commands": [
+      "InventoryCommands"
+    ],
+    "selectors": [
+      "StockRecordSelector",
+      "InventorySelector"
+    ]
+  },
+  "events": {
+    "produces": [
+      "stock_updated",
+      "stock_low"
+    ],
+    "consumes": []
+  },
+  "constraints": [
+    "Use stock_record.stock (select_for_update) for writes — never InventorySelector.get_current_stock() which may be stale",
+    "register_entry / register_exit must be atomic"
+  ],
+  "known_issues": [],
+  "business_rules": [
+    {
+      "id": "INVENTORY_LOCK",
+      "rule": "Use stock_record.stock (select_for_update) for inventory writes, never InventorySelector.get_current_stock().",
+      "why": "Selector may return stale cached value under concurrent load."
+    },
+    {
+      "id": "CONFIRM_PAYMENT",
+      "rule": "Always call confirm_order_payment() from payment/shared/commands.py. Never duplicate inventory/notification logic.",
+      "why": "confirm_order_payment is idempotent and handles all post-payment side effects."
+    }
+  ],
+  "url_patterns": [
+    {
+      "type": "router",
+      "prefix": "stock-records",
+      "viewset": "StockRecordViewSet",
+      "basename": "stock-record"
+    },
+    {
+      "type": "router",
+      "prefix": "transactions",
+      "viewset": "InventoryTransactionViewSet",
+      "basename": "inventory-transaction"
+    }
+  ],
+  "patterns": {
+    "command_class": "InventoryCommands",
+    "selector_class": "InventorySelector",
+    "service_layer": true,
+    "soft_delete": true
+  },
+  "TODO": [],
+  "BUG": [],
+  "HOT_FIX": [],
+  "decisions": []
+}

@@ -1,0 +1,1 @@
+Sintel.Services.Utils = {};

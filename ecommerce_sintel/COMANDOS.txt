@@ -1,0 +1,150 @@
+# COMANDOS DE OPERACION — SINTEL E-COMMERCE (API-FIRST)
+# Ultima actualizacion: 2026-04-21
+
+Guia rapida de comandos vitales para el ecosistema Sintel REST (Django + Vue + Vite).
+
+---
+
+## ⚠️  AISLAMIENTO CRÍTICO — Siempre ejecutar desde ecommerce_sintel/
+
+IMPORTANTE: Este proyecto está completamente aislado de secop_system.
+- Nombre del proyecto: ecommerce_sintel
+- Network: ecommerce_sintel_network
+- Prefijo contenedores: ecommerce_sintel_*
+
+✅ SIEMPRE ejecutar desde: c:\Users\Administrator\Documents\ecommerce_sintel_rest\ecommerce_sintel
+
+---
+
+## 🐍 ENTORNO VIRTUAL (Windows) — Ejecutar desde ecommerce_sintel/
+
+# Activar en PowerShell (Recomendado)
+..\.venv\Scripts\Activate.ps1
+
+# Activar en CMD (Símbolo del sistema)
+..\.venv\Scripts\activate.bat
+
+# Activar en Git Bash / WSL
+source ../.venv/Scripts/activate
+
+# Desactivar (Cualquier terminal)
+deactivate
+
+---
+
+## 🚀 LANZAMIENTO RÁPIDO (RESCATE)
+
+# 1. Limpiar rastro de otros proyectos (liberar puertos 5432, 6380, 80)
+docker compose down --remove-orphans
+docker container prune -f
+
+# 2. Levantar stack completo
+# - Si VITE_DEV_MODE=false (default): Sirve bundles estaticos.
+# - Si VITE_DEV_MODE=true: Habilita HMR para desarrollo frontend.
+docker compose  build --no-cache
+
+docker compose up -d --build
+
+# 3. Verificar estado
+docker compose ps
+
+---
+
+## 💻 DESARROLLO FRONTEND (Vite + Vue 3)
+
+# En Local (Fuera de Docker - Recomendado para maxima velocidad)
+cd frontend
+npm install
+npm run dev         # Servidor local en http://localhost:5173
+
+# En Docker (Compartiendo con Django)
+# 1. Asegurar VITE_DEV_MODE=true en .env
+# 2. Levantar el servicio
+docker compose up -d frontend
+docker compose logs -f frontend
+
+# Construccion de Bundle para Produccion (dentro de Django)
+cd frontend
+npm run build       # El output va a ../ecommerce_sintel/static/coreui/js/bundle/
+
+---
+
+## 🐳 DOCKER Y CONTENEDORES
+
+# Ver logs en tiempo real
+docker compose logs -f django frontend        # API + Frontend Dev Server
+docker compose logs -f celery_worker          # Tareas asincronas
+
+# Reiniciar servicios tras cambios en configuracion (.env o nginx.conf)
+docker compose restart django nginx frontend
+
+# Entrar a la terminal del API
+docker compose exec django sh
+
+# Shell interactiva de Django
+docker compose exec django python manage.py shell
+
+---
+
+## 🛠️ DJANGO MANAGEMENT (VIA DOCKER)
+
+# Aplicar migraciones
+docker compose exec django python manage.py migrate
+
+# Crear nuevas migraciones
+docker compose exec django python manage.py makemigrations
+
+# Crear Superusuario
+docker compose exec django python manage.py createsuperuser
+
+# Validar Contrato API (OpenAPI / Swagger)
+docker compose exec django python manage.py spectacular --validate --fail-on-warn
+
+# Ejecutar Tests (Pytest)
+docker compose exec django pytest
+
+---
+
+## 🕒 CELERY Y ASINCRONIA
+
+# Ver estado y tareas activas
+docker compose exec celery_worker celery -A ecommerce status
+docker compose exec celery_worker celery -A ecommerce inspect active
+
+# Limpiar colas (PURGE)
+docker compose exec celery_worker celery -A ecommerce purge
+
+---
+
+## 🧪 EJEMPLOS DE LOGICA (SERVICE LAYER)
+
+# Crear Categoria via Shell (API-First Pattern)
+docker compose exec django python manage.py shell << 'EOF'
+from shop.services import CategoryCommands
+try:
+    cat = CategoryCommands.create_category(name="Nueva Cat", is_active=True)
+    print(f'✅ Creada: {cat.uuid}')
+except Exception as e:
+    print(f'❌ Error: {e}')
+EOF
+
+# Consultar Productos Activos (Selectors Pattern)
+docker compose exec django python manage.py shell << 'EOF'
+from shop.services import ProductSelector
+products = ProductSelector.list_active()
+for p in products:
+    print(f'- {p.name} [Stock: {getattr(p, "stock", "N/A")}]')
+EOF
+
+---
+
+## 🧹 MANTENIMIENTO Y LIMPIEZA
+
+# Eliminar volumenes (BORRA TODA LA BASE DE DATOS)
+docker compose down -v
+
+# Limpiar cache de Docker
+docker system prune -a --volumes
+
+# Limpiar archivos __pycache__ y temporales
+find . -type d -name "__pycache__" -exec rm -rf {} +

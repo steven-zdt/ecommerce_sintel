@@ -1,0 +1,47 @@
+# ── Entornos virtuales y dependencias ────────────────────────────────────────
+venv/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# ── Control de versiones ──────────────────────────────────────────────────────
+.git/
+.gitignore
+.gitattributes
+
+# ── Entorno y secretos ───────────────────────────────────────────────────────
+.env
+.env.*
+*.env
+
+# ── IDE y editores ───────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ── Archivos estáticos/media (se generan en tiempo de ejecución) ─────────────
+staticfiles/
+media/
+
+# ── Migraciones locales (se aplican en el contenedor) ────────────────────────
+# No ignorar migraciones — deben incluirse para reproducibilidad
+
+# ── Logs y temporales ────────────────────────────────────────────────────────
+*.log
+logs/
+tmp/
+*.sqlite3
+
+# ── Documentación y tests ────────────────────────────────────────────────────
+docs/
+Documentacion/
+*.md
+README*
+
+# ── Docker ───────────────────────────────────────────────────────────────────
+docker-compose.override.yml

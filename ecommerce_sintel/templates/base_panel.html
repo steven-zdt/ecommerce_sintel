@@ -1,0 +1,219 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Sintel | Admin{% endblock %}</title>
+    
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- External CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+    
+    {% block styles %}{% endblock %}
+    
+    <style>
+        :root {
+            --sidebar-width: 280px;
+        }
+
+        .wrapper {
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        #sidebar-container {
+            width: var(--sidebar-width);
+            height: 100vh;
+            flex-shrink: 0;
+            background: #000;
+            z-index: 1040;
+        }
+
+        #content-area {
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            background: #f8f9fa;
+        }
+
+        #main-navbar {
+            height: 70px;
+            background: #fff;
+            border-bottom: 1px solid rgba(0,0,0,0.08);
+            display: flex;
+            align-items: center;
+            padding: 0 1.5rem;
+            flex-shrink: 0;
+        }
+
+        #main-content {
+            flex-grow: 1;
+            overflow-y: auto;
+            padding: 2rem;
+        }
+
+        /* HTMX Indicator */
+        .htmx-indicator {
+            display: none;
+        }
+        .htmx-request .htmx-indicator {
+            display: inline-block;
+        }
+    </style>
+</head>
+<body>
+    <div class="wrapper">
+        <!-- Persistent Sidebar -->
+        <div id="sidebar-container">
+        </div>
+
+        <!-- Dynamic Content Area -->
+        <div id="content-area">
+            <!-- Persistent Navbar -->
+            <nav id="main-navbar">
+            </nav>
+
+            <!-- Swappable Main Content -->
+            <main id="main-content">
+                <div class="htmx-indicator position-fixed top-0 start-50 translate-middle-x mt-2" style="z-index: 2000;">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Cargando...</span>
+                    </div>
+                </div>
+
+                <!-- Toast container para notificaciones -->
+                <div id="toast-container" class="position-fixed bottom-0 end-0 p-3" style="z-index: 1100;">
+                </div>
+
+                {% block content %}{% endblock %}
+            </main>
+        </div>
+    </div>
+
+    <!-- Persistent Offcanvas for Module Actions -->
+    <div class="offcanvas offcanvas-end border-0 shadow" tabindex="-1" id="panel-offcanvas" style="width: 520px;">
+        <div class="offcanvas-header border-bottom bg-light">
+            <h5 class="offcanvas-title fw-bold text-dark text-uppercase small" style="letter-spacing: 0.05em;" id="offcanvas-title">Acción</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close"></button>
+        </div>
+        <div class="offcanvas-body p-0" id="offcanvas-body">
+            <!-- Content injected via HTMX -->
+            <div class="d-flex justify-content-center align-items-center" style="height: 300px;">
+                <div class="spinner-border text-primary htmx-indicator" role="status">
+                    <span class="visually-hidden">Cargando...</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de confirmación reutilizable para eliminar -->
+    <div class="modal fade" id="confirm-modal" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered modal-sm">
+            <div class="modal-content" id="confirm-modal-content">
+                <!-- Contenido inyectado por HTMX -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://unpkg.com/htmx.org@1.9.12/dist/htmx.min.js"></script>
+
+    <!-- HTMX: CSRF global handler -->
+    <script>
+        document.addEventListener('htmx:configRequest', function(evt) {
+            if (evt.detail.verb.toUpperCase() !== 'GET') {
+                const csrf = (document.cookie.match(/(?:^|;\s*)csrftoken=([^;]+)/) || [])[1] || '';
+                evt.detail.headers['X-CSRFToken'] = csrf;
+            }
+        });
+    </script>
+
+    <!-- Panel UI helpers (Toast, Offcanvas, Modal) -->
+    <script>
+        // Toast Bootstrap puro
+        function showToast(message, type = 'success') {
+            const container = document.getElementById('toast-container');
+            const id = 'toast-' + Date.now();
+            const icon = type === 'success' ? 'bi-check-circle-fill text-success'
+                       : type === 'danger'  ? 'bi-x-circle-fill text-danger'
+                       : 'bi-info-circle-fill text-primary';
+            container.insertAdjacentHTML('beforeend', `
+                <div id="${id}" class="toast align-items-center border-0 shadow-sm" role="alert">
+                    <div class="d-flex">
+                        <div class="toast-body d-flex align-items-center gap-2">
+                            <i class="bi ${icon}"></i> ${message}
+                        </div>
+                        <button type="button" class="btn-close me-2 m-auto" data-bs-dismiss="toast"></button>
+                    </div>
+                </div>`);
+            const el = document.getElementById(id);
+            new bootstrap.Toast(el, { delay: 3500 }).show();
+            el.addEventListener('hidden.bs.toast', () => el.remove());
+        }
+
+        // Abrir offcanvas con HTMX
+        function openOffcanvas(url, title) {
+            document.getElementById('offcanvas-title').textContent = title;
+            htmx.ajax('GET', url, { target: '#offcanvas-body', swap: 'innerHTML' });
+            bootstrap.Offcanvas.getOrCreateInstance(
+                document.getElementById('panel-offcanvas')
+            ).show();
+        }
+
+        // Escuchar eventos HTMX para cerrar offcanvas y mostrar toast
+        document.addEventListener('htmx:afterRequest', function(evt) {
+            const hdr = evt.detail.xhr.getResponseHeader('HX-Trigger');
+            if (!hdr) return;
+            try {
+                const triggers = JSON.parse(hdr);
+                if (triggers.closeOffcanvas) {
+                    bootstrap.Offcanvas.getInstance(
+                        document.getElementById('panel-offcanvas')
+                    )?.hide();
+                }
+                if (triggers.showToast) {
+                    showToast(triggers.showToast.message, triggers.showToast.type || 'success');
+                }
+            } catch (_) {}
+        });
+    </script>
+    
+    <!-- Global Error Handler -->
+    <script>
+        // Manejador global para promesas rechazadas no capturadas
+        window.addEventListener('unhandledrejection', event => {
+            // Si es un error de puerto de mensaje, ignorar silenciosamente
+            if (event.reason?.message?.includes('port closed') || event.reason?.message?.includes('The message port')) {
+                console.warn('[Global Handler] Ignoring message port error:', event.reason);
+                event.preventDefault();
+                return;
+            }
+            
+            // Para otros errores, registrar pero no fallar
+            console.error('[Global Handler] Unhandled promise rejection:', event.reason);
+            event.preventDefault();
+        });
+        
+        // Manejador global para errores no capturados
+        window.addEventListener('error', event => {
+            if (event.message?.includes('port closed') || event.message?.includes('The message port')) {
+                console.warn('[Global Handler] Ignoring message port error:', event.message);
+                event.preventDefault();
+                return;
+            }
+            console.error('[Global Handler] Uncaught error:', event.error || event.message);
+        });
+    </script>
+    
+    {% block scripts %}{% endblock %}
+</body>
+</html>

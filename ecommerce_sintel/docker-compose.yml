@@ -1,0 +1,266 @@
+# =============================================================================
+# DOCKER COMPOSE -- E-Commerce Sintel REST
+# =============================================================================
+#
+# PROYECTO INDEPENDIENTE: solo contenedores de ecommerce_sintel.
+#
+# Composicion:
+#   - PostgreSQL 16    (Base de datos)
+#   - Redis 7.2        (Cache + Message Broker)
+#   - Django 5.0+      (API REST + Daphne ASGI)
+#   - Celery Worker    (Tareas asincronicas)
+#   - Celery Beat      (Scheduler de tareas)
+#   - Nginx 1.26       (Reverse proxy)
+#   - Ollama           (LLM local para motor cognitivo -- puerto 11434)
+#   - ChromaDB         (Vector store para motor cognitivo -- puerto 8200)
+#   - Sintel AI Engine (Motor LangChain/LangGraph -- puerto 8100)
+#
+# =============================================================================
+
+name: ecommerce_sintel  # ← Nombre EXPLÍCITO del proyecto (evita conflictos)
+
+services:
+
+  # ─── INFRAESTRUCTURA ──────────────────────────────────────────────────────
+  redis:
+    image: redis:7.2-alpine
+    container_name: ecommerce_sintel_redis
+    restart: unless-stopped
+    ports:
+      - "6380:6379"
+    volumes:
+      - ecommerce_sintel_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ecommerce_sintel_network
+
+  db:
+    image: postgres:16-alpine
+    container_name: ecommerce_sintel_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    ports:
+      - "5432:5432"
+    volumes:
+      - ecommerce_sintel_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ecommerce_sintel_network
+
+
+  # ─── APLICACIÓN ────────────────────────────────────────────────────────────
+  django:
+    build:
+      context: ..
+      dockerfile: ecommerce_sintel/Dockerfile
+      target: runtime
+    image: ecommerce_sintel:runtime
+    container_name: ecommerce_sintel_django
+    restart: unless-stopped
+    stop_grace_period: 30s
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/code
+      - /code/static/panel/js/bundle
+      - ecommerce_sintel_static_volume:/code/staticfiles
+      - ecommerce_sintel_media_volume:/code/media
+    env_file: .env
+    environment:
+      # Auto-reload via watchmedo (polling) — necesario porque inotify no funciona
+      # en volúmenes Docker montados desde Windows/WSL2. Poner en false para prod.
+      DEV_RELOAD: "true"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - ecommerce_sintel_network
+
+  frontend:
+    image: node:24-bookworm-slim
+    container_name: ecommerce_sintel_frontend
+    working_dir: /app
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    ports:
+      - "5173:5173"
+    command: sh -c "npm install && npm run dev -- --host"
+    networks:
+      - ecommerce_sintel_network
+
+  # ─── WORKERS ASINCRONOS ────────────────────────────────────────────────────
+  celery_worker:
+    image: ecommerce_sintel:runtime
+    container_name: ecommerce_sintel_celery_worker
+    restart: unless-stopped
+    command: celery -A ecommerce worker --loglevel=info --concurrency=4 -Q default,marketing,notifications
+    env_file: .env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      django:
+        condition: service_healthy
+    volumes:
+      - .:/code
+      - ecommerce_sintel_media_volume:/code/media
+    networks:
+      - ecommerce_sintel_network
+
+  celery_beat:
+    image: ecommerce_sintel:runtime
+    container_name: ecommerce_sintel_celery_beat
+    restart: unless-stopped
+    command: celery -A ecommerce beat --loglevel=info --scheduler django_celery_beat.schedulers:DatabaseScheduler
+    env_file: .env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      django:
+        condition: service_healthy
+    volumes:
+      - ecommerce_sintel_beat_schedule:/tmp/celery_beat
+    networks:
+      - ecommerce_sintel_network
+
+  # ─── MOTOR COGNITIVO IA ────────────────────────────────────────────────────
+  sintel_ollama:
+    image: ollama/ollama:latest
+    container_name: ecommerce_sintel_ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ecommerce_sintel_ollama_models:/root/.ollama
+    networks:
+      - ecommerce_sintel_network
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  sintel_chromadb:
+    image: chromadb/chroma:0.5.23
+    container_name: ecommerce_sintel_chromadb
+    restart: unless-stopped
+    ports:
+      - "8200:8000"
+    volumes:
+      - ecommerce_sintel_chromadb_data:/chroma/chroma
+    environment:
+      - ANONYMIZED_TELEMETRY=false
+      - IS_PERSISTENT=TRUE
+      - PERSIST_DIRECTORY=/chroma/chroma
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/heartbeat"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - ecommerce_sintel_network
+
+  sintel_ai:
+    build:
+      context: ../ai_engine
+      dockerfile: Dockerfile
+    image: ecommerce_sintel_ai:latest
+    container_name: ecommerce_sintel_ai
+    restart: unless-stopped
+    ports:
+      - "8100:8100"
+    volumes:
+      - .:/workspace:ro
+      - ../docs/specs:/docs/specs:ro
+    env_file: .env
+    environment:
+      OLLAMA_BASE_URL: "http://sintel_ollama:11434"
+      CHROMA_HOST: "sintel_chromadb"
+      CHROMA_PORT: "8000"
+      CHROMA_AUTH_TOKEN: ""
+      DOCS_SPECS_PATH: "/docs/specs"
+      CODEBASE_PATH: "/workspace"
+      # Fase 1 AI Core: URL interna hacia Django para resolver identidad
+      # (JWT_SECRET_KEY ya llega via env_file compartido, no se duplica aqui)
+      DJANGO_INTERNAL_API_URL: "http://django:8000/api/v1"
+      # Fase 2: endpoint /tools/debug habilitado SOLO en dev
+      AI_TOOLS_DEBUG: "true"
+    depends_on:
+      sintel_ollama:
+        condition: service_started
+      sintel_chromadb:
+        condition: service_healthy
+    networks:
+      - ecommerce_sintel_network
+
+  # ─── REVERSE PROXY ─────────────────────────────────────────────────────────
+  nginx:
+    image: nginx:1.26-alpine
+    container_name: ecommerce_sintel_nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx-upgrade-map.conf:/etc/nginx/conf.d/00-upgrade-map.conf:ro
+      - ecommerce_sintel_static_volume:/code/staticfiles:ro
+      - ecommerce_sintel_media_volume:/code/media:ro
+      - /dev/null:/docker-entrypoint.d/10-listen-on-ipv6-by-default.sh:ro
+    depends_on:
+      django:
+        condition: service_healthy
+    networks:
+      - ecommerce_sintel_network
+
+# ═════════════════════════════════════════════════════════════════════════════
+# VOLÚMENES — Persistencia de datos (aislados a este proyecto)
+# ═════════════════════════════════════════════════════════════════════════════
+volumes:
+  ecommerce_sintel_postgres_data:
+    driver: local
+  ecommerce_sintel_redis_data:
+    driver: local
+  ecommerce_sintel_static_volume:
+    driver: local
+  ecommerce_sintel_media_volume:
+    driver: local
+  ecommerce_sintel_beat_schedule:
+    driver: local
+  ecommerce_sintel_ollama_models:
+    driver: local
+  ecommerce_sintel_chromadb_data:
+    driver: local
+
+# ═════════════════════════════════════════════════════════════════════════════
+# NETWORKS — Aislamiento de contenedores (solo ecommerce_sintel)
+# ═════════════════════════════════════════════════════════════════════════════
+networks:
+  ecommerce_sintel_network:
+    driver: bridge
+    name: ecommerce_sintel_network
