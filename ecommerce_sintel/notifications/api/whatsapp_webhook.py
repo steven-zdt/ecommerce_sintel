@@ -11,6 +11,8 @@ GET  = verificacion del webhook (hub.challenge) con
 POST = eventos entrantes. AllowAny (Meta no envia credenciales), igual que
        el webhook de Wompi; responde 200 rapido y procesa async.
 """
+import hashlib
+import hmac
 import logging
 
 from django.conf import settings
@@ -26,6 +28,27 @@ class WhatsAppInboundWebhookView(APIView):
     permission_classes = [AllowAny]
     authentication_classes = []
 
+    def _signature_valid(self, request):
+        """Verifica X-Hub-Signature-256 (HMAC-SHA256 del cuerpo crudo con el
+        App Secret de Meta). Fail-CLOSED: si falta META_APP_SECRET se rechaza
+        el evento -- no se repite el fail-open del webhook de Wompi (F-01).
+
+        Se lee request.body antes que request.data para no gatillar el
+        RawPostDataException de Django (una vez parseado el body no se puede
+        volver a leer crudo).
+        """
+        secret = getattr(settings, 'META_APP_SECRET', '')
+        if not secret:
+            logger.critical(
+                '[whatsapp-webhook] META_APP_SECRET no configurado -- evento rechazado.'
+            )
+            return False
+        received = request.headers.get('X-Hub-Signature-256', '')
+        expected = 'sha256=' + hmac.new(
+            secret.encode('utf-8'), request.body, hashlib.sha256
+        ).hexdigest()
+        return hmac.compare_digest(received, expected)
+
     def get(self, request):
         mode = request.query_params.get('hub.mode', '')
         token = request.query_params.get('hub.verify_token', '')
@@ -36,6 +59,9 @@ class WhatsAppInboundWebhookView(APIView):
         return Response({'error': 'Verificacion invalida.'}, status=403)
 
     def post(self, request):
+        if not self._signature_valid(request):
+            logger.warning('[whatsapp-webhook] firma invalida o ausente -- 403')
+            return Response({'error': 'Firma invalida.'}, status=403)
         from notifications.tasks import process_whatsapp_inbound_task
         try:
             for entry in (request.data.get('entry') or []):

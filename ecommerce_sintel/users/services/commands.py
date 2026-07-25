@@ -98,7 +98,7 @@ class VerificationCommands:
         )
 
         VerificationCommands._send_otp_email(email, code, purpose=purpose, expiry_minutes=expiry_minutes)
-        logger.info(f"[verification:request] OTP generado para {email} (purpose={purpose}): {code}")
+        logger.info(f"[verification:request] OTP generado para {email} (purpose={purpose})")
         return verification
 
     @staticmethod
@@ -192,7 +192,7 @@ class VerificationCommands:
         )
 
         VerificationCommands._send_otp_email(email, code, resend=True, purpose=purpose, expiry_minutes=expiry_minutes)
-        logger.info(f"[verification:resend] Nuevo OTP para {email} (purpose={purpose}): {code}")
+        logger.info(f"[verification:resend] Nuevo OTP para {email} (purpose={purpose})")
         return verification
 
     @staticmethod

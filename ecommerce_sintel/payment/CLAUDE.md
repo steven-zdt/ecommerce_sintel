@@ -48,7 +48,7 @@ Permiso: `IsAuthenticatedActiveUser`. Soft-delete obligatorio (nunca `.delete()`
 - **Safety check de stock:** `_has_sufficient_stock()` en `payment/shared/commands.py` y en `payment/online/services/commands.py` deben usar `InventorySelector.get_current_stock()` de verdad — **nunca** dejarlas como stub que retorne `True`/`None`, aunque sea "temporalmente" durante un refactor. Ya ocurrió una vez (ver historial en el doc de arquitectura) y dejó todos los pagos sin descuento de stock.
 - Si stock insuficiente en confirmación: marcar `Transaction.status = 'ERROR'` + raise ValueError → rollback
 - **Webhook idempotente:** Si llega duplicado (status ya era APPROVED), se ignora sin reprocesar
-- **Firma HMAC-SHA256 del webhook: YA IMPLEMENTADA** en `_verify_wompi_event_signature()` (`online/api/views.py`). Si `WOMPI_EVENTS_SECRET` no está seteado, permite el paso con warning — asegurar que esté configurado antes de producción.
+- **Firma HMAC-SHA256 del webhook: YA IMPLEMENTADA** en `_verify_wompi_event_signature()` (`online/api/views.py`). **Fail-closed** (F-01, auditoria 2026-07-24): si `WOMPI_EVENTS_SECRET` no está seteado, el webhook RECHAZA el evento (`return False`) y registra un `SecurityEvent` CRITICAL — antes retornaba `True` (fail-open), lo que permitia falsificar un "pago aprobado". `settings/production.py` ademas exige el secreto para arrancar.
 
 ## Flujo de estados de Transaction
 

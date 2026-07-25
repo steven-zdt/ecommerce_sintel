@@ -572,7 +572,12 @@ class ServiceRequestInputSerializer(serializers.Serializer):
     variant_uuid = serializers.UUIDField()
     quantity = serializers.IntegerField(default=1, min_value=1)
     duration = serializers.DecimalField(max_digits=6, decimal_places=2, required=False, allow_null=True)
-    discount_pct = serializers.DecimalField(max_digits=5, decimal_places=2, required=False, allow_null=True)
+    # discount_pct acotado 0..100: sin estos limites, un cliente podia enviar
+    # >100 (total negativo) o <0 (subir el precio). Ver R-01 de la auditoria.
+    discount_pct = serializers.DecimalField(
+        max_digits=5, decimal_places=2, required=False, allow_null=True,
+        min_value=0, max_value=100,
+    )
     selected_technician_uuid = serializers.UUIDField(required=False, allow_null=True)
     selected_slot_id = serializers.IntegerField(required=False, allow_null=True)
 

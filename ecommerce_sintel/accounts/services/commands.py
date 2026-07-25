@@ -31,6 +31,15 @@ _MAGIC_BYTES = {
     '.jpg': b'\xff\xd8\xff',
     '.jpeg': b'\xff\xd8\xff',
     '.png': b'\x89PNG',
+    # .docx/.xlsx son ZIP (OOXML); .doc/.xls son OLE2 -- mismo header para
+    # ambos formatos del par, no se puede distinguir doc de xls solo por
+    # magic bytes (ambos usan el contenedor OLE2 generico).
+    '.docx': b'PK\x03\x04',
+    '.xlsx': b'PK\x03\x04',
+    '.doc': b'\xd0\xcf\x11\xe0',
+    '.xls': b'\xd0\xcf\x11\xe0',
+    # .txt no tiene firma binaria confiable -- se omite el chequeo (ver
+    # validate_file: expected=None salta el bloque de magic bytes).
 }
 
 
@@ -128,7 +137,7 @@ def _pop_kyc_registration_data(data: dict) -> dict:
         'lugar_expedicion_documento': data.pop('lugar_expedicion_documento', ''),
     }
 
-    ip_address = data.pop('ip_address', None) or '0.0.0.0'
+    ip_address = data.pop('ip_address', None) or '0.0.0.0'  # nosec B104 -- valor de IP de auditoria KYC, no un bind de red
     user_agent = data.pop('user_agent', '')
     consent_events = []
     consent_map = {

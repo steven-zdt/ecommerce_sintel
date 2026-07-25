@@ -103,6 +103,17 @@ class OrderCommands:
     @staticmethod
     @transaction.atomic
     def _create_order_atomic(user, shipping_address, payment_method, items, total, discount, cart) -> Order:
+        # Idempotencia por carrito (O-01): serializa dos checkouts concurrentes
+        # del mismo usuario (doble clic / reintento de red). El select_for_update
+        # bloquea las filas del carrito; el segundo request espera aqui hasta que
+        # el primero commitea (y vacia el carrito con cart.items.all().delete()),
+        # luego re-verifica y encuentra el carrito vacio -> aborta sin crear una
+        # segunda orden del mismo carrito. El carrito es el ancla de idempotencia
+        # natural, sin necesidad de un idempotency-key del cliente ni migracion.
+        locked_item_ids = list(cart.items.select_for_update().values_list('id', flat=True))
+        if not locked_item_ids:
+            raise ValidationError("El carrito ya fue procesado o esta vacio.")
+
         # En el nuevo flujo de fulfillment, la orden se crea en estado de pago pendiente.
         # El paso de confirmación de pago ocurre luego, fuera de create_from_cart().
         initial_status = Order.STATUS_PENDING_PAYMENT
@@ -233,3 +244,20 @@ class ShippingAddressCommands:
         address.is_default = True
         address.save(update_fields=['is_default'])
         return address
+
+    @staticmethod
+    @transaction.atomic
+    def delete(address: ShippingAddress) -> None:
+        # Soft-delete: un hard delete() choca con el PROTECT de Order.shipping_address
+        # en cuanto la direccion ya fue usada en algun pedido (ProtectedError -> 500).
+        # Si era la predeterminada, otra direccion restante toma su lugar para no
+        # dejar al usuario sin direccion predeterminada.
+        was_default = address.is_default
+        address.is_deleted = True
+        address.is_default = False
+        address.save(update_fields=['is_deleted', 'is_default', 'updated_at'])
+        if was_default:
+            fallback = ShippingAddress.objects.filter(user=address.user, is_deleted=False).order_by('-created_at').first()
+            if fallback:
+                fallback.is_default = True
+                fallback.save(update_fields=['is_default'])

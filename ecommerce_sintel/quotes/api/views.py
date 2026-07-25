@@ -1,4 +1,5 @@
 import json
+from django.db import IntegrityError
 from django.http import HttpResponse
 from rest_framework import viewsets, status, permissions
 from rest_framework.decorators import action
@@ -103,6 +104,19 @@ class QuotationViewSet(viewsets.ModelViewSet):
         identificado (nombre/email/documento) — ninguna solicitud se crea
         sin destinatario, ni anonima ni sin documento.
         """
+        # H1 (auditoria E2E 2026-07-23): X-Idempotency-Key es la defensa de
+        # backend contra duplicados -- reintentos con la misma llave (doble
+        # clic que se cuela antes del guard de frontend, F5, reconexion)
+        # devuelven la Quotation ya creada en vez de crear una nueva. El
+        # guard sincrono en QuoteSummaryStep.vue evita la mayoria de los
+        # casos; esto cubre lo que ese guard no puede (perdida de estado
+        # del componente).
+        idempotency_key = request.headers.get('X-Idempotency-Key') or None
+        if idempotency_key:
+            existing = Quotation.objects.filter(idempotency_key=idempotency_key).first()
+            if existing:
+                return Response(QuotationSerializer(existing).data, status=status.HTTP_200_OK)
+
         payload = request.data
         if isinstance(payload.get('answers'), str):
             payload = payload.copy()
@@ -114,17 +128,31 @@ class QuotationViewSet(viewsets.ModelViewSet):
         template = data.pop('template')
         answers = data.pop('answers', {}) or {}
 
+        # getlist (no .items()) porque una misma clave file__<key> puede
+        # traer varios archivos (ver requirement_documents, multiples
+        # documentos por pregunta).
         files = {
-            key[len('file__'):]: f
-            for key, f in request.FILES.items()
+            key[len('file__'):]: request.FILES.getlist(key)
+            for key in request.FILES
             if key.startswith('file__')
         }
 
         applicant_data = {**data, 'user': request.user}
+        if idempotency_key:
+            applicant_data['idempotency_key'] = idempotency_key
 
         try:
             quotation = QuotationCommands.create_from_template(applicant_data, template, answers, files=files or None)
             return Response(QuotationSerializer(quotation).data, status=status.HTTP_201_CREATED)
+        except IntegrityError:
+            # Carrera real: dos peticiones con la misma llave llegaron a
+            # INSERT casi al mismo tiempo y la constraint unique la gano
+            # la otra -- devolver esa, no es un error del cliente.
+            if idempotency_key:
+                existing = Quotation.objects.filter(idempotency_key=idempotency_key).first()
+                if existing:
+                    return Response(QuotationSerializer(existing).data, status=status.HTTP_200_OK)
+            return Response({"detail": "No se pudo procesar la solicitud. Intenta de nuevo."}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
             return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -137,7 +165,7 @@ class QuotationViewSet(viewsets.ModelViewSet):
                 {"detail": f"No se puede enviar una cotizacion con estado '{quotation.status}'."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        QuotationCommands.mark_as_sent(quotation)
+        QuotationCommands.mark_as_sent(quotation, changed_by=request.user)
         from quotes.tasks import send_quotation_email_task
         send_quotation_email_task.delay(str(quotation.uuid))
         return Response({"detail": "Quotation marked as SENT. Email dispatched."}, status=status.HTTP_200_OK)
@@ -150,22 +178,33 @@ class QuotationViewSet(viewsets.ModelViewSet):
         if not files:
             return Response({"detail": "No files provided."}, status=status.HTTP_400_BAD_REQUEST)
 
+        # Validacion de archivo identica a los otros caminos de creacion
+        # (create_from_template / create_quotation): tamano, extension y
+        # magic-bytes. Sin esto, add_attachment aceptaba cualquier binario.
+        from accounts.services.commands import validate_file
+
         created = []
         for f in files:
+            validate_file(
+                f, max_size_mb=10,
+                allowed_extensions=['.pdf', '.jpg', '.jpeg', '.png'],
+                magic_bytes_check=True,
+            )
             att = QuotationAttachment.objects.create(quotation=quotation, file=f)
             created.append(str(att.uuid))
 
         return Response({"uploaded": created}, status=status.HTTP_201_CREATED)
 
-    @action(detail=True, methods=['get'], permission_classes=[permissions.AllowAny])
+    @action(detail=True, methods=['get'])
     def download_pdf(self, request, uuid=None):
-        """Generate and return the quotation PDF as an attachment."""
-        quotation = Quotation.objects.select_related('template').prefetch_related(
-            'items__cost_snapshots',
-            'services__materials',
-            'rental_items',
-            'template__modules__questions',
-        ).get(uuid=uuid, is_deleted=False)
+        """Generate and return the quotation PDF as an attachment.
+
+        Scoped al dueno via self.get_object() -> get_queryset(): un usuario
+        solo puede descargar el PDF de su propia cotizacion (staff ve todas).
+        Antes usaba AllowAny + query directo por uuid, exponiendo PII de
+        cualquier cotizacion a quien tuviera el enlace.
+        """
+        quotation = self.get_object()
 
         pdf_buffer = PDFService.generate_quotation_pdf(quotation)
         filename = f"cotizacion_{quotation.uuid}.pdf"

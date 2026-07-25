@@ -328,9 +328,21 @@ ANYMAIL = {
 
 # Meta (WhatsApp + Facebook + Instagram — same Business App)
 META_ACCESS_TOKEN = config('META_ACCESS_TOKEN', default='')
+# App Secret de Meta -- firma HMAC-SHA256 de los webhooks entrantes de WhatsApp
+# (X-Hub-Signature-256). Sin este valor, el webhook rechaza todo evento
+# (fail-closed, ver notifications/api/whatsapp_webhook.py).
+META_APP_SECRET = config('META_APP_SECRET', default='')
 WHATSAPP_PHONE_NUMBER_ID = config('WHATSAPP_PHONE_NUMBER_ID', default='')
 FACEBOOK_PAGE_ID = config('FACEBOOK_PAGE_ID', default='')
 INSTAGRAM_BUSINESS_ACCOUNT_ID = config('INSTAGRAM_BUSINESS_ACCOUNT_ID', default='')
+
+# SMS (modem GSM SIM5360 fisico, SIM Movistar Colombia -- ver sms_bridge/bridge.py).
+# Django corre en un contenedor Linux y no puede abrir un puerto COM de
+# Windows directamente, asi que le habla por HTTP a un puente que SI corre
+# en el host y es dueno del puerto serie. host.docker.internal es el nombre
+# que Docker Desktop resuelve al host desde dentro del contenedor.
+SMS_BRIDGE_URL = config('SMS_BRIDGE_URL', default='http://host.docker.internal:8765')
+SMS_BRIDGE_TOKEN = config('SMS_BRIDGE_TOKEN', default='')
 
 # YouTube (OAuth2 — pre-authorized refresh token)
 YOUTUBE_CLIENT_ID = config('YOUTUBE_CLIENT_ID', default='')

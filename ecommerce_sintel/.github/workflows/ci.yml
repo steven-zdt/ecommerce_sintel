@@ -1,0 +1,131 @@
+name: CI
+
+# Quality Gate minimo (item transversal de la Auditoria Enterprise, 2026-07-24):
+# tests + cobertura + SAST en cada PR, corriendo contra Postgres real -- no
+# SQLite (ver C-04: select_for_update() no bloquea filas de verdad en SQLite,
+# asi que los tests de concurrencia de Orders/Cart/Renting necesitan Postgres
+# para probar lo que dicen probar).
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    name: Tests + cobertura (Postgres)
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: sintel_ecommerce_ci
+          POSTGRES_USER: sintel_ci
+          POSTGRES_PASSWORD: sintel_ci_password
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DJANGO_SETTINGS_MODULE: ecommerce.settings.development
+      SECRET_KEY: ci-only-secret-key-never-use-in-prod
+      JWT_SECRET_KEY: ci-only-jwt-secret-never-use-in-prod
+      DEBUG: "False"
+      DB_HOST: localhost
+      DB_PORT: "5432"
+      DB_NAME: sintel_ecommerce_ci
+      DB_USER: sintel_ci
+      DB_PASSWORD: sintel_ci_password
+      REDIS_URL: redis://localhost:6379/0
+      ALLOWED_HOSTS: localhost,127.0.0.1
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Instalar Poetry
+        run: pipx install poetry
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: poetry
+
+      - name: Sincronizar poetry.lock
+        # Mismo patron que el builder del Dockerfile (RUN poetry lock && poetry
+        # check --lock): regenera el lock si pyproject.toml cambio, en vez de
+        # asumir que quien abre el PR se acordo de correr `poetry lock` a mano.
+        run: poetry lock && poetry check --lock
+
+      - name: Instalar dependencias (main + dev)
+        run: poetry install --no-interaction --with dev
+
+      - name: Migraciones sin diffs pendientes
+        run: poetry run python manage.py makemigrations --check --dry-run
+
+      - name: Django system check
+        run: poetry run python manage.py check
+
+      - name: Tests + cobertura
+        # El umbral de cobertura (--cov-fail-under) y la guardia de Postgres
+        # (conftest.py raiz) viven en pytest.ini / conftest.py -- no se
+        # repiten aqui para que local y CI corran exactamente el mismo gate.
+        run: poetry run pytest
+
+      - name: Publicar reporte de cobertura
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml
+          path: coverage.xml
+          retention-days: 14
+
+  security:
+    name: SAST (Bandit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Instalar Poetry
+        run: pipx install poetry
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: poetry
+
+      - name: Sincronizar poetry.lock
+        # Mismo patron que el builder del Dockerfile (RUN poetry lock && poetry
+        # check --lock): regenera el lock si pyproject.toml cambio, en vez de
+        # asumir que quien abre el PR se acordo de correr `poetry lock` a mano.
+        run: poetry lock && poetry check --lock
+
+      - name: Instalar dependencias (main + dev)
+        run: poetry install --no-interaction --with dev
+
+      - name: Bandit (solo severidad MEDIUM y superior)
+        # -c pyproject.toml aplica [tool.bandit]: excluye migrations/tests/
+        # frontend/node_modules y omite B101 (assert, normal en tests). Los 2
+        # nosec puntuales de 0.0.0.0 (accounts/services/commands.py,
+        # sms_bridge/bridge.py) ya estan documentados inline -- este job debe
+        # correr en 0 hallazgos reales; si aparece uno nuevo, es señal real.
+        run: poetry run bandit -c pyproject.toml -r . -ll

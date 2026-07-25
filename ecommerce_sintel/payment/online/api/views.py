@@ -162,15 +162,19 @@ def _verify_wompi_event_signature(payload: dict, request=None) -> bool:
 
     events_secret: str = getattr(settings, "WOMPI_EVENTS_SECRET", "")
     if not events_secret:
-        logger.warning(
+        # Fail-CLOSED: sin el secreto NO se puede verificar la autenticidad del
+        # evento, asi que se rechaza. Antes retornaba True (fail-open), lo que
+        # permitia falsificar un "pago aprobado" si la variable faltaba en
+        # produccion. Ver F-01 de la auditoria.
+        logger.critical(
             "Wompi webhook: WOMPI_EVENTS_SECRET no configurado — "
-            "validacion de firma deshabilitada (modo desarrollo)."
+            "evento RECHAZADO (fail-closed)."
         )
         SecurityCommands.log_event(
             SecurityEvent.PAYMENT_WEBHOOK_INVALID_SIGNATURE, request=request, severity=SecurityEvent.SEVERITY_CRITICAL,
             metadata={'reason': 'secret_not_configured'},
         )
-        return True
+        return False
 
     try:
         sig_obj: dict       = payload.get("signature", {})
@@ -282,6 +286,7 @@ class WompiPaymentViewSet(viewsets.ViewSet):
         flags = PaymentFeatureFlags.get_active()
         return Response({
             "card_api_flow_enabled": flags.card_api_flow_enabled,
+            "widget_flow_enabled": flags.widget_flow_enabled,
             # Nequi Push queda oculto en el selector de metodos de pago mientras
             # no haya credenciales reales configuradas -- sin esto se le ofrecia
             # a cualquier cliente una opcion de pago que siempre fallaba (ver
@@ -313,9 +318,18 @@ class WompiPaymentViewSet(viewsets.ViewSet):
         # que el frontend oculte el boton -- si esta desactivado, el backend
         # rechaza el flujo nuevo aunque alguien llame a este endpoint
         # directamente con card_token/payment_source_id.
-        if (card_token or payment_source_id) and not PaymentFeatureFlags.get_active().card_api_flow_enabled:
+        flags = PaymentFeatureFlags.get_active()
+        if (card_token or payment_source_id) and not flags.card_api_flow_enabled:
             return Response(
                 {"error": "El pago con tarjeta via API esta deshabilitado temporalmente. Usa PSE/Otros."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        # Simetrico al kill-switch de arriba (plan hibrido Widget+API): si el
+        # Widget esta desactivado, un intento de iniciar el flujo widget (sin
+        # card_token/payment_source_id) tambien debe rechazarse en el backend.
+        if not (card_token or payment_source_id) and not flags.widget_flow_enabled:
+            return Response(
+                {"error": "El pago via Widget esta deshabilitado temporalmente. Usa Tarjeta."},
                 status=status.HTTP_403_FORBIDDEN,
             )
 
@@ -326,10 +340,33 @@ class WompiPaymentViewSet(viewsets.ViewSet):
         correlation_id = str(uuid_lib.uuid4())
 
         try:
-            wompi_tx: Transaction = WompiCommands.initialize_transaction(
-                order, card_token=card_token, payment_source_id=payment_source_id,
-                correlation_id=correlation_id,
-            )
+            with transaction.atomic():
+                # Idempotencia de inicio de pago (F-02): el select_for_update
+                # sobre la orden serializa dos initialize() concurrentes del
+                # mismo checkout (doble clic / reintento). El segundo espera al
+                # primero y, al re-verificar bajo el lock, reutiliza la
+                # Transaction PENDING ya creada en vez de crear una segunda (y,
+                # en el flujo Tarjeta, en vez de cobrar dos veces). El lock es
+                # por-fila de ESTA orden -- justo el doble-submit que frenamos.
+                locked_order = Order.objects.select_for_update().get(pk=order.pk)
+                if locked_order.status != Order.STATUS_PENDING_PAYMENT:
+                    return Response(
+                        {"error": "La orden no esta pendiente de pago."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                existing_tx = (
+                    Transaction.objects
+                    .filter(order=locked_order, status='PENDING')
+                    .order_by('-created_at')
+                    .first()
+                )
+                if existing_tx is not None:
+                    wompi_tx: Transaction = existing_tx
+                else:
+                    wompi_tx = WompiCommands.initialize_transaction(
+                        locked_order, card_token=card_token, payment_source_id=payment_source_id,
+                        correlation_id=correlation_id,
+                    )
         except ValueError as exc:
             return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         except WompiApiError as exc:
@@ -345,6 +382,12 @@ class WompiPaymentViewSet(viewsets.ViewSet):
             "correlation_id":      wompi_tx.correlation_id,
             "public_key":          settings.WOMPI_PUBLIC_KEY,
             "widget_url":          settings.WOMPI_WIDGET_URL,
+            # Sin esto, useWompiWidget.js arma wompiConfig.signature.integrity
+            # como undefined y Wompi rechaza CUALQUIER pago via Widget (PSE/Otros)
+            # con "La firma es invalida" -- el flujo Tarjeta no lo necesitaba aqui
+            # (se envia server-to-server en _create_transaction_sync), por eso
+            # este bug pasaba desapercibido mientras Tarjeta seguia funcionando.
+            "integrity_signature": wompi_tx.integrity_signature,
         })
 
     @extend_schema(request=None, responses={200: dict})

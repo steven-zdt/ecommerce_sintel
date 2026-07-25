@@ -1,6 +1,17 @@
+from django.core.exceptions import ImproperlyConfigured
+
 from .base import *
 
 DEBUG = config('DEBUG', default=False, cast=bool)
+
+# Fail-safe: settings.production NUNCA debe correr con DEBUG=True (expondria
+# stack traces, SQL y configuracion a cualquier visitante ante un 500). Si se
+# necesita DEBUG, usar ecommerce.settings.development. Ver C-01 de la auditoria.
+if DEBUG:
+    raise ImproperlyConfigured(
+        'DEBUG=True es invalido con ecommerce.settings.production. '
+        'Para desarrollo usa DJANGO_SETTINGS_MODULE=ecommerce.settings.development.'
+    )
 
 # Cache: ver switch CACHE_BACKEND (redis|locmem) en base.py
 
@@ -34,6 +45,16 @@ SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 CSRF_TRUSTED_ORIGINS = [
     origin for origin in config('CSRF_TRUSTED_ORIGINS', default='').split(',') if origin
 ]
+
+# Segunda capa de F-01: en produccion el secreto de eventos de Wompi es
+# obligatorio. Sin el, _verify_wompi_event_signature() ya rechaza (fail-closed),
+# pero es mejor no arrancar en absoluto que operar sin poder verificar webhooks
+# de pago.
+if not config('WOMPI_EVENTS_SECRET', default=''):
+    raise ImproperlyConfigured(
+        'WOMPI_EVENTS_SECRET es obligatorio en produccion (verificacion de '
+        'firma de los webhooks de pago Wompi).'
+    )
 
 # Optimización de archivos estáticos (Whitenoise)
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'

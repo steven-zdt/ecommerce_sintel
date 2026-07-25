@@ -208,7 +208,10 @@ class ServiceSelector:
         iva_rate = Decimal(str(getattr(config, 'iva_rate', Decimal('19.00'))))
 
         if discount_pct is not None:
-            discount_pct_val = Decimal(str(discount_pct))
+            # Clamp defensivo 0..100: este mismo calculo lo usa el endpoint
+            # publico quote_package (AllowAny), que no pasa por el serializer
+            # con min/max_value. Ver R-01 de la auditoria.
+            discount_pct_val = max(Decimal('0'), min(Decimal('100'), Decimal(str(discount_pct))))
         else:
             discount_pct_val = Decimal('0.00')
 
