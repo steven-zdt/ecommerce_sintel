@@ -2,6 +2,13 @@
 **Fecha:** 2026-07-16  
 **Estrategia:** Iteraciones de bajo riesgo, prioridad por impacto en seguridad → correctitud → rendimiento → mantenibilidad
 
+> ✅ **COMPLETADO — sincronizado 2026-07-27.** Iteraciones 1-5 ejecutadas en su totalidad (ver
+> `12_CHECKLIST_IMPLEMENTACION.md` SPRINT 0-4 y `01_AUDITORIA_GENERAL.md` §2-3/§7). De Iteración 6
+> (largo plazo): 6.1 (split `RentalRequest`) ✅ resuelto 2026-07-27; 6.2 (`BaseOperationFSM`) y 6.3
+> (squash de migraciones) siguen abiertas, sin urgencia; 6.4 (descomponer `HomeConfigView.vue`) es
+> hoy el único ítem abierto de toda la punch list de deuda técnica, diferido a propósito a su propia
+> sesión — ver `01_AUDITORIA_GENERAL.md` §6 punto 5 y §7.21.
+
 ---
 
 ## Principios de la Refactorización
@@ -175,14 +182,14 @@ Refactorizar `RentalOperation`, `ServiceOperation`, y `Shipment FSM` para hereda
 
 ## Métricas de Éxito
 
-| Métrica | Estado actual | Objetivo |
-|---|---|---|
-| Hallazgos críticos de seguridad | 4 | 0 |
-| ViewSets con ORM directo | 14 | <3 (casos edge documentados) |
-| Commands sin `@transaction.atomic` | 15 métodos | 0 |
-| N+1 confirmados en serializers | 5 | 0 |
-| Rutas Vue con lazy loading | 0% | 100% |
-| Stores Pinia > 300 líneas | 3 | 0 |
-| Componentes Vue muertos | 4+ | 0 |
-| Endpoints admin sin rate limiting | 1 | 0 |
-| Archivos internal_ai accesibles externamente | Todos | 0 (bloqueados por nginx) |
+| Métrica | Estado 2026-07-16 | Objetivo | Estado 2026-07-27 |
+|---|---|---|---|
+| Hallazgos críticos de seguridad | 4 | 0 | ✅ 0 |
+| ViewSets con ORM directo | 14 | <3 (casos edge documentados) | ✅ Resuelto (ARCH-C1/H1-H9, checklist SPRINT 3) |
+| Commands sin `@transaction.atomic` | 15 métodos | 0 | ✅ 0 |
+| N+1 confirmados en serializers | 5 | 0 | ✅ 0 (SPRINT 2) |
+| Rutas Vue con lazy loading | 0% | 100% | ✅ 100% (SPRINT 4) |
+| Stores Pinia > 300 líneas | 3 | 0 | ✅ 0 — los 3 originales divididos + 40 módulos admin restantes migrados a Pinia (2026-07-27) |
+| Componentes Vue muertos | 4+ | 0 | ✅ 0 (SPRINT 4 + purga de doc 13, 2026-07-23) |
+| Endpoints admin sin rate limiting | 1 | 0 | ✅ 0 |
+| Archivos internal_ai accesibles externamente | Todos | 0 (bloqueados por nginx) | ✅ 0, verificado en vivo contra producción |

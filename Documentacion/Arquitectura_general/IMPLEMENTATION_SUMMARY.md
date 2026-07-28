@@ -5,28 +5,35 @@
 > usarlo cuando la app exacta de una tarea no se conoce de antemano. Si SI se conoce la app,
 > ir directo a su fila en la tabla "DOCUMENTOS DE REFERENCIA POR MODULO" de `.AGENT.md`.
 
-Ultima revision: 2026-07-20 (v9 — auditoria contra codigo real: 2 apps completas que no
-aparecian en NINGUNA version anterior de este documento (`organization`, `security`), rutas API
-raiz reescritas contra `ecommerce/urls.py` real (2026-07-09 ya estaba desactualizada: faltaban
-`admin-auth/forgot-password-*`, `internal/ai*`, `organization/`, `api/v1/` -> `security.api.urls`,
-segundo include de `technical_services`), AI Core del AI Engine documentado por primera vez aqui,
-Design System de frontend (`components/base/*`), modulo "Nosotros", rediseno de Auth y aislamiento
-de dominio del panel referenciados)
+Ultima revision: 2026-07-23 (v10 — auditoria de verificacion puntual contra codigo real via 5
+pasadas de lectura paralelas cubriendo las 19 apps + frontend + infra. A diferencia de v9, esta
+pasada SI releyo/verifico contra codigo real los reclamos concretos de `quotes`, `marketing`,
+`shop`, `cart`, `inventory`, `technical_services`, `renting`, `core`, `notifications`,
+`operations`, `payment`, `orders`, `dashboard` y la seccion Frontend/Infra/.env — no es una
+re-auditoria exhaustiva de cada app desde cero, es una verificacion linea-por-linea de cada
+afirmacion que ya estaba escrita en este documento. Encontrados y corregidos 8 discrepancias
+reales, la mas importante: **`support` ya tiene una ruta REST real** (`POST
+/api/v1/support/chats/<uuid>/rate/`, calificacion CSAT) que este documento negaba
+explicitamente en 2 lugares ("no existe `api/v1/support/`") — ver seccion `support` abajo. Las
+otras 7: signal de `TechnicianProfile` generalizado a los 4 tipos service-provider (no solo
+TECHNICIAN); endpoint de movimientos de inventario es `stock-records/<uuid>/movements/` (no
+`transactions/`, que es una ruta top-level distinta); `WishlistViewSet` usa `IsBuyerOrAdmin` (no
+`IsAuthenticatedActiveUser`); `core` tiene 12 modelos, no 9 (faltaban `BrandSliderConfig`,
+`BrandSliderItem`, `FooterGroup`, `FooterLink`, `AboutUsConfig`, `AboutUsValue` en el conteo);
+`/api/v1/dashboard/users/` (`AdminUserViewSet`) no existe, fue eliminado 2026-07-05 (gestion de
+usuarios vive solo en `/api/v1/users/`); `frontend/src/apps/customer/main.js` NO existe (Vite
+tiene un unico entry `admin`, no multi-entry); variables `.env` corregidas (`SECRET_KEY` no
+`DJANGO_SECRET_KEY`, agregada `JWT_SECRET_KEY`, eliminada `DATABASE_URL` que no se usa en ningun
+lado del codigo, `WOMPI_WIDGET_URL` marcada como hardcodeada no leida de env).
 
-> **Nota sobre esta version:** esta pasada (2026-07-20) NO releyo a fondo todas las apps — se
-> concentro en cerrar los gaps mas graves encontrados: (1) `organization` (creada 2026-07-12) y
-> `security` (creada ~2026-07-09) llevaban **meses sin aparecer en este documento**, ambas con
-> apps y endpoints reales funcionando en produccion; (2) la seccion "Rutas API raiz" estaba
-> desactualizada desde la v8 — reescrita completa contra el `ecommerce/urls.py` real; (3) el AI
-> Engine evoluciono de "motor de generacion de codigo" a tener ademas un "AI Core" conversacional
-> completo (Fases 1-8, `/chat`, Tool Registry, Agent Profiles) que este documento nunca menciono
-> — agregada una referencia (el detalle vive en `ai_engine/.AGENT/` y no se repite aqui). Lo que
-> **no** se releyo a fondo esta pasada: `quotes`, `marketing`, `shop`, `cart`, `inventory`,
-> `technical_services` (mas alla de confirmar que su segundo `urls.py` existe), `ecommerce` (base).
-> Las secciones `payment`, `dashboard`, RBAC (base) y kyc de la v8 siguen vigentes salvo lo
-> anotado explicitamente abajo. Las secciones "Correcciones y mejoras aplicadas" y "Cambios
-> recientes" al final del documento son **registro historico** de versiones previas (2026-06-19
-> en adelante) — se conservan como bitacora, no como estado actual.
+> **Nota sobre esta version:** todo lo verificado en esta pasada fue via grep/lectura directa de
+> codigo real (no inferencia) — cada correccion de abajo tiene evidencia `archivo:linea`. Lo que
+> **no** se hizo esta pasada: una relectura exhaustiva completa de cada app (eso seguiria siendo
+> trabajo pendiente si aparecieran funcionalidades nuevas no referenciadas en absoluto en ninguna
+> version de este documento — no se encontro ninguna app/modulo nuevo sin documentar, a diferencia
+> de v9 que encontro 2 apps enteras sin documentar). Las secciones "Correcciones y mejoras
+> aplicadas" y "Cambios recientes" al final del documento son **registro historico** de versiones
+> previas (2026-06-19 en adelante) — se conservan como bitacora, no como estado actual.
 
 ---
 
@@ -155,8 +162,11 @@ accounts.models.UserProfile (OneToOneField -> user.profile)
   anterior de este doc — ese nombre esta literalmente comentado como "reservado" en el codigo).
   Para buscar tecnicos por categoria: `category.technician_profiles.all()`.
 - `is_available`: BooleanField (default True).
-- Se crea automaticamente via signal `post_save` en `UserProfile` cuando `user_type == TECHNICIAN`
-  (`accounts/models.py`).
+- Se crea automaticamente via signal `post_save` en `UserProfile` cuando `user_type` esta en
+  `SERVICE_PROVIDER_TYPES` (TECHNICIAN, PROFESSIONAL, SPECIALIST, CONTRACTOR) — **[CORREGIDO
+  2026-07-23]** el nombre del modelo (`TechnicianProfile`) sugiere que solo aplica a TECHNICIAN,
+  pero el signal real (`accounts/models.py:400-409`, comentario explicito en el codigo) se
+  generaliza a los 4 tipos service-provider, no solo TECHNICIAN.
 
 ### Clases de permiso (fuente de verdad)
 
@@ -343,7 +353,7 @@ Todos requieren `IsAuthenticated + IsAdminUser` (de `users.api.permissions`).
 | Endpoint | ViewSet |
 |----------|---------|
 | `GET /api/v1/dashboard/metrics/` | `AdminMetricsView` — ventas, ordenes, clientes, productos |
-| `/api/v1/dashboard/users/` | `AdminUserViewSet` |
+| ~~`/api/v1/dashboard/users/`~~ | **[CORREGIDO 2026-07-23] `AdminUserViewSet` NO EXISTE** — eliminado 2026-07-05 (comentario explicito en `dashboard/api/views.py:140-141`: el frontend nunca lo llamaba y ya habia divergido). Versiones anteriores de este documento lo listaban por error. Gestion de usuarios vive solo en `/api/v1/users/` (`users.api.views.UserViewSet`) |
 | `/api/v1/dashboard/products/` | `AdminProductViewSet` + actions: `variants/`, `variants/create`, `variants/<pk>` |
 | `/api/v1/dashboard/categories/` | `AdminCategoryViewSet` — acepta multipart (image upload) |
 | `/api/v1/dashboard/brands/` | `AdminBrandViewSet` — acepta multipart (logo upload) |
@@ -407,10 +417,15 @@ path('api/v1/core/',          include('core.urls')),
 path('api/v1/notifications/', include('notifications.api.urls')),
 path('api/v1/operations/',    include('operations.api.urls')),
 path('api/v1/organization/',  include('organization.api.urls')),  # <- nuevo, app creada 2026-07-12
+path('api/v1/support/',       include('support.api.urls')),       # <- CORREGIDO 2026-07-23: SI existe (ver abajo)
 path('api/v1/',               include('security.api.urls')),      # <- nuevo, monta SIN prefijo propio: resuelve a /api/v1/security/health/
 ```
 
-**No existe `path('api/v1/support/', ...)`** — `support` es 100% WebSocket, ver seccion dedicada.
+**[CORREGIDO 2026-07-23] `path('api/v1/support/', ...)` SI existe** (`ecommerce/urls.py:68`) —
+las versiones anteriores de este documento (v9 y previas) afirmaban explicitamente lo contrario
+("no existe"/"support es 100% WebSocket") en este bloque y en la seccion `support` de abajo. Es
+un solo endpoint real, `POST /api/v1/support/chats/<uuid>/rate/` (calificacion CSAT) — el resto
+de la interaccion de `support` sigue siendo 100% WebSocket. Ver seccion `support` para el detalle.
 **No existe `path('api/v1/wompi/', ...)`** — cualquier referencia a esa ruta en documentacion vieja
 o memoria es incorrecta.
 **`kyc.api.urls` comparte el prefijo `api/v1/auth/`** con `accounts.urls` (no tiene prefijo propio
@@ -444,6 +459,11 @@ Archivo: `accounts/api/views.py`
 | `/api/v1/auth/change-password/` | POST | IsAuthenticated |
 | `/api/v1/auth/register-request/` | POST | AllowAny |
 | `/api/v1/auth/register-verify/` | POST | AllowAny |
+| `/api/v1/auth/register-resend/` | POST | AllowAny — **agregado 2026-07-23**, no estaba en la tabla |
+| `/api/v1/auth/verify-email-confirm/` | POST | AllowAny — **agregado 2026-07-23** |
+| `/api/v1/auth/forgot-password-request/` | POST | AllowAny — **agregado 2026-07-23**, recuperacion de clave de CLIENTE (no confundir con `admin-auth/forgot-password-*`) |
+| `/api/v1/auth/forgot-password-verify/` | POST | AllowAny — **agregado 2026-07-23** |
+| `/api/v1/auth/forgot-password-reset/` | POST | AllowAny — **agregado 2026-07-23** |
 
 Services: `AccountCommands`, `AccountSelector`
 
@@ -519,6 +539,7 @@ Archivo: `users/api/views.py`
 |----------|--------|---------|
 | `/api/v1/users/` | GET, POST | IsAuthenticated + IsAdminUser |
 | `/api/v1/users/<uuid>/` | GET, PATCH, DELETE | IsAuthenticated + IsAdminUser |
+| `/api/v1/users/<uuid>/erase/`, `.../reset-password/`, `.../resend-verification/`, `.../groups/`, `/api/v1/users/groups-catalog/`, `/api/v1/users/<uuid>/audit-log/` | — | admin — **agregado 2026-07-23**, 6 acciones reales de `UserViewSet` que no estaban en la tabla |
 
 **SSoT de identidad (2026-07-09):** `UserAdminCreateSerializer`/`UserAdminUpdateSerializer`
 (`users/api/serializers.py`) ya NO exponen `user_type` — todo usuario creado desde `/panel/usuarios`
@@ -575,8 +596,9 @@ Archivo: `inventory/api/views.py` — `StockRecordViewSet`
 | Endpoint | Metodo | Permiso |
 |----------|--------|---------|
 | `/api/v1/inventory/stock-records/` | GET | IsAdminUser |
-| `/api/v1/inventory/stock-records/<uuid>/transactions/` | GET | IsAdminUser |
+| `/api/v1/inventory/stock-records/<uuid>/movements/` | GET | IsAdminUser — **[CORREGIDO 2026-07-23]** antes decia `.../transactions/`, el `url_path` real es `movements` (`inventory/api/views.py:103`) |
 | `/api/v1/inventory/stock-records/<uuid>/adjust-stock/` | POST | IsAdminUser |
+| `/api/v1/inventory/transactions/` | GET | IsAdminUser — **agregado 2026-07-23**, ruta top-level separada (`InventoryTransactionViewSet`, listado global sin filtrar por stock-record) — no confundir con `movements/`, que es el historial de UN stock-record especifico |
 
 Services: `InventoryCommands` (`register_entry`, `register_exit`), `InventorySelector`
 (`get_current_stock`, `get_stock_for_variant`), `InventoryKardex`.
@@ -590,8 +612,11 @@ otra app fuera de ese punto (ver app `payment`).
 
 ### cart — Carrito de compras
 
-Archivo: `cart/api/views.py` — `CartViewSet` (permiso real `IsBuyerOrAdmin`, no `IsAuthenticated`
-generico) + `WishlistViewSet` (`IsAuthenticatedActiveUser`)
+Archivo: `cart/api/views.py` — `CartViewSet` + `WishlistViewSet`, **ambos con permiso real
+`IsBuyerOrAdmin`** — **[CORREGIDO 2026-07-23]** versiones anteriores de este documento decian
+que `WishlistViewSet` usaba `IsAuthenticatedActiveUser`; el codigo real (`cart/api/views.py:140,
+147`) usa el mismo `IsBuyerOrAdmin` que `CartViewSet` (import identico de
+`users.api.permissions`).
 
 | Endpoint | Metodo | Permiso |
 |----------|--------|---------|
@@ -601,8 +626,8 @@ generico) + `WishlistViewSet` (`IsAuthenticatedActiveUser`)
 | `/api/v1/cart/clear/` | POST | IsBuyerOrAdmin |
 | `/api/v1/cart/remove-item/<uuid>/` | POST | IsBuyerOrAdmin |
 | `/api/v1/cart/checkout/` | POST | IsBuyerOrAdmin — preview de checkout, precios congelados + verificacion de stock |
-| `/api/v1/cart/wishlist/` | GET, POST | IsAuthenticatedActiveUser |
-| `/api/v1/cart/wishlist/<uuid>/` | DELETE (soft) | IsAuthenticatedActiveUser |
+| `/api/v1/cart/wishlist/` | GET, POST | IsBuyerOrAdmin |
+| `/api/v1/cart/wishlist/<uuid>/` | DELETE (soft) | IsBuyerOrAdmin |
 
 Services: `CartCommands`, `CartSelector`
 
@@ -1065,14 +1090,23 @@ Mounted en `/api/v1/core/` via un unico `HomeFeedView(GenericViewSet)`, `permiss
 | `GET /api/v1/core/about-us/` | **Nuevo 2026-07-19** — filosofia institucional para la pagina publica `/nosotros` (historia/mision/vision/valores), `AboutUsConfig` (singleton) + `AboutUsValue` (lista). Admin: `/panel/nosotros`. Cache propia (`sintel_about_us_v1`), no viaja dentro de `home-feed` (es su propia pagina, no un bloque de la Home) |
 | `GET /api/v1/core/enums/{name}/` | Catalogo contract-first de enums compartidos (badges/labels), consumido por `useEnums.ts` en TODO el panel admin, no solo landing |
 
-9 modelos (gano `FooterCTAConfig`, singleton del bloque CTA final — migr. `0014`, 2026-06-30)
-incluyendo `HomeBanner`, `HomeModuleConfig`, `HomeCardGroup`. Los 3 ultimos + `HomeCard` ganaron
-campos de un "Constructor Visual" (2026-06-30): `display_type`/`layout_config` en
-`HomeModuleConfig` (18 layouts posibles), `card_type`/`animation`/`is_featured`/`priority` en
-`HomeCard`, `layout_type`/`padding`/`columns`/`bg_image` en `HomeCardGroup` — editado desde
+**[CORREGIDO 2026-07-23]** 12 modelos, no 9 como decian versiones anteriores de este documento
+(el conteo de "9" quedo congelado en la migracion `0014`, 2026-06-30, y nunca se actualizo tras
+sumar `BrandSliderConfig`/`BrandSliderItem` -- migr. `0022` -- y `FooterGroup`/`FooterLink` --
+migr. `0023`-`0025`; `AboutUsConfig`/`AboutUsValue` ya estaban referenciados aparte mas abajo en
+este mismo documento pero no se habian sumado al conteo): `HomeBanner`, `HomeModuleConfig`,
+`HomeCard`, `HomeCardGroup`, `FooterCTAConfig`, `FooterGroup`, `FooterLink`, `NavbarLink`,
+`BrandSliderConfig`, `BrandSliderItem`, `AboutUsConfig`, `AboutUsValue`. `HomeModuleConfig`,
+`HomeCard` y `HomeCardGroup` ganaron campos de un "Constructor Visual" (2026-06-30):
+`display_type`/`layout_config` en `HomeModuleConfig` (18 layouts posibles),
+`card_type`/`animation`/`is_featured`/`priority` en `HomeCard`,
+`layout_type`/`padding`/`columns`/`bg_image` en `HomeCardGroup` — editado desde
 `ModuleBuilderModal.vue` (nuevo, ~1500 lineas) en `/panel/home-config`. Cache invalidado via
-signals (8 de 9 modelos — `HomeCardGroup` es la unica excepcion intencional, invalidacion manual
-en su ViewSet) + llamadas explicitas desde el panel admin.
+signals (8 de 9 modelos del set original de contenido Home — `HomeCardGroup` es la unica
+excepcion intencional, invalidacion manual en su ViewSet) + llamadas explicitas desde el panel
+admin — no verificado en esta pasada (2026-07-23) si `BrandSliderConfig`/`BrandSliderItem`/
+`FooterGroup`/`AboutUsConfig`/`AboutUsValue` (sumados despues del conteo original de 9) siguen
+el mismo patron de invalidacion.
 
 **N+1 corregido 2026-07-03 (Fase 6, tercera instancia del mismo patron):**
 `get_thumbnail()` en `FeaturedProductCardSerializer`/`FeaturedEquipmentCardSerializer`/
@@ -1120,27 +1154,41 @@ desde `payment.shared.commands.confirm_order_payment()` y `CodCommands.confirm_o
 
 ---
 
-### support — Chat de soporte en tiempo real (100% WebSocket) — app nueva, doc propio desactualizado
+### support — Chat de soporte en tiempo real (WebSocket + 1 endpoint REST) — app nueva, doc propio desactualizado
 
-> **[CORREGIDO 2026-07-03]** El doc `support/.AGENT/docs/ARQUITECTURA_COMPLETA_SUPPORT.md`
-> describe una REST API (`ChatRoomViewSet`, `/api/v1/support/rooms/`) y un WebSocket por sala
-> (`ws/support/<room_uuid>/`) que **no existen en el codigo**. `support/api/` solo tiene
-> `serializers.py` (sin `views.py` ni `urls.py`), y `support` no esta `include()`do en
-> `ecommerce/urls.py` — no existe ninguna ruta `/api/v1/support/`.
+> **[CORREGIDO 2026-07-03, luego 2026-07-23]** El doc
+> `support/.AGENT/docs/ARQUITECTURA_COMPLETA_SUPPORT.md` describia una REST API completa
+> (`ChatRoomViewSet`, `/api/v1/support/rooms/`) y un WebSocket por sala (`ws/support/<room_uuid>/`)
+> que no existian en el codigo (corregido 2026-07-03: solo hay un WebSocket fijo, ver abajo). Esa
+> correccion de 2026-07-03 quedo a su vez desactualizada: **desde entonces `support` SI gano una
+> ruta REST real**, y las 2 afirmaciones "no existe `/api/v1/support/`" que este documento repetia
+> (aqui y en la seccion "Rutas API raiz") eran incorrectas al momento de esta auditoria
+> (2026-07-23) — confirmado leyendo `ecommerce/urls.py:68`.
 
-**Lo que realmente existe:** una unica ruta WebSocket fija `ws/support/chat/` ->
-`SupportChatConsumer` (`support/consumers.py`, registrado en `ecommerce/routing.py`).
-`connect()` distingue: admin (`is_staff and is_superuser`) se une al grupo global
-`support_admins`; cliente regular obtiene/crea su `ChatRoom` y se une a `chat_{user.uuid}`,
-recibiendo el historial de mensajes al conectar. Modelos: `ChatRoom` (`user`, `status`
-OPEN/CLOSED, `assigned_admin`), `ChatMessage` (`room`, `sender`, `message`, `is_read`).
+**Lo que realmente existe hoy:**
+1. Una unica ruta WebSocket fija `ws/support/chat/` -> `SupportChatConsumer`
+   (`support/consumers.py`, registrado en `ecommerce/routing.py`). `connect()` distingue: admin
+   (`is_staff and is_superuser`) se une al grupo global `support_admins`; cliente regular
+   obtiene/crea su `ChatRoom` y se une a `chat_{user.uuid}`, recibiendo el historial de mensajes
+   al conectar.
+2. **[NUEVO, no capturado en ninguna version anterior]** `POST /api/v1/support/chats/<uuid>/rate/`
+   (`support/api/views.py::RateConversationView`, `support/api/urls.py`, montado en
+   `ecommerce/urls.py:68` sin prefijo adicional) — `IsAuthenticated`, calificacion CSAT (1-5 +
+   comentario opcional) de una conversacion ya cerrada, via `ChatCommands.rate_conversation()`.
+   El propio docstring del archivo lo llama explicitamente "primera REST API publica de
+   `support`" — el resto de la interaccion sigue siendo 100% WebSocket, esto es un unico endpoint
+   satelite, no un cambio de arquitectura.
+
+Modelos: `ChatRoom` (`user`, `status` OPEN/CLOSED, `assigned_admin`, mas campos de CSAT:
+`csat_rating`/`csat_comment`/`csat_rated_at`), `ChatMessage` (`room`, `sender`, `message`,
+`is_read`), `ChatRoomContext` (no detallado en esta pasada).
 
 UI: widget flotante para clientes (componente global, no una ruta) + consola admin
 `SupportDashboardView.vue` en `/panel/soporte` (dos columnas: lista de salas + chat activo).
 
-**Pendiente:** actualizar `support/.AGENT/docs/ARQUITECTURA_COMPLETA_SUPPORT.md` para que
-describa el flujo WebSocket real en vez de la REST API inexistente — no se hizo en esta pasada
-por estar fuera del archivo que se pidio auditar.
+**Pendiente:** actualizar `support/.AGENT/docs/ARQUITECTURA_COMPLETA_SUPPORT.md` para incluir el
+endpoint CSAT y el AI Core en modo "atencion IA" antes del Human Handoff — no se hizo en esta
+pasada por estar fuera del archivo que se pidio auditar (ver "Tareas pendientes").
 
 ---
 
@@ -1156,8 +1204,8 @@ por estar fuera del archivo que se pidio auditar.
 ```
 frontend/src/
   apps/
-    admin/       router.js (UNICO router — define TODAS las rutas: customer + /panel/*), App.vue
-    customer/    main.js — placeholder casi vacio, no se usa como app Vue separada todavia
+    admin/       router.js (UNICO router — define TODAS las rutas: customer + /panel/*), App.vue,
+                 main.js (UNICO entry point de Vite — ver nota abajo)
   main.js        # entrada raiz, trivial — la app real se monta desde apps/admin/
   modules/       # modulos ADMIN: shop/, inventory/, orders/, users/, services/, quotes/,
                  # renting/, marketing/, support/ (SupportDashboardView.vue)
@@ -1170,6 +1218,13 @@ frontend/src/
 
 **No existe `frontend/src/router/`** como directorio separado — todo vive en
 `apps/admin/router.js`.
+
+**[CORREGIDO 2026-07-23]** `frontend/src/apps/customer/` **no existe** — versiones anteriores de
+este documento decian que existia como "placeholder casi vacio". `frontend/vite.config.js`
+(`rollupOptions.input`) define un unico entry point, `admin: resolve(__dirname,
+'src/apps/admin/main.js')`, con un comentario explicito en el propio archivo ("admin: unico SPA
+real"). La afirmacion de "Vite con multi-entry (admin + customer apps)" en la seccion
+"Notas de infraestructura frontend" de abajo tambien queda corregida.
 
 ### Rutas reales (verificadas en `router.js`, no exhaustivas)
 
@@ -1222,7 +1277,8 @@ AboutUsAdminView.vue, grupo "Sitio Web" del sidebar). El login/registro de clien
 
 ### Notas de infraestructura frontend
 
-- **Vite** con multi-entry (admin + customer apps, aunque customer no esta activo aun)
+- **Vite** con un unico entry point (`admin`) — **[CORREGIDO 2026-07-23]** no es multi-entry,
+  `frontend/src/apps/customer/` no existe (ver seccion "Estructura real" arriba)
 - **HMR en Docker/WSL2:** `watch.usePolling: true, interval: 300` en `vite.config.js` — sin esto,
   los cambios Vue/JS nunca se reflejan en el navegador (inotify no funciona en WSL2)
 - **Bootstrap 5.3.3 + Bootstrap Icons 1.11.3** via CDN en `index.html`
@@ -1270,7 +1326,7 @@ Archivos media: servidos en dev via `static(MEDIA_URL, document_root=MEDIA_ROOT)
 
 ---
 
-## Configuracion `.env` — Variables requeridas (corregido 2026-07-03)
+## Configuracion `.env` — Variables requeridas (corregido 2026-07-03, luego 2026-07-23)
 
 | Variable | Uso |
 |----------|-----|
@@ -1278,11 +1334,12 @@ Archivos media: servidos en dev via `static(MEDIA_URL, document_root=MEDIA_ROOT)
 | `WOMPI_PRIVATE_KEY` | Clave privada Wompi |
 | `WOMPI_INTEGRITY_SECRET` | Firma SHA256 del checkout — **antes decia `WOMPI_INTEGRITY_KEY`, nombre real corregido** |
 | `WOMPI_EVENTS_SECRET` | Verificacion de firma del webhook — **antes decia `WOMPI_EVENTS_KEY`, nombre real corregido** |
-| `WOMPI_ENVIRONMENT` | `test` \| `prod` — no listada en versiones anteriores |
-| `WOMPI_WIDGET_URL` | URL del script del widget Wompi — no listada en versiones anteriores |
-| `NEQUI_CLIENT_ID` / `NEQUI_CLIENT_SECRET` / `NEQUI_API_KEY` / `NEQUI_ENVIRONMENT` | Integracion Nequi Push — no listadas en versiones anteriores |
-| `DJANGO_SECRET_KEY` | Clave secreta Django |
-| `DATABASE_URL` / `DB_HOST` / `DB_NAME` / `DB_USER` / `DB_PASSWORD` / `DB_PORT` | Conexion PostgreSQL (sqlite si `DB_HOST` no esta seteado, en dev local sin Docker) |
+| `WOMPI_ENVIRONMENT` | `test` \| `prod` |
+| ~~`WOMPI_WIDGET_URL`~~ | **[CORREGIDO 2026-07-23] NO es una variable de `.env`** — esta hardcodeada en `ecommerce/settings/base.py:373` (`'https://checkout.wompi.co/widget.js'`), no leida via `config(...)`. Eliminada de esta tabla |
+| `NEQUI_CLIENT_ID` / `NEQUI_CLIENT_SECRET` / `NEQUI_API_KEY` / `NEQUI_ENVIRONMENT` | Integracion Nequi Push |
+| `SECRET_KEY` | Clave secreta Django — **[CORREGIDO 2026-07-23]** antes decia `DJANGO_SECRET_KEY`, nombre real es `SECRET_KEY` (`config('SECRET_KEY')` en `settings/base.py:11`) |
+| `JWT_SECRET_KEY` | **[AGREGADO 2026-07-23]** signing key de SimpleJWT (`SIGNING_KEY` en `settings/base.py:241`) — variable obligatoria, no estaba en ninguna version anterior de esta tabla |
+| `DB_HOST` / `DB_NAME` / `DB_USER` / `DB_PASSWORD` / `DB_PORT` | Conexion PostgreSQL — **[CORREGIDO 2026-07-23]** `DATABASE_URL` eliminada de esta tabla: no se usa en ningun lugar del codigo (grep completo sin resultados), la conexion real solo lee estas 5 variables sueltas (sqlite si `DB_HOST` no esta seteado, en dev local sin Docker) |
 | `CORS_ALLOWED_ORIGINS` | Origenes permitidos CORS |
 | `REDIS_URL` | Conexion Redis (broker Celery + channels) |
 
@@ -1418,18 +1475,38 @@ matrices de riesgo, dependencias y estrategia de rollback.
 
 ---
 
-## Tareas pendientes (actualizado 2026-07-20)
+## Tareas pendientes (actualizado 2026-07-23)
 
 | Prioridad | Tarea |
 |-----------|-------|
-| Alta | Releer a fondo `quotes`, `marketing`, `shop`, `cart`, `inventory`, `technical_services`, `ecommerce` (base) contra el estado 2026-07-20 — esta pasada se concentro en cerrar los gaps de `organization`/`security` (apps completas sin documentar) y en las rutas API raiz, no en re-auditar apps ya cubiertas en v8 |
-| Media | `organization/CLAUDE.md` dice "Fase 3 de 9" pero los 8 recursos ya estan operativos — corregir esa nota (ver seccion `organization`) |
-| Media | `support/.AGENT/docs/ARQUITECTURA_COMPLETA_SUPPORT.md` sigue sin actualizar (nota de 2026-07-03 aun vigente) para reflejar que el AI Core (2026-07-16) ahora tambien atiende ese chat en "modo AI" antes del Human Handoff — ver `ai_engine/.AGENT/PLAN_DE_ACCION_AI_CORE.md` Fase 7 |
+| Media | `support/.AGENT/docs/ARQUITECTURA_COMPLETA_SUPPORT.md` sigue sin actualizar para reflejar (a) el endpoint CSAT nuevo (`POST /api/v1/support/chats/<uuid>/rate/`, ver seccion `support`) y (b) que el AI Core (2026-07-16) ahora tambien atiende ese chat en "modo AI" antes del Human Handoff — ver `ai_engine/.AGENT/PLAN_DE_ACCION_AI_CORE.md` Fase 7 |
+| Media | `organization/CLAUDE.md` dice "Fase 3 de 9" pero los 8 recursos ya estan operativos (re-verificado 2026-07-23, sigue sin corregir) — corregir esa nota (ver seccion `organization`) |
 | Media | Documentar en el doc de frontend (`ARQUITECTURA_COMPLETAFRONEND.md`) el Design System `components/base/*` con el mismo nivel de detalle que ya tiene `ai_skills/frontend/components/cards.md` |
-| Baja | Rate limiting en login (proteccion brute force) — verificar si el rediseno de Auth 2026-07-17 ya lo cubre, no confirmado en esta pasada |
+| Baja | Confirmar si `core.CACHE`/signals cubren tambien `BrandSliderConfig`/`BrandSliderItem`/`FooterGroup`/`AboutUsConfig`/`AboutUsValue` (los 5 modelos sumados despues del conteo original de "9" — ver seccion `core`), no verificado en la pasada 2026-07-23 |
+| Baja | Rate limiting en login (proteccion brute force) — verificar si el rediseno de Auth 2026-07-17 ya lo cubre, no confirmado en ninguna pasada hasta ahora |
 | Baja | Implementar rol/perfil VENDOR completo (hoy reservado, sin flujo end-to-end claro) |
 | Baja | Agregar test parametrizado que confirme `IsAdminUser` en las ViewSets de `dashboard` (blindaje contra regresiones de permisos, sugerido en `ARQUITECTURA_COMPLETA_DASHBOARD.md`) |
 | Descartado por decision del usuario (2026-07-09) | Sistema de eventos de dominio, wizard de upgrade independiente por tipo profesional (se mantiene 1 solo wizard reutilizado), reorganizacion del dashboard de usuarios por tipo, libreria de 8 componentes Vue de identidad — sin consumidor concreto hoy, ver `accounts/.AGENT/docs/ARQUITECTURA_COMPLETA_ACCOUNTS.md` seccion "Auditoria y Correcciones [2026-07-09]" |
+
+### Completadas (2026-07-23 — verificacion linea-por-linea contra codigo real, 5 pasadas paralelas)
+- Verificados contra codigo real (no solo referenciados): `payment`, `technical_services`,
+  `quotes`, `shop`, `inventory`, `cart`, `orders`, `renting`, `marketing`, `core`,
+  `notifications`, `operations`, `support`, `dashboard` (tabla de endpoints), RBAC/`accounts`/
+  `kyc`/`users`/`organization`/`security`, rutas API raiz (`ecommerce/urls.py`), Frontend
+  (estructura/rutas/Design System), Docker infra, variables `.env`.
+- 8 discrepancias reales encontradas y corregidas (ver nota de version arriba): ruta REST de
+  `support` que el documento negaba explicitamente (la mas relevante — cambia una afirmacion
+  arquitectonica, no solo un detalle), signal de `TechnicianProfile`, endpoint de inventario
+  `movements/` vs `transactions/`, permiso de `WishlistViewSet`, conteo de modelos de `core`
+  (9 -> 12), `/api/v1/dashboard/users/` inexistente, estructura frontend (`apps/customer/` no
+  existe, Vite no es multi-entry), variables `.env` (`SECRET_KEY`, `JWT_SECRET_KEY`,
+  `DATABASE_URL` no usada, `WOMPI_WIDGET_URL` hardcodeada).
+- Ademas se completaron 3 tablas de endpoints que estaban incompletas (no incorrectas, solo
+  parciales): `accounts` (5 acciones de recuperacion de clave/reenvio no listadas), `users`
+  (6 acciones admin no listadas), `inventory` (ruta top-level `transactions/` no listada).
+- Confirmado sin discrepancias: `MIGRACION_CORE_V4_DOMINIOS_FASE1-9` y
+  `MIGRACION_ORGANIZATION_FASE1` — son registros historicos fechados y auto-consistentes, no
+  requieren actualizacion.
 
 ### Completadas (2026-07-12 a 2026-07-20 — gaps de documentacion + AI Core + Design System)
 - Cerrados 2 gaps reales de documentacion: `organization` (creada 2026-07-12) y `security`

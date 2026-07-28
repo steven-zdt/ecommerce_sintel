@@ -119,6 +119,33 @@ El frontend captura email y barrio/localidad, pero el backend `ShippingAddress` 
 - Revisar que todos los endpoints de checkout usen `IsAuthenticatedActiveUser`.
 - Crear pruebas E2E del flujo completo: carrito -> checkout -> orden -> pago simulado -> email/log.
 
+## Verificacion posterior: incidente "merchants/undefined" + email sin confirmacion (2026-07-27)
+
+Se reporto un incidente historico con dos sintomas: `GET .../v1/merchants/undefined` (422) al
+abrir el widget de Wompi, y un correo de confirmacion de pago enviado sin evidencia de que
+Wompi hubiera respondido. Confirmado como **ya corregido** (no reproducible contra el codigo
+actual de esta rama):
+
+- Ningun camino escribe `Order.status = 'paid'` (pago online) fuera de
+  `payment/shared/commands.py::confirm_order_payment`, invocado unicamente desde
+  `PaymentCommands.confirm_payment()` cuando `Transaction.status == 'APPROVED'`. Ese status solo
+  lo escriben el webhook (firma HMAC fail-closed, F-01 ya cerrado en `a457ac6`),
+  `_sync_wompi_status` (consulta server-to-server a la API de Wompi) o `_create_transaction_sync`
+  (respuesta directa de la API de Wompi) -- nunca el callback del navegador. `useWompiWidget.js`
+  documenta explicitamente que `tx.status` del widget solo se usa para UX, nunca como fuente de
+  verdad.
+- Los 3 call-sites que abren el widget (`CheckoutView.vue`, `RentalConfirmationView.vue`,
+  `ServiceCheckoutModal.vue`) pasan la respuesta de `POST payment/payments/initialize/` completa,
+  y esa llamada esta dentro de un `try/catch` que impide abrir el widget si `initialize/` falla.
+  El backend siempre incluye `public_key: settings.WOMPI_PUBLIC_KEY`, que nunca es `undefined` en
+  JS (default `'pub_test_placeholder'` si falta la env var). `WOMPI_PUBLIC_KEY` y
+  `VITE_WOMPI_PUBLIC_KEY` estan configurados (no vacios) en los `.env.production` actuales
+  (no versionados en git).
+- Conclusion: el `undefined` reportado corresponde a un build/config anterior a estos fixes
+  (posiblemente bundle de frontend viejo o env var vacia en ese momento), no a un defecto vigente
+  en el codigo. No se requiere cambio de codigo adicional; queda documentado para no reabrir la
+  investigacion sin evidencia nueva (captura de red/consola con timestamp).
+
 ## Checklist de QA recomendado
 
 - Producto fisico Wompi aprobado descuenta inventario una sola vez.

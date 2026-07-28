@@ -2,6 +2,9 @@
 **Fecha:** 2026-07-16  
 **Referencia:** Service Layer Pattern definido en `IMPLEMENTATION_SUMMARY.md` §Service Layer
 
+> **Sincronizado 2026-07-27** contra `01_AUDITORIA_GENERAL.md` §2-3: **ARCH-C1 y los 9 ARCH-H
+> están todos ✅ Resueltos.** MEDIA PRIORIDAD (ARCH-M1-M7) no re-verificada individualmente.
+
 ---
 
 ## Reglas arquitectónicas del proyecto
@@ -19,6 +22,7 @@
 ## CRÍTICO
 
 ### ARCH-C1 — `core/services/selectors.py` contiene Commands (writes) mezclados con Selectors
+**Estado: ✅ RESUELTO** — `core/services/commands.py` creado, `selectors.py` ya solo exporta `HomeConfigSelector`. Nota: un hallazgo real durante SPRINT 1 encontró ~21 imports lazy en `dashboard/api/views.py` que seguían apuntando al `selectors.py` viejo tras el split — corregido, ver checklist 12.
 **Archivo:** `core/services/selectors.py` (642 líneas)
 
 El archivo está nombrado `selectors.py` pero contiene 8 clases de Commands con operaciones de escritura:
@@ -39,6 +43,7 @@ El archivo está nombrado `selectors.py` pero contiene 8 clases de Commands con 
 ## ALTA PRIORIDAD
 
 ### ARCH-H1 — `users/services/commands.py`: cero `@transaction.atomic`
+**Estado: ✅ RESUELTO** — 5 decoradores presentes.
 **Archivo:** `users/services/commands.py`
 
 Ningún método de escritura tiene el decorador:
@@ -48,11 +53,13 @@ Ningún método de escritura tiene el decorador:
 - `UserAuditCommands.log` (L177): `UserAuditLog.objects.create()`
 
 ### ARCH-H2 — `payment/online/services/commands.py`: `initialize_transaction` sin `@transaction.atomic`
+**Estado: ✅ RESUELTO CON DISEÑO MÁS FINO** — el atómico cubre creación+firma; la llamada a Wompi corre deliberadamente fuera para que un registro `ERROR` de auditoría sobreviva un fallo de red sin perder el registro (bug real corregido en el camino: el atómico original envolvía TODO, así que un `WompiApiError` deshacía también el propio registro de error).
 **Archivo:** `payment/online/services/commands.py:32`
 
 Crea `Transaction` y luego salva `integrity_signature` en un segundo write. Si el segundo falla, queda una `Transaction` sin firma válida. `handle_status_change` (L156) y `PaymentCommands.confirm_payment` (L256) también carecen del decorador.
 
 ### ARCH-H3 — Otras Commands sin `@transaction.atomic`
+**Estado: ✅ RESUELTO** (SPRINT 1) — marketing/notifications/support todos decorados.
 | Archivo | Métodos sin decorator |
 |---|---|
 | `marketing/services/commands.py` | `dispatch` (L15), `send_now` (L40) |
@@ -60,6 +67,7 @@ Crea `Transaction` y luego salva `integrity_signature` en un segundo write. Si e
 | `support/services/commands.py` | `get_or_create_room` (L8), `mark_messages_read` (L38) |
 
 ### ARCH-H4 — ORM directo en `dashboard/api/views.py`
+**Estado: ✅ RESUELTO** (SPRINT 3) — `ProductImageCommands` creado y conectado; `quotation.save()` delega a `QuotationAdminOrchestrator.partial_update()`.
 **Archivo:** `dashboard/api/views.py`
 
 | Línea(s) | Violación |
@@ -75,19 +83,23 @@ Crea `Transaction` y luego salva `integrity_signature` en un segundo write. Si e
 **Fix:** `ProductImageCommands` con `add_image`, `delete_image`, `set_primary_image` en `shop/services/commands.py`. Mover quotation update a `QuotationAdminOrchestrator`.
 
 ### ARCH-H5 — ORM directo en `inventory/api/views.py`
+**Estado: ✅ RESUELTO** (SPRINT 3) — `InventoryCommands.create_stock_record()` creado y usado.
 **Archivo:** `inventory/api/views.py:81-100`
 
 `StockRecord.objects.create(...)` llamado directamente en la action `create` del ViewSet. No existe `InventoryCommands.create_stock_record()`. La creación del registro salta completamente la capa de Commands.
 
 ### ARCH-H6 — `dashboard/services/admin_orchestrators.py:906-1038`: `AdminMetricsOrchestrator` usa ORM directamente
+**Estado: ✅ RESUELTO** — delega en `OrderSelector`/`UserSelector`/`ProductSelector`.
 Queries directas sobre `Order`, `User`, `Product`, `UserProfile`, `RentalRequest`. Debe delegar a `OrderSelector`, `UserSelector`, `ProductSelector`, `RentingSelector`.
 
 ### ARCH-H7 — `payment/cards/views.py`: CRUD completo en ViewSet sin Commands
+**Estado: ✅ RESUELTO** — `PaymentCardCommands` (`save_card`/`remove_card`/`set_default_card`) creado y conectado.
 **Archivo:** `payment/cards/views.py:49, 55, 59`
 
 `TokenizedCard.objects.filter().exists()`, `.exists()`, `.create()` en el ViewSet. La lógica de "primera tarjeta = default" y el guard de race condition están en la vista. No existe `PaymentCardCommands`.
 
 ### ARCH-H8 — Delete físico en modelos soft-deletable
+**Estado: ✅ RESUELTO** (SPRINT 3) — todas las instancias listadas confirmadas con soft-delete real. Hallazgo real: `CartCommands.remove_item()` existía con una firma distinta y CERO callers; la vista hacía el soft-delete inline. Re-firmado y conectado.
 | Archivo | Línea | Modelo |
 |---|---|---|
 | `cart/api/views.py` | 125 | `CartItem.delete()` — bypasea `CartCommands.remove_item()` |
@@ -99,6 +111,7 @@ Queries directas sobre `Order`, `User`, `Product`, `UserProfile`, `RentalRequest
 | `orders/services/commands.py` | 141 | `CartItem` post-checkout |
 
 ### ARCH-H9 — Violaciones de ProfileResolver
+**Estado: ✅ RESUELTO** — ambas instancias usan `ProfileResolver.resolve()`/`.get_profile()`.
 | Archivo | Línea | Patrón |
 |---|---|---|
 | `accounts/services/commands.py` | 381 | `getattr(user, 'profile', None)` en Command |

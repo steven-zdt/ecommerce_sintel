@@ -229,3 +229,23 @@ no listados originalmente aqui:
 - [x] `integrity_signature` no aparece en ninguna respuesta de la API de pagos (2026-07-16, verificado con una transaccion real: `GET .../confirmation/?tx={uuid}` -> 200, campo ausente; tambien confirmado por grep que ni el serializer ni la vista lo referencian)
 - [x] Panel admin: `/panel/ordenes/renting` abre el board correcto (2026-07-16, verificado con Playwright + login admin real: renderiza "Operaciones de Renting", cero errores de consola)
 - [x] `GET /api/v1/inventory/stock-records/` con token de comprador → 403 (2026-07-16, verificado con usuario `CUSTOMER` real)
+
+---
+
+## Continuación posterior a este checklist (no reabrir estos items, ver los documentos citados)
+
+Este checklist cierra en 2026-07-16/17. El trabajo de seguridad/calidad continuó en dos rondas
+posteriores, no reflejadas aquí:
+
+- **Auditoría Enterprise (2026-07-24, commit `a457ac6`):** 9 hallazgos adicionales (`Q-01/Q-02`,
+  `N-01`, `R-01`, `F-01`, `F-02/O-01/O-02`, `A-01`, `C-01`, `C-04`) + pipeline de CI
+  (`.github/workflows/ci.yml`). Detalle en `01_AUDITORIA_GENERAL.md` §4.
+- **Sesión de verificación 2026-07-27 (mañana):** cierre de `SEC-H6`/`DB-H1` (con un incidente
+  crítico nuevo, `NameError` que tumbaba todo el backend) y migración 100% de los 40 módulos admin
+  restantes a stores Pinia. Detalle en `01_AUDITORIA_GENERAL.md` §7.
+- **Sesión de continuación 2026-07-27 (tarde):** hallazgo y cierre de 4 apps con tareas Celery sin
+  worker en producción (`CELERY_TASK_DEFAULT_QUEUE` faltante), y verificación de un incidente
+  histórico de checkout Wompi ya corregido. Detalle en `01_AUDITORIA_GENERAL.md` §9.
+
+Para el estado agregado y actualizado de todos los hallazgos (no solo los de este checklist), ver
+`01_AUDITORIA_GENERAL.md` en su totalidad — es el documento maestro sincronizado 2026-07-27.

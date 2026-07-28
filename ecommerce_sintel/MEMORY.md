@@ -26,6 +26,46 @@ Toda interacción y modificación de código respeta obligatoriamente los siguie
 
 ## 4. Historial Reciente y Tareas Actuales (Julio 2026)
 
+- **Bug real cerrado: tareas Celery de 4 apps sin worker escuchandolas en produccion
+  (2026-07-27, encontrado auditando `docker-compose.prod.yml` contra el estado actual del
+  codigo, a peticion del usuario tras cerrar los 9 hallazgos P0 de `a457ac6`):**
+  `CELERY_TASK_ROUTES` (`ecommerce/settings/base.py`) solo enruta `notifications.*`,
+  `marketing.*` y `accounts.*`; sin `CELERY_TASK_DEFAULT_QUEUE`, cualquier tarea de otra app
+  cae en la cola nativa de Celery llamada `celery` -- y `celery_worker` en
+  `docker-compose.prod.yml` corre con `-Q default,marketing,notifications`, que NUNCA
+  incluyo esa cola. Con el tiempo se agregaron tareas Celery en `payment`, `renting`,
+  `orders` y `support` (ninguna con `queue=` explicito) y quedaron encolandose sin ningun
+  worker procesandolas -- incluida `payment.tasks.reconcile_pending_wompi_transactions`, el
+  fallback que reconcilia pagos Wompi cuando el webhook se pierde. El propio doc de
+  arquitectura (`ecommerce/.AGENT/docs/ARQUITECTURACOMPLETA_SETTING.md`) afirmaba
+  incorrectamente que "el resto cae en default implicito" -- ese supuesto nunca fue cierto,
+  y por eso nadie lo detecto al agregar tareas nuevas. **Fix:** agregado
+  `CELERY_TASK_DEFAULT_QUEUE = 'default'` en `base.py` (cola ya escuchada por el worker, sin
+  tocar `docker-compose.prod.yml`). Doc de arquitectura corregido en sus 3 menciones a
+  Celery routing, con regla explicita para el futuro: toda cola NUEVA que se agregue a
+  `CELERY_TASK_ROUTES` debe agregarse tambien al flag `-Q` de `celery_worker` en ambos
+  compose (prod y dev), o sus tareas quedaran igual de huerfanas. **Requiere rebuild/redeploy
+  de la imagen `django` para tomar efecto** (el codigo vive horneado en la imagen, no hay
+  bind mount de fuente en produccion) -- no aplicado a produccion en esta sesion (regla
+  `.AGENT.md`: nunca elevar sin instruccion explicita).
+
+- **Verificacion (no bug, incidente historico ya corregido): "merchants/undefined" (422) +
+  email de pago sin confirmacion de Wompi (2026-07-27, reportado por el usuario via
+  `notas.txt`):** se rastreo el flujo completo -- `Order.status='paid'` (pago online) solo
+  se escribe desde `payment/shared/commands.py::confirm_order_payment`, invocado unicamente
+  cuando `Transaction.status=='APPROVED'`, y ese status solo lo escriben el webhook (firma
+  HMAC fail-closed, F-01 ya cerrado), `_sync_wompi_status` o `_create_transaction_sync`
+  (ambos consultan la API de Wompi server-to-server) -- nunca el callback del navegador
+  (`useWompiWidget.js` lo documenta explicitamente). El `public_key` que llega al widget
+  siempre viene de `settings.WOMPI_PUBLIC_KEY` en la respuesta de `initialize/`, con default
+  `'pub_test_placeholder'` (nunca `undefined` en JS), y los 3 call-sites que abren el widget
+  estan protegidos por `try/catch` que impide abrirlo si `initialize/` falla.
+  `WOMPI_PUBLIC_KEY`/`VITE_WOMPI_PUBLIC_KEY` confirmados no-vacios en los `.env.production`
+  actuales (no versionados en git). Conclusion: el incidente reportado corresponde a un
+  build/config anterior a los fixes ya aplicados, no a un defecto vigente -- documentado en
+  `docs/.AGENT/AUDITORIA_FLUJO_VENTA_PAGO_CONFIRMACION.md` para no reabrir la investigacion
+  sin evidencia nueva (captura de red/consola con timestamp).
+
 - **Fase 11 AI Core -- cierre (2026-07-21):** de los 2 escenarios que quedaron fuera del
   alcance original de Fase 11, la investigacion confirmo que **"renovacion de contratos" se
   solapa 100% con "renting por vencer"** (ya construida) -- `RentalRequest`/`RentalPeriod` es

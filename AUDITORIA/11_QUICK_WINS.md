@@ -2,6 +2,11 @@
 **Cambios de alto impacto y bajo riesgo — ejecutables en menos de 2 horas cada uno**  
 **Fecha:** 2026-07-16
 
+> ✅ **16/17 EJECUTADOS — sincronizado 2026-07-27.** QW-01 a QW-16 confirmados en
+> `12_CHECKLIST_IMPLEMENTACION.md` (SPRINT 0-4) y `01_AUDITORIA_GENERAL.md`. **QW-17 (JWT
+> `ACCESS_TOKEN_LIFETIME` a 15 min) no aparece marcado `[x]` en ningún checklist posterior — sigue
+> abierto** (ver también `06_SEGURIDAD.md` SEC-M3, misma conclusión).
+
 ---
 
 ## Prioridad 1 — Seguridad (hacer hoy)
@@ -179,6 +184,7 @@ validate_file(img_file, max_size_mb=5,
 ```
 
 ### QW-17 — Reducir `ACCESS_TOKEN_LIFETIME` a 15 minutos (5 min)
+**Estado (2026-07-27): 🔶 Sigue abierto** — no confirmado en ningún checklist posterior; verificar valor actual en `ecommerce/settings/base.py` antes de asumir.
 **Archivo:** `ecommerce/settings/base.py`
 ```python
 'ACCESS_TOKEN_LIFETIME': timedelta(minutes=15),  # era 60

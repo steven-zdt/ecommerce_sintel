@@ -1,25 +1,29 @@
 # 09 — API (DRF, Contratos REST, Permisos)
 **Fecha:** 2026-07-16
 
+> **Sincronizado 2026-07-27**: la columna "Estado" de la matriz de permisos se actualizó fila por
+> fila contra `01_AUDITORIA_GENERAL.md` §2-3 y la Auditoría Enterprise. La columna "Permiso Actual"
+> original queda como referencia histórica (ya no describe el código actual en las filas marcadas).
+
 ---
 
 ## Matriz de Permisos
 
-| Endpoint | Permiso Esperado | Permiso Actual | Estado |
+| Endpoint | Permiso Esperado | Permiso Actual (2026-07-16) | Estado (2026-07-27) |
 |---|---|---|---|
 | `POST /api/v1/auth/login/` | AllowAny + rate limit | AllowAny + ScopedRateThrottle (10/hr) | ✓ Correcto |
-| `POST /api/v1/admin-auth/login/` | AllowAny + rate limit | AllowAny — **sin rate limit** | ✗ Alto riesgo |
-| `GET /api/v1/inventory/stock-records/` | IsAdminUser | IsAuthenticated (cualquier usuario) | ✗ Incorrecto |
-| `POST /api/v1/inventory/stock-records/` | IsAdminUser custom | Django `IsAdminUser` (solo is_staff) | ✗ Incorrecto |
-| `POST /api/v1/inventory/stock-records/{id}/adjust-stock/` | IsAdminUser custom | Django `IsAdminUser` (solo is_staff) | ✗ Incorrecto |
-| `POST /api/v1/quotes/quotations/` | AllowAny | AllowAny (sin validación de archivos) | ⚠ Intencional pero riesgoso |
-| `GET /api/v1/quotes/quotations/{id}/download_pdf/` | IsAuthenticated + owner | AllowAny | ✗ Incorrecto |
-| `GET /api/v1/internal/ai/*` | Solo red interna | IsAuthenticatedActiveUser + accesible externamente | ✗ H5 |
-| `POST /api/v1/internal/ai/core/banners/create/` | Solo red interna | IsAdminUser + accesible externamente | ✗ Crítico |
+| `POST /api/v1/admin-auth/login/` | AllowAny + rate limit | AllowAny — **sin rate limit** | ✅ Resuelto (SEC-H1) — `throttle_scope='admin_login'`, 5/hora |
+| `GET /api/v1/inventory/stock-records/` | IsAdminUser | IsAuthenticated (cualquier usuario) | ✅ Resuelto (SEC-H7) |
+| `POST /api/v1/inventory/stock-records/` | IsAdminUser custom | Django `IsAdminUser` (solo is_staff) | ✅ Resuelto (SEC-C1) |
+| `POST /api/v1/inventory/stock-records/{id}/adjust-stock/` | IsAdminUser custom | Django `IsAdminUser` (solo is_staff) | ✅ Resuelto (SEC-C1) |
+| `POST /api/v1/quotes/quotations/` | AllowAny | AllowAny (sin validación de archivos) | ✅ Resuelto (SEC-H2/Q-02) — `validate_file()` agregado |
+| `GET /api/v1/quotes/quotations/{id}/download_pdf/` | IsAuthenticated + owner | AllowAny | ✅ Resuelto (Q-01, Auditoría Enterprise) — `get_object()` scoped al dueño |
+| `GET /api/v1/internal/ai/*` | Solo red interna | IsAuthenticatedActiveUser + accesible externamente | ✅ Resuelto (SEC-H5) — bloqueado en nginx, verificado en vivo |
+| `POST /api/v1/internal/ai/core/banners/create/` | Solo red interna | IsAdminUser + accesible externamente | ✅ Resuelto (mismo fix SEC-H5) |
 | `GET /api/v1/core/home-feed/` | AllowAny | `[]` (vacío explícito) | ✓ Intencional |
-| `POST /api/v1/notifications/whatsapp-webhook/` | AllowAny | AllowAny sin firma | ⚠ Sin verificación |
-| `GET /api/schema/` | IsAdminUser | IsAuthenticated (default) | ⚠ Media |
-| `GET /api/docs/` | IsAdminUser | IsAuthenticated (default) | ⚠ Media |
+| `POST /api/v1/notifications/whatsapp-webhook/` | AllowAny | AllowAny sin firma | ✅ Resuelto (N-01) — verifica `X-Hub-Signature-256`, fail-closed |
+| `GET /api/schema/` | IsAdminUser | IsAuthenticated (default) | ✅ Resuelto (SEC-C3) |
+| `GET /api/docs/` | IsAdminUser | IsAuthenticated (default) | ✅ Resuelto (SEC-C3) |
 | `/api/v1/dashboard/*` | IsAdminUser | `[IsAuthenticated, IsAdminUser]` | ✓ Correcto (IsAuthenticated redundante pero inofensivo) |
 | `GET /api/v1/renting/*` (catálogo) | AllowAny | AllowAny | ✓ Intencional |
 | `GET /api/v1/shop/*` (catálogo) | AllowAny | AllowAny | ✓ Intencional |
@@ -33,13 +37,13 @@
 |---|---|---|
 | `POST /api/v1/auth/register` | Bajo | Rate-limited 5/hr, crea solo CUSTOMER |
 | `POST /api/v1/auth/login` | Bajo | Rate-limited 10/hr |
-| `POST /api/v1/admin-auth/login/` | **Alto** | Sin rate limiting en cuenta de superusuario |
+| `POST /api/v1/admin-auth/login/` | ~~Alto~~ ✅ Resuelto | `throttle_scope='admin_login'` (5/hora) |
 | `POST /api/v1/auth/register-request/` | Bajo | Rate-limited, flujo OTP |
 | `POST /api/v1/auth/register-verify/` | Bajo | OTP requerido |
 | `GET /api/v1/accounts/contractors/` | Bajo | Solo lectura, marketplace público |
 | `GET /api/v1/accounts/contractors/search/` | Bajo | Solo lectura |
-| `POST /api/v1/quotes/quotations/` | **Alto** | File upload sin validación |
-| `GET /api/v1/quotes/quotations/{id}/download_pdf/` | Medio | PDF con PII del cliente, UUID guessable |
+| `POST /api/v1/quotes/quotations/` | ~~Alto~~ ✅ Resuelto | `validate_file()` agregado (SEC-H2/Q-02) |
+| `GET /api/v1/quotes/quotations/{id}/download_pdf/` | ~~Medio~~ ✅ Resuelto | Ya no `AllowAny`, scoped al dueño (Q-01) |
 | `GET /api/v1/quotes/quote-template-*` | Bajo | Catálogo estático |
 | `GET /api/v1/shop/*` | Bajo | Catálogo de lectura |
 | `GET /api/v1/renting/*` | Bajo | Catálogo de lectura |
@@ -49,10 +53,10 @@
 | `GET /api/v1/core/footer/` | Bajo | Config pública |
 | `GET /api/v1/core/site-config/` | Bajo | Branding público |
 | `GET /api/v1/core/enums/{name}/` | Bajo | Expone enums internos pero sin datos sensibles |
-| `POST /api/v1/notifications/whatsapp-webhook/` | Medio | Sin firma Meta |
+| `POST /api/v1/notifications/whatsapp-webhook/` | ~~Medio~~ ✅ Resuelto | Verifica `X-Hub-Signature-256` (N-01) |
 | `GET /api/v1/payment/feature-flags/` | Bajo | Solo estado del kill-switch |
-| `GET /api/schema/` | Medio | Contrato API completo |
-| `GET /api/docs/` | Medio | Swagger UI con contrato completo |
+| `GET /api/schema/` | ~~Medio~~ ✅ Resuelto | `IsAdminUser` (SEC-C3) |
+| `GET /api/docs/` | ~~Medio~~ ✅ Resuelto | `IsAdminUser` (SEC-C3) |
 | `GET /api/v1/health/` | Bajo | `{status: ok}` |
 
 ---
@@ -80,7 +84,7 @@ Potencial confusión para nuevos desarrolladores que busquen el ciclo de vida de
 |---|---|
 | `register` | `ScopedRateThrottle` — 5/hora |
 | `login` | `ScopedRateThrottle` — 10/hora |
-| `admin_login` | **Ninguno** |
+| `admin_login` | ✅ Resuelto — `5/hora` (SEC-H1) |
 | `kyc_upload` | `ScopedRateThrottle` — 20/hora |
 | `kyc_upgrade` | `ScopedRateThrottle` — 5/hora |
 | `order_create` | `ScopedRateThrottle` — 30/hora |
@@ -135,5 +139,5 @@ CORS_ALLOWED_ORIGINS = [...]   # leído desde env — correcto
 | Webhook | Verificación | Estado |
 |---|---|---|
 | Wompi (`/api/v1/payment/payments/webhook/`) | `_verify_wompi_event_signature()` — HMAC SHA256 | ✓ Implementado |
-| WhatsApp Meta (`/api/v1/notifications/whatsapp-webhook/`) | Solo `verify_token` en GET (challenge); POST sin `X-Hub-Signature-256` | ✗ Faltante |
+| WhatsApp Meta (`/api/v1/notifications/whatsapp-webhook/`) | HMAC-SHA256 sobre `X-Hub-Signature-256`, fail-closed (N-01) | ✅ Resuelto 2026-07-27 |
 | Nequi | Polling interno, sin webhook entrante | N/A |

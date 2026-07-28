@@ -1,6 +1,15 @@
 # 07 — FRONTEND (Vue 3 + Pinia)
 **Fecha:** 2026-07-16
 
+> ❌ **Reemplazado en la práctica por `13_AUDITORIA_FRONTEND_UI_2026-07-23.md`** (métricas
+> desfasadas: 280 componentes aquí vs. 328 en doc 13). El único hallazgo CRÍTICO de este documento
+> (**FE-C1**, ruta `ordenes/renting` inalcanzable) **✅ ya está resuelto** — confirmado en el router
+> actual y en `01_AUDITORIA_GENERAL.md` §3 (FE-H1). Ver también doc 13 §2.3 para la re-evaluación de
+> la duplicidad de badges/timelines (mayormente descartada) y `01_AUDITORIA_GENERAL.md` §7.7-§7.21
+> para el cierre completo de FE-H2/H3/H5 (migración a stores Pinia + capa de servicios, 100%,
+> 2026-07-27). Usar este documento solo como referencia histórica de 2026-07-16; para el estado
+> actual de deuda técnica de frontend, ir directo a doc 13.
+
 ---
 
 ## Métricas

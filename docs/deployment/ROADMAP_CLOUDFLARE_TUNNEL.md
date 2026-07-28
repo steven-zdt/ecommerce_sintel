@@ -200,6 +200,23 @@ Archivo creado: `ecommerce_sintel/docker-compose.prod.yml` (7 servicios:
   gestión (herramienta de auditoría, no código de request/response de la app).
   Confirma que Django/Celery en producción **no dependen** de `ai_engine`,
   `ollama` ni `chromadb` en ningún momento — excluirlos es seguro.
+  > **[ACTUALIZADO 2026-07-23]** Esta confirmación es de 2026-07-10, **anterior
+  > al AI Core** (Fases 1-8, 2026-07-16). Desde entonces `support/services/ai_bridge.py`
+  > (usado por el widget de soporte web vía `SupportChatConsumer` y por el bot de
+  > WhatsApp vía `notifications/tasks.py`) SÍ hace una llamada HTTP saliente real a
+  > `settings.AI_ENGINE_URL/chat` — ya no es cierto que "nada dependa de `ai_engine`"
+  > en un sentido literal. La exclusión del stack de IA de `docker-compose.prod.yml`
+  > sigue siendo segura porque esa dependencia es **condicional y con degradación
+  > controlada**: `ask_ai()` atrapa `requests.RequestException` y devuelve `None` si
+  > el motor es inalcanzable (el chat sigue funcionando 100% humano, nunca rompe), y
+  > `AI_SUPPORT_CHAT_ENABLED` (gate que decide si se intenta siquiera) tiene
+  > `default=False` en `settings/base.py` — confirmado que `.env.production.example`
+  > (actualizado 2026-07-20, después de esta fase) documenta explícitamente dejarla
+  > sin definir en producción para ese efecto. Si en el futuro se decide desplegar el
+  > AI Core a producción, hace falta: (1) agregar `sintel_ai`/`sintel_ollama`/
+  > `sintel_chromadb` a `docker-compose.prod.yml` (en `sintel-network`, sin exponer
+  > puertos — mismo patrón que el resto), y (2) activar `AI_SUPPORT_CHAT_ENABLED=True`
+  > en `.env.production` real — ninguna de las dos cosas está hecha hoy.
 - **`Dockerfile.production`: no se crea.** El `Dockerfile` multi-stage
   existente (`builder` → `frontend-builder` → `runtime`) ya produce una
   imagen de producción correcta (usuario no-root, `target: runtime`, bundle

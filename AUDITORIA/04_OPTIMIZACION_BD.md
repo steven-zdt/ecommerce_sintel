@@ -3,11 +3,15 @@
 **Motor:** PostgreSQL 16  
 **Framework:** Django 5.2 ORM
 
+> **Sincronizado 2026-07-27** contra `01_AUDITORIA_GENERAL.md` §3 y §7.2, y `12_CHECKLIST_IMPLEMENTACION.md`
+> SPRINT 2. Crítico y Alta Prioridad anotados con estado real. Media Prioridad no re-verificada.
+
 ---
 
 ## CRÍTICO
 
 ### DB-C1 — `StockRecord.item_variant` GenericForeignKey permanentemente roto
+**Estado:** ✅ Resuelto (documentado + mitigado) — opción 1 aplicada: comentario explícito en el modelo, resolución manual vía `batch_load_item_variants()`, 0 callers directos del GFK roto en todo el repo.
 **Archivo:** `inventory/models.py:21-30`
 
 `object_id = models.UUIDField(...)` almacena el `uuid` del modelo relacionado, pero Django's `GenericForeignKey` resuelve por `pk` (entero autoincremental). `stock_record.item_variant` siempre retorna `None`. El comentario en el código reconoce esto ("usar `batch_load_item_variants()`") pero el campo sigue siendo confuso y propenso a errores.
@@ -18,6 +22,8 @@
 3. Crear relaciones explícitas FK concretas por dominio (`product_variant`, `equipment_variant`, `service_variant`) en vez de un GFK.
 
 ### DB-C2 — `RentalRequest` tiene 50 campos — candidato prioritario a split
+**Estado:** ✅ Resuelto 2026-07-27 — split en 4 sub-modelos (`RentalRequestLocation/Contact/Costs/PaymentInfo`, no exactamente los 3 nombres propuestos abajo pero mismo principio) vía migraciones 0034 (crea tablas)/0035 (backfill)/0036 (elimina las 35 columnas viejas, generada en esta sesión — faltaba y bloqueaba cualquier INSERT nuevo). Ver `01_AUDITORIA_GENERAL.md` §7.2 para el detalle completo, incluyendo un incidente crítico nuevo (`NameError` en `renting/api/views.py` que tumbaba todo el backend) encontrado en el camino.
+
 **Archivo:** `renting/models.py:416-600`
 
 50 campos incluyendo 4 TextFields (`access_conditions`, `location_notes`, `operational_notes`, `admin_notes`) y 13 DecimalFields. Todo SELECT sobre la tabla carga las 50 columnas aunque solo se necesiten estado, usuario y fechas.
@@ -37,6 +43,7 @@ RentalRequest          — estado, usuario, variante, fechas, totales, payment_m
 ## ALTA PRIORIDAD
 
 ### DB-H1 — `ServiceReview` sin `unique_together` — permite reseñas duplicadas
+**Estado:** ✅ Resuelto (SPRINT 2) — `unique_together` agregado, migración aplicada, 0 duplicados verificados antes de aplicar. (Nota: este `DB-H1` de este documento es un ID distinto del `DB-H1` usado en `01_AUDITORIA_GENERAL.md`, que allí se refiere al split de `RentalRequest` = `DB-C2` de este documento.)
 **Archivo:** `technical_services/models.py:180-187`  
 `ProductReview` y `EquipmentReview` ya tienen este constraint (corregido en la auditoría de 2026-07-03). `ServiceReview` no lo tiene — una condición de carrera o INSERT directo puede crear múltiples reseñas por usuario/servicio, corrompiendo los promedios de calificación.
 
@@ -46,6 +53,7 @@ class Meta:
 ```
 
 ### DB-H2 — `Quotation.status` sin `db_index`
+**Estado:** ✅ Resuelto (SPRINT 2) — `db_index=True` agregado.
 **Archivo:** `quotes/models.py:44`  
 `Quotation.status` es un `CharField` filtrado constantemente en el panel admin y el flujo CPQ. Sin índice en una tabla que puede tener miles de registros, las queries de lista y filtrado son table-scans.
 
@@ -54,6 +62,7 @@ status = models.CharField(max_length=25, db_index=True)  # AGREGAR db_index
 ```
 
 ### DB-H3 — `ShipmentOrderSummarySerializer.get_items_count` bypasea prefetch cache
+**Estado:** ✅ Resuelto (SPRINT 2) — reemplazado por `sum(1 for i in obj.items.all() if i.variant_id is not None)`.
 **Archivo:** `orders/api/serializers.py:130`  
 ```python
 # ACTUAL (N+1):
@@ -65,6 +74,7 @@ return sum(1 for i in obj.items.all() if i.variant_id is not None)
 `FulfillmentSelector` ya prefetch `order__items` pero `.filter()` no usa el cache.
 
 ### DB-H4 — `UserProfile.total_services_completed`: COUNT query por perfil en listas
+**Estado:** ✅ Resuelto (SPRINT 2) — la anotación ya existía en `ContractorAdminSelector` pero el `@property` del modelo no tenía setter y crasheaba con `AttributeError` al materializar el queryset (`/panel/profesionales` estaba roto); corregido con un setter que cachea el valor anotado.
 **Archivo:** `accounts/models.py:92-95`  
 Propiedad del modelo que emite `self.user.assigned_services.filter(...).count()`. Incluida en `ContractorSerializer` y `AdminContractorSerializer`. Con N perfiles en la lista = N+1 queries.
 
@@ -79,6 +89,7 @@ queryset.annotate(
 ```
 
 ### DB-H5 — Cadenas de migraciones largas — candidatos a squash
+**Estado:** ⚪ Sigue abierto — sin evidencia de `squashmigrations` ejecutado; baja prioridad, sin urgencia operativa.
 | App | Migraciones | Notas |
 |---|---|---|
 | `technical_services` | 28 | Incluye data migrations semilla |
@@ -89,6 +100,7 @@ queryset.annotate(
 Por encima de 20 migraciones el tiempo de `migrate` en CI aumenta visiblemente. Candidatos para `squashmigrations` después de estabilizar el schema.
 
 ### DB-H6 — `UserProfile.document` sin constraint de unicidad por `document_type`
+**Estado:** ✅ Resuelto (SPRINT 2) — `UniqueConstraint` agregado vía migración 0012, con un bug real corregido en el camino: la condición inicial (`Q(document__isnull=False)`) no excluía `document=''` (default real de `CharField`), lo que rompía el registro de cualquier segundo usuario sin documento.
 Dos perfiles pueden almacenar el mismo número de documento nacional. Debe ser único por `(document_type, document)`.
 
 ```python
@@ -168,15 +180,15 @@ Intencional, pero impide queries analíticas sobre respuestas individuales. Si s
 
 ## Resumen de Acciones Requeridas
 
-| Prioridad | Acción | App |
-|---|---|---|
-| Urgente | Eliminar/refactorizar GFK en StockRecord | inventory |
-| Urgente | `unique_together` en `ServiceReview` | technical_services |
-| Alta | `db_index=True` en `Quotation.status` | quotes |
-| Alta | Fix N+1 en `ShipmentOrderSummarySerializer` | orders |
-| Alta | Fix N+1 en `UserProfile.total_services_completed` (annotation) | accounts |
-| Alta | Split `RentalRequest` (50 campos) | renting |
-| Media | 6 índices faltantes (tabla DB-M1) | varios |
-| Media | Fix N+1 en `FooterGroupSerializer` y `FlashOfferCardSerializer` | core |
-| Media | Constraint unicidad de documento en `UserProfile` | accounts |
-| Baja | Squash de migraciones en 4 apps | varios |
+| Prioridad | Acción | App | Estado (2026-07-27) |
+|---|---|---|---|
+| Urgente | Eliminar/refactorizar GFK en StockRecord | inventory | ✅ Resuelto |
+| Urgente | `unique_together` en `ServiceReview` | technical_services | ✅ Resuelto |
+| Alta | `db_index=True` en `Quotation.status` | quotes | ✅ Resuelto |
+| Alta | Fix N+1 en `ShipmentOrderSummarySerializer` | orders | ✅ Resuelto |
+| Alta | Fix N+1 en `UserProfile.total_services_completed` (annotation) | accounts | ✅ Resuelto |
+| Alta | Split `RentalRequest` (50 campos) | renting | ✅ Resuelto 2026-07-27 |
+| Media | 6 índices faltantes (tabla DB-M1) | varios | ⚪ Sin re-verificar |
+| Media | Fix N+1 en `FooterGroupSerializer` y `FlashOfferCardSerializer` | core | ✅ Resuelto (SPRINT 2, checklist 12) |
+| Media | Constraint unicidad de documento en `UserProfile` | accounts | ✅ Resuelto |
+| Baja | Squash de migraciones en 4 apps | varios | ⚪ Sigue abierto |
