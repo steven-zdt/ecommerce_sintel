@@ -30,6 +30,14 @@ staticfiles/
 media/
 .venv/
 *.egg-info/
+# Documentos KYC reales de usuarios (cedula, RUT, hoja de vida) -- hallazgo
+# 2026-07-27: no estaba cubierto por `media/` y quedaba sin protección.
+private_media/
+
+# ── Artefactos de test / cobertura ──────────────────────────────────────────
+.coverage
+coverage.xml
+htmlcov/
 
 # ── Node / Vite ───────────────────────────────────────────────────────────────
 node_modules/
