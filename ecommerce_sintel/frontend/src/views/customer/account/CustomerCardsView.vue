@@ -96,7 +96,7 @@
             </div>
           </div>
           <div class="d-flex justify-content-end mt-4">
-            <CustomerButton variant="primary" size="md" :loading="saving">
+            <CustomerButton type="submit" variant="primary" size="md" :loading="saving">
               <i class="bi bi-plus-lg me-1"></i>Guardar tarjeta
             </CustomerButton>
           </div>

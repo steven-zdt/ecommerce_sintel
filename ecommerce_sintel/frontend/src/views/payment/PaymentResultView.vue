@@ -25,12 +25,15 @@
       </div>
     </div>
 
-    <!-- COD Renting -->
+    <!-- COD Renting / Comodato (misma pantalla: "solicitud registrada, pendiente
+         de aprobacion, sin pago inmediato" -- solo cambia el badge/alerta) -->
     <div v-else-if="isCodRenting" class="pr-body">
       <div class="container" style="max-width:680px">
         <PaymentHeader variant="warning" icon="bi-hourglass-split" title="Solicitud registrada"
           :subtitle="rentalData?.display_status || 'Tu solicitud está pendiente de validación por nuestro equipo'" class="mb-4">
-          <template #badge><PaymentBadge css-class="bg-warning text-dark">Pago en sitio</PaymentBadge></template>
+          <template #badge>
+            <PaymentBadge css-class="bg-warning text-dark">{{ isComodato ? 'Comodato' : 'Pago en sitio' }}</PaymentBadge>
+          </template>
         </PaymentHeader>
 
         <PaymentCard icon="bi-box-seam" title="Detalle del alquiler" class="mb-4">
@@ -41,12 +44,15 @@
           <PaymentRow v-if="rentalData?.start_date" label="Periodo">
             <span>{{ rentalData.start_date }} — {{ rentalData.end_date }}</span>
           </PaymentRow>
-          <PaymentRow label="Total a pagar" bold-label>
+          <PaymentRow v-if="!isComodato" label="Total a pagar" bold-label>
             <span class="fw-bold text-success fs-5">${{ fmt(rentalData?.grand_total) }} COP</span>
           </PaymentRow>
         </PaymentCard>
 
-        <PaymentAlert variant="warning" icon="bi-cash-stack" title="Pago al momento de la entrega" class="mb-4">
+        <PaymentAlert v-if="isComodato" variant="warning" icon="bi-hand-index-thumb" title="Sin costo -- sujeto a aprobación" class="mb-4">
+          <p class="mb-0 mt-1 text-muted small">Este es un contrato de comodato, no requiere pago. Un asesor revisará tu solicitud y te notificaremos la decisión.</p>
+        </PaymentAlert>
+        <PaymentAlert v-else variant="warning" icon="bi-cash-stack" title="Pago al momento de la entrega" class="mb-4">
           <p class="mb-0 mt-1 text-muted small">Tendras que pagar <strong>${{ fmt(rentalData?.grand_total) }} COP</strong> al recibir el equipo.</p>
         </PaymentAlert>
 
@@ -275,10 +281,12 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useRoute } from 'vue-router';
 import useApi from '@/composables/useApi';
+import { ordersService } from '@/services/orders/ordersService';
 import { useCartStore } from '@/store/cart';
 import { useEnums } from '@/composables/useEnums';
 import { usePaymentPolling } from '@/composables/usePaymentPolling';
 import { mapPaymentStatus } from '@/utils/paymentStatus';
+import { formatCOP } from '@/utils/money';
 import PaymentHeader from '@/components/shared/checkout/PaymentHeader.vue';
 import PaymentCard from '@/components/shared/checkout/PaymentCard.vue';
 import PaymentRow from '@/components/shared/checkout/PaymentRow.vue';
@@ -313,6 +321,10 @@ const isCodOrder   = ref(false);
 const codOrderData = ref(null);
 const isCodRenting = ref(false);
 const rentalData   = ref(null);
+// Comodato reusa la misma pantalla de "solicitud registrada" que COD-Renting
+// (mismo estado real: sin pago, pendiente de aprobacion) -- ver bookingService
+// submit() en RentalBookingWizard.vue.
+const isComodato = computed(() => rentalData.value?.commercial_type === 'COMODATO');
 
 // Status computed -- delegado a mapPaymentStatus (ver
 // PLAN_MAESTRO_UNIFICACION_PAYMENT_UI.md seccion 13): mismo mapeo que ya
@@ -361,7 +373,7 @@ const statusBadgeLabel = computed(() => {
 
 // Helpers
 function fmt(val) {
-  return new Intl.NumberFormat('es-CO').format(Math.round(parseFloat(val) || 0));
+  return formatCOP(Math.round(parseFloat(val) || 0));
 }
 
 function fmtDatetime(d) {
@@ -432,8 +444,7 @@ async function load() {
   // COD Order
   if (q.status === 'COD_APPROVED' && q.order_uuid) {
     try {
-      const res = await api.get(`orders/orders/${q.order_uuid}/`);
-      codOrderData.value = res.data;
+      codOrderData.value = await ordersService.detail(q.order_uuid);
       isCodOrder.value   = true;
     } catch { fetchError.value = true; }
     loading.value = false;

@@ -47,97 +47,19 @@
                  El sub-selector de "Tarjeta" solo aparece si cardApiFlowEnabled (ADR-001 Fase 5,
                  feature flag consultado a GET payments/feature-flags/ -- kill-switch editable
                  desde /admin/ sin desplegar codigo, tambien aplicado del lado del backend). -->
-            <div v-if="selectedPaymentMethod === 'WOMPI' && cardApiFlowEnabled" class="mt-3">
-              <div class="btn-group w-100 mb-3" role="group">
-                <button
-                  type="button"
-                  class="btn btn-sm"
-                  :class="wompiSubMethod === 'CARD' ? 'btn-checkout-accent' : 'btn-outline-secondary'"
-                  @click="wompiSubMethod = 'CARD'"
-                >
-                  <i class="bi bi-credit-card-2-front me-1"></i>Tarjeta
-                </button>
-                <button
-                  type="button"
-                  class="btn btn-sm"
-                  :class="wompiSubMethod === 'WIDGET' ? 'btn-checkout-accent' : 'btn-outline-secondary'"
-                  @click="wompiSubMethod = 'WIDGET'"
-                >
-                  <i class="bi bi-bank me-1"></i>PSE / Otros
-                </button>
-              </div>
-
-              <!-- Tarjeta: guardadas + agregar nueva, sin abrir el widget de Wompi -->
-              <div v-if="wompiSubMethod === 'CARD'">
-                <div v-if="loadingCards" class="text-center py-2">
-                  <span class="spinner-border spinner-border-sm text-checkout-accent"></span>
-                </div>
-                <div v-else class="d-flex flex-column gap-2">
-                  <PaymentMethodCard
-                    v-for="card in savedCards" :key="card.uuid"
-                    :active="selectedCardId === card.token_id"
-                    @select="selectedCardId = card.token_id"
-                  >
-                    <div class="d-flex align-items-center gap-2">
-                      <i class="bi bi-credit-card"></i>
-                      <span class="small">{{ card.brand }} •••• {{ card.masked_number.slice(-4) }}</span>
-                      <span class="text-muted small ms-auto">{{ card.exp_month }}/{{ card.exp_year }}</span>
-                      <i
-                        class="bi flex-shrink-0"
-                        :class="selectedCardId === card.token_id ? 'bi-check-circle-fill text-success' : 'bi-circle text-muted'"
-                      ></i>
-                    </div>
-                  </PaymentMethodCard>
-
-                  <PaymentMethodCard :active="selectedCardId === 'NEW'" @select="selectedCardId = 'NEW'">
-                    <div class="d-flex align-items-center gap-2">
-                      <i class="bi bi-plus-circle"></i>
-                      <span class="small fw-semibold">Agregar tarjeta nueva</span>
-                      <i
-                        class="bi flex-shrink-0 ms-auto"
-                        :class="selectedCardId === 'NEW' ? 'bi-check-circle-fill text-success' : 'bi-circle text-muted'"
-                      ></i>
-                    </div>
-                  </PaymentMethodCard>
-
-                  <div v-if="selectedCardId === 'NEW'" class="row g-2 mt-1">
-                    <div class="col-12">
-                      <input
-                        v-model="newCardRaw.number" type="text" inputmode="numeric" autocomplete="cc-number"
-                        class="form-control form-control-sm" placeholder="Numero de tarjeta" maxlength="19"
-                      />
-                    </div>
-                    <div class="col-4">
-                      <input
-                        v-model="newCardRaw.exp_month" type="text" inputmode="numeric" autocomplete="cc-exp-month"
-                        class="form-control form-control-sm" placeholder="MM" maxlength="2"
-                      />
-                    </div>
-                    <div class="col-4">
-                      <input
-                        v-model="newCardRaw.exp_year" type="text" inputmode="numeric" autocomplete="cc-exp-year"
-                        class="form-control form-control-sm" placeholder="AA" maxlength="2"
-                      />
-                    </div>
-                    <div class="col-4">
-                      <input
-                        v-model="newCardRaw.cvc" type="password" inputmode="numeric" autocomplete="cc-csc"
-                        class="form-control form-control-sm" placeholder="CVC" maxlength="4"
-                      />
-                    </div>
-                    <div class="col-12">
-                      <input
-                        v-model="newCardRaw.card_holder" type="text" autocomplete="cc-name"
-                        class="form-control form-control-sm" placeholder="Nombre del titular"
-                      />
-                    </div>
-                  </div>
-                  <p class="text-muted mb-0" style="font-size:.7rem">
-                    <i class="bi bi-shield-lock-fill me-1"></i>Tus datos de tarjeta se envian directo a Wompi, nunca pasan por nuestros servidores.
-                  </p>
-                </div>
-              </div>
-            </div>
+            <CardOrWidgetPanel
+              v-if="selectedPaymentMethod === 'WOMPI' && cardApiFlowEnabled"
+              v-model:sub-method="wompiSubMethod"
+              v-model:selected-card-id="selectedCardId"
+              :saved-cards="savedCards"
+              :loading-cards="loadingCards"
+              :new-card="newCardRaw"
+              :card-step-valid="cardStepValid"
+              :show-submit="false"
+              :card-api-flow-enabled="cardApiFlowEnabled"
+              :widget-flow-enabled="widgetFlowEnabled"
+              @update:new-card="({ field, value }) => newCardRaw[field] = value"
+            />
 
             <!-- Info COD -->
             <PaymentAlert v-if="selectedPaymentMethod === 'COD'" variant="warning" icon="bi-info-circle-fill" class="mt-3">
@@ -225,27 +147,30 @@
 import { ref, reactive, computed, onMounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import useApi from '@/composables/useApi';
+import { ordersService } from '@/services/orders/ordersService';
 import { useToast } from '@/composables/useToast';
+import { useErrorHandler } from '@/composables/useErrorHandler';
 import { useAuthStore } from '@/store/auth';
 import { useCartStore } from '@/store/cart';
 import { useWompiWidget } from '@/composables/useWompiWidget';
-import { useCardTokenization } from '@/composables/useCardTokenization';
+import { useCardOrWidgetPayment } from '@/composables/useCardOrWidgetPayment';
+import { formatCOP } from '@/utils/money';
 import ColombianAddressForm from '@/components/customer/checkout/ColombianAddressForm.vue';
 import PaymentMethodSelector from '@/components/shared/checkout/PaymentMethodSelector.vue';
+import CardOrWidgetPanel from '@/components/shared/checkout/CardOrWidgetPanel.vue';
 import PaymentCard from '@/components/shared/checkout/PaymentCard.vue';
 import PaymentRow from '@/components/shared/checkout/PaymentRow.vue';
 import PaymentAlert from '@/components/shared/checkout/PaymentAlert.vue';
 import PaymentCTA from '@/components/shared/checkout/PaymentCTA.vue';
-import PaymentMethodCard from '@/components/shared/checkout/PaymentMethodCard.vue';
 
 const api       = useApi();
 const toast     = useToast();
+const { handleError } = useErrorHandler();
 const authStore = useAuthStore();
 const cartStore = useCartStore();
 const router    = useRouter();
 const route     = useRoute();
 const { openWompiWidget }  = useWompiWidget();
-const { tokenizeCard }     = useCardTokenization();
 
 const submitting            = ref(false);
 const loadingCheckout       = ref(false);
@@ -255,17 +180,16 @@ const selectedPaymentMethod = ref('WOMPI');
 const nequiPhone            = ref('');
 const addressFormRef        = ref(null);
 
-// Sub-metodo dentro de "Pago en linea" (ADR-001 Fase 3b): Tarjeta usa el flujo
-// backend-directo (initialize/ con card_token, sin abrir el widget completo);
-// PSE/Otros sigue exactamente el flujo de siempre (widget completo de Wompi),
-// ya que PSE requiere redireccion al banco -- no es algo que se pueda eliminar.
-const wompiSubMethod     = ref('CARD');
-const cardApiFlowEnabled = ref(true); // ADR-001 Fase 5: kill-switch, GET payments/feature-flags/
-const savedCards     = ref([]);
-const loadingCards   = ref(false);
-const selectedCardId = ref('NEW'); // 'NEW' o el token_id de una tarjeta guardada
-const defaultNewCard = () => ({ number: '', exp_month: '', exp_year: '', cvc: '', card_holder: '' });
-const newCardRaw     = ref(defaultNewCard());
+// Sub-metodo "Tarjeta (API) / PSE-Otros (Widget)" dentro de "Pago en linea" --
+// estado y logica compartidos con ServiceCheckoutModal.vue y
+// RentalConfirmationView.vue via useCardOrWidgetPayment() (extraido en la
+// auditoria 2026-07-22, plan hibrido Widget+API, para no duplicar esta logica
+// una tercera vez).
+const {
+  wompiSubMethod, cardApiFlowEnabled, widgetFlowEnabled,
+  savedCards, loadingCards, selectedCardId, newCardRaw, cardStepValid,
+  fetchFeatureFlags, fetchSavedCards, resolveCardToken, resetNewCard,
+} = useCardOrWidgetPayment();
 
 const errors = reactive({ nequiPhone: false });
 
@@ -273,7 +197,7 @@ const displayItems = computed(() =>
   checkoutPayload.value?.items?.length ? checkoutPayload.value.items : cartStore.items
 );
 
-const fmt = (val) => new Intl.NumberFormat('es-CO').format(parseFloat(val) || 0);
+const fmt = (val) => formatCOP(val);
 
 function validate() {
   errors.nequiPhone = selectedPaymentMethod.value === 'NEQUI'
@@ -281,62 +205,11 @@ function validate() {
     : false;
   const addressValid = addressFormRef.value?.validate() ?? false;
 
-  let cardValid = true;
-  if (selectedPaymentMethod.value === 'WOMPI' && wompiSubMethod.value === 'CARD') {
-    cardValid = selectedCardId.value === 'NEW'
-      ? Object.values(newCardRaw.value).every((v) => String(v).trim() !== '')
-      : !!selectedCardId.value;
-  }
+  const cardValid = (selectedPaymentMethod.value === 'WOMPI' && wompiSubMethod.value === 'CARD')
+    ? cardStepValid.value
+    : true;
 
   return addressValid && !errors.nequiPhone && cardValid;
-}
-
-async function fetchFeatureFlags() {
-  try {
-    const res = await api.get('payment/payments/feature-flags/');
-    cardApiFlowEnabled.value = !!res.data.card_api_flow_enabled;
-  } catch {
-    // Ante cualquier duda (endpoint caido, red, etc.) se prefiere el camino
-    // ya probado y mas antiguo (Widget completo) -- fail-safe, no fail-open.
-    cardApiFlowEnabled.value = false;
-  }
-  if (!cardApiFlowEnabled.value) wompiSubMethod.value = 'WIDGET';
-}
-
-async function fetchSavedCards() {
-  loadingCards.value = true;
-  try {
-    const res = await api.get('payment/cards/');
-    savedCards.value = res.data.results ?? res.data ?? [];
-    if (savedCards.value.length > 0) selectedCardId.value = savedCards.value[0].token_id;
-  } catch {
-    // Sin tarjetas guardadas o error de red -- el usuario simplemente ve el
-    // formulario de "agregar tarjeta nueva" (selectedCardId ya empieza en 'NEW').
-  } finally {
-    loadingCards.value = false;
-  }
-}
-
-/**
- * Resuelve el card_token a usar en initialize/: si el usuario eligio una
- * tarjeta guardada, es su token_id directo. Si eligio "nueva", tokeniza
- * contra Wompi (navegador->Wompi directo, nunca por nuestro backend) y la
- * guarda de inmediato (decision del usuario: toda tarjeta nueva se guarda
- * siempre, sin checkbox opcional) antes de usarla para pagar.
- */
-async function resolveCardToken() {
-  if (selectedCardId.value !== 'NEW') return selectedCardId.value;
-
-  const tokenData = await tokenizeCard(newCardRaw.value);
-  await api.post('payment/cards/', {
-    token_id: tokenData.id,
-    masked_number: `************${tokenData.last_four}`,
-    brand: tokenData.brand,
-    exp_month: tokenData.exp_month,
-    exp_year: tokenData.exp_year,
-    cardholder_name: tokenData.card_holder || newCardRaw.value.card_holder,
-  });
-  return tokenData.id;
 }
 
 async function fetchCheckoutPreview() {
@@ -371,7 +244,7 @@ async function submitOrder() {
     const addrData = addressFormRef.value.getFormData();
 
     // 2. Crear dirección de envío
-    const addrRes = await api.post('orders/addresses/', {
+    const addrData2 = await ordersService.addresses.create({
       full_name:      addrData.full_name,
       address_line_1: addrData.address_line_1,
       address_line_2: addrData.address_line_2 || '',
@@ -382,18 +255,18 @@ async function submitOrder() {
     });
 
     // 3. Crear orden desde el carrito con metodo de pago seleccionado
-    const orderRes = await api.post('orders/orders/create_from_cart/', {
-      shipping_address_uuid: addrRes.data.uuid,
+    const orderData = await ordersService.createFromCart({
+      shipping_address_uuid: addrData2.uuid,
       payment_method:        selectedPaymentMethod.value,
     });
 
     // 4. Flujo condicional por metodo de pago
     if (selectedPaymentMethod.value === 'COD') {
       cartStore.reset();
-      router.push(`/payment/result?status=COD_APPROVED&order_uuid=${orderRes.data.uuid}`);
+      router.push(`/payment/result?status=COD_APPROVED&order_uuid=${orderData.uuid}`);
     } else if (selectedPaymentMethod.value === 'NEQUI') {
       const nequiRes = await api.post('payment/nequi/initialize/', {
-        order_uuid:   orderRes.data.uuid,
+        order_uuid:   orderData.uuid,
         phone_number: nequiPhone.value.trim(),
       });
       cartStore.reset();
@@ -403,7 +276,7 @@ async function submitOrder() {
       // abrir el widget completo. wompi_id/status ya vienen listos en la
       // respuesta; /payment/result hace su propio polling si sigue PENDING.
       const wompiRes = await api.post('payment/payments/initialize/', {
-        order_uuid: orderRes.data.uuid,
+        order_uuid: orderData.uuid,
         card_token: cardToken,
       });
       cartStore.reset();
@@ -411,17 +284,15 @@ async function submitOrder() {
     } else {
       // PSE/Otros: flujo de siempre, sin cambios -- abre el widget completo.
       const wompiRes = await api.post('payment/payments/initialize/', {
-        order_uuid: orderRes.data.uuid,
+        order_uuid: orderData.uuid,
       });
       await openWompiWidget(wompiRes.data);
     }
 
   } catch (e) {
-    const data = e.response?.data;
-    const msg  = data?.detail || Object.values(data || {})[0]?.[0] || 'Error al procesar el pedido';
-    toast.error(msg);
+    handleError(e, 'Error al procesar el pedido');
   } finally {
-    if (isCardFlow) newCardRaw.value = defaultNewCard();
+    if (isCardFlow) resetNewCard();
     submitting.value = false;
   }
 }

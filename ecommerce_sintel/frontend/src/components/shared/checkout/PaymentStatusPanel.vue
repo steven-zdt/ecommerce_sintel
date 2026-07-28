@@ -74,6 +74,8 @@
 </template>
 
 <script setup>
+import { formatCOP } from '@/utils/money';
+
 defineProps({
   status:          { type: String, required: true }, // processing | approved | declined | pending | expired | cancelled
   orderUuid:       { type: String, default: '' },
@@ -86,7 +88,7 @@ defineProps({
 defineEmits(['view-tracking', 'retry', 'change-method', 'new-payment', 'close']);
 
 function fmt(val) {
-  return new Intl.NumberFormat('es-CO').format(Math.round(parseFloat(val) || 0));
+  return formatCOP(Math.round(parseFloat(val) || 0));
 }
 </script>
 

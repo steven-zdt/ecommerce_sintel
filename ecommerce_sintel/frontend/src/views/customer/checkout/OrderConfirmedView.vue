@@ -279,9 +279,11 @@
 import { ref, computed, onMounted } from 'vue';
 import { useRoute, RouterLink } from 'vue-router';
 import useApi from '@/composables/useApi';
+import { ordersService } from '@/services/orders/ordersService';
 import { useCartStore } from '@/store/cart';
 import { useAuthStore } from '@/store/auth';
 import { useEnums } from '@/composables/useEnums';
+import { formatCOP } from '@/utils/money';
 
 const api       = useApi();
 const route     = useRoute();
@@ -326,7 +328,7 @@ function servicePriorityLabel(priority) {
   return enums.label('service-priorities', priority, priority || 'Sin prioridad');
 }
 
-const fmt     = (val) => new Intl.NumberFormat('es-CO').format(Math.round(parseFloat(val) || 0));
+const fmt     = (val) => formatCOP(Math.round(parseFloat(val) || 0));
 const fmtDate = (d)   => d ? new Date(d).toLocaleString('es-CO', {
   year: 'numeric', month: 'short', day: 'numeric',
   hour: '2-digit', minute: '2-digit',
@@ -335,8 +337,7 @@ const fmtDate = (d)   => d ? new Date(d).toLocaleString('es-CO', {
 async function fetchCodOrder(orderUuid) {
   fetchError.value = false;
   try {
-    const res = await api.get(`orders/orders/${orderUuid}/`);
-    codOrder.value      = res.data;
+    codOrder.value      = await ordersService.detail(orderUuid);
     isCodApproved.value = true;
   } catch {
     fetchError.value = true;

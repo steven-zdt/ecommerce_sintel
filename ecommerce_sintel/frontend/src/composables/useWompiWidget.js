@@ -89,9 +89,15 @@ export function useWompiWidget() {
    * Abre el widget de pago de Wompi y gestiona el ciclo de vida completo.
    *
    * @param {object} txData    { uuid, amount_in_cents, public_key, integrity_signature, widget_url }
-   * @param {object} options   { onApproved?, onDeclined?, onPending?: (resultQuery: {tx, id}) => void, redirectPath?: string }
+   * @param {object} options   { onApproved?, onDeclined?, onPending?: (resultQuery: {tx, id}) => void,
+   *                             onStuck?: () => void, redirectPath?: string }
    *                           Sin onDeclined/onPending: comportamiento por defecto sin cambios
    *                           (toast + router.push a /payment/result), igual que siempre.
+   *                           onStuck: se invoca ademas del toast cuando el widget nunca responde
+   *                           (STUCK_TIMEOUT) -- para que el llamador pueda sacar su propia UI de
+   *                           un estado "procesando" que de otro modo queda congelado para siempre
+   *                           (bug real: ServiceCheckoutModal.vue quedaba con canClose=false y sin
+   *                           ningun camino de vuelta cuando PSE/Otros no respondia).
    *
    * Wompi aniade ?id=<wompi_tx_id> al redirect_url automaticamente.
    * El callback de checkout.open() maneja pagos de tarjeta/Nequi in-widget.
@@ -120,11 +126,17 @@ export function useWompiWidget() {
         done = true;
         window.removeEventListener('message', messageHandler);
         _forceCloseStuckWidget();
+        // Si no se limpia aqui, el guard de router.js (recuperacion PSE: "el navegador
+        // volvio tras la redireccion bancaria") intercepta la SIGUIENTE navegacion del
+        // usuario -- aunque ya haya vuelto al selector de metodo de pago -- y lo manda
+        // a /payment/result para un tx que nunca llego a iniciarse de verdad.
+        sessionStorage.removeItem('wompi_pending_tx');
         if (!unmounted) {
           toast.error(
             'La pasarela de pago no respondió. ' +
             'Si el problema persiste, intenta con otro método de pago.'
           );
+          options.onStuck?.();
         }
       }
     }, STUCK_TIMEOUT);

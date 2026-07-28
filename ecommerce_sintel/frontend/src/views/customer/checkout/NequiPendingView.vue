@@ -88,6 +88,7 @@ import { useRoute, useRouter } from 'vue-router';
 import useApi from '@/composables/useApi';
 import { useEnums } from '@/composables/useEnums';
 import { usePaymentPolling } from '@/composables/usePaymentPolling';
+import { formatCOP } from '@/utils/money';
 import PaymentHeader from '@/components/shared/checkout/PaymentHeader.vue';
 import PaymentCard from '@/components/shared/checkout/PaymentCard.vue';
 import PaymentRow from '@/components/shared/checkout/PaymentRow.vue';
@@ -117,7 +118,7 @@ const polling = usePaymentPolling({
 });
 let tickInterval = null;
 
-const fmt = (val) => new Intl.NumberFormat('es-CO').format(parseFloat(val) || 0);
+const fmt = (val) => formatCOP(val);
 
 const pendingLabel = computed(() => enums.label('payment-statuses', 'PENDING', 'Pendiente'));
 const approvedLabel = computed(() => enums.label('payment-statuses', 'APPROVED', 'Aprobado'));
