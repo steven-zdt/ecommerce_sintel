@@ -76,6 +76,16 @@ class Quotation(SintelBaseModel):
         default=dict, blank=True,
         help_text='Respuestas del cliente organizadas por modulo: {"<module_uuid>": {"<question_key>": valor}}.',
     )
+    idempotency_key = models.CharField(
+        max_length=100, null=True, blank=True, unique=True, db_index=True,
+        help_text=(
+            'UUID generado por el wizard antes del primer intento de envio '
+            '(header X-Idempotency-Key). Un reintento con la misma llave '
+            '-- doble clic, F5, reconexion -- devuelve la Quotation ya creada '
+            'en vez de duplicarla (defensa en profundidad detras del guard '
+            'sincrono del frontend, ver H1, auditoria E2E 2026-07-23).'
+        ),
+    )
 
     # Datos del solicitante (flujo de cuestionario)
     company = models.CharField(max_length=255, blank=True, default='')
@@ -220,9 +230,14 @@ class QuotationRentalItem(SintelBaseModel):
 
 
 class QuotationAttachment(SintelBaseModel):
-    """File uploaded by the client or admin to support a custom quotation."""
+    """
+    File uploaded by the client or admin to support a custom quotation.
+    FileField (no ImageField) porque desde la Fase 5 de la simplificacion
+    del wizard (2026-07-23) tambien recibe documentos tecnicos no-imagen
+    (PDF/DOC/DOCX/XLS/XLSX/TXT) via la pregunta requirement_documents.
+    """
     quotation = models.ForeignKey(Quotation, on_delete=models.CASCADE, related_name='attachments')
-    file = models.ImageField(upload_to='quotations/attachments/')
+    file = models.FileField(upload_to='quotations/attachments/')
     note = models.CharField(
         max_length=255, blank=True, default='',
         help_text="Contexto del adjunto, ej. 'module_uuid:question_key' para respuestas de preguntas tipo archivo.",
@@ -399,6 +414,16 @@ class QuoteTemplate(SintelBaseModel):
     is_published = models.BooleanField(default=False, db_index=True, help_text='Visible en /cotizar. Una plantilla no publicada solo se ve en el panel admin.')
     display_order = models.PositiveIntegerField(default=0)
     is_active = models.BooleanField(default=True, db_index=True)
+    is_internal = models.BooleanField(
+        default=False, db_index=True,
+        help_text=(
+            'Plantilla reservada para pruebas internas de QA. Nunca aparece '
+            'en /cotizar ni es seleccionable por un cliente, sin importar el '
+            'valor de is_published -- defensa adicional para que una plantilla '
+            'de pruebas no vuelva a filtrarse a produccion por error (ver '
+            'hallazgo H5, auditoria E2E 2026-07-23).'
+        ),
+    )
 
     COMPLEXITY_LOW = 'LOW'
     COMPLEXITY_MEDIUM = 'MEDIUM'

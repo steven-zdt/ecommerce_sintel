@@ -8,6 +8,7 @@ from quotes.models import (
     QuoteTemplate, QuoteTemplateAttribute, QuoteEquipmentType, QuoteTemplateModule,
     QuoteQuestion, QuoteQuestionOption,
 )
+from quotes.services.labor_conditions_evaluator import LaborConditionsEvaluator
 
 
 class QuotationItemSerializer(serializers.ModelSerializer):
@@ -57,10 +58,22 @@ class QuotationRentalItemSerializer(serializers.ModelSerializer):
 
 
 class QuotationAttachmentSerializer(serializers.ModelSerializer):
+    file_name = serializers.SerializerMethodField()
+    file_size = serializers.SerializerMethodField()
+
     class Meta:
         model = QuotationAttachment
-        fields = ['uuid', 'file', 'note']
+        fields = ['uuid', 'file', 'note', 'file_name', 'file_size', 'created_at']
         read_only_fields = fields
+
+    def get_file_name(self, obj):
+        return obj.file.name.rsplit('/', 1)[-1] if obj.file else ''
+
+    def get_file_size(self, obj):
+        try:
+            return obj.file.size
+        except (ValueError, OSError):
+            return None
 
 
 class QuotationTimelineSerializer(serializers.ModelSerializer):
@@ -77,12 +90,18 @@ class QuotationListSerializer(serializers.ModelSerializer):
     """Version liviana para listados — sin items/servicios/timeline anidados."""
     status_display = serializers.CharField(source='get_status_display', read_only=True)
     template_name = serializers.CharField(source='template.name', read_only=True, allow_null=True)
+    # Q-07 (auditoria enterprise): source='attachments.count' dispara un
+    # COUNT(*) por fila -- .count() en un related manager ignora el cache de
+    # prefetch. El queryset ahora anota 'attachments_count' via Count() en
+    # QuotationSelector.list_all_for_admin() y en el get_queryset() no-staff
+    # del ViewSet; sin source, DRF lee el atributo anotado directo.
+    attachments_count = serializers.IntegerField(read_only=True)
 
     class Meta:
         model = Quotation
         fields = [
             'id', 'uuid', 'client_name', 'client_email', 'status', 'status_display',
-            'is_custom', 'template_name', 'total_amount', 'created_at',
+            'is_custom', 'template_name', 'total_amount', 'created_at', 'attachments_count',
         ]
         read_only_fields = fields
 
@@ -96,6 +115,7 @@ class QuotationSerializer(serializers.ModelSerializer):
     status_display = serializers.CharField(source='get_status_display', read_only=True)
     template_name = serializers.CharField(source='template.name', read_only=True, allow_null=True)
     template_uuid = serializers.UUIDField(source='template.uuid', read_only=True, allow_null=True)
+    labor_analysis = serializers.SerializerMethodField()
 
     class Meta:
         model = Quotation
@@ -105,12 +125,51 @@ class QuotationSerializer(serializers.ModelSerializer):
             'subtotal_products', 'subtotal_services', 'subtotal_rentals',
             'total_amount', 'notes',
             'items', 'services', 'rental_items', 'attachments', 'timeline',
-            'template_uuid', 'template_name', 'answers',
+            'template_uuid', 'template_name', 'answers', 'labor_analysis',
             'company', 'document_type', 'document_number', 'phone',
             'city', 'department', 'address', 'gps_location', 'project_name',
             'created_at',
         ]
         read_only_fields = fields
+
+    def get_labor_analysis(self, obj):
+        """
+        Resultado de LaborConditionsEvaluator para el asesor (FASE 10, plan
+        "Simplificacion Inteligente" 2026-07-23) -- calculado en cada
+        lectura a partir de installation_height, nunca persistido, para que
+        un ajuste futuro de umbrales se refleje de inmediato sin migrar
+        datos historicos.
+
+        Gateado a staff (Q-03, auditoria enterprise): este mismo serializer
+        se usa tanto para el asesor como para el cliente dueno de la
+        cotizacion (get_queryset() del ViewSet permite a un no-staff ver su
+        propia Quotation) -- sin este chequeo, el cliente recibia
+        risk_level/required_access_equipment, datos de evaluacion interna de
+        riesgo pensados solo para el asesor. Si no hay request en el
+        contexto (algunas respuestas manuales de views.py no lo pasan), se
+        omite por defecto -- fail-closed, no fail-open.
+        """
+        request = self.context.get('request')
+        if not (request and request.user.is_authenticated and request.user.is_staff):
+            return None
+        if not obj.template_id:
+            return None
+        module = obj.template.modules.filter(module_type='LABOR', is_deleted=False).first()
+        if not module:
+            return None
+        module_answers = (obj.answers or {}).get(str(module.uuid), {})
+        result = LaborConditionsEvaluator.evaluate(module_answers.get('installation_height'))
+        if result is None:
+            return None
+        return {
+            'installation_height': str(result['installation_height']),
+            'work_at_height': result['work_at_height'],
+            'risk_level': result['risk_level'],
+            'required_access_equipment': result['required_access_equipment'],
+            'allowed_schedule': module_answers.get('allowed_schedule'),
+            'site_access_requirements': module_answers.get('site_access_requirements'),
+            'power_available': module_answers.get('power_available'),
+        }
 
 
 # --- Input serializers ---
@@ -166,7 +225,14 @@ class QuotationCreateInputSerializer(serializers.Serializer):
 
 class QuotationFromTemplateInputSerializer(serializers.Serializer):
     """Input del cuestionario tecnico dinamico en /cotizar. No incluye ningun precio."""
-    template = serializers.SlugRelatedField(slug_field='uuid', queryset=QuoteTemplate.objects.all())
+    # Solo plantillas publicadas y activas son elegibles -- sin este filtro,
+    # un cliente autenticado que conozca/adivine el uuid de un borrador
+    # puede crear una Solicitud real contra una plantilla que el admin
+    # nunca aprobo publicar (hallazgo QA E2E 2026-07-22, HG-01).
+    template = serializers.SlugRelatedField(
+        slug_field='uuid',
+        queryset=QuoteTemplate.objects.filter(is_published=True, is_active=True, is_internal=False),
+    )
     answers = serializers.DictField(required=False, default=dict, help_text='{"<module_uuid>": {"<question_key>": valor}}')
 
     client_name = serializers.CharField(max_length=255)

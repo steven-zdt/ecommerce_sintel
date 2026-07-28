@@ -10,6 +10,25 @@ _ACCENT = colors.HexColor('#1a6fa8')
 _LIGHT = colors.HexColor('#ecf0f1')
 
 
+def _resolve_answer_display(question, value):
+    """
+    Equivalente Python de resolveQuestionLabel (H3, auditoria E2E 2026-07-23,
+    ver frontend/src/utils/formatQuoteAnswer.js) -- mismo criterio: si la
+    pregunta es SELECT/RADIO/MULTISELECT/CHECKBOX, resuelve el valor crudo
+    contra sus QuoteQuestionOption para mostrar el label (ej. 'edificio' ->
+    'Edificio') en vez del valor almacenado. GPS: 'DENIED' es el sentinela de
+    permiso rechazado (ver DynamicQuestionField.vue), no una QuoteQuestionOption.
+    """
+    if value == 'DENIED':
+        return 'No compartida (direccion manual)'
+    if isinstance(value, dict) and 'lat' in value and 'lng' in value:
+        return f"{value['lat']:.5f}, {value['lng']:.5f}"
+    options = {opt.value: opt.label for opt in question.options.all()} if hasattr(question, 'options') else {}
+    if isinstance(value, list):
+        return ', '.join(str(options.get(v, v)) for v in value)
+    return str(options.get(value, value))
+
+
 class PDFService:
     @staticmethod
     def generate_quotation_pdf(quotation) -> io.BytesIO:
@@ -59,7 +78,20 @@ class PDFService:
         from organization.services.selectors import OrganizationSelector
         company = OrganizationSelector.get_company()
         trade_name = company.trade_name if company else 'Sintel'
-        elements.append(Paragraph(f"PRESUPUESTO COMERCIAL - {trade_name.upper()}", title_style))
+        # H2 (auditoria E2E 2026-07-23): titulo por modo -- "Solicitud" (sin
+        # precios, el asesor aun no coteizo) vs "Cotizacion" (ya tiene items o
+        # servicios con precio). has_priced_items se calcula un poco mas abajo
+        # antes de necesitarse aqui tambien.
+        has_priced_items = (
+            quotation.items.filter(is_deleted=False).exists()
+            or quotation.services.filter(is_deleted=False).exists()
+            or quotation.rental_items.filter(is_deleted=False).exists()
+        )
+        title_text = (
+            f"PRESUPUESTO COMERCIAL - {trade_name.upper()}" if has_priced_items
+            else f"SOLICITUD DE COTIZACION - {trade_name.upper()}"
+        )
+        elements.append(Paragraph(title_text, title_style))
         if quotation.template_id:
             badge = f"Plantilla: {quotation.template.name}"
         else:
@@ -86,14 +118,10 @@ class PDFService:
         # precio (el asesor todavia no la cotizo). Una vez cotizada, las
         # secciones de Productos/Servicios de mas abajo ya cubren el precio
         # y este resumen de respuestas se omite para no duplicar el PDF.
-        has_priced_items = (
-            quotation.items.filter(is_deleted=False).exists()
-            or quotation.services.filter(is_deleted=False).exists()
-        )
         if quotation.template_id and not has_priced_items:
             module_order = {'EQUIPMENT': 0, 'MATERIALS': 1, 'LABOR': 2}
             modules = sorted(
-                quotation.template.modules.filter(is_deleted=False).prefetch_related('questions'),
+                quotation.template.modules.filter(is_deleted=False).prefetch_related('questions', 'questions__options'),
                 key=lambda m: (module_order.get(m.module_type, 9), m.display_order),
             )
             answers = quotation.answers or {}
@@ -102,7 +130,7 @@ class PDFService:
                 module_answers = answers.get(str(module.uuid)) or {}
                 questions = [q for q in module.questions.all() if not q.is_deleted]
                 rows = [
-                    [q.label, str(module_answers.get(q.key, '—'))]
+                    [q.label, _resolve_answer_display(q, module_answers[q.key])]
                     for q in sorted(questions, key=lambda q: q.display_order)
                     if q.key in module_answers
                 ]
@@ -199,23 +227,26 @@ class PDFService:
             elements.append(Spacer(1, 12))
 
         # --- Totals ---
-        total_rows = []
-        if quotation.subtotal_products:
-            total_rows.append(["Subtotal Equipos:", f"${quotation.subtotal_products:,.2f}"])
-        if quotation.subtotal_services:
-            total_rows.append(["Subtotal Servicios:", f"${quotation.subtotal_services:,.2f}"])
-        if quotation.subtotal_rentals:
-            total_rows.append(["Subtotal Alquileres:", f"${quotation.subtotal_rentals:,.2f}"])
-        total_rows.append(["TOTAL PRESUPUESTO:", f"${quotation.total_amount:,.2f}"])
+        # H2: modo Solicitud no muestra precios/subtotales/TOTAL -- el asesor
+        # todavia no coteizo, mostrar "$0.00" aqui era enganoso.
+        if has_priced_items:
+            total_rows = []
+            if quotation.subtotal_products:
+                total_rows.append(["Subtotal Equipos:", f"${quotation.subtotal_products:,.2f}"])
+            if quotation.subtotal_services:
+                total_rows.append(["Subtotal Servicios:", f"${quotation.subtotal_services:,.2f}"])
+            if quotation.subtotal_rentals:
+                total_rows.append(["Subtotal Alquileres:", f"${quotation.subtotal_rentals:,.2f}"])
+            total_rows.append(["TOTAL PRESUPUESTO:", f"${quotation.total_amount:,.2f}"])
 
-        t_total = Table(total_rows, colWidths=[350, 100])
-        t_total.setStyle(TableStyle([
-            ('ALIGN', (0, 0), (-1, -1), 'RIGHT'),
-            ('FONTNAME', (0, -1), (-1, -1), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, -1), (-1, -1), 11),
-            ('LINEABOVE', (0, -1), (-1, -1), 1, colors.black),
-        ]))
-        elements.append(t_total)
+            t_total = Table(total_rows, colWidths=[350, 100])
+            t_total.setStyle(TableStyle([
+                ('ALIGN', (0, 0), (-1, -1), 'RIGHT'),
+                ('FONTNAME', (0, -1), (-1, -1), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, -1), (-1, -1), 11),
+                ('LINEABOVE', (0, -1), (-1, -1), 1, colors.black),
+            ]))
+            elements.append(t_total)
 
         if quotation.notes:
             elements.append(Spacer(1, 14))

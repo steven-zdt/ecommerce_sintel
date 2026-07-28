@@ -1,5 +1,5 @@
 import json
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from django.http import HttpResponse
 from rest_framework import viewsets, status, permissions
 from rest_framework.decorators import action
@@ -47,13 +47,39 @@ class QuotationViewSet(viewsets.ModelViewSet):
         if self.request.user.is_authenticated and self.request.user.is_staff:
             return QuotationSelector.list_all_for_admin()
         if self.request.user.is_authenticated:
-            return Quotation.objects.filter(user=self.request.user, is_deleted=False)
+            # Q-07 (auditoria enterprise): mismo select_related/annotate que
+            # el path admin (QuotationSelector.list_all_for_admin) -- antes
+            # el cliente dueno de sus propias cotizaciones volvia a pagar el
+            # N+1 que ya se habia resuelto para el path admin.
+            from django.db.models import Count
+            return (
+                Quotation.objects
+                .filter(user=self.request.user, is_deleted=False)
+                .select_related('template')
+                .annotate(attachments_count=Count('attachments', distinct=True))
+            )
         return Quotation.objects.none()
 
     def get_serializer_class(self):
         if self.action == 'list':
             return QuotationListSerializer
         return QuotationSerializer
+
+    # Q-06 (auditoria enterprise): from_template (crea una solicitud) y
+    # download_pdf (genera un PDF, trabajo real de CPU/IO) no tenian ningun
+    # limite de tasa.
+    ACTION_THROTTLE_SCOPES = {
+        'from_template': 'quote_from_template',
+        'download_pdf': 'quote_download_pdf',
+    }
+
+    def get_throttles(self):
+        from rest_framework.throttling import ScopedRateThrottle
+        scope = self.ACTION_THROTTLE_SCOPES.get(self.action)
+        if not scope:
+            return []
+        self.throttle_scope = scope
+        return [ScopedRateThrottle()]
 
     @extend_schema(
         request=QuotationCreateInputSerializer,
@@ -158,14 +184,24 @@ class QuotationViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def send(self, request, uuid=None):
-        """Mark the quotation as SENT and dispatch the PDF email asynchronously."""
+        """Mark the quotation as SENT and dispatch the PDF email asynchronously.
+
+        select_for_update() + re-chequeo de estado bajo el lock (Q-04,
+        auditoria enterprise): antes se verificaba el estado con
+        self.get_object() (sin bloqueo) y se mutaba despues -- dos llamadas
+        a send() casi simultaneas podian ambas pasar el chequeo y despachar
+        doble email + duplicar entradas de QuotationTimeline. Mismo patron
+        ya usado en add_product_item/add_service_item (services/commands.py).
+        """
         quotation = self.get_object()
-        if quotation.status not in (Quotation.STATUS_DRAFT, Quotation.STATUS_QUOTED):
-            return Response(
-                {"detail": f"No se puede enviar una cotizacion con estado '{quotation.status}'."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        QuotationCommands.mark_as_sent(quotation, changed_by=request.user)
+        with transaction.atomic():
+            locked = Quotation.objects.select_for_update().get(pk=quotation.pk)
+            if locked.status not in (Quotation.STATUS_DRAFT, Quotation.STATUS_QUOTED):
+                return Response(
+                    {"detail": f"No se puede enviar una cotizacion con estado '{locked.status}'."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            QuotationCommands.mark_as_sent(locked, changed_by=request.user)
         from quotes.tasks import send_quotation_email_task
         send_quotation_email_task.delay(str(quotation.uuid))
         return Response({"detail": "Quotation marked as SENT. Email dispatched."}, status=status.HTTP_200_OK)

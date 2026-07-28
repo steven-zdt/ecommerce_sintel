@@ -207,9 +207,14 @@ class QuotationBuilder:
         return quotation
 
     @staticmethod
-    def mark_as_sent(quotation: Quotation) -> Quotation:
+    @transaction.atomic
+    def mark_as_sent(quotation: Quotation, changed_by=None) -> Quotation:
         quotation.status = Quotation.STATUS_SENT
         quotation.save(update_fields=['status', 'updated_at'])
+        QuotationTimeline.objects.create(
+            quotation=quotation, status=Quotation.STATUS_SENT,
+            notes='Cotizacion enviada al cliente.', changed_by=changed_by,
+        )
         return quotation
 
     @staticmethod
@@ -222,8 +227,10 @@ class QuotationBuilder:
         asesor comercial lo revise y cotice manualmente despues.
 
         answers : {"<module_uuid>": {"<question_key>": valor, ...}, ...}
-        files   : {"<module_uuid>__<question_key>": UploadedFile, ...} para
-                  preguntas de tipo archivo (IMAGE/FILE/SIGNATURE).
+        files   : {"<module_uuid>__<question_key>": [UploadedFile, ...], ...} para
+                  preguntas de tipo archivo (IMAGE/FILE/SIGNATURE) -- cada
+                  clave admite una o varias subidas (ver requirement_documents,
+                  Fase 5 de la simplificacion del wizard, 2026-07-23).
         """
         quotation = Quotation.objects.create(
             **applicant_data,
@@ -233,13 +240,17 @@ class QuotationBuilder:
         )
         if files:
             from accounts.services.commands import validate_file
-            for field_key, f in files.items():
-                validate_file(
-                    f, max_size_mb=10,
-                    allowed_extensions=['.pdf', '.jpg', '.jpeg', '.png'],
-                    magic_bytes_check=True,
-                )
-                QuotationAttachment.objects.create(quotation=quotation, file=f, note=field_key)
+            for field_key, file_list in files.items():
+                for f in file_list if isinstance(file_list, (list, tuple)) else [file_list]:
+                    validate_file(
+                        f, max_size_mb=20,
+                        allowed_extensions=[
+                            '.pdf', '.jpg', '.jpeg', '.png',
+                            '.doc', '.docx', '.xls', '.xlsx', '.txt',
+                        ],
+                        magic_bytes_check=True,
+                    )
+                    QuotationAttachment.objects.create(quotation=quotation, file=f, note=field_key)
 
         QuotationTimeline.objects.create(
             quotation=quotation, status=Quotation.STATUS_RECEIVED,

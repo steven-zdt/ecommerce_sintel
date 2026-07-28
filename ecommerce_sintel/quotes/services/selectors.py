@@ -1,4 +1,4 @@
-from django.db.models import QuerySet
+from django.db.models import Count, QuerySet
 from quotes.models import (
     Quotation, QuoteTemplateCategory, QuoteTemplateSubcategory, QuoteTemplate,
     QuoteTemplateAttribute, QuoteEquipmentType, QuoteTemplateModule,
@@ -17,6 +17,7 @@ class QuotationSelector:
             Quotation.objects
             .filter(is_deleted=False)
             .select_related('template')
+            .annotate(attachments_count=Count('attachments', distinct=True))
             .order_by('-created_at')
         )
 
@@ -97,18 +98,25 @@ class QuoteTemplateSelector:
     def list_active() -> QuerySet:
         return (
             QuoteTemplate.objects
-            .filter(is_deleted=False, is_active=True, is_published=True, category__is_active=True)
+            .filter(
+                is_deleted=False, is_active=True, is_published=True,
+                is_internal=False, category__is_active=True,
+            )
             .select_related(*TEMPLATE_ATTRIBUTE_RELATED)
             .order_by('display_order', 'name')
         )
 
     @staticmethod
     def get_by_uuid(uuid: str) -> QuoteTemplate:
+        # Usado solo por el retrieve() publico de QuoteTemplateViewSet -- por
+        # eso tambien excluye is_internal=True aqui (no solo en list_active),
+        # para que una plantilla de QA no sea accesible ni siquiera conociendo
+        # su UUID directamente (ver H5, auditoria E2E 2026-07-23).
         return (
             QuoteTemplate.objects
             .select_related(*TEMPLATE_ATTRIBUTE_RELATED)
             .prefetch_related(*TEMPLATE_TREE_PREFETCH)
-            .get(uuid=uuid, is_deleted=False)
+            .get(uuid=uuid, is_deleted=False, is_internal=False)
         )
 
 

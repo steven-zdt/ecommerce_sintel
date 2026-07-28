@@ -304,9 +304,20 @@ download_pdf (AllowAny): sin items aún → PDF "Requerimiento del Cliente"
 | `quotations/<uuid>/add_attachment/` | POST | IsAuthenticated | Adjuntos manuales |
 | `quotations/<uuid>/download_pdf/` | GET | AllowAny | PDF (requerimiento o cotizado, según tenga items) |
 
-`QuotationFromTemplateInputSerializer.validate()` rechaza (400) si el
-`installation_type` enviado no pertenece a la `subcategory` de la solicitud
-— la jerarquía se garantiza en el backend, no solo en la UI.
+El cliente **no envia** `installation_type`/`subcategory` en `from-template`
+— hereda ambos del `template` elegido. La jerarquia se garantiza antes, en
+`QuoteTemplateInputSerializer.validate()` (API admin, `dashboard/`): al
+crear/editar una plantilla, rechaza (400) si el `installation_type` no
+pertenece a la `subcategory` seleccionada. Es una validacion de
+**configuracion** (tiempo de admin), no de **envio** (tiempo de cliente) —
+backend como fuente de verdad igual se cumple, solo que en el momento en
+que se define la plantilla, no en el momento en que el cliente la responde.
+
+Ademas, `from-template` solo acepta plantillas `is_published=True` **y**
+`is_active=True` (queryset del campo `template` en
+`QuotationFromTemplateInputSerializer`) — un cliente autenticado no puede
+crear una solicitud contra un borrador ni contra una plantilla desactivada,
+aunque conozca su UUID (corregido 2026-07-22, hallazgo QA E2E HG-01).
 
 ## 🌐 API admin (`dashboard/api/`, prefijo `/api/v1/dashboard/`)
 
