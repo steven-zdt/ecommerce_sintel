@@ -192,34 +192,27 @@
 
 <script setup>
 import { ref, reactive, onMounted } from 'vue';
-import useApi from '@/composables/useApi';
+import { storeToRefs } from 'pinia';
 import { useToast } from '@/composables/useToast';
+import { useErrorHandler } from '@/composables/useErrorHandler';
+import { useNotificationsAdminStore } from '@/store/notificationsAdmin';
 import SintelOffcanvas from '@/components/ui/SintelOffcanvas.vue';
 
-const api = useApi();
 const toast = useToast();
+const { handleError } = useErrorHandler();
+const store = useNotificationsAdminStore();
+const {
+  templates, templatesLoading,
+  logs, logsLoading, logsTotalCount, logsTotalPages, logsPagination,
+  actionLoading: saving,
+} = storeToRefs(store);
 
 const tab = ref('templates');
 
 // ── Plantillas ──────────────────────────────────────────────────────
-const templates = ref([]);
-const templatesLoading = ref(true);
 const showEdit = ref(false);
 const selected = ref(null);
-const saving = ref(false);
 const form = ref({});
-
-async function fetchTemplates() {
-  templatesLoading.value = true;
-  try {
-    const { data } = await api.get('dashboard/notification-templates/');
-    templates.value = data.results || data;
-  } catch {
-    toast.error('Error al cargar las plantillas');
-  } finally {
-    templatesLoading.value = false;
-  }
-}
 
 function openEdit(template) {
   selected.value = template;
@@ -235,47 +228,22 @@ function openEdit(template) {
 }
 
 async function submitEdit() {
-  saving.value = true;
-  try {
-    await api.patch(`dashboard/notification-templates/${selected.value.uuid}/`, form.value);
+  const res = await store.updateTemplate(selected.value.uuid, form.value);
+  if (res.ok) {
     toast.success('Plantilla actualizada');
     showEdit.value = false;
-    await fetchTemplates();
-  } catch (e) {
-    toast.error(e.response?.data?.detail || 'Error al guardar');
-  } finally {
-    saving.value = false;
+  } else {
+    handleError(res.error, 'Error al guardar');
   }
 }
 
 // ── Logs ────────────────────────────────────────────────────────────
-const logs = ref([]);
-const logsLoading = ref(true);
-const logsTotalCount = ref(0);
-const logsTotalPages = ref(0);
 const logsCurrentPage = ref(1);
-const logsPagination = reactive({ next: null, previous: null });
 const logFilters = reactive({ status: '', channel: '', template_slug: '' });
 let debounceTimer = null;
 
-async function fetchLogs() {
-  logsLoading.value = true;
-  try {
-    const params = { page: logsCurrentPage.value };
-    if (logFilters.status) params.status = logFilters.status;
-    if (logFilters.channel) params.channel = logFilters.channel;
-    if (logFilters.template_slug) params.template_slug = logFilters.template_slug;
-    const { data } = await api.get('dashboard/notification-logs/', { params });
-    logs.value = data.results || data;
-    logsTotalCount.value = data.count || logs.value.length;
-    logsTotalPages.value = Math.ceil(logsTotalCount.value / 25);
-    logsPagination.next = data.next;
-    logsPagination.previous = data.previous;
-  } catch {
-    toast.error('Error al cargar los logs');
-  } finally {
-    logsLoading.value = false;
-  }
+function fetchLogs() {
+  store.fetchLogs(logsCurrentPage.value, logFilters);
 }
 
 function debouncedFetchLogs() {
@@ -304,7 +272,7 @@ function formatDate(iso) {
 }
 
 onMounted(() => {
-  fetchTemplates();
+  store.fetchTemplates();
   fetchLogs();
 });
 </script>

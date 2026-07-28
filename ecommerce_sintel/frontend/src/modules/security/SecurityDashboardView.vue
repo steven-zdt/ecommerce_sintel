@@ -61,13 +61,12 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue';
-import useApi from '@/composables/useApi';
+import { reactive, onMounted } from 'vue';
+import { storeToRefs } from 'pinia';
+import { useSecurityAdminStore } from '@/store/security';
 
-const api = useApi();
-const events = ref([]);
-const loading = ref(false);
-const health = ref({ db: true, redis: true, celery: true });
+const store = useSecurityAdminStore();
+const { events, health, loading } = storeToRefs(store);
 const filters = reactive({ event_type: '', severity: '' });
 
 function severityClass(sev) {
@@ -80,33 +79,13 @@ function formatDate(value) {
   return new Date(value).toLocaleString('es-CO');
 }
 
-async function load() {
-  loading.value = true;
-  try {
-    const params = {};
-    if (filters.event_type) params.event_type = filters.event_type;
-    if (filters.severity) params.severity = filters.severity;
-    const { data } = await api.get('dashboard/security-events/', { params });
-    events.value = data.results || data;
-  } catch (_) {
-    events.value = [];
-  } finally {
-    loading.value = false;
-  }
-}
-
-async function loadHealth() {
-  try {
-    const { data } = await api.get('dashboard/security-events/health/');
-    health.value = data;
-  } catch (_) {
-    health.value = { db: false, redis: false, celery: false };
-  }
+function load() {
+  store.fetchEvents(filters);
 }
 
 onMounted(() => {
   load();
-  loadHealth();
+  store.fetchHealth();
 });
 </script>
 

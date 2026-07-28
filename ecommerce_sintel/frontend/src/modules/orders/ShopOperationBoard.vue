@@ -117,21 +117,24 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue';
-import useApi from '@/composables/useApi';
+import { storeToRefs } from 'pinia';
+import { useErrorHandler } from '@/composables/useErrorHandler';
 import { useToast } from '@/composables/useToast';
+import { useOrdersAdminStore } from '@/store/ordersAdmin';
 import ShipmentStatusBadge from '@/components/customer/orders/ShipmentStatusBadge.vue';
 import BaseOperationBoard from '@/components/shared/BaseOperationBoard.vue';
+import { formatCOP } from '@/utils/money';
 
-const api = useApi();
 const toast = useToast();
+const { handleError } = useErrorHandler();
+const store = useOrdersAdminStore();
+const {
+  shipments: items, dispatchers, metrics, opsLoading: loading,
+  timeline,
+  actionLoading: saving,
+} = storeToRefs(store);
 
-const items = ref([]);
-const dispatchers = ref([]);
 const selected = ref(null);
-const timeline = ref([]);
-const loading = ref(false);
-const saving = ref(false);
-const metrics = ref({});
 const filters = reactive({ status: '', search: '', date_from: '', date_to: '' });
 const packing = reactive({ package_type: '', package_weight: null, package_volume: null, package_dimensions: '' });
 const schedule = reactive({ shipping_method: '', dispatch_scheduled_at: '', route: '' });
@@ -170,31 +173,14 @@ const cards = computed(() => [
   { label: 'SLA cumplido', value: metrics.value.sla_percentage != null ? `${metrics.value.sla_percentage}%` : '-' },
 ]);
 
-const fmt = (val) => new Intl.NumberFormat('es-CO').format(parseFloat(val) || 0);
+const fmt = (val) => formatCOP(val);
 
-async function loadMetrics() {
-  const { data } = await api.get('orders/orders/operations-dashboard/');
-  metrics.value = data;
+function load() {
+  return store.fetchOperations(filters);
 }
 
-async function load() {
-  loading.value = true;
-  try {
-    const [{ data }, dispatcherResponse] = await Promise.all([
-      api.get('orders/orders/operations/', { params: filters }),
-      api.get('dashboard/dispatchers/'),
-      loadMetrics(),
-    ]);
-    items.value = data.results ?? data;
-    dispatchers.value = dispatcherResponse.data.results ?? dispatcherResponse.data;
-  } finally {
-    loading.value = false;
-  }
-}
-
-async function loadTimeline(orderUuid) {
-  const { data } = await api.get(`orders/orders/${orderUuid}/timeline/`);
-  timeline.value = data;
+function loadTimeline(orderUuid) {
+  return store.fetchTimeline(orderUuid);
 }
 
 function selectShipment(sh) {
@@ -206,36 +192,33 @@ function selectShipment(sh) {
 }
 
 async function execute(action, successMessage) {
-  saving.value = true;
-  try {
-    const { data } = await action();
+  const res = await action();
+  if (res.ok) {
     toast.success(successMessage);
     await load();
-    const refreshed = items.value.find(i => i.order?.uuid === data.uuid);
+    const refreshed = items.value.find(i => i.order?.uuid === res.data.uuid);
     if (refreshed) selectShipment(refreshed);
-  } catch (e) {
-    toast.error(e?.response?.data?.detail || 'No fue posible completar la accion.');
-  } finally {
-    saving.value = false;
+  } else {
+    handleError(res.error, 'No fue posible completar la accion.');
   }
 }
 
 async function savePacking() {
-  await execute(() => api.post(`orders/orders/${selected.value.order.uuid}/pack/`, packing), 'Empaque registrado.');
+  await execute(() => store.pack(selected.value.order.uuid, packing), 'Empaque registrado.');
 }
 
 async function saveSchedule() {
   const payload = { ...schedule };
   if (payload.dispatch_scheduled_at) payload.dispatch_scheduled_at = new Date(payload.dispatch_scheduled_at).toISOString();
-  await execute(() => api.post(`orders/orders/${selected.value.order.uuid}/schedule-dispatch/`, payload), 'Programacion guardada.');
+  await execute(() => store.scheduleDispatch(selected.value.order.uuid, payload), 'Programacion guardada.');
 }
 
 async function assignDispatcher() {
-  await execute(() => api.post(`orders/orders/${selected.value.order.uuid}/assign-dispatcher/`, assignment), 'Transportista asignado y notificado.');
+  await execute(() => store.assignDispatcher(selected.value.order.uuid, assignment), 'Transportista asignado y notificado.');
 }
 
 async function runTransition(action) {
-  await execute(() => api.post(`orders/orders/${selected.value.order.uuid}/${action.endpoint}/`), 'Estado operativo actualizado.');
+  await execute(() => store.transition(selected.value.order.uuid, action.endpoint), 'Estado operativo actualizado.');
 }
 
 onMounted(load);

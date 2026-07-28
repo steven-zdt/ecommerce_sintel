@@ -40,8 +40,10 @@
 
 <script setup>
 import { ref, watch } from 'vue';
-import useApi from '@/composables/useApi';
+import { storeToRefs } from 'pinia';
 import { useToast } from '@/composables/useToast';
+import { useErrorHandler } from '@/composables/useErrorHandler';
+import { useShopAdminStore } from '@/store/shopAdmin';
 
 const props = defineProps({
   item: { type: Object, default: null },
@@ -49,9 +51,10 @@ const props = defineProps({
 });
 const emit = defineEmits(['success', 'cancel']);
 
-const api = useApi();
 const toast = useToast();
-const loading = ref(false);
+const { handleError } = useErrorHandler();
+const store = useShopAdminStore();
+const { actionLoading: loading } = storeToRefs(store);
 
 const emptyForm = () => ({ name: '', tax_type: 'percentage', value: '', is_active: true });
 const form = ref(emptyForm());
@@ -65,22 +68,15 @@ watch(() => props.item, (val) => {
 }, { immediate: true });
 
 async function submit() {
-  loading.value = true;
-  try {
-    if (props.mode === 'create') {
-      await api.post('dashboard/taxes/', form.value);
-      toast.success('Impuesto creado');
-    } else {
-      await api.patch(`dashboard/taxes/${props.item.id}/`, form.value);
-      toast.success('Impuesto actualizado');
-    }
+  const res = props.mode === 'create'
+    ? await store.createTax(form.value)
+    : await store.updateTax(props.item.uuid, form.value);
+
+  if (res.ok) {
+    toast.success(props.mode === 'create' ? 'Impuesto creado' : 'Impuesto actualizado');
     emit('success');
-  } catch (e) {
-    const err = e.response?.data;
-    const msg = err?.name?.[0] || err?.value?.[0] || err?.detail || 'Error al guardar';
-    toast.error(msg);
-  } finally {
-    loading.value = false;
+  } else {
+    handleError(res.error, 'Error al guardar');
   }
 }
 </script>

@@ -45,6 +45,8 @@
 </template>
 
 <script setup>
+import { formatCOP } from '@/utils/money';
+
 const props = defineProps({ items: { type: Array, default: () => [] } });
 
 const itemTypeLabel = (type) => {
@@ -61,5 +63,5 @@ const badgeClass = (type) => {
   return 'badge bg-primary';
 };
 
-const formatCurrency = (value) => new Intl.NumberFormat('es-CO', { minimumFractionDigits: 0 }).format(value || 0);
+const formatCurrency = (value) => formatCOP(value);
 </script>

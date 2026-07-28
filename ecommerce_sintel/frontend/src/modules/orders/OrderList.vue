@@ -57,29 +57,19 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue';
-import useApi from '@/composables/useApi';
+import { onMounted } from 'vue';
+import { storeToRefs } from 'pinia';
 import { useEnums } from '@/composables/useEnums';
+import { useOrdersAdminStore } from '@/store/ordersAdmin';
+import { formatCOP } from '@/utils/money';
 
-const api = useApi();
 const enums = useEnums();
+const store = useOrdersAdminStore();
+const { orders, ordersLoading: loading } = storeToRefs(store);
 
-const loading = ref(true);
-const orders = ref([]);
+const fetchOrders = () => store.fetchOrders();
 
-const fetchOrders = async () => {
-  loading.value = true;
-  try {
-    const response = await api.get('orders/orders/');
-    orders.value = response.data.results || response.data;
-  } catch (err) {
-    console.error("Error al cargar órdenes:", err);
-  } finally {
-    loading.value = false;
-  }
-};
-
-const formatNumber = (num) => new Intl.NumberFormat('es-CO').format(num);
+const formatNumber = (num) => formatCOP(num);
 const formatDate = (d) => new Date(d).toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 
 const getStatusClass = (status) => enums.cssClass('order-statuses', status, 'bg-secondary-subtle text-secondary');

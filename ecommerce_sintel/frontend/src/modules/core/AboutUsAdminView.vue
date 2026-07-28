@@ -39,8 +39,8 @@
           </div>
         </div>
       </div>
-      <button class="au-btn-primary mt-3" :disabled="savingConfig" @click="saveConfig">
-        <span v-if="savingConfig" class="spinner-border spinner-border-sm me-1"></span>
+      <button class="au-btn-primary mt-3" :disabled="actionLoading" @click="saveConfig">
+        <span v-if="actionLoading" class="spinner-border spinner-border-sm me-1"></span>
         Guardar
       </button>
     </div>
@@ -62,7 +62,7 @@
           :class="{ 'bg-danger-subtle': confirmingUuid === value.uuid }">
           <template v-if="confirmingUuid === value.uuid">
             <span class="text-danger small flex-grow-1">¿Eliminar "{{ value.title }}"?</span>
-            <button class="btn btn-sm btn-danger me-1" :disabled="deleting" @click="deleteValue(value)">Confirmar</button>
+            <button class="btn btn-sm btn-danger me-1" :disabled="actionLoading" @click="deleteValue(value)">Confirmar</button>
             <button class="btn btn-sm btn-outline-secondary" @click="confirmingUuid = null">Cancelar</button>
           </template>
           <template v-else>
@@ -107,8 +107,8 @@
       <p v-if="valueError" class="text-danger small mt-2">{{ valueError }}</p>
       <template #footer>
         <button class="btn btn-outline-secondary btn-sm" @click="showValueModal = false">Cancelar</button>
-        <button class="btn btn-primary btn-sm" :disabled="savingValue" @click="saveValue">
-          <span v-if="savingValue" class="spinner-border spinner-border-sm me-1"></span>
+        <button class="btn btn-primary btn-sm" :disabled="actionLoading" @click="saveValue">
+          <span v-if="actionLoading" class="spinner-border spinner-border-sm me-1"></span>
           Guardar
         </button>
       </template>
@@ -118,8 +118,9 @@
 
 <script setup>
 import { ref, reactive, onMounted } from 'vue';
-import useApi from '@/composables/useApi';
+import { storeToRefs } from 'pinia';
 import { useToast } from '@/composables/useToast';
+import { useCoreAdminStore } from '@/store/coreAdmin';
 import BaseInput from '@/components/base/BaseInput.vue';
 import BaseTextarea from '@/components/base/BaseTextarea.vue';
 import BaseUpload from '@/components/base/BaseUpload.vue';
@@ -127,10 +128,13 @@ import BaseModal from '@/components/base/BaseModal.vue';
 import IconRenderer from '@/components/ui/IconRenderer.vue';
 import { normalizeIconInput } from '@/utils/iconShorthand';
 
-const api = useApi();
 const toast = useToast();
+const store = useCoreAdminStore();
+const {
+  values, valuesLoading: loadingValues,
+  actionLoading,
+} = storeToRefs(store);
 
-const savingConfig = ref(false);
 const heroFile = ref(null);
 const heroPreview = ref(null);
 const heroRemoved = ref(false);
@@ -139,14 +143,10 @@ const configForm = ref({
   title: '', subtitle: '', history: '', mission: '', vision: '', is_visible: true,
 });
 
-const values = ref([]);
-const loadingValues = ref(false);
 const confirmingUuid = ref(null);
-const deleting = ref(false);
 
 const showValueModal = ref(false);
 const editingValue = ref(null);
-const savingValue = ref(false);
 const valueError = ref('');
 const valueForm = reactive({ title: '', description: '', icon_class: 'bi-gem', display_order: 0, is_active: true });
 
@@ -163,51 +163,41 @@ function removeHero() {
 }
 
 async function fetchConfig() {
-  try {
-    const { data } = await api.get('dashboard/about-us/config/');
-    configForm.value = {
-      title: data.title || '', subtitle: data.subtitle || '', history: data.history || '',
-      mission: data.mission || '', vision: data.vision || '', is_visible: data.is_visible,
-    };
-    heroPreview.value = data.hero_image;
-  } catch (err) {
-    toast.error('Error cargando la configuracion de Nosotros.');
-  }
+  await store.fetchConfig();
+  if (store.error) { toast.error(store.error); return; }
+  const data = store.config;
+  if (!data) return;
+  configForm.value = {
+    title: data.title || '', subtitle: data.subtitle || '', history: data.history || '',
+    mission: data.mission || '', vision: data.vision || '', is_visible: data.is_visible,
+  };
+  heroPreview.value = data.hero_image;
 }
 
 async function fetchValues() {
-  loadingValues.value = true;
-  try {
-    const { data } = await api.get('dashboard/about-us/');
-    values.value = data;
-  } catch (err) {
-    toast.error('Error cargando los valores institucionales.');
-  } finally {
-    loadingValues.value = false;
-  }
+  await store.fetchValues();
+  if (store.error) toast.error(store.error);
 }
 
 async function saveConfig() {
-  savingConfig.value = true;
-  try {
-    const fd = new FormData();
-    fd.append('title', configForm.value.title);
-    fd.append('subtitle', configForm.value.subtitle);
-    fd.append('history', configForm.value.history);
-    fd.append('mission', configForm.value.mission);
-    fd.append('vision', configForm.value.vision);
-    fd.append('is_visible', configForm.value.is_visible);
-    if (heroFile.value) fd.append('hero_image', heroFile.value);
-    if (heroRemoved.value) fd.append('remove_hero_image', 'true');
-    await api.patch('dashboard/about-us/config/update/', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+  const fd = new FormData();
+  fd.append('title', configForm.value.title);
+  fd.append('subtitle', configForm.value.subtitle);
+  fd.append('history', configForm.value.history);
+  fd.append('mission', configForm.value.mission);
+  fd.append('vision', configForm.value.vision);
+  fd.append('is_visible', configForm.value.is_visible);
+  if (heroFile.value) fd.append('hero_image', heroFile.value);
+  if (heroRemoved.value) fd.append('remove_hero_image', 'true');
+
+  const res = await store.saveConfig(fd);
+  if (res.ok) {
     toast.success('Contenido guardado.');
     heroFile.value = null;
     heroRemoved.value = false;
     await fetchConfig();
-  } catch (err) {
+  } else {
     toast.error('Error guardando el contenido.');
-  } finally {
-    savingConfig.value = false;
   }
 }
 
@@ -233,37 +223,29 @@ async function saveValue() {
     valueError.value = 'El titulo es obligatorio.';
     return;
   }
-  savingValue.value = true;
   valueError.value = '';
-  try {
-    if (editingValue.value) {
-      await api.patch(`dashboard/about-us/${editingValue.value.uuid}/`, valueForm);
-      toast.success('Valor actualizado.');
-    } else {
-      await api.post('dashboard/about-us/create/', valueForm);
-      toast.success('Valor creado.');
-    }
+  const res = editingValue.value
+    ? await store.updateValue(editingValue.value.uuid, valueForm)
+    : await store.createValue(valueForm);
+
+  if (res.ok) {
+    toast.success(editingValue.value ? 'Valor actualizado.' : 'Valor creado.');
     showValueModal.value = false;
     await fetchValues();
-  } catch (err) {
-    valueError.value = err?.response?.data?.title?.[0] || err?.response?.data?.detail || 'Error al guardar.';
-  } finally {
-    savingValue.value = false;
+  } else {
+    valueError.value = res.error?.response?.data?.title?.[0] || res.error?.response?.data?.detail || 'Error al guardar.';
   }
 }
 
 async function deleteValue(value) {
-  deleting.value = true;
-  try {
-    await api.delete(`dashboard/about-us/${value.uuid}/delete/`);
+  const res = await store.deleteValue(value.uuid);
+  if (res.ok) {
     toast.success('Valor eliminado.');
     await fetchValues();
-  } catch (err) {
+  } else {
     toast.error('Error al eliminar.');
-  } finally {
-    deleting.value = false;
-    confirmingUuid.value = null;
   }
+  confirmingUuid.value = null;
 }
 
 onMounted(() => {

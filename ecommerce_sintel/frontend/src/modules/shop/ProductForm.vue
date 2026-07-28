@@ -157,20 +157,20 @@
 
       <!-- Footer CREATE: solo boton crear -->
       <div v-if="localMode === 'create'" class="d-flex gap-2 mt-3">
-        <button type="submit" class="btn btn-primary flex-grow-1" :disabled="loading">
-          <span v-if="loading" class="spinner-border spinner-border-sm me-2"></span>
+        <button type="submit" class="btn btn-primary flex-grow-1" :disabled="actionLoading">
+          <span v-if="actionLoading" class="spinner-border spinner-border-sm me-2"></span>
           <i v-else class="bi bi-plus-lg me-1"></i>
           Crear Producto
         </button>
-        <button type="button" class="btn btn-light border" @click="$emit('cancel')" :disabled="loading">
+        <button type="button" class="btn btn-light border" @click="$emit('cancel')" :disabled="actionLoading">
           Cancelar
         </button>
       </div>
 
       <!-- Footer EDIT: guardar + cerrar -->
       <div v-else class="d-flex gap-2 mt-3">
-        <button type="submit" class="btn btn-primary flex-grow-1" :disabled="loading">
-          <span v-if="loading" class="spinner-border spinner-border-sm me-2"></span>
+        <button type="submit" class="btn btn-primary flex-grow-1" :disabled="actionLoading">
+          <span v-if="actionLoading" class="spinner-border spinner-border-sm me-2"></span>
           Guardar General
         </button>
         <button type="button" class="btn btn-light border" @click="closeForm">Cerrar</button>
@@ -204,8 +204,8 @@
         </div>
       </div>
       <div v-if="localMode === 'edit'" class="d-flex gap-2">
-        <button type="button" class="btn btn-primary flex-grow-1" @click="submit" :disabled="loading">
-          <span v-if="loading" class="spinner-border spinner-border-sm me-2"></span>
+        <button type="button" class="btn btn-primary flex-grow-1" @click="submit" :disabled="actionLoading">
+          <span v-if="actionLoading" class="spinner-border spinner-border-sm me-2"></span>
           Guardar SEO
         </button>
         <button type="button" class="btn btn-light border" @click="closeForm">Cerrar</button>
@@ -351,8 +351,8 @@
         </div>
 
         <div class="d-flex gap-2">
-          <button type="button" class="btn btn-sm btn-primary" @click="addVariant" :disabled="variantLoading">
-            <span v-if="variantLoading" class="spinner-border spinner-border-sm me-1"></span>
+          <button type="button" class="btn btn-sm btn-primary" @click="addVariant" :disabled="actionLoading">
+            <span v-if="actionLoading" class="spinner-border spinner-border-sm me-1"></span>
             Guardar Variante
           </button>
           <button type="button" class="btn btn-sm btn-light border" @click="cancelVariantForm">Cancelar</button>
@@ -494,8 +494,8 @@
 
             <div class="d-flex gap-2">
               <button type="button" class="btn btn-sm btn-primary" @click="saveVariant"
-                      :disabled="variantLoading">
-                <span v-if="variantLoading" class="spinner-border spinner-border-sm me-1"></span>
+                      :disabled="actionLoading">
+                <span v-if="actionLoading" class="spinner-border spinner-border-sm me-1"></span>
                 Guardar Variante
               </button>
               <button type="button" class="btn btn-sm btn-light border"
@@ -592,7 +592,7 @@
                   <i class="bi bi-pencil text-primary" style="font-size:.75rem"></i>
                 </button>
                 <button type="button" class="btn btn-light"
-                        @click="deleteVariant(v)" :disabled="variantLoading" title="Eliminar">
+                        @click="deleteVariant(v)" :disabled="actionLoading" title="Eliminar">
                   <i class="bi bi-trash text-danger" style="font-size:.75rem"></i>
                 </button>
               </div>
@@ -686,8 +686,8 @@
         </div>
         <div class="d-flex gap-2">
           <button type="button" class="btn btn-sm btn-primary"
-                  @click="saveCostRule" :disabled="costLoading">
-            <span v-if="costLoading" class="spinner-border spinner-border-sm me-1"></span>
+                  @click="saveCostRule" :disabled="actionLoading">
+            <span v-if="actionLoading" class="spinner-border spinner-border-sm me-1"></span>
             Crear Regla
           </button>
           <button type="button" class="btn btn-sm btn-light border"
@@ -720,7 +720,7 @@
 
           <div class="d-flex align-items-center gap-1 flex-shrink-0">
             <button type="button" class="btn btn-link p-0"
-                    @click="toggleCostRule(rule)" :disabled="costLoading"
+                    @click="toggleCostRule(rule)" :disabled="actionLoading"
                     :title="rule.is_active ? 'Desactivar' : 'Activar'">
               <i :class="rule.is_active
                 ? 'bi bi-toggle-on text-success fs-5'
@@ -731,7 +731,7 @@
                     class="btn btn-sm btn-outline-secondary py-0 px-2"
                     style="font-size:.7rem"
                     @click="assignCostRule(rule.uuid)"
-                    :disabled="costLoading"
+                    :disabled="actionLoading"
                     title="Asignar a variante principal">
               <i class="bi bi-link-45deg"></i>
             </button>
@@ -780,8 +780,8 @@
                  placeholder="Descripcion de la imagen">
         </div>
         <button type="button" class="btn btn-sm btn-primary"
-                @click="uploadImage" :disabled="uploading || !uploadFile">
-          <span v-if="uploading" class="spinner-border spinner-border-sm me-1"></span>
+                @click="uploadImage" :disabled="actionLoading || !uploadFile">
+          <span v-if="actionLoading" class="spinner-border spinner-border-sm me-1"></span>
           <i v-else class="bi bi-cloud-upload me-1"></i>
           Subir imagen
         </button>
@@ -824,7 +824,7 @@
                     class="btn btn-sm btn-outline-primary py-0 px-2"
                     style="font-size:.75rem"
                     @click="setPrimaryImage(img)"
-                    :disabled="imagesLoading"
+                    :disabled="actionLoading"
                     title="Establecer como principal">
               <i class="bi bi-star"></i>
             </button>
@@ -832,7 +832,7 @@
                     class="btn btn-sm btn-outline-danger py-0 px-2"
                     style="font-size:.75rem"
                     @click="deleteImage(img)"
-                    :disabled="imagesLoading"
+                    :disabled="actionLoading"
                     title="Eliminar imagen">
               <i class="bi bi-trash"></i>
             </button>
@@ -851,8 +851,11 @@
 
 <script setup>
 import { ref, reactive, watch, computed, onMounted } from 'vue';
-import useApi from '@/composables/useApi';
+import { storeToRefs } from 'pinia';
 import { useToast } from '@/composables/useToast';
+import { useErrorHandler } from '@/composables/useErrorHandler';
+import { useShopAdminStore } from '@/store/shopAdmin';
+import { formatCOP } from '@/utils/money';
 
 const props = defineProps({
   item: { type: Object, default: null },
@@ -860,20 +863,22 @@ const props = defineProps({
 });
 const emit = defineEmits(['success', 'cancel', 'itemSaved']);
 
-const api   = useApi();
 const toast = useToast();
+const { handleError } = useErrorHandler();
+const store = useShopAdminStore();
+const {
+  productCategories: categories, productBrands: brands, activeTaxes: taxes,
+  variants, variantsLoading,
+  productImages, imagesLoading,
+  costRules,
+  actionLoading,
+} = storeToRefs(store);
 
 // ─── Estado interno — permite transicion create→edit sin cerrar el offcanvas ──
 const localMode      = ref(props.mode);
 const localItem      = ref(props.item);
 const isNewlyCreated = ref(false);
 const tab            = ref('general');
-const loading        = ref(false);
-
-// ─── Catalogo ─────────────────────────────────────────────────────────────────
-const categories = ref([]);
-const brands     = ref([]);
-const taxes      = ref([]);
 
 // ─── Formulario general ───────────────────────────────────────────────────────
 const emptyForm = () => ({
@@ -886,9 +891,6 @@ const emptyForm = () => ({
 const form = ref(emptyForm());
 
 // ─── Variantes ────────────────────────────────────────────────────────────────
-const variants        = ref([]);
-const variantsLoading = ref(false);
-const variantLoading  = ref(false);
 const showVariantForm = ref(false);
 const editingVariant  = ref(null);
 const firstVariantUuid = computed(() => variants.value[0]?.uuid || null);
@@ -902,16 +904,11 @@ const emptyNewVariant = () => ({
 const newVariant = ref(emptyNewVariant());
 
 // ─── Imagenes ─────────────────────────────────────────────────────────────────
-const productImages  = ref([]);
-const imagesLoading  = ref(false);
-const uploading      = ref(false);
 const uploadFile     = ref(null);
 const uploadAltText  = ref('');
 const fileInputRef   = ref(null);
 
 // ─── Reglas de Costo ──────────────────────────────────────────────────────────
-const costRules          = ref([]);
-const costLoading        = ref(false);
 const showCostForm       = ref(false);
 const activeCostRulesCount = computed(() => costRules.value.filter(r => r.is_active).length);
 const costForm = reactive({
@@ -991,69 +988,58 @@ watch(
 
 // ─── Catalogo ─────────────────────────────────────────────────────────────────
 async function fetchCategories() {
-  try {
-    const r = await api.get('dashboard/categories/');
-    categories.value = r.data.results ?? r.data;
-  } catch {}
+  await store.fetchProductCategories();
 }
 async function fetchBrands() {
-  try {
-    const r = await api.get('dashboard/brands/');
-    brands.value = r.data.results ?? r.data;
-  } catch {}
+  await store.fetchProductBrands();
 }
 async function fetchTaxes() {
-  try {
-    const r = await api.get('dashboard/taxes/');
-    taxes.value = (r.data.results ?? r.data).filter(t => t.is_active);
-  } catch {}
+  await store.fetchActiveTaxes();
 }
 
 // ─── Submit General / SEO ─────────────────────────────────────────────────────
 async function submit() {
-  loading.value = true;
-  try {
-    const payload = {
-      name:              form.value.name,
-      short_description: form.value.short_description || null,
-      description:       form.value.description,
-      video_url:         form.value.video_url || null,
-      is_active:         form.value.is_active,
-      is_featured:       form.value.is_featured,
-      category:          form.value.category,
-      brand:             form.value.brand,
-      condition:         form.value.condition,
-      meta_title:        form.value.meta_title,
-      meta_description:  form.value.meta_description,
-    };
+  const payload = {
+    name:              form.value.name,
+    short_description: form.value.short_description || null,
+    description:       form.value.description,
+    video_url:         form.value.video_url || null,
+    is_active:         form.value.is_active,
+    is_featured:       form.value.is_featured,
+    category:          form.value.category,
+    brand:             form.value.brand,
+    condition:         form.value.condition,
+    meta_title:        form.value.meta_title,
+    meta_description:  form.value.meta_description,
+  };
 
-    if (localMode.value === 'create') {
-      payload.stock = cleanNum(form.value.stock) ?? 0;
-      payload.price = form.value.price;
-      payload.discounted_price = cleanNum(form.value.discounted_price);
+  if (localMode.value === 'create') {
+    payload.stock = cleanNum(form.value.stock) ?? 0;
+    payload.price = form.value.price;
+    payload.discounted_price = cleanNum(form.value.discounted_price);
 
-      const { data } = await api.post('dashboard/products/', payload);
-
-      // ── Transicion interna create→edit (offcanvas permanece abierto) ──
-      localItem.value      = data;
-      localMode.value      = 'edit';
-      isNewlyCreated.value = true;
-      tab.value            = 'variants';
-      await Promise.all([fetchVariants(), fetchCostRules()]);
-      toast.success('Producto creado. Configura variantes, descuentos y logistica.');
-    } else {
-      const { data } = await api.patch(`dashboard/products/${localItem.value.uuid}/`, payload);
-      localItem.value = data;
-      emit('itemSaved', data);
-      toast.success('Datos generales actualizados.');
+    const res = await store.createProduct(payload);
+    if (!res.ok) {
+      handleError(res.error, 'Error al guardar. Revisa los campos.');
+      return;
     }
-  } catch (e) {
-    const err = e.response?.data;
-    const msg = err?.detail || err?.name?.[0] || err?.category?.[0] || err?.price?.[0]
-      || 'Error al guardar. Revisa los campos.';
-    toast.error(msg);
-  } finally {
-    loading.value = false;
+
+    // ── Transicion interna create→edit (offcanvas permanece abierto) ──
+    localItem.value      = res.data;
+    localMode.value      = 'edit';
+    isNewlyCreated.value = true;
+    tab.value            = 'variants';
+    await Promise.all([fetchVariants(), fetchCostRules()]);
+    toast.success('Producto creado. Configura variantes, descuentos y logistica.');
+  } else {
+    const res = await store.updateProduct(localItem.value.uuid, payload);
+    if (!res.ok) {
+      handleError(res.error, 'Error al guardar. Revisa los campos.');
+      return;
+    }
+    localItem.value = res.data;
+    emit('itemSaved', res.data);
+    toast.success('Datos generales actualizados.');
   }
 }
 
@@ -1065,15 +1051,8 @@ function closeForm() {
 // ─── Variantes ────────────────────────────────────────────────────────────────
 async function fetchVariants() {
   if (!localItem.value?.uuid) return;
-  variantsLoading.value = true;
-  try {
-    const r = await api.get(`dashboard/products/${localItem.value.uuid}/variants/`);
-    variants.value = r.data.results ?? r.data;
-  } catch {
-    toast.error('Error al cargar variantes');
-  } finally {
-    variantsLoading.value = false;
-  }
+  await store.fetchVariants(localItem.value.uuid);
+  if (store.error) toast.error(store.error);
 }
 
 function openNewVariantForm() {
@@ -1091,29 +1070,25 @@ async function addVariant() {
   const nv = newVariant.value;
   if (!nv.price || Number(nv.price) <= 0) return toast.error('Precio base requerido (> 0)');
 
-  variantLoading.value = true;
-  try {
-    await api.post(`dashboard/products/${localItem.value.uuid}/variants/create/`, {
-      price:               nv.price,
-      discounted_price:    cleanNum(nv.discounted_price),
-      stock:               cleanNum(nv.stock) ?? 0,
-      is_default:          nv.is_default,
-      attributes:          rowsToAttrs(nv.attrRows),
-      discount_start_date: fromLocalDT(nv.discount_start_date),
-      discount_end_date:   fromLocalDT(nv.discount_end_date),
-      weight:  cleanNum(nv.weight),
-      length:  cleanNum(nv.length),
-      width:   cleanNum(nv.width),
-      height:  cleanNum(nv.height),
-    });
+  const res = await store.createVariant(localItem.value.uuid, {
+    price:               nv.price,
+    discounted_price:    cleanNum(nv.discounted_price),
+    stock:               cleanNum(nv.stock) ?? 0,
+    is_default:          nv.is_default,
+    attributes:          rowsToAttrs(nv.attrRows),
+    discount_start_date: fromLocalDT(nv.discount_start_date),
+    discount_end_date:   fromLocalDT(nv.discount_end_date),
+    weight:  cleanNum(nv.weight),
+    length:  cleanNum(nv.length),
+    width:   cleanNum(nv.width),
+    height:  cleanNum(nv.height),
+  });
+  if (res.ok) {
     toast.success('Variante agregada');
     cancelVariantForm();
     await fetchVariants();
-  } catch (e) {
-    const err = e.response?.data;
-    toast.error(err?.price?.[0] || err?.detail || 'Error al agregar variante');
-  } finally {
-    variantLoading.value = false;
+  } else {
+    handleError(res.error, 'Error al agregar variante');
   }
 }
 
@@ -1132,69 +1107,53 @@ function startEditVariant(v) {
 
 async function saveVariant() {
   if (!editingVariant.value) return;
-  variantLoading.value = true;
-  try {
-    const ev = editingVariant.value;
-    await api.patch(
-      `dashboard/products/${localItem.value.uuid}/variants/${ev.uuid}/`,
-      {
-        price:               ev.price,
-        discounted_price:    cleanNum(ev.discounted_price),
-        stock:               cleanNum(ev.stock) ?? 0,
-        is_default:          ev.is_default,
-        attributes:          rowsToAttrs(ev.attrRows),
-        discount_start_date: fromLocalDT(ev.discount_start_date),
-        discount_end_date:   fromLocalDT(ev.discount_end_date),
-        weight:  cleanNum(ev.weight),
-        length:  cleanNum(ev.length),
-        width:   cleanNum(ev.width),
-        height:  cleanNum(ev.height),
-      }
-    );
+  const ev = editingVariant.value;
+  const res = await store.updateVariant(localItem.value.uuid, ev.uuid, {
+    price:               ev.price,
+    discounted_price:    cleanNum(ev.discounted_price),
+    stock:               cleanNum(ev.stock) ?? 0,
+    is_default:          ev.is_default,
+    attributes:          rowsToAttrs(ev.attrRows),
+    discount_start_date: fromLocalDT(ev.discount_start_date),
+    discount_end_date:   fromLocalDT(ev.discount_end_date),
+    weight:  cleanNum(ev.weight),
+    length:  cleanNum(ev.length),
+    width:   cleanNum(ev.width),
+    height:  cleanNum(ev.height),
+  });
+  if (res.ok) {
     toast.success('Variante actualizada');
     editingVariant.value  = null;
     showVariantForm.value = false;
     await fetchVariants();
     emit('itemSaved', localItem.value);
-  } catch (e) {
-    const err = e.response?.data;
-    toast.error(err?.price?.[0] || err?.detail || 'Error al actualizar variante');
-  } finally {
-    variantLoading.value = false;
+  } else {
+    handleError(res.error, 'Error al actualizar variante');
   }
 }
 
 async function deleteVariant(v) {
-  variantLoading.value = true;
-  try {
-    await api.delete(
-      `dashboard/products/${localItem.value.uuid}/variants/${v.uuid}/delete/`
-    );
+  const res = await store.deleteVariant(localItem.value.uuid, v.uuid);
+  if (res.ok) {
     toast.success('Variante eliminada');
     await fetchVariants();
-  } catch {
+  } else {
     toast.error('Error al eliminar la variante');
-  } finally {
-    variantLoading.value = false;
   }
 }
 
 // ─── Reglas de Costo ──────────────────────────────────────────────────────────
 async function fetchCostRules() {
-  try {
-    const r = await api.get('dashboard/shop-cost-rules/');
-    costRules.value = r.data.results ?? r.data;
-  } catch {}
+  await store.fetchCostRules();
+  if (store.error) toast.error(store.error);
 }
 
 async function saveCostRule() {
   if (!costForm.name?.trim())                           return toast.error('Nombre requerido');
   if (costForm.value === '' || costForm.value === null) return toast.error('Valor requerido');
-  costLoading.value = true;
-  try {
-    await api.post('dashboard/shop-cost-rules/', {
-      ...costForm, value: String(costForm.value),
-    });
+
+  const res = await store.createCostRule({ ...costForm, value: String(costForm.value) });
+  if (res.ok) {
     await fetchCostRules();
     showCostForm.value = false;
     Object.assign(costForm, {
@@ -1202,111 +1161,80 @@ async function saveCostRule() {
       value: '', description: '', applies_globally: false,
     });
     toast.success('Regla de costo creada');
-  } catch (e) {
-    toast.error(e.response?.data?.detail || 'Error al crear regla');
-  } finally {
-    costLoading.value = false;
+  } else {
+    handleError(res.error, 'Error al crear regla');
   }
 }
 
 async function toggleCostRule(rule) {
-  costLoading.value = true;
-  try {
-    if (rule.is_active) {
-      await api.post(`dashboard/shop-cost-rules/${rule.uuid}/deactivate/`);
-    } else {
-      await api.patch(`dashboard/shop-cost-rules/${rule.uuid}/update/`, { is_active: true });
-    }
+  const res = await store.toggleCostRule(rule);
+  if (res.ok) {
     await fetchCostRules();
-  } catch {
+  } else {
     toast.error('Error al cambiar estado de la regla');
-  } finally {
-    costLoading.value = false;
   }
 }
 
 async function assignCostRule(ruleUuid) {
   if (!firstVariantUuid.value) return toast.error('Crea una variante primero');
-  costLoading.value = true;
-  try {
-    await api.post(`dashboard/shop-cost-rules/${ruleUuid}/assign/`, {
-      variant_uuid: firstVariantUuid.value,
-    });
+  const res = await store.assignCostRule(ruleUuid, firstVariantUuid.value);
+  if (res.ok) {
     toast.success('Regla asignada a la variante principal');
-  } catch (e) {
-    toast.error(e.response?.data?.detail || 'Ya asignada o error al asignar');
-  } finally {
-    costLoading.value = false;
+  } else {
+    handleError(res.error, 'Ya asignada o error al asignar');
   }
 }
 
 // ─── Imagenes ─────────────────────────────────────────────────────────────────
 async function fetchImages() {
   if (!localItem.value?.uuid) return;
-  imagesLoading.value = true;
-  try {
-    const r = await api.get(`dashboard/products/${localItem.value.uuid}/`);
-    productImages.value = r.data.images || [];
-  } catch {
-    toast.error('Error al cargar imagenes');
-  } finally {
-    imagesLoading.value = false;
-  }
+  await store.fetchProductImages(localItem.value.uuid);
+  if (store.error) toast.error(store.error);
 }
 
 async function uploadImage() {
   if (!uploadFile.value) return toast.error('Selecciona una imagen');
-  uploading.value = true;
-  try {
-    const fd = new FormData();
-    fd.append('image', uploadFile.value);
-    fd.append('alt_text', uploadAltText.value || '');
-    if (!productImages.value.length) fd.append('is_primary', 'true');
-    await api.post(`dashboard/products/${localItem.value.uuid}/add_image/`, fd, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    });
+  const fd = new FormData();
+  fd.append('image', uploadFile.value);
+  fd.append('alt_text', uploadAltText.value || '');
+  if (!productImages.value.length) fd.append('is_primary', 'true');
+
+  const res = await store.uploadProductImage(localItem.value.uuid, fd);
+  if (res.ok) {
     uploadFile.value    = null;
     uploadAltText.value = '';
     if (fileInputRef.value) fileInputRef.value.value = '';
     await fetchImages();
     toast.success('Imagen subida');
-  } catch (e) {
-    toast.error(e.response?.data?.detail || 'Error al subir imagen');
-  } finally {
-    uploading.value = false;
+  } else {
+    handleError(res.error, 'Error al subir imagen');
   }
 }
 
 async function deleteImage(img) {
-  imagesLoading.value = true;
-  try {
-    await api.delete(`dashboard/products/${localItem.value.uuid}/delete_image/${img.uuid}/`);
+  const res = await store.deleteProductImage(localItem.value.uuid, img.uuid);
+  if (res.ok) {
     await fetchImages();
     toast.success('Imagen eliminada');
-  } catch {
+  } else {
     toast.error('Error al eliminar imagen');
-  } finally {
-    imagesLoading.value = false;
   }
 }
 
 async function setPrimaryImage(img) {
-  imagesLoading.value = true;
-  try {
-    await api.post(`dashboard/products/${localItem.value.uuid}/set_primary/${img.uuid}/`);
+  const res = await store.setPrimaryImage(localItem.value.uuid, img.uuid);
+  if (res.ok) {
     await fetchImages();
     toast.success('Imagen principal actualizada');
-  } catch {
+  } else {
     toast.error('Error al establecer imagen principal');
-  } finally {
-    imagesLoading.value = false;
   }
 }
 
 // ─── Formato numerico ─────────────────────────────────────────────────────────
 const formatNum = (val) => {
   if (val == null || val === '') return '—';
-  return new Intl.NumberFormat('es-CO', { minimumFractionDigits: 0 }).format(val);
+  return formatCOP(val);
 };
 
 onMounted(() => {

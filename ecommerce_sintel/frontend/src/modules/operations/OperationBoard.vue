@@ -65,15 +65,15 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, computed } from 'vue';
-import useApi from '@/composables/useApi';
+import { reactive, onMounted, computed } from 'vue';
+import { storeToRefs } from 'pinia';
 import { useEnums } from '@/composables/useEnums';
+import { useOperationsAdminStore } from '@/store/operationsAdmin';
 import BaseOperationBoard from '@/components/shared/BaseOperationBoard.vue';
 
-const api     = useApi();
 const enums   = useEnums();
-const ops     = ref([]);
-const loading = ref(true);
+const store   = useOperationsAdminStore();
+const { ops, opsLoading: loading } = storeToRefs(store);
 
 const filters = reactive({ status: '', operation_type: '', scheduled_date: '' });
 
@@ -90,15 +90,8 @@ const TYPE_OPTIONS = computed(() => {
   return catalog.map((value) => ({ value, label: enums.label('operation-types', value, value) }));
 });
 
-async function fetchOps() {
-  loading.value = true;
-  try {
-    const params = Object.fromEntries(
-      Object.entries(filters).filter(([, v]) => v)
-    );
-    const { data } = await api.get('dashboard/operations/', { params });
-    ops.value = data.results ?? data;
-  } finally { loading.value = false; }
+function fetchOps() {
+  return store.fetchOps(filters);
 }
 
 onMounted(fetchOps);

@@ -576,8 +576,8 @@
 
 <script setup>
 import { ref, reactive, computed, watch } from 'vue';
-import useApi from '@/composables/useApi';
 import { useToast } from '@/composables/useToast';
+import { useCoreAdminStore } from '@/store/coreAdmin';
 import { useLayoutEngine } from '@/composables/useLayoutEngine';
 import { ANIMATIONS } from '@/constants/animations';
 
@@ -588,7 +588,7 @@ const props = defineProps({
 });
 const emit = defineEmits(['close', 'saved']);
 
-const api   = useApi();
+const store = useCoreAdminStore();
 const toast = useToast();
 
 // ── Tabs ──────────────────────────────────────────────────────────────────────
@@ -979,59 +979,51 @@ async function save() {
   }
   saving.value = true; error.value = '';
 
-  try {
-    const useMultipart = !!bgImgFile.value || removeImg.value;
-    let payload;
-    let headers = {};
+  const useMultipart = !!bgImgFile.value || removeImg.value;
+  let payload;
 
-    if (useMultipart) {
-      const fd = new FormData();
-      fd.append('custom_label',         form.custom_label);
-      fd.append('custom_icon',          form.custom_icon);
-      fd.append('custom_url',           form.custom_url);
-      fd.append('custom_color',         form.color_primary);
-      fd.append('is_visible',           form.is_visible);
-      fd.append('display_order',        form.display_order);
-      fd.append('featured_items_limit', form.featured_items_limit);
-      fd.append('display_type',         form.display_type);
-      fd.append('layout_config',        JSON.stringify(configPayload.value));
-      if (!props.module) fd.append('module_key', form.module_key);
-      if (bgImgFile.value) fd.append('background_image', bgImgFile.value);
-      if (removeImg.value) fd.append('remove_background_image', 'true');
-      payload = fd;
-      headers = { 'Content-Type': 'multipart/form-data' };
-    } else {
-      payload = {
-        custom_label:         form.custom_label,
-        custom_icon:          form.custom_icon,
-        custom_url:           form.custom_url,
-        custom_color:         form.color_primary,
-        is_visible:           form.is_visible,
-        display_order:        form.display_order,
-        featured_items_limit: form.featured_items_limit,
-        display_type:         form.display_type,
-        layout_config:        configPayload.value,
-      };
-      if (!props.module) payload.module_key = form.module_key;
-    }
-
-    let result;
-    if (props.module) {
-      const { data } = await api.patch(`dashboard/home-config/modules/${props.module.uuid}/`, payload, { headers });
-      result = data;
-      toast.success('Sección actualizada.');
-    } else {
-      const { data } = await api.post('dashboard/home-config/modules/create/', payload, { headers });
-      result = data;
-      toast.success('Sección creada.');
-    }
-    emit('saved', result);
-  } catch (err) {
-    const detail = err?.response?.data;
-    error.value = typeof detail === 'string' ? detail : JSON.stringify(detail) || 'Error al guardar.';
-  } finally {
-    saving.value = false;
+  if (useMultipart) {
+    const fd = new FormData();
+    fd.append('custom_label',         form.custom_label);
+    fd.append('custom_icon',          form.custom_icon);
+    fd.append('custom_url',           form.custom_url);
+    fd.append('custom_color',         form.color_primary);
+    fd.append('is_visible',           form.is_visible);
+    fd.append('display_order',        form.display_order);
+    fd.append('featured_items_limit', form.featured_items_limit);
+    fd.append('display_type',         form.display_type);
+    fd.append('layout_config',        JSON.stringify(configPayload.value));
+    if (!props.module) fd.append('module_key', form.module_key);
+    if (bgImgFile.value) fd.append('background_image', bgImgFile.value);
+    if (removeImg.value) fd.append('remove_background_image', 'true');
+    payload = fd;
+  } else {
+    payload = {
+      custom_label:         form.custom_label,
+      custom_icon:          form.custom_icon,
+      custom_url:           form.custom_url,
+      custom_color:         form.color_primary,
+      is_visible:           form.is_visible,
+      display_order:        form.display_order,
+      featured_items_limit: form.featured_items_limit,
+      display_type:         form.display_type,
+      layout_config:        configPayload.value,
+    };
+    if (!props.module) payload.module_key = form.module_key;
   }
+
+  const res = props.module
+    ? await store.updateModule(props.module.uuid, payload)
+    : await store.createModule(payload);
+
+  if (res.ok) {
+    toast.success(props.module ? 'Sección actualizada.' : 'Sección creada.');
+    emit('saved', res.data);
+  } else {
+    const detail = res.error?.response?.data;
+    error.value = typeof detail === 'string' ? detail : JSON.stringify(detail) || 'Error al guardar.';
+  }
+  saving.value = false;
 }
 </script>
 

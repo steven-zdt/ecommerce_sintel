@@ -102,54 +102,38 @@
 </template>
 
 <script setup>
-import { ref, onMounted, reactive } from 'vue';
-import useApi from '@/composables/useApi';
+import { ref, onMounted } from 'vue';
+import { storeToRefs } from 'pinia';
 import { useToast } from '@/composables/useToast';
+import { formatCOP } from '@/utils/money';
 import { useOffcanvas } from '@/composables/useOffcanvas';
+import { useShopAdminStore } from '@/store/shopAdmin';
 import SintelOffcanvas from '@/components/ui/SintelOffcanvas.vue';
 import TaxForm from './TaxForm.vue';
 
-const api = useApi();
 const toast = useToast();
 const { show, mode, selected, openCreate, openEdit, close } = useOffcanvas();
+const store = useShopAdminStore();
+const {
+  taxes, taxesTotalCount: totalCount, taxesTotalPages: totalPages,
+  taxesPagination: pagination, taxesLoading: loading,
+  actionLoading,
+} = storeToRefs(store);
 
-const loading = ref(true);
-const actionLoading = ref(false);
-const taxes = ref([]);
-const totalCount = ref(0);
-const totalPages = ref(0);
 const currentPage = ref(1);
 const pendingDelete = ref(null);
-const pagination = reactive({ next: null, previous: null });
 
-const fetchTaxes = async () => {
-  loading.value = true;
-  try {
-    const res = await api.get('shop/taxes/', { params: { page: currentPage.value } });
-    taxes.value = res.data.results || res.data;
-    totalCount.value = res.data.count || taxes.value.length;
-    totalPages.value = Math.ceil(totalCount.value / 25);
-    pagination.next = res.data.next;
-    pagination.previous = res.data.previous;
-  } catch (err) {
-    toast.error('Error al cargar impuestos');
-  } finally {
-    loading.value = false;
-  }
-};
+const fetchTaxes = () => store.fetchTaxes(currentPage.value);
 
 const executeDelete = async (tax) => {
-  actionLoading.value = true;
-  try {
-    await api.delete(`dashboard/taxes/${tax.id}/`);
+  const res = await store.deleteTax(tax.uuid);
+  if (res.ok) {
     toast.success(`Impuesto "${tax.name}" eliminado`);
     await fetchTaxes();
-  } catch (err) {
+  } else {
     toast.error('No se pudo desactivar el impuesto');
-  } finally {
-    actionLoading.value = false;
-    pendingDelete.value = null;
   }
+  pendingDelete.value = null;
 };
 
 const onFormSuccess = () => { close(); fetchTaxes(); };
@@ -158,7 +142,7 @@ const changePage = (page) => {
   if (page >= 1 && page <= totalPages.value) { currentPage.value = page; fetchTaxes(); }
 };
 
-const formatNum = (val) => new Intl.NumberFormat('es-CO').format(val);
+const formatNum = (val) => formatCOP(val);
 
 onMounted(fetchTaxes);
 </script>

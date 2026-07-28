@@ -255,33 +255,34 @@
 <script setup>
 import { ref, reactive, computed, watch, onMounted } from 'vue';
 import { useRoute, RouterLink } from 'vue-router';
-import useApi from '@/composables/useApi';
+import { storeToRefs } from 'pinia';
 import { useToast } from '@/composables/useToast';
+import { useErrorHandler } from '@/composables/useErrorHandler';
 import { useOffcanvas } from '@/composables/useOffcanvas';
 import { useEnums } from '@/composables/useEnums';
 import { useAuthStore } from '@/store/auth';
+import { useUsersAdminStore } from '@/store/usersAdmin';
 import SintelOffcanvas from '@/components/ui/SintelOffcanvas.vue';
 import UserForm from './UserForm.vue';
 import UserDetail from './UserDetail.vue';
 
-const api = useApi();
 const toast = useToast();
+const { handleError } = useErrorHandler();
 const route = useRoute();
 const authStore = useAuthStore();
 const enums = useEnums();
 const { show, mode, selected, openCreate, openEdit, openDetail, close } = useOffcanvas();
+const store = useUsersAdminStore();
+const {
+  items, totalCount, nextPage, prevPage, listLoading: loading,
+  actionLoading,
+} = storeToRefs(store);
 
-const items = ref([]);
-const loading = ref(true);
-const actionLoading = ref(false);
 const pendingToggle = ref(null);
 const pendingDelete = ref(null);
 const showAdvanced = ref(false);
 
 const search = ref('');
-const totalCount = ref(0);
-const nextPage = ref(null);
-const prevPage = ref(null);
 const userTypes = ref({});
 
 const filters = reactive({
@@ -294,27 +295,8 @@ const filters = reactive({
 });
 
 async function loadPage(url = null) {
-  loading.value = true;
-  try {
-    const endpoint = url || buildEndpoint();
-    const { data } = await api.get(endpoint);
-    if (data.results !== undefined) {
-      items.value = data.results;
-      totalCount.value = data.count;
-      nextPage.value = data.next ? extractPath(data.next) : null;
-      prevPage.value = data.previous ? extractPath(data.previous) : null;
-    } else {
-      items.value = data;
-      totalCount.value = data.length;
-      nextPage.value = null;
-      prevPage.value = null;
-    }
-  } catch (err) {
-    console.error('Error al cargar usuarios:', err);
-    toast.error('No se pudieron cargar los usuarios');
-  } finally {
-    loading.value = false;
-  }
+  await store.fetchList(url || buildEndpoint());
+  if (store.error) toast.error(store.error);
 }
 
 function buildEndpoint() {
@@ -329,12 +311,6 @@ function buildEndpoint() {
   return `users/?${params.toString()}`;
 }
 
-function extractPath(fullUrl) {
-  if (!fullUrl) return null;
-  const match = fullUrl.match(/\/api\/v1\/(.*)/);
-  return match ? match[1] : fullUrl;
-}
-
 let debounceTimer = null;
 watch([search, () => filters.company, () => filters.city, () => filters.country], () => {
   clearTimeout(debounceTimer);
@@ -342,31 +318,25 @@ watch([search, () => filters.company, () => filters.city, () => filters.country]
 });
 
 const executeToggle = async (user) => {
-  actionLoading.value = true;
-  try {
-    await api.patch(`users/${user.uuid}/`, { is_active: !user.is_active });
+  const res = await store.patchUser(user.uuid, { is_active: !user.is_active });
+  if (res.ok) {
     toast.success(`Usuario ${!user.is_active ? 'activado' : 'desactivado'} correctamente`);
     await loadPage();
-  } catch (err) {
-    toast.error(err.response?.data?.detail || 'No se pudo cambiar el estado');
-  } finally {
-    actionLoading.value = false;
-    pendingToggle.value = null;
+  } else {
+    handleError(res.error, 'No se pudo cambiar el estado');
   }
+  pendingToggle.value = null;
 };
 
 const executeDelete = async (user) => {
-  actionLoading.value = true;
-  try {
-    await api.delete(`users/${user.uuid}/erase/`);
+  const res = await store.deleteUser(user.uuid);
+  if (res.ok) {
     toast.success(`Usuario ${user.email} eliminado permanentemente`);
     await loadPage();
-  } catch (err) {
-    toast.error(err.response?.data?.detail || 'No se pudo eliminar el usuario');
-  } finally {
-    actionLoading.value = false;
-    pendingDelete.value = null;
+  } else {
+    handleError(res.error, 'No se pudo eliminar el usuario');
   }
+  pendingDelete.value = null;
 };
 
 const onFormSuccess = () => { close(); loadPage(); };

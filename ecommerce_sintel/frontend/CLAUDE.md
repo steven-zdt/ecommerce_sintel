@@ -112,7 +112,7 @@ lo tiene).
 - Confirmación de borrado: fila inline `bg-danger-subtle` — no modales flotantes
 - Debounce 400ms en inputs de búsqueda
 - Lazy loading en router: `() => import('@/modules/...')`
-- Precios: `new Intl.NumberFormat('es-CO').format(num)`
+- Precios: `formatCOP(num, { withSymbol })` desde `@/utils/money` — nunca instanciar `Intl.NumberFormat('es-CO', ...)` inline en componentes
 
 ## Design System de "Mi Cuenta" (2026-07-17)
 

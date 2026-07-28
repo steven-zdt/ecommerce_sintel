@@ -122,9 +122,11 @@
 
 <script setup>
 import { ref, computed, watch, onMounted } from 'vue';
-import useApi from '@/composables/useApi';
+import { storeToRefs } from 'pinia';
 import { useToast } from '@/composables/useToast';
+import { useErrorHandler } from '@/composables/useErrorHandler';
 import { useEnums } from '@/composables/useEnums';
+import { useUsersAdminStore } from '@/store/usersAdmin';
 
 const props = defineProps({
   item: { type: Object, default: null },
@@ -132,10 +134,11 @@ const props = defineProps({
 });
 const emit = defineEmits(['success', 'cancel']);
 
-const api = useApi();
 const toast = useToast();
+const { handleError } = useErrorHandler();
 const enums = useEnums();
-const loading = ref(false);
+const store = useUsersAdminStore();
+const { actionLoading: loading } = storeToRefs(store);
 const showPwd = ref(false);
 
 onMounted(() => {
@@ -188,36 +191,30 @@ async function submit() {
     toast.error('Las contrasenas no coinciden');
     return;
   }
-  loading.value = true;
-  try {
-    if (props.mode === 'create') {
-      const payload = {
-        email:        form.value.email,
-        first_name:   form.value.first_name,
-        last_name:    form.value.last_name,
-        phone_number: form.value.phone_number,
-        password:     form.value.password,
-        password_confirm: form.value.password_confirm,
-      };
-      await api.post('users/', payload);
-      toast.success('Usuario creado exitosamente');
-    } else {
-      const payload = {
-        first_name:   form.value.first_name,
-        last_name:    form.value.last_name,
-        phone_number: form.value.phone_number,
-        is_verified:  form.value.is_verified,
-      };
-      await api.patch(`users/${props.item.uuid}/`, payload);
-      toast.success('Usuario actualizado exitosamente');
-    }
+  let res;
+  if (props.mode === 'create') {
+    res = await store.createUser({
+      email:        form.value.email,
+      first_name:   form.value.first_name,
+      last_name:    form.value.last_name,
+      phone_number: form.value.phone_number,
+      password:     form.value.password,
+      password_confirm: form.value.password_confirm,
+    });
+  } else {
+    res = await store.patchUser(props.item.uuid, {
+      first_name:   form.value.first_name,
+      last_name:    form.value.last_name,
+      phone_number: form.value.phone_number,
+      is_verified:  form.value.is_verified,
+    });
+  }
+
+  if (res.ok) {
+    toast.success(props.mode === 'create' ? 'Usuario creado exitosamente' : 'Usuario actualizado exitosamente');
     emit('success');
-  } catch (e) {
-    const data = e.response?.data;
-    const msg = data?.detail || Object.values(data || {})[0]?.[0] || 'Error al guardar el usuario';
-    toast.error(msg);
-  } finally {
-    loading.value = false;
+  } else {
+    handleError(res.error, 'Error al guardar el usuario');
   }
 }
 </script>

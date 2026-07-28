@@ -213,23 +213,26 @@
 
 <script setup>
 import { ref, onMounted, reactive } from 'vue';
-import useApi from '@/composables/useApi';
+import { storeToRefs } from 'pinia';
 import { useToast } from '@/composables/useToast';
+import { useErrorHandler } from '@/composables/useErrorHandler';
 import { useOffcanvas } from '@/composables/useOffcanvas';
+import { useShopAdminStore } from '@/store/shopAdmin';
 import SintelOffcanvas from '@/components/ui/SintelOffcanvas.vue';
 import ProductForm from './ProductForm.vue';
 
-const api = useApi();
 const toast = useToast();
+const { handleError } = useErrorHandler();
 const { show, mode, selected, openCreate, openEdit, close } = useOffcanvas();
+const store = useShopAdminStore();
+const {
+  products, productsTotalCount: totalCount, productsTotalPages: totalPages,
+  productsPagination: pagination, productsLoading: loading,
+  productCategories: categories,
+  actionLoading,
+} = storeToRefs(store);
 
-const loading = ref(true);
-const actionLoading = ref(false);
 const savingCell = ref('');
-const products = ref([]);
-const categories = ref([]);
-const totalCount = ref(0);
-const totalPages = ref(0);
 const currentPage = ref(1);
 const pendingDelete = ref(null);
 
@@ -237,11 +240,6 @@ const filters = reactive({
   search: '',
   is_active: null,
   is_featured: null,
-});
-
-const pagination = reactive({
-  next: null,
-  previous: null,
 });
 
 const decorateProduct = (product) => {
@@ -254,65 +252,40 @@ const decorateProduct = (product) => {
 };
 
 const fetchProducts = async () => {
-  loading.value = true;
-  try {
-    const params = {
-      page: currentPage.value,
-      search: filters.search || undefined,
-      is_active: filters.is_active !== null ? filters.is_active : undefined,
-      is_featured: filters.is_featured !== null ? filters.is_featured : undefined,
-    };
-    
-    const response = await api.get('dashboard/products/', { params });
-    products.value = (response.data.results ?? response.data).map(decorateProduct);
-    totalCount.value = response.data.count;
-    totalPages.value = Math.ceil(totalCount.value / 25);
-    pagination.next = response.data.next;
-    pagination.previous = response.data.previous;
-  } catch (err) {
-    console.error("Error al cargar productos:", err);
-    toast.error("Error al cargar el catálogo de productos");
-  } finally {
-    loading.value = false;
-  }
+  await store.fetchProducts({
+    page: currentPage.value,
+    search: filters.search || undefined,
+    is_active: filters.is_active !== null ? filters.is_active : undefined,
+    is_featured: filters.is_featured !== null ? filters.is_featured : undefined,
+  });
+  products.value = products.value.map(decorateProduct);
 };
 
-const fetchCategories = async () => {
-  try {
-    const response = await api.get('dashboard/categories/');
-    categories.value = response.data.results ?? response.data;
-  } catch (err) {
-    toast.error('Error al cargar categorías');
-  }
-};
+const fetchCategories = () => store.fetchProductCategories();
 
 const patchProductInline = async (product, payload, field) => {
   const key = `${product.uuid}:${field}`;
   savingCell.value = key;
-  try {
-    const { data } = await api.patch(`dashboard/products/${product.uuid}/`, payload);
-    Object.assign(product, decorateProduct(data));
+  const res = await store.patchProductInline(product.uuid, payload);
+  if (res.ok) {
+    Object.assign(product, decorateProduct(res.data));
     toast.success('Producto actualizado');
-  } catch (err) {
-    toast.error(err.response?.data?.detail || 'No se pudo guardar el cambio');
+  } else {
+    handleError(res.error, 'No se pudo guardar el cambio');
     await fetchProducts();
-  } finally {
-    savingCell.value = '';
   }
+  savingCell.value = '';
 };
 
 const executeDelete = async (product) => {
-  actionLoading.value = true;
-  try {
-    await api.delete(`dashboard/products/${product.uuid}/`);
+  const res = await store.deleteProduct(product.uuid);
+  if (res.ok) {
     toast.success(`Producto "${product.name}" eliminado`);
     await fetchProducts();
-  } catch (err) {
-    toast.error("No se pudo desactivar el producto");
-  } finally {
-    actionLoading.value = false;
-    pendingDelete.value = null;
+  } else {
+    toast.error('No se pudo desactivar el producto');
   }
+  pendingDelete.value = null;
 };
 
 const onFormSuccess = () => {

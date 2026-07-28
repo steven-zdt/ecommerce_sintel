@@ -144,10 +144,12 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
-import useApi from '@/composables/useApi';
+import { onMounted } from 'vue';
+import { storeToRefs } from 'pinia';
 import { useToast } from '@/composables/useToast';
+import { useErrorHandler } from '@/composables/useErrorHandler';
 import { useFormValidation, campaignValidationSchema } from '@/composables/useFormValidation';
+import { useMarketingAdminStore } from '@/store/marketingAdmin';
 
 const props = defineProps({
   campaign: { type: Object, default: null },
@@ -155,9 +157,10 @@ const props = defineProps({
 });
 
 const emit = defineEmits(['saved']);
-const api   = useApi();
 const toast = useToast();
-const saving = ref(false);
+const { handleError } = useErrorHandler();
+const store = useMarketingAdminStore();
+const { actionLoading: saving } = storeToRefs(store);
 
 // VeeValidate form validation
 const { 
@@ -178,29 +181,17 @@ const {
  * Submit handler with VeeValidate validation
  */
 const handleSubmit = onSubmit(async (formValues) => {
-  saving.value = true;
-  try {
-    const payload = { ...formValues };
-    
-    if (props.mode === 'create') {
-      await api.post('marketing/campaigns/', payload);
-      toast.success('Campaña creada exitosamente.');
-    } else {
-      await api.patch(`marketing/campaigns/${props.campaign.uuid}/`, payload);
-      toast.success('Campaña actualizada.');
-    }
+  const payload = { ...formValues };
+  const res = props.mode === 'create'
+    ? await store.createCampaign(payload)
+    : await store.updateCampaign(props.campaign.uuid, payload);
+
+  if (res.ok) {
+    toast.success(props.mode === 'create' ? 'Campaña creada exitosamente.' : 'Campaña actualizada.');
     emit('saved');
     reset();
-  } catch (err: any) {
-    console.error('Error guardando campaña:', err);
-    // Mostrar errores del servidor si existen
-    if (err.response?.data?.detail) {
-      toast.error(err.response.data.detail);
-    } else {
-      toast.error('Error al guardar la campaña. Verifique los datos.');
-    }
-  } finally {
-    saving.value = false;
+  } else {
+    handleError(res.error, 'Error al guardar la campaña. Verifique los datos.');
   }
 });
 

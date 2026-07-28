@@ -170,9 +170,12 @@
 <script setup>
 import { ref, computed } from 'vue';
 import { RouterLink } from 'vue-router';
-import useApi from '@/composables/useApi';
+import { storeToRefs } from 'pinia';
+import { kycService } from '@/services/kyc/kycService';
 import { useToast } from '@/composables/useToast';
+import { useErrorHandler } from '@/composables/useErrorHandler';
 import { useEnums } from '@/composables/useEnums';
+import { useKycAdminStore } from '@/store/kycAdmin';
 
 const props = defineProps({
   verification: { type: Object, required: true },
@@ -180,10 +183,12 @@ const props = defineProps({
 });
 const emit = defineEmits(['changed']);
 
-const api = useApi();
 const toast = useToast();
+const { handleError } = useErrorHandler();
 const enums = useEnums();
 enums.ensure('user-types');
+const store = useKycAdminStore();
+const { actionLoading } = storeToRefs(store);
 
 const DOC_TYPE_LABELS = {
   CEDULA_FRONTAL: 'Cedula (frontal)',
@@ -213,7 +218,6 @@ const openAction = ref(null);
 const reasonText = ref('');
 const messageText = ref('');
 const noteText = ref('');
-const actionLoading = ref(false);
 
 const fullName = computed(() => {
   const v = props.verification;
@@ -262,8 +266,8 @@ function resetForms() {
 
 async function viewDocument(doc) {
   try {
-    const res = await api.get(`auth/documents/${doc.uuid}/download/`, { responseType: 'blob' });
-    const url = URL.createObjectURL(res.data);
+    const blob = await kycService.downloadDocument(doc.uuid);
+    const url = URL.createObjectURL(blob);
     window.open(url, '_blank');
     setTimeout(() => URL.revokeObjectURL(url), 60_000);
   } catch (e) {
@@ -279,87 +283,72 @@ function toggleDocReject(doc) {
 async function reviewDocument(doc, approved) {
   reviewingDocUuid.value = doc.uuid;
   try {
-    await api.post(`auth/admin/verifications/${props.verification.uuid}/documents/${doc.uuid}/review/`, {
+    await kycService.reviewDocument(props.verification.uuid, doc.uuid, {
       approved, reason: approved ? '' : docRejectReason.value,
     });
     toast.success('Documento revisado.');
     docRejectOpenUuid.value = null;
     emit('changed');
   } catch (e) {
-    toast.error(e.response?.data?.detail || 'No se pudo revisar el documento.');
+    handleError(e, 'No se pudo revisar el documento.');
   } finally {
     reviewingDocUuid.value = null;
   }
 }
 
 async function approve() {
-  actionLoading.value = true;
-  try {
-    await api.post(`auth/admin/verifications/${props.verification.uuid}/approve/`);
+  const res = await store.approve(props.verification.uuid);
+  if (res.ok) {
     toast.success('Verificacion aprobada.');
     resetForms();
     emit('changed');
-  } catch (e) {
-    toast.error(e.response?.data?.documents || e.response?.data?.detail || 'No se pudo aprobar.');
-  } finally {
-    actionLoading.value = false;
+  } else {
+    handleError(res.error, 'No se pudo aprobar.');
   }
 }
 
 async function forceApprove() {
   if (!confirm('¿Aprobar manualmente? Esto activa el acceso del usuario de inmediato sin revisar cada documento.')) return;
-  actionLoading.value = true;
-  try {
-    await api.post(`auth/admin/verifications/${props.verification.uuid}/force-approve/`, { note: noteText.value });
+  const res = await store.forceApprove(props.verification.uuid, noteText.value);
+  if (res.ok) {
     toast.success('Usuario aprobado manualmente. Su acceso ya esta activo.');
     resetForms();
     emit('changed');
-  } catch (e) {
-    toast.error(e.response?.data?.detail || 'No se pudo aprobar manualmente.');
-  } finally {
-    actionLoading.value = false;
+  } else {
+    handleError(res.error, 'No se pudo aprobar manualmente.');
   }
 }
 
 async function reject() {
-  actionLoading.value = true;
-  try {
-    await api.post(`auth/admin/verifications/${props.verification.uuid}/reject/`, { reason: reasonText.value });
+  const res = await store.reject(props.verification.uuid, reasonText.value);
+  if (res.ok) {
     toast.success('Verificacion rechazada.');
     resetForms();
     emit('changed');
-  } catch (e) {
-    toast.error(e.response?.data?.reason?.[0] || e.response?.data?.detail || 'No se pudo rechazar.');
-  } finally {
-    actionLoading.value = false;
+  } else {
+    handleError(res.error, 'No se pudo rechazar.');
   }
 }
 
 async function requestInfo() {
-  actionLoading.value = true;
-  try {
-    await api.post(`auth/admin/verifications/${props.verification.uuid}/request-info/`, { message: messageText.value });
+  const res = await store.requestInfo(props.verification.uuid, messageText.value);
+  if (res.ok) {
     toast.success('Solicitud de informacion enviada.');
     resetForms();
     emit('changed');
-  } catch (e) {
-    toast.error(e.response?.data?.message?.[0] || e.response?.data?.detail || 'No se pudo enviar la solicitud.');
-  } finally {
-    actionLoading.value = false;
+  } else {
+    handleError(res.error, 'No se pudo enviar la solicitud.');
   }
 }
 
 async function block() {
-  actionLoading.value = true;
-  try {
-    await api.post(`auth/admin/verifications/${props.verification.uuid}/block/`, { reason: reasonText.value });
+  const res = await store.block(props.verification.uuid, reasonText.value);
+  if (res.ok) {
     toast.success('Verificacion bloqueada.');
     resetForms();
     emit('changed');
-  } catch (e) {
-    toast.error(e.response?.data?.reason?.[0] || e.response?.data?.detail || 'No se pudo bloquear.');
-  } finally {
-    actionLoading.value = false;
+  } else {
+    handleError(res.error, 'No se pudo bloquear.');
   }
 }
 </script>

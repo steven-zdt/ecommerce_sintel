@@ -118,15 +118,17 @@
 
 <script setup>
 import { ref, reactive, onMounted } from 'vue';
+import { storeToRefs } from 'pinia';
 import useApi from '@/composables/useApi';
 import { useToast } from '@/composables/useToast';
+import { useOperationsAdminStore } from '@/store/operationsAdmin';
 import BaseModal from '@/components/base/BaseModal.vue';
 
 const api     = useApi();
 const toast   = useToast();
+const store   = useOperationsAdminStore();
+const { dispatchers, dispatchersLoading: loading } = storeToRefs(store);
 
-const dispatchers = ref([]);
-const loading     = ref(true);
 const showForm    = ref(false);
 const saving      = ref(false);
 const removing    = ref(false);
@@ -147,12 +149,8 @@ const form = reactive({
   vehicle_type:    '',
 });
 
-async function fetchAll() {
-  loading.value = true;
-  try {
-    const { data } = await api.get('dashboard/dispatchers/');
-    dispatchers.value = data.results ?? data;
-  } finally { loading.value = false; }
+function fetchAll() {
+  return store.fetchDispatchers();
 }
 
 onMounted(fetchAll);
@@ -210,32 +208,26 @@ function closeForm() {
 async function save() {
   formError.value = '';
   saving.value    = true;
-  try {
-    const cities = citiesInput.value
-      ? citiesInput.value.split(',').map(c => c.trim()).filter(Boolean)
-      : [];
-    await api.post('dashboard/dispatchers/', { ...form, coverage_cities: cities });
+  const cities = citiesInput.value
+    ? citiesInput.value.split(',').map(c => c.trim()).filter(Boolean)
+    : [];
+  const res = await store.createDispatcher({ ...form, coverage_cities: cities });
+  if (res.ok) {
     toast.success('Despachador creado.');
     showForm.value = false;
     resetForm();
-    await fetchAll();
-  } catch (e) {
-    formError.value = e?.response?.data?.user_id || e?.response?.data?.detail || 'Error.';
-  } finally { saving.value = false; }
+  } else {
+    formError.value = res.error?.response?.data?.user_id || res.error?.response?.data?.detail || 'Error.';
+  }
+  saving.value = false;
 }
 
 async function remove(uuid) {
   removing.value = true;
-  try {
-    await api.delete(`dashboard/dispatchers/${uuid}/`);
-    toast.success('Despachador eliminado.');
-    await fetchAll();
-  } catch (_) {
-    toast.error('Error al eliminar.');
-  } finally {
-    removing.value = false;
-    confirmingUuid.value = null;
-  }
+  const res = await store.deleteDispatcher(uuid);
+  if (res.ok) toast.success('Despachador eliminado.'); else toast.error('Error al eliminar.');
+  removing.value = false;
+  confirmingUuid.value = null;
 }
 </script>
 

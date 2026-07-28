@@ -163,29 +163,27 @@
 <script setup>
 import { ref, reactive, computed, watch, onMounted } from 'vue';
 import { RouterLink } from 'vue-router';
-import useApi from '@/composables/useApi';
+import { storeToRefs } from 'pinia';
 import { useToast } from '@/composables/useToast';
 import { useEnums } from '@/composables/useEnums';
+import { useKycAdminStore } from '@/store/kycAdmin';
 
 const SERVICE_PROVIDER_VALUES = ['TECHNICIAN', 'PROFESSIONAL', 'SPECIALIST', 'CONTRACTOR'];
 
-const api = useApi();
 const toast = useToast();
 const enums = useEnums();
+const store = useKycAdminStore();
+const {
+  items, totalCount, nextPage, prevPage, kpi,
+  listLoading: loading,
+} = storeToRefs(store);
 
-const items = ref([]);
-const loading = ref(true);
 const search = ref('');
-const totalCount = ref(0);
-const nextPage = ref(null);
-const prevPage = ref(null);
-const kpi = reactive({ by_status: {}, by_requested_type: {}, average_approval_seconds: null });
-
 const filters = reactive({ status: '', requested_user_type: '' });
 
-const hasTypeBreakdown = computed(() => Object.keys(kpi.by_requested_type || {}).length > 0);
+const hasTypeBreakdown = computed(() => Object.keys(kpi.value.by_requested_type || {}).length > 0);
 const averageApprovalLabel = computed(() => {
-  const seconds = kpi.average_approval_seconds;
+  const seconds = kpi.value.average_approval_seconds;
   if (!seconds) return '—';
   const hours = seconds / 3600;
   if (hours < 24) return `${hours.toFixed(1)} h`;
@@ -197,53 +195,22 @@ function formatDate(value) {
   return new Date(value).toLocaleDateString('es-CO', { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
-async function loadPage(url = null) {
-  loading.value = true;
-  try {
-    const endpoint = url || buildEndpoint();
-    const { data } = await api.get(endpoint);
-    if (data.results !== undefined) {
-      items.value = data.results;
-      totalCount.value = data.count;
-      nextPage.value = data.next ? extractPath(data.next) : null;
-      prevPage.value = data.previous ? extractPath(data.previous) : null;
-    } else {
-      items.value = data;
-      totalCount.value = data.length;
-      nextPage.value = null;
-      prevPage.value = null;
-    }
-  } catch (err) {
-    console.error('Error al cargar verificaciones KYC:', err);
-    toast.error('No se pudieron cargar las verificaciones');
-  } finally {
-    loading.value = false;
-  }
+async function loadPage(page = null) {
+  await store.fetchList(buildParams(page));
+  if (store.error) toast.error(store.error);
 }
 
-async function loadKpis() {
-  try {
-    const { data } = await api.get('auth/admin/verifications/metrics/');
-    kpi.by_status = data.by_status || {};
-    kpi.by_requested_type = data.by_requested_type || {};
-    kpi.average_approval_seconds = data.average_approval_seconds;
-  } catch (err) {
-    console.error('Error al cargar metricas KYC:', err);
-  }
+function loadKpis() {
+  return store.fetchKpis();
 }
 
-function buildEndpoint() {
-  const params = new URLSearchParams();
-  if (search.value) params.append('search', search.value);
-  if (filters.status) params.append('status', filters.status);
-  if (filters.requested_user_type) params.append('requested_user_type', filters.requested_user_type);
-  return `auth/admin/verifications/?${params.toString()}`;
-}
-
-function extractPath(fullUrl) {
-  if (!fullUrl) return null;
-  const match = fullUrl.match(/\/api\/v1\/(.*)/);
-  return match ? match[1] : fullUrl;
+function buildParams(page) {
+  const params = {};
+  if (search.value) params.search = search.value;
+  if (filters.status) params.status = filters.status;
+  if (filters.requested_user_type) params.requested_user_type = filters.requested_user_type;
+  if (page) params.page = page;
+  return params;
 }
 
 let debounceTimer = null;

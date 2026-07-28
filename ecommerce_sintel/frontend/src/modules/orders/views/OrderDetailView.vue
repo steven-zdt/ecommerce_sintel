@@ -34,9 +34,9 @@
 </template>
 
 <script setup>
-import { onMounted, computed } from 'vue';
+import { onMounted } from 'vue';
 import { useRoute } from 'vue-router';
-import { useOrderStore } from '@/store/orders/orderStore';
+import { useOrdersAdminStore } from '@/store/ordersAdmin';
 import OrderHeader from '../components/OrderHeader.vue';
 import OrderSummaryCard from '../components/OrderSummaryCard.vue';
 import OrderTimeline from '../components/OrderTimeline.vue';
@@ -46,29 +46,29 @@ import OrderNotes from '../components/OrderNotes.vue';
 import OrderHistory from '../components/OrderHistory.vue';
 
 const route = useRoute();
-const orderStore = useOrderStore();
+const store = useOrdersAdminStore();
 const orderUuid = route.params.uuid;
 
 const loadOrder = async () => {
   if (!orderUuid) return;
-  await orderStore.loadOrder(orderUuid);
-  await orderStore.loadTimeline(orderUuid);
+  await store.fetchOrder(orderUuid);
+  await store.fetchTimeline(orderUuid);
 };
 
 onMounted(loadOrder);
 
 const state = {
   get order() {
-    return orderStore.order;
+    return store.order;
   },
   get timeline() {
-    return orderStore.timeline;
+    return store.timeline;
   },
   get loadingOrder() {
-    return orderStore.loadingOrder;
+    return store.orderLoading;
   },
   get error() {
-    return orderStore.error;
+    return store.error;
   },
 };
 </script>

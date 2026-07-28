@@ -113,61 +113,37 @@
 </template>
 
 <script setup>
-import { ref, onMounted, reactive } from 'vue';
-import useApi from '@/composables/useApi';
+import { ref, onMounted } from 'vue';
+import { storeToRefs } from 'pinia';
 import { useToast } from '@/composables/useToast';
 import { useOffcanvas } from '@/composables/useOffcanvas';
+import { useShopAdminStore } from '@/store/shopAdmin';
 import SintelOffcanvas from '@/components/ui/SintelOffcanvas.vue';
 import CategoryForm from './CategoryForm.vue';
 
-const api = useApi();
 const toast = useToast();
 const { show, mode, selected, openCreate, openEdit, close } = useOffcanvas();
+const store = useShopAdminStore();
+const {
+  categories, categoriesTotalCount: totalCount, categoriesTotalPages: totalPages,
+  categoriesPagination: pagination, categoriesLoading: loading,
+  actionLoading,
+} = storeToRefs(store);
 
-const loading = ref(true);
-const actionLoading = ref(false);
-const categories = ref([]);
-const totalCount = ref(0);
-const totalPages = ref(0);
 const currentPage = ref(1);
 const pendingDelete = ref(null);
 
-const pagination = reactive({
-  next: null,
-  previous: null,
-});
-
-const fetchCategories = async () => {
-  loading.value = true;
-  try {
-    const params = { page: currentPage.value };
-    const response = await api.get('shop/categories/', { params });
-    categories.value = response.data.results;
-    totalCount.value = response.data.count;
-    totalPages.value = Math.ceil(totalCount.value / 10);
-    pagination.next = response.data.next;
-    pagination.previous = response.data.previous;
-  } catch (err) {
-    console.error("Error al cargar categorías:", err);
-    toast.error("Error al cargar el listado de categorías");
-  } finally {
-    loading.value = false;
-  }
-};
+const fetchCategories = () => store.fetchCategories(currentPage.value);
 
 const executeDelete = async (category) => {
-  actionLoading.value = true;
-  try {
-    await api.delete(`dashboard/categories/${category.id}/`);
+  const res = await store.deleteCategory(category.uuid);
+  if (res.ok) {
     toast.success(`Categoría "${category.name}" eliminada`);
     await fetchCategories();
-  } catch (err) {
-    console.error("Error al eliminar:", err);
-    toast.error("No se pudo eliminar la categoría");
-  } finally {
-    actionLoading.value = false;
-    pendingDelete.value = null;
+  } else {
+    toast.error('No se pudo eliminar la categoría');
   }
+  pendingDelete.value = null;
 };
 
 const onFormSuccess = () => {

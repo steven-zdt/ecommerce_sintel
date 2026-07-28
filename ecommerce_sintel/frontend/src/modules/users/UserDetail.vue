@@ -110,8 +110,8 @@
           />
           <label class="form-check-label small" :for="`group-${g.id}`">{{ g.name }}</label>
         </div>
-        <button class="btn btn-sm btn-primary mt-2" :disabled="savingGroups" @click="saveGroups">
-          <span v-if="savingGroups" class="spinner-border spinner-border-sm me-1"></span>
+        <button class="btn btn-sm btn-primary mt-2" :disabled="actionLoading" @click="saveGroups">
+          <span v-if="actionLoading" class="spinner-border spinner-border-sm me-1"></span>
           Guardar grupos
         </button>
       </div>
@@ -157,18 +157,18 @@
       <button
         class="btn btn-sm"
         :class="detail.is_active ? 'btn-outline-secondary' : 'btn-outline-success'"
-        :disabled="togglingActive"
+        :disabled="actionLoading"
         @click="confirmToggleActive"
       >
-        <span v-if="togglingActive" class="spinner-border spinner-border-sm me-1"></span>
+        <span v-if="actionLoading" class="spinner-border spinner-border-sm me-1"></span>
         {{ detail.is_active ? 'Desactivar' : 'Activar' }}
       </button>
-      <button class="btn btn-outline-danger btn-sm" :disabled="resetting" @click="confirmResetPassword">
-        <span v-if="resetting" class="spinner-border spinner-border-sm me-1"></span>
+      <button class="btn btn-outline-danger btn-sm" :disabled="actionLoading" @click="confirmResetPassword">
+        <span v-if="actionLoading" class="spinner-border spinner-border-sm me-1"></span>
         Restablecer contraseña
       </button>
-      <button v-if="!detail.is_verified" class="btn btn-outline-secondary btn-sm" :disabled="resending" @click="doResendVerification">
-        <span v-if="resending" class="spinner-border spinner-border-sm me-1"></span>
+      <button v-if="!detail.is_verified" class="btn btn-outline-secondary btn-sm" :disabled="actionLoading" @click="doResendVerification">
+        <span v-if="actionLoading" class="spinner-border spinner-border-sm me-1"></span>
         Reenviar verificación
       </button>
       <button class="btn btn-primary btn-sm" @click="$emit('edit')">Editar</button>
@@ -178,10 +178,13 @@
 
 <script setup>
 import { ref, computed, watch } from 'vue';
-import useApi from '@/composables/useApi';
+import { storeToRefs } from 'pinia';
+import { formatCOP } from '@/utils/money';
 import { useToast } from '@/composables/useToast';
+import { useErrorHandler } from '@/composables/useErrorHandler';
 import { useEnums } from '@/composables/useEnums';
 import { useAuthStore } from '@/store/auth';
+import { useUsersAdminStore } from '@/store/usersAdmin';
 import KycVerificationPanel from '@/modules/kyc/KycVerificationPanel.vue';
 
 const props = defineProps({
@@ -189,25 +192,20 @@ const props = defineProps({
 });
 const emit = defineEmits(['edit', 'changed']);
 
-const api = useApi();
 const toast = useToast();
+const { handleError } = useErrorHandler();
 const enums = useEnums();
 const authStore = useAuthStore();
-
-const detail = ref(null);
-const loading = ref(true);
-const resetting = ref(false);
-const resending = ref(false);
-const togglingActive = ref(false);
-
-const auditLog = ref([]);
-const auditNext = ref(null);
-const auditLoading = ref(false);
+const store = useUsersAdminStore();
+const {
+  currentDetail: detail, detailLoading: loading,
+  auditLog, auditNext, auditLoading,
+  groupsCatalog,
+  actionLoading,
+} = storeToRefs(store);
 
 const editingGroups = ref(false);
-const groupsCatalog = ref([]);
 const selectedGroupIds = ref([]);
-const savingGroups = ref(false);
 
 const PROFESSIONAL_TYPES = new Set(['PROFESSIONAL', 'CONTRACTOR', 'SPECIALIST', 'ACCOUNTANT', 'TECHNICIAN']);
 const showProfessionalSection = computed(() => PROFESSIONAL_TYPES.has(detail.value?.profile?.user_type));
@@ -227,37 +225,14 @@ function formatDate(d) {
 }
 function formatRate(v) {
   if (!v) return '—';
-  return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(v);
+  return formatCOP(v, { withSymbol: true });
 }
-function extractPath(fullUrl) {
-  if (!fullUrl) return null;
-  const match = fullUrl.match(/\/api\/v1\/(.*)/);
-  return match ? match[1] : fullUrl;
+function loadDetail(uuid) {
+  return store.fetchDetail(uuid);
 }
 
-async function loadDetail(uuid) {
-  loading.value = true;
-  try {
-    const { data } = await api.get(`users/${uuid}/`);
-    detail.value = data;
-  } catch (err) {
-    toast.error('No se pudo cargar el detalle del usuario.');
-  } finally {
-    loading.value = false;
-  }
-}
-
-async function loadAudit(uuid, url = null) {
-  auditLoading.value = true;
-  try {
-    const { data } = await api.get(url || `users/${uuid}/audit-log/`);
-    auditLog.value = url ? [...auditLog.value, ...data.results] : data.results;
-    auditNext.value = data.next ? extractPath(data.next) : null;
-  } catch (err) {
-    console.error('Error cargando auditoria:', err);
-  } finally {
-    auditLoading.value = false;
-  }
+function loadAudit(uuid, url = null) {
+  return store.fetchAudit(uuid, url);
 }
 function loadMoreAudit() {
   if (auditNext.value) loadAudit(props.item.uuid, auditNext.value);
@@ -265,15 +240,12 @@ function loadMoreAudit() {
 
 async function confirmResetPassword() {
   if (!confirm(`¿Restablecer la contraseña de ${detail.value.email}? Se enviará una temporal por correo.`)) return;
-  resetting.value = true;
-  try {
-    await api.post(`users/${props.item.uuid}/reset-password/`);
+  const res = await store.resetPassword(props.item.uuid);
+  if (res.ok) {
     toast.success('Contraseña restablecida y enviada por correo.');
     emit('changed');
-  } catch (err) {
-    toast.error(err.response?.data?.detail || 'No se pudo restablecer la contraseña.');
-  } finally {
-    resetting.value = false;
+  } else {
+    handleError(res.error, 'No se pudo restablecer la contraseña.');
   }
 }
 
@@ -284,57 +256,40 @@ async function confirmToggleActive() {
   }
   const next = !detail.value.is_active;
   if (!confirm(`¿${next ? 'Activar' : 'Desactivar'} el acceso de ${detail.value.email} a la plataforma?`)) return;
-  togglingActive.value = true;
-  try {
-    const { data } = await api.patch(`users/${props.item.uuid}/`, { is_active: next });
-    detail.value = { ...detail.value, ...data };
+  const res = await store.patchUser(props.item.uuid, { is_active: next });
+  if (res.ok) {
+    detail.value = { ...detail.value, ...res.data };
     toast.success(`Usuario ${next ? 'activado' : 'desactivado'} correctamente.`);
     emit('changed');
-  } catch (err) {
-    toast.error(err.response?.data?.detail || 'No se pudo cambiar el estado.');
-  } finally {
-    togglingActive.value = false;
+  } else {
+    handleError(res.error, 'No se pudo cambiar el estado.');
   }
 }
 
 async function doResendVerification() {
-  resending.value = true;
-  try {
-    await api.post(`users/${props.item.uuid}/resend-verification/`);
-    toast.success('Enlace de verificación reenviado.');
-  } catch (err) {
-    toast.error(err.response?.data?.detail || 'No se pudo reenviar la verificación.');
-  } finally {
-    resending.value = false;
-  }
+  const res = await store.resendVerification(props.item.uuid);
+  if (res.ok) toast.success('Enlace de verificación reenviado.');
+  else handleError(res.error, 'No se pudo reenviar la verificación.');
 }
 
 async function toggleGroupsEditor() {
-  if (!editingGroups.value && groupsCatalog.value.length === 0) {
-    try {
-      const { data } = await api.get('users/groups-catalog/');
-      groupsCatalog.value = data;
-    } catch (err) {
-      toast.error('No se pudo cargar el catálogo de grupos.');
-      return;
-    }
+  if (!editingGroups.value) {
+    const res = await store.fetchGroupsCatalog();
+    if (!res.ok) { toast.error('No se pudo cargar el catálogo de grupos.'); return; }
   }
   selectedGroupIds.value = (detail.value.groups || []).map((g) => g.id);
   editingGroups.value = !editingGroups.value;
 }
 
 async function saveGroups() {
-  savingGroups.value = true;
-  try {
-    const { data } = await api.put(`users/${props.item.uuid}/groups/`, { group_ids: selectedGroupIds.value });
-    detail.value = data;
+  const res = await store.saveGroups(props.item.uuid, selectedGroupIds.value);
+  if (res.ok) {
+    detail.value = res.data;
     editingGroups.value = false;
     toast.success('Grupos actualizados.');
     emit('changed');
-  } catch (err) {
-    toast.error(err.response?.data?.detail || 'No se pudieron actualizar los grupos.');
-  } finally {
-    savingGroups.value = false;
+  } else {
+    handleError(res.error, 'No se pudieron actualizar los grupos.');
   }
 }
 

@@ -233,22 +233,19 @@
 
 <script setup>
 import { ref, onMounted, computed, watch, Transition } from 'vue';
-import useApi from '@/composables/useApi';
+import { storeToRefs } from 'pinia';
 import { useToast } from '@/composables/useToast';
 import { useOffcanvas } from '@/composables/useOffcanvas';
+import { useMarketingAdminStore } from '@/store/marketingAdmin';
 import SintelOffcanvas from '@/components/ui/SintelOffcanvas.vue';
 import CampaignForm from './CampaignForm.vue';
 import AgentRunDetail from './AgentRunDetail.vue';
-
-const api = useApi();
 const toast = useToast();
 const activeTab = ref('campaigns');
 const { show: showOffcanvas, mode, selected, openCreate, openEdit, openDetail } = useOffcanvas();
+const store = useMarketingAdminStore();
+const { campaigns, offers, agentRuns, loading } = storeToRefs(store);
 
-const campaigns = ref([]);
-const offers = ref([]);
-const agentRuns = ref([]);
-const loading = ref(true);
 const offcanvasType = ref('');
 
 const offcanvasTitle = computed(() => {
@@ -264,33 +261,14 @@ const offcanvasWidth = computed(() => {
 });
 
 async function loadData() {
-  loading.value = true;
-  try {
-    const [campRes, offerRes, agentRes] = await Promise.all([
-      api.get('marketing/campaigns/'),
-      api.get('marketing/offers/'),
-      api.get('marketing/agent-runs/'),
-    ]);
-    campaigns.value = campRes.data.results || campRes.data;
-    offers.value = offerRes.data.results || offerRes.data;
-    agentRuns.value = agentRes.data.results || agentRes.data;
-  } catch (err) {
-    console.error('Error cargando datos de marketing:', err);
-    toast.error('Error al cargar datos de marketing.');
-  } finally {
-    loading.value = false;
-  }
+  await store.fetchAll();
+  if (store.error) toast.error(store.error);
 }
 
 async function deleteCampaign(camp) {
   if (!confirm('¿Seguro que desea eliminar esta campaña?')) return;
-  try {
-    await api.delete(`marketing/campaigns/${camp.uuid}/`);
-    toast.success('Campaña eliminada.');
-    loadData();
-  } catch {
-    toast.error('No se pudo eliminar la campaña.');
-  }
+  const res = await store.deleteCampaign(camp.uuid);
+  if (res.ok) toast.success('Campaña eliminada.'); else toast.error('No se pudo eliminar la campaña.');
 }
 
 function onCampaignSaved() {

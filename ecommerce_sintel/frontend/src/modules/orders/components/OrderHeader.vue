@@ -48,6 +48,7 @@
 <script setup>
 import { computed } from 'vue';
 import { useEnums } from '@/composables/useEnums';
+import { formatCOP } from '@/utils/money';
 
 const props = defineProps({
   order: { type: Object, required: true }
@@ -70,5 +71,5 @@ const formattedDate = computed(() => {
 const statusLabel = computed(() => enums.label('order-statuses', props.order.status, props.order.status || 'Sin estado'));
 const statusClass = computed(() => enums.cssClass('order-statuses', props.order.status, 'bg-secondary-subtle text-secondary'));
 const paymentStatus = computed(() => (props.order.payment_method ? props.order.payment_method : 'Sin método'));
-const formatCurrency = (value) => new Intl.NumberFormat('es-CO', { minimumFractionDigits: 0 }).format(value || 0);
+const formatCurrency = (value) => formatCOP(value);
 </script>

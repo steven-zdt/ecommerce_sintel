@@ -187,16 +187,17 @@
 
 <script setup>
 import { ref, onMounted } from 'vue';
-import useApi from '@/composables/useApi';
+import { storeToRefs } from 'pinia';
 import { useToast } from '@/composables/useToast';
+import { useOrganizationAdminStore } from '@/store/organizationAdmin';
 import BaseInput from '@/components/base/BaseInput.vue';
 import BaseTextarea from '@/components/base/BaseTextarea.vue';
 import BaseUpload from '@/components/base/BaseUpload.vue';
 
-const api = useApi();
 const toast = useToast();
+const store = useOrganizationAdminStore();
+const { actionLoading: saving, socialLinks } = storeToRefs(store);
 
-const saving = ref(false);
 const activeSection = ref('company');
 
 const sections = [
@@ -214,7 +215,6 @@ const companyForm  = ref({ trade_name: '', description: '', founded_year: null }
 const brandingForm = ref({ tagline: '', logo: null, favicon: null });
 const brandingPreview = ref({ logo: null, favicon: null });
 const contactForm  = ref({ phone: '', email: '', address: '', working_hours: '' });
-const socialLinks   = ref([]);
 const newSocialLink = ref({ platform: '', url: '', icon_class: '' });
 const confirmingDeleteUuid = ref(null);
 const emailForm  = ref({ default_from_email: '', frontend_base_url: '', admin_login_url: '' });
@@ -234,72 +234,39 @@ function onFileSelected(file, target) {
 }
 
 async function fetchAll() {
-  try {
-    const [company, branding, contact, social, email, domains, seo, legal] = await Promise.all([
-      api.get('organization/company/'),
-      api.get('organization/branding/'),
-      api.get('organization/contact/'),
-      api.get('organization/social-links/'),
-      api.get('organization/email-settings/'),
-      api.get('organization/domain-settings/'),
-      api.get('organization/seo-settings/'),
-      api.get('organization/legal-entity/'),
-    ]);
-    if (company.data)  companyForm.value  = { trade_name: company.data.trade_name || '', description: company.data.description || '', founded_year: company.data.founded_year };
-    if (branding.data) { brandingForm.value.tagline = branding.data.tagline || ''; brandingPreview.value.logo = branding.data.logo; brandingPreview.value.favicon = branding.data.favicon; }
-    if (contact.data)  contactForm.value = { phone: contact.data.phone || '', email: contact.data.email || '', address: contact.data.address || '', working_hours: contact.data.working_hours || '' };
-    socialLinks.value = social.data || [];
-    if (email.data)   emailForm.value   = { default_from_email: email.data.default_from_email || '', frontend_base_url: email.data.frontend_base_url || '', admin_login_url: email.data.admin_login_url || '' };
-    if (domains.data) domainForm.value  = { primary_domain: domains.data.primary_domain || '', admin_panel_domain: domains.data.admin_panel_domain || '', api_domain: domains.data.api_domain || '' };
-    if (seo.data)      { seoForm.value.meta_title = seo.data.meta_title || ''; seoForm.value.meta_description = seo.data.meta_description || ''; seoPreview.value.og_image = seo.data.og_image; }
-    if (legal.data)    legalForm.value  = {
-      legal_name: legal.data.legal_name || '', tax_id: legal.data.tax_id || '',
-      fiscal_address: legal.data.fiscal_address || '', legal_representative: legal.data.legal_representative || '',
-      city: legal.data.city || '', department: legal.data.department || '',
-    };
-  } catch (err) {
-    toast.error('Error cargando la configuracion de Organizacion.');
-  }
+  await store.fetchAll();
+  if (store.error) { toast.error(store.error); return; }
+  const { company, branding, contact, emailSettings: email, domainSettings: domains, seoSettings: seo, legalEntity: legal } = store;
+  if (company)  companyForm.value  = { trade_name: company.trade_name || '', description: company.description || '', founded_year: company.founded_year };
+  if (branding) { brandingForm.value.tagline = branding.tagline || ''; brandingPreview.value.logo = branding.logo; brandingPreview.value.favicon = branding.favicon; }
+  if (contact)  contactForm.value = { phone: contact.phone || '', email: contact.email || '', address: contact.address || '', working_hours: contact.working_hours || '' };
+  if (email)   emailForm.value   = { default_from_email: email.default_from_email || '', frontend_base_url: email.frontend_base_url || '', admin_login_url: email.admin_login_url || '' };
+  if (domains) domainForm.value  = { primary_domain: domains.primary_domain || '', admin_panel_domain: domains.admin_panel_domain || '', api_domain: domains.api_domain || '' };
+  if (seo)      { seoForm.value.meta_title = seo.meta_title || ''; seoForm.value.meta_description = seo.meta_description || ''; seoPreview.value.og_image = seo.og_image; }
+  if (legal)    legalForm.value  = {
+    legal_name: legal.legal_name || '', tax_id: legal.tax_id || '',
+    fiscal_address: legal.fiscal_address || '', legal_representative: legal.legal_representative || '',
+    city: legal.city || '', department: legal.department || '',
+  };
 }
 
 async function saveCompany() {
-  saving.value = true;
-  try {
-    await api.patch('organization/company/update/', companyForm.value);
-    toast.success('Empresa guardada.');
-  } catch (err) {
-    toast.error('Error guardando Empresa.');
-  } finally {
-    saving.value = false;
-  }
+  const res = await store.saveCompany(companyForm.value);
+  if (res.ok) toast.success('Empresa guardada.'); else toast.error('Error guardando Empresa.');
 }
 
 async function saveBranding() {
-  saving.value = true;
-  try {
-    const fd = new FormData();
-    fd.append('tagline', brandingForm.value.tagline);
-    if (brandingForm.value.logo)    fd.append('logo', brandingForm.value.logo);
-    if (brandingForm.value.favicon) fd.append('favicon', brandingForm.value.favicon);
-    await api.patch('organization/branding/update/', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
-    toast.success('Branding guardado.');
-  } catch (err) {
-    toast.error('Error guardando Branding.');
-  } finally {
-    saving.value = false;
-  }
+  const fd = new FormData();
+  fd.append('tagline', brandingForm.value.tagline);
+  if (brandingForm.value.logo)    fd.append('logo', brandingForm.value.logo);
+  if (brandingForm.value.favicon) fd.append('favicon', brandingForm.value.favicon);
+  const res = await store.saveBranding(fd);
+  if (res.ok) toast.success('Branding guardado.'); else toast.error('Error guardando Branding.');
 }
 
 async function saveContact() {
-  saving.value = true;
-  try {
-    await api.patch('organization/contact/update/', contactForm.value);
-    toast.success('Contacto guardado.');
-  } catch (err) {
-    toast.error('Error guardando Contacto.');
-  } finally {
-    saving.value = false;
-  }
+  const res = await store.saveContact(contactForm.value);
+  if (res.ok) toast.success('Contacto guardado.'); else toast.error('Error guardando Contacto.');
 }
 
 async function createSocialLink() {
@@ -307,16 +274,12 @@ async function createSocialLink() {
     toast.error('Plataforma y URL son obligatorios.');
     return;
   }
-  saving.value = true;
-  try {
-    const { data } = await api.post('organization/social-links/', newSocialLink.value);
-    socialLinks.value.push(data);
+  const res = await store.createSocialLink(newSocialLink.value);
+  if (res.ok) {
     newSocialLink.value = { platform: '', url: '', icon_class: '' };
     toast.success('Red social agregada.');
-  } catch (err) {
+  } else {
     toast.error('Error agregando red social.');
-  } finally {
-    saving.value = false;
   }
 }
 
@@ -329,67 +292,33 @@ function cancelDeleteSocialLink() {
 }
 
 async function deleteSocialLink(link) {
-  try {
-    await api.delete(`organization/social-links/${link.uuid}/`);
-    socialLinks.value = socialLinks.value.filter(l => l.uuid !== link.uuid);
-    toast.success('Red social eliminada.');
-  } catch (err) {
-    toast.error('Error eliminando red social.');
-  } finally {
-    confirmingDeleteUuid.value = null;
-  }
+  const res = await store.deleteSocialLink(link.uuid);
+  if (res.ok) toast.success('Red social eliminada.'); else toast.error('Error eliminando red social.');
+  confirmingDeleteUuid.value = null;
 }
 
 async function saveEmailSettings() {
-  saving.value = true;
-  try {
-    await api.patch('organization/email-settings/update/', emailForm.value);
-    toast.success('Correos guardados.');
-  } catch (err) {
-    toast.error('Error guardando Correos.');
-  } finally {
-    saving.value = false;
-  }
+  const res = await store.saveEmailSettings(emailForm.value);
+  if (res.ok) toast.success('Correos guardados.'); else toast.error('Error guardando Correos.');
 }
 
 async function saveDomainSettings() {
-  saving.value = true;
-  try {
-    await api.patch('organization/domain-settings/update/', domainForm.value);
-    toast.success('Dominios guardados.');
-  } catch (err) {
-    toast.error('Error guardando Dominios.');
-  } finally {
-    saving.value = false;
-  }
+  const res = await store.saveDomainSettings(domainForm.value);
+  if (res.ok) toast.success('Dominios guardados.'); else toast.error('Error guardando Dominios.');
 }
 
 async function saveSeoSettings() {
-  saving.value = true;
-  try {
-    const fd = new FormData();
-    fd.append('meta_title', seoForm.value.meta_title);
-    fd.append('meta_description', seoForm.value.meta_description);
-    if (seoForm.value.og_image) fd.append('og_image', seoForm.value.og_image);
-    await api.patch('organization/seo-settings/update/', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
-    toast.success('SEO guardado.');
-  } catch (err) {
-    toast.error('Error guardando SEO.');
-  } finally {
-    saving.value = false;
-  }
+  const fd = new FormData();
+  fd.append('meta_title', seoForm.value.meta_title);
+  fd.append('meta_description', seoForm.value.meta_description);
+  if (seoForm.value.og_image) fd.append('og_image', seoForm.value.og_image);
+  const res = await store.saveSeoSettings(fd);
+  if (res.ok) toast.success('SEO guardado.'); else toast.error('Error guardando SEO.');
 }
 
 async function saveLegalEntityInfo() {
-  saving.value = true;
-  try {
-    await api.patch('organization/legal-entity/update/', legalForm.value);
-    toast.success('Informacion legal guardada.');
-  } catch (err) {
-    toast.error('Error guardando Informacion Legal.');
-  } finally {
-    saving.value = false;
-  }
+  const res = await store.saveLegalEntityInfo(legalForm.value);
+  if (res.ok) toast.success('Informacion legal guardada.'); else toast.error('Error guardando Informacion Legal.');
 }
 
 onMounted(fetchAll);

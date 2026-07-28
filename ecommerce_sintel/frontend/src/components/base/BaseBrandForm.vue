@@ -49,6 +49,7 @@
 import { ref, watch } from 'vue';
 import useApi from '@/composables/useApi';
 import { useToast } from '@/composables/useToast';
+import { useErrorHandler } from '@/composables/useErrorHandler';
 
 const props = defineProps({
   item: { type: Object, default: null },
@@ -62,6 +63,7 @@ const emit = defineEmits(['success', 'cancel']);
 
 const api     = useApi();
 const toast   = useToast();
+const { handleError } = useErrorHandler();
 const loading = ref(false);
 const fileInput  = ref(null);
 const logoFile   = ref(null);
@@ -100,7 +102,10 @@ watch(() => props.item, (val) => {
 async function submit() {
   loading.value = true;
   try {
-    const endpoint = props.mode === 'create' ? `${props.endpoint}/` : `${props.endpoint}/${props.item.id}/`;
+    // uuid, no id -- los ViewSets admin de marca/categoria (shop y renting)
+    // usan lookup_field='uuid'; usar el id entero produce un 500
+    // ("no es un UUID valido") en cualquier edicion (bug real, 2026-07-27).
+    const endpoint = props.mode === 'create' ? `${props.endpoint}/` : `${props.endpoint}/${props.item.uuid}/`;
     const method = props.mode === 'create' ? 'post' : 'patch';
 
     if (logoFile.value) {
@@ -115,8 +120,7 @@ async function submit() {
     toast.success(props.mode === 'create' ? 'Marca creada' : 'Marca actualizada');
     emit('success');
   } catch (e) {
-    const msg = e.response?.data?.name?.[0] || e.response?.data?.detail || 'Error al guardar';
-    toast.error(msg);
+    handleError(e, 'Error al guardar');
   } finally {
     loading.value = false;
   }

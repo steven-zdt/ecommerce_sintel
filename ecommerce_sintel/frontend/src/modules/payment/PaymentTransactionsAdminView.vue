@@ -23,6 +23,26 @@
       </div>
     </div>
 
+    <!-- Plan hibrido Widget+API (auditoria 2026-07-22): kill-switch independiente
+         para el Widget, simetrico al de arriba. -->
+    <div class="card shadow-sm border-0 mb-3">
+      <div class="card-body d-flex justify-content-between align-items-center py-2">
+        <div>
+          <p class="fw-semibold mb-0 small">Flujo de pago via Widget (PSE/Otros)</p>
+          <p class="text-muted mb-0" style="font-size:.78rem">
+            Si se desactiva, el checkout solo permite pagar con Tarjeta via API -- util ante una incidencia puntual del Widget de Wompi.
+          </p>
+        </div>
+        <div class="form-check form-switch m-0">
+          <input
+            class="form-check-input" type="checkbox" role="switch"
+            :checked="widgetFlowEnabled" :disabled="flagLoading"
+            @change="toggleWidgetFlow($event.target.checked)"
+          >
+        </div>
+      </div>
+    </div>
+
     <ul class="nav nav-tabs mb-3">
       <li class="nav-item">
         <button type="button" class="nav-link" :class="{ active: tab === 'wompi' }" @click="switchTab('wompi')">
@@ -58,6 +78,7 @@
               <th>Wompi ID</th>
               <th>Orden / Alquiler</th>
               <th>Metodo</th>
+              <th>Canal</th>
               <th>Monto</th>
               <th>Estado</th>
               <th>Acciones</th>
@@ -65,10 +86,10 @@
           </thead>
           <tbody>
             <tr v-if="loading">
-              <td colspan="7" class="text-center py-5"><div class="spinner-border text-primary"></div></td>
+              <td colspan="8" class="text-center py-5"><div class="spinner-border text-primary"></div></td>
             </tr>
             <tr v-else-if="wompiTx.length === 0">
-              <td colspan="7" class="text-center py-5 text-muted">Sin transacciones.</td>
+              <td colspan="8" class="text-center py-5 text-muted">Sin transacciones.</td>
             </tr>
             <template v-for="t in wompiTx" :key="t.uuid">
               <tr>
@@ -76,6 +97,12 @@
                 <td><code class="small">{{ t.wompi_id || '-' }}</code></td>
                 <td class="small">{{ t.order ? `Orden #${t.order}` : (t.rental_request ? `Alquiler #${t.rental_request}` : '-') }}</td>
                 <td class="small">{{ t.payment_method_type || '-' }}</td>
+                <td>
+                  <span v-if="t.initiation_channel" class="badge bg-light text-dark border small">
+                    {{ t.initiation_channel === 'CARD_API' ? 'Tarjeta (API)' : 'Widget' }}
+                  </span>
+                  <span v-else class="text-muted small">-</span>
+                </td>
                 <td>{{ fmtCOP(t.amount_in_cents / 100) }}</td>
                 <td><span :class="['badge', statusClass(t.status)]">{{ t.status }}</span></td>
                 <td class="d-flex gap-1">
@@ -93,7 +120,7 @@
                 </td>
               </tr>
               <tr v-if="expandedUuid === t.uuid">
-                <td colspan="7" class="bg-light">
+                <td colspan="8" class="bg-light">
                   <div v-if="historyLoading" class="text-center py-2">
                     <span class="spinner-border spinner-border-sm text-primary"></span>
                   </div>
@@ -223,30 +250,26 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue';
-import useApi from '@/composables/useApi';
+import { storeToRefs } from 'pinia';
+import { formatCOP } from '@/utils/money';
 import { useToast } from '@/composables/useToast';
+import { useErrorHandler } from '@/composables/useErrorHandler';
+import { usePaymentAdminStore } from '@/store/paymentAdmin';
 
-const api = useApi();
 const toast = useToast();
+const { handleError } = useErrorHandler();
+const store = usePaymentAdminStore();
+const {
+  wompiTx, nequiTx, codTx, totalCount, totalPages, loading,
+  cardApiFlowEnabled, widgetFlowEnabled, flagLoading,
+  transactionEvents, historyLoading,
+} = storeToRefs(store);
 
 const tab = ref('wompi');
 const statusFilter = ref('');
-const loading = ref(true);
 const currentPage = ref(1);
-const totalCount = ref(0);
-const totalPages = ref(0);
-
-const wompiTx = ref([]);
-const nequiTx = ref([]);
-const codTx = ref([]);
-
-// ADR-001 Fase 7: flags + acciones reales (antes el panel era 100% solo lectura)
-const cardApiFlowEnabled = ref(true);
-const flagLoading = ref(false);
-const resyncingUuid = ref('');
 const expandedUuid = ref('');
-const transactionEvents = ref([]);
-const historyLoading = ref(false);
+const resyncingUuid = ref('');
 
 const STATUS_OPTIONS_BY_TAB = {
   wompi: ['PENDING', 'APPROVED', 'DECLINED', 'VOIDED', 'ERROR'],
@@ -255,12 +278,6 @@ const STATUS_OPTIONS_BY_TAB = {
 };
 const statusOptions = computed(() => STATUS_OPTIONS_BY_TAB[tab.value]);
 
-const ENDPOINT_BY_TAB = {
-  wompi: 'dashboard/payment-transactions/',
-  nequi: 'dashboard/payment-transactions/nequi/',
-  cod:   'dashboard/payment-transactions/cod/',
-};
-
 function switchTab(t) {
   tab.value = t;
   statusFilter.value = '';
@@ -268,78 +285,46 @@ function switchTab(t) {
   fetchCurrent();
 }
 
-async function fetchCurrent() {
-  loading.value = true;
-  try {
-    const params = { page: currentPage.value };
-    if (statusFilter.value) params.status = statusFilter.value;
-    const { data } = await api.get(ENDPOINT_BY_TAB[tab.value], { params });
-    const results = data.results || data;
-    if (tab.value === 'wompi') wompiTx.value = results;
-    else if (tab.value === 'nequi') nequiTx.value = results;
-    else codTx.value = results;
-    totalCount.value = data.count || results.length;
-    totalPages.value = Math.ceil(totalCount.value / 25);
-  } catch {
-    toast.error('Error al cargar las transacciones');
-  } finally {
-    loading.value = false;
-  }
-}
-
-async function fetchFeatureFlags() {
-  try {
-    const { data } = await api.get('dashboard/payment-transactions/feature-flags/');
-    cardApiFlowEnabled.value = !!data.card_api_flow_enabled;
-  } catch {
-    toast.error('No se pudo cargar el estado del flag de pagos');
-  }
+function fetchCurrent() {
+  store.fetchTransactions(tab.value, currentPage.value, statusFilter.value);
 }
 
 async function toggleCardApiFlow(checked) {
-  flagLoading.value = true;
-  try {
-    const { data } = await api.patch('dashboard/payment-transactions/feature-flags/', {
-      card_api_flow_enabled: checked,
-    });
-    cardApiFlowEnabled.value = !!data.card_api_flow_enabled;
+  const res = await store.toggleCardApiFlow(checked);
+  if (res.ok) {
     toast.success(checked ? 'Flujo de tarjeta via API activado' : 'Flujo de tarjeta via API desactivado');
-  } catch {
-    toast.error('No se pudo actualizar el flag');
-  } finally {
-    flagLoading.value = false;
+  } else {
+    handleError(res.error, 'No se pudo actualizar el flag');
+  }
+}
+
+async function toggleWidgetFlow(checked) {
+  const res = await store.toggleWidgetFlow(checked);
+  if (res.ok) {
+    toast.success(checked ? 'Flujo via Widget activado' : 'Flujo via Widget desactivado');
+  } else {
+    handleError(res.error, 'No se pudo actualizar el flag');
   }
 }
 
 async function resyncTransaction(t) {
   resyncingUuid.value = t.uuid;
-  try {
-    const { data } = await api.post(`dashboard/payment-transactions/${t.uuid}/resync/`);
-    Object.assign(t, data);
-    toast.success(`Estado actualizado: ${data.status}`);
-  } catch (e) {
-    toast.error(e.response?.data?.detail || 'No se pudo reconciliar la transaccion');
-  } finally {
-    resyncingUuid.value = '';
+  const res = await store.resyncTransaction(t.uuid);
+  if (res.ok) {
+    toast.success(`Estado actualizado: ${res.data.status}`);
+  } else {
+    handleError(res.error, 'No se pudo reconciliar la transaccion');
   }
+  resyncingUuid.value = '';
 }
 
-async function toggleHistory(uuid) {
+function toggleHistory(uuid) {
   if (expandedUuid.value === uuid) {
     expandedUuid.value = '';
     return;
   }
   expandedUuid.value = uuid;
-  historyLoading.value = true;
-  transactionEvents.value = [];
-  try {
-    const { data } = await api.get(`dashboard/payment-transactions/${uuid}/events/`);
-    transactionEvents.value = data;
-  } catch {
-    toast.error('No se pudo cargar el historial de la transaccion');
-  } finally {
-    historyLoading.value = false;
-  }
+  store.fetchTransactionEvents(uuid);
 }
 
 function changePage(p) {
@@ -361,11 +346,11 @@ function formatDate(iso) {
 }
 
 function fmtCOP(n) {
-  return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(n);
+  return formatCOP(n, { withSymbol: true });
 }
 
 onMounted(() => {
   fetchCurrent();
-  fetchFeatureFlags();
+  store.fetchFeatureFlags();
 });
 </script>

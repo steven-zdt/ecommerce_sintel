@@ -5,7 +5,7 @@
 > original (2026-05-14 → 2026-07-01): describia un solo store (`auth.js`), 5 composables, un
 > sidebar de "5 grupos", ausencia total del portal de cliente (`CustomerLayout`), y un modelo
 > de roles numerico (`role: 1|2|3`) que ya no existe en el codigo. Esta version se verifico
-> linea por linea contra el codigo real (`src/apps/admin/router.js`, los 18 archivos de
+> linea por linea contra el codigo real (`src/apps/admin/router.js`, los 29 archivos de
 > `src/store/`, los 20 archivos de `src/composables/`, `src/store/auth.js`,
 > `src/components/customer/CustomerLayout.vue`). El detalle exhaustivo del registro de
 > componentes Vue vive en `ai_skills/frontend/components/cards.md` (fuente unica de verdad
@@ -19,7 +19,7 @@ API, `<script setup>` exclusivamente) y **Vite 8** como empaquetador. Un unico r
 bundle: el **portal publico de cliente** (tienda, renting, servicios tecnicos, cotizaciones,
 checkout, "Mi Cuenta", marketplace de contratistas — todo bajo `CustomerLayout`) y el
 **panel administrativo** (`/panel/*`, bajo `AppShell`, ~45 rutas agrupadas en 10+ dominios de
-negocio). Usa **Pinia** (18 stores, todos con la sintaxis Options — ninguno usa Setup Store)
+negocio). Usa **Pinia** (29 stores, todos con la sintaxis Options — ninguno usa Setup Store)
 para estado global, **Axios** con interceptores para llamadas a API (inyeccion de JWT, refresh
 automatico con cola de reintentos), y **Vue Router 5** con un unico guard `beforeEach` que
 resuelve aislamiento admin/cliente por host, recuperacion de pagos PSE/Wompi, sincronizacion
@@ -100,12 +100,13 @@ frontend/
 │   │   ├── renting/detail/    # 13 subcomponentes de detalle (Gallery, FAQ, Reviews, etc.)
 │   │   ├── services/detail/   # 7 subcomponentes de detalle (espejo del patron de renting, 2026-07-18)
 │   │   ├── shared/            # StatusTimeline (unico timeline del proyecto), BaseOperationBoard,
-│   │   │                      # CostRulesView, checkout/CheckoutStepper (unico stepper, 2026-07-18)
+│   │   │                      # CostRulesView, checkout/CheckoutStepper (unico stepper, 2026-07-18),
+│   │   │                      # checkout/CardOrWidgetPanel (unico panel Tarjeta/Widget, 2026-07-22)
 │   │   ├── shop/, support/, auth/
 │   │   └── ui/                # SintelOffcanvas, IconRenderer, StarRating, ErrorBoundary,
 │   │                          # landing/ (20 componentes, ver §9)
 │   │
-│   ├── store/                            # 18 stores Pinia — ver §7 (NO "solo auth.js")
+│   ├── store/                            # 29 stores Pinia — ver §7 (NO "solo auth.js")
 │   ├── composables/                      # 20 composables — ver §8
 │   ├── services/                         # Wrappers finos de useApi() por dominio (NO todos los
 │   │                                      # componentes llaman useApi() directo — ver nota abajo)
@@ -157,13 +158,16 @@ via `useEnums()` (§8).
 └──────────────┬────────────────────────────────────────────────────┘
                │
 ┌──────────────▼────────────────────────────────────────────────────┐
-│         State Management (Pinia) — 18 stores, ver §7                │
+│         State Management (Pinia) — 29 stores, ver §7                │
 │  auth · appConfig · cart · notifications · supportContext ·        │
-│  orders/orderStore · renting/{rentalsStore,availabilityStore,      │
+│  wishlist · ordersAdmin · renting/{rentalsStore,availabilityStore, │
 │  bookingStore} · services/serviceCheckoutStore ·                   │
-│  rentingAdmin/{catalog,taxonomy,pricing,requests} ·                │
+│  rentingAdmin/{catalog,pricing,requests} ·                         │
 │  technicalServicesAdmin/{catalog,services,packages} ·               │
-│  quotesAdmin/{templateBuilder,quotations}                          │
+│  quotesAdmin/{templateBuilder,quotations} · security ·             │
+│  notificationsAdmin · paymentAdmin · organizationAdmin · kycAdmin · │
+│  marketingAdmin · operationsAdmin · usersAdmin · shopAdmin ·       │
+│  coreAdmin                                                          │
 └──────────────┬────────────────────────────────────────────────────┘
                │
 ┌──────────────▼────────────────────────────────────────────────────┐
@@ -373,7 +377,7 @@ en el router usa `() => import('@/...')`, sin excepcion.
 
 ---
 
-## 7. State Management (Pinia) — 18 stores, todos sintaxis Options
+## 7. State Management (Pinia) — 29 stores, todos sintaxis Options
 
 > Reemplaza la afirmacion "unico store del proyecto: auth.js" de versiones previas — es
 > completamente falsa hoy. Todos usan `defineStore(id, { state, getters, actions })` (ninguno
@@ -386,13 +390,13 @@ en el router usa `() => import('@/...')`, sin excepcion.
 | `cart` | `store/cart.js` | Carrito (productos + servicios), sincronizado con auth |
 | `notifications` | `store/notifications.js` | Feed de notificaciones recientes para la campana del navbar |
 | `supportContext` | `store/supportContext.js` | Contexto pendiente (pedido/renta) para adjuntar al abrir el chat de soporte |
-| `orderStore` | `store/orders/orderStore.js` | Detalle de orden + timeline (admin) |
+| `wishlist` | `store/wishlist.js` | Favoritos del cliente (variantes), precargado por `CustomerLayout.vue` on mount/login (2026-07-23) |
+| `ordersAdmin` | `store/ordersAdmin.js` | Admin: listado/detalle/timeline de ordenes + operaciones de despacho (`store/orders/orderStore.js` se elimino 2026-07-27, consolidado aqui — ver `ai_skills/frontend/architecture/state_management.md`) |
 | `customerRentals` | `store/renting/rentalsStore.js` | Alquileres del cliente autenticado |
 | `rentalAvailability` | `store/renting/availabilityStore.js` | Chequeo de disponibilidad de equipo por rango de fechas |
 | `rentalBooking` | `store/renting/bookingStore.js` | Draft del wizard de reserva de renta, persistido en localStorage |
 | `serviceCheckout` | `store/services/serviceCheckoutStore.js` | Flujo del modal de checkout de servicios tecnicos (metodo de pago, polling de estado) |
 | `rentingCatalogAdmin` | `store/rentingAdmin/catalog.js` | Admin: Equipment/Variants/LogisticsConfig/EquipmentBlocks |
-| `rentingTaxonomyAdmin` | `store/rentingAdmin/taxonomy.js` | Admin: Categorias/Marcas/Labor de renting |
 | `rentingPricingAdmin` | `store/rentingAdmin/pricing.js` | Admin: `RentalCostRule` por equipo (nunca global) |
 | `rentingRequestsAdmin` | `store/rentingAdmin/requests.js` | Admin: ciclo de vida de `RentalRequest` (aprobar/rechazar/entregar/devolver/extender) |
 | `technicalServicesCatalog` | `store/technicalServicesAdmin/catalog.js` | Admin: Categorias/Niveles/Cost Rules de servicios |
@@ -400,10 +404,20 @@ en el router usa `() => import('@/...')`, sin excepcion.
 | `technicalServicePackages` | `store/technicalServicesAdmin/packages.js` | Admin: `ServicePackage` + items incluidos + costos adicionales |
 | `quoteTemplateBuilder` | `store/quotesAdmin/templateBuilder.js` | Admin: Studio de plantillas de cuestionario (categorias/atributos/modulos/preguntas) |
 | `quotationsAdmin` | `store/quotesAdmin/quotations.js` | Admin: revision de `Quotation` generadas por el cuestionario |
+| `securityAdmin` | `store/security.js` | Admin: eventos de seguridad y health del dashboard, solo lectura (P1-4, 1er incremento, 2026-07-27) |
+| `notificationsAdmin` | `store/notificationsAdmin.js` | Admin: plantillas y logs de notificaciones (distinto de `notifications`, el feed personal del usuario) (P1-4, 2026-07-27) |
+| `paymentAdmin` | `store/paymentAdmin.js` | Admin: transacciones Wompi/Nequi/COD, feature flags de pago, eventos de transaccion (P1-4, 2026-07-27) |
+| `organizationAdmin` | `store/organizationAdmin.js` | Admin: empresa/branding/contacto/redes/email/dominio/SEO/entidad legal, 8 secciones (P1-4, 2026-07-27) |
+| `kycAdmin` | `store/kycAdmin.js` | Admin: listado/detalle/aprobacion de verificaciones KYC, revision de documentos (P1-4, 2026-07-27) |
+| `marketingAdmin` | `store/marketingAdmin.js` | Admin: campanas, ofertas y ejecuciones de agente de marketing (P1-4, 2026-07-27) |
+| `operationsAdmin` | `store/operationsAdmin.js` | Admin: tablero de operaciones, despachadores, tickets de operacion (P1-4, 2026-07-27) |
+| `usersAdmin` | `store/usersAdmin.js` | Admin: listado/detalle de usuarios, audit log, grupos, reset de password (P1-4, 2026-07-27) |
+| `shopAdmin` | `store/shopAdmin.js` | Admin: marcas/categorias/impuestos/productos de shop, incluye variantes/imagenes/cost rules de `ProductForm.vue` (P1-4, 2026-07-27) |
+| `coreAdmin` | `store/coreAdmin.js` | Admin: "Nosotros" (valores) + Home Builder del CMS (modulos/banners/tarjetas/footer/navbar/marca) (P1-4, 2026-07-27) |
 
 **Convencion comun** en los stores admin: helper `_api()` (envuelve `useApi()`), trio de estado
 `loading`/`actionLoading`/`error`, y acciones que devuelven `{ ok, data }`/`{ ok, error }` en vez
-de lanzar excepcion (excepcion: `orderStore.js`, que si lanza).
+de lanzar excepcion.
 
 **Nota historica:** `rentingAdmin.js`, `technicalServicesAdmin.js` y `quotesAdmin.js` existieron
 como archivos monoliticos unicos y se dividieron en sub-stores focalizados durante el "Sprint 4"
@@ -428,6 +442,7 @@ como archivos monoliticos unicos y se dividieron en sub-stores focalizados duran
 | `useTheme.js` | named | Dark mode del **panel admin unicamente** (Bootstrap `data-bs-theme`) — el portal cliente no tiene dark mode |
 | `useWompiWidget.js` | named | Carga/abre el widget de checkout de Wompi, detecta iframe "colgado" |
 | `useCardTokenization.js` | named | Tokeniza tarjeta directo contra la API publica de Wompi (nunca via nuestro backend — requisito PCI) |
+| `useCardOrWidgetPayment.js` | named | (2026-07-22) Estado + logica del sub-selector Tarjeta(API)/PSE-Otros(Widget) dentro de "Pago en linea" — extraido de `CheckoutView.vue` para que `ServiceCheckoutModal.vue` y `RentalConfirmationView.vue` lo compartan en vez de duplicar ~120 lineas 3 veces. Ver `payment/.AGENT/docs/ARQUITECTURA_COMPLETA_PAYMENT.md` §10.6 |
 | `usePaymentPolling.js` | named | Mecanica generica de "poll cada N ms hasta timeout", extraida de 3 implementaciones duplicadas |
 | `useDocumentDownload.js` | named | Registra descarga de documento de renta (incrementa contador) y abre el archivo |
 | `useOperationTracking.js` | named | Ticket de operacion + timeline + WebSocket de seguimiento en vivo (auto conecta/limpia) |
@@ -534,6 +549,7 @@ propio `IntersectionObserver`. Componentes obsoletos conservados sin importar:
 | 2026-07-01 | Backend como fuente unica de verdad para enums — 16+ archivos con `STATUS_MAP` local eliminados, creado `useEnums.js` (luego migrado a `.ts`). VeeValidate+Yup integrado. Testing offline del cache de 4 capas. |
 | 2026-07-06 a 2026-07-16 | Portal de cliente completo construido (`CustomerLayout`, ~40 vistas), rediseño de Home/Landing (20 componentes), KYC onboarding, SSoT de identidad (elimina `role` numerico), Design System "Mi Cuenta", stores admin divididos por dominio (Sprint 4), auditorias de arquitectura por app — ver `MEMORY.md` del proyecto para el detalle completo, es demasiado extenso para este documento. |
 | 2026-07-17/18 | Plan de unificacion UX Technical Services↔Renting completo (6 fases): `ServiceDetailView.vue` componentizado (8 componentes nuevos en `components/services/detail/`), sidebar de resumen persistente en el wizard de servicios, `CheckoutStepper.vue` generalizado y compartido entre ambos wizards (Renting + Services), `ServiceMarketing`/`ServiceFAQ`/reseñas/tecnicos-disponibles expuestos por primera vez. Fix: `technicalServicesAdmin/services.js::uploadImage()` sin override de `Content-Type` → 415 (ver §4.4). Detalle completo en `technical_services/.AGENT/docs/PLAN_UNIFICACION_SERVICES_CON_RENTING.md` y `MEMORY.md`. |
+| 2026-07-22 | Migracion hibrida Tarjeta(API)/Widget generalizada a Servicios y Renting (antes solo Shop): nuevo composable `useCardOrWidgetPayment.js` + componente `CardOrWidgetPanel.vue` compartidos por `CheckoutView.vue`/`ServiceCheckoutModal.vue`/`RentalConfirmationView.vue`. Smoke test E2E encontro y corrigio 2 bugs reales: (1) `GET payment/cards/` no devolvia `token_id` → pagar con tarjeta guardada caia silenciosamente al Widget en las 3 apps; (2) en Servicios/Renting, `watch()` sobre el metodo de pago sin `{ immediate: true }` → las tarjetas guardadas nunca se cargaban porque `'WOMPI'` ya era el default al montar. Ambos verificados end-to-end (pago real con tarjeta guardada → `APPROVED`/`CARD_API` en las 3 superficies). Gap sin corregir: Shop no oculta "Nequi Push" con credenciales placeholder (Renting si lo hace). Detalle completo en `payment/.AGENT/docs/ARQUITECTURA_COMPLETA_PAYMENT.md` §10.6. |
 
 ---
 
@@ -541,7 +557,7 @@ propio `IntersectionObserver`. Componentes obsoletos conservados sin importar:
 
 El frontend es una SPA Vue 3 de un solo bundle que sirve dos dominios de producto completamente
 distintos (portal de cliente y panel administrativo) desde un unico router, con aislamiento de
-sesion por host en produccion. 18 stores Pinia y 20 composables reemplazan lo que en versiones
+sesion por host en produccion. 29 stores Pinia y 20 composables reemplazan lo que en versiones
 anteriores de este documento era "un solo store, cinco composables" — el proyecto crecio
 significativamente sin que esta arquitectura documentada lo reflejara hasta esta auditoria. El
 backend sigue siendo la unica fuente de verdad para reglas de negocio y catalogos de estado; el

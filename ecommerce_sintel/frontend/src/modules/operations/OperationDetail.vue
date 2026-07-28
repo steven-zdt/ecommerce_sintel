@@ -148,24 +148,27 @@
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue';
 import { useRoute } from 'vue-router';
-import useApi from '@/composables/useApi';
+import { storeToRefs } from 'pinia';
 import { useToast } from '@/composables/useToast';
+import { useErrorHandler } from '@/composables/useErrorHandler';
 import { useEnums } from '@/composables/useEnums';
+import { useOperationsAdminStore } from '@/store/operationsAdmin';
 import TrackingTimeline from '@/components/customer/ui/TrackingTimeline.vue';
 
 const route   = useRoute();
-const api     = useApi();
 const toast   = useToast();
+const { handleError } = useErrorHandler();
 const enums   = useEnums();
 const uuid    = route.params.uuid;
+const store   = useOperationsAdminStore();
+const {
+  currentTicket: ticket, ticketLoading: loading,
+  availableStaff, staffLoading,
+  actionLoading: actioning,
+} = storeToRefs(store);
 
-const ticket     = ref(null);
-const loading    = ref(true);
-const actioning  = ref(false);
 const showAssign = ref(false);
 const showSchedule = ref(false);
-const staffLoading = ref(false);
-const availableStaff = ref([]);
 const nextStatus = ref('');
 
 const assignForm = reactive({ assignee_id: '', role: 'TECHNICIAN' });
@@ -173,15 +176,8 @@ const scheduleForm = reactive({ scheduled_date: '', scheduled_time_start: '', sc
 
 async function openAssign() {
   showAssign.value = true;
-  staffLoading.value = true;
-  try {
-    const { data } = await api.get(`dashboard/operations/${uuid}/available-staff/`);
-    availableStaff.value = data;
-  } catch (e) {
-    toast.error(e?.response?.data?.detail || 'No fue posible cargar el personal.');
-  } finally {
-    staffLoading.value = false;
-  }
+  const res = await store.fetchAvailableStaff(uuid);
+  if (!res.ok) handleError(res.error, 'No fue posible cargar el personal.');
 }
 
 function selectStaffRole() {
@@ -189,12 +185,8 @@ function selectStaffRole() {
   if (person) assignForm.role = person.role;
 }
 
-async function fetchTicket() {
-  loading.value = true;
-  try {
-    const { data } = await api.get(`dashboard/operations/${uuid}/`);
-    ticket.value   = data;
-  } finally { loading.value = false; }
+function fetchTicket() {
+  return store.fetchTicket(uuid);
 }
 
 const sourceOrder = computed(() => ticket.value?.source_order || null);
@@ -222,64 +214,34 @@ onMounted(() => { fetchTicket(); enums.ensure('operation-statuses'); });
 
 async function transition() {
   if (!nextStatus.value) return;
-  actioning.value = true;
-  try {
-    await api.post(`dashboard/operations/${uuid}/transition/`, { status: nextStatus.value });
-    toast.success('Estado actualizado.');
-    nextStatus.value = '';
-    await fetchTicket();
-  } catch (e) {
-    toast.error(e?.response?.data?.detail || 'Error.');
-  } finally { actioning.value = false; }
+  const res = await store.transition(uuid, nextStatus.value);
+  if (res.ok) { toast.success('Estado actualizado.'); nextStatus.value = ''; }
+  else handleError(res.error, 'Error.');
 }
 
 async function schedule() {
   if (!scheduleForm.scheduled_date || !scheduleForm.scheduled_time_start || !scheduleForm.scheduled_time_end) return;
-  actioning.value = true;
-  try {
-    await api.post(`dashboard/operations/${uuid}/schedule/`, { ...scheduleForm });
-    toast.success('Operacion programada.');
-    showSchedule.value = false;
-    await fetchTicket();
-  } catch (e) {
-    toast.error(e?.response?.data?.detail || 'No fue posible programar la operacion.');
-  } finally {
-    actioning.value = false;
-  }
+  const res = await store.schedule(uuid, { ...scheduleForm });
+  if (res.ok) { toast.success('Operacion programada.'); showSchedule.value = false; }
+  else handleError(res.error, 'No fue posible programar la operacion.');
 }
 
 async function autoAssign() {
-  actioning.value = true;
-  try {
-    await api.post(`dashboard/operations/${uuid}/auto-assign/`);
-    toast.success('Auto-asignacion completada.');
-    await fetchTicket();
-  } catch (e) {
-    toast.error(e?.response?.data?.detail || 'Error.');
-  } finally { actioning.value = false; }
+  const res = await store.autoAssign(uuid);
+  if (res.ok) toast.success('Auto-asignacion completada.'); else handleError(res.error, 'Error.');
 }
 
 async function assign() {
   if (!assignForm.assignee_id) return;
-  actioning.value = true;
-  try {
-    await api.post(`dashboard/operations/${uuid}/assign/`, { ...assignForm });
-    toast.success('Recurso asignado.');
-    showAssign.value = false;
-    await fetchTicket();
-  } catch (e) {
-    toast.error(e?.response?.data?.detail || 'Error.');
-  } finally { actioning.value = false; }
+  const res = await store.assign(uuid, { ...assignForm });
+  if (res.ok) { toast.success('Recurso asignado.'); showAssign.value = false; }
+  else handleError(res.error, 'Error.');
 }
 
 async function reviewDoc(docUuid, approved) {
-  try {
-    await api.post(`dashboard/operations/${uuid}/documents/${docUuid}/review/`, { approved });
-    toast.success(approved ? 'Documento aprobado.' : 'Documento rechazado.');
-    await fetchTicket();
-  } catch (e) {
-    toast.error('Error al revisar el documento.');
-  }
+  const res = await store.reviewDoc(uuid, docUuid, approved);
+  if (res.ok) toast.success(approved ? 'Documento aprobado.' : 'Documento rechazado.');
+  else toast.error('Error al revisar el documento.');
 }
 
 

@@ -13,27 +13,24 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue';
+import { onMounted } from 'vue';
 import { useRoute, RouterLink } from 'vue-router';
-import useApi from '@/composables/useApi';
+import { storeToRefs } from 'pinia';
 import { useEnums } from '@/composables/useEnums';
+import { useKycAdminStore } from '@/store/kycAdmin';
 import KycVerificationPanel from './KycVerificationPanel.vue';
 
 const route = useRoute();
-const api = useApi();
 const enums = useEnums();
+const store = useKycAdminStore();
+const { currentVerification: verification, detailLoading: loading } = storeToRefs(store);
 
-const loading = ref(true);
-const verification = ref(null);
-
-async function reload() {
-  const { data } = await api.get(`auth/admin/verifications/${route.params.uuid}/`);
-  verification.value = data;
+function reload() {
+  return store.fetchDetail(route.params.uuid);
 }
 
 onMounted(async () => {
   await Promise.all([enums.ensure('kyc-verification-statuses'), enums.ensure('kyc-document-statuses')]);
   await reload();
-  loading.value = false;
 });
 </script>
