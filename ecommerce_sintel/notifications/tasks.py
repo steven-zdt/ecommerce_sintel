@@ -202,6 +202,76 @@ def send_whatsapp_notification_task(
         raise self.retry(exc=exc)
 
 
+@shared_task(
+    bind=True,
+    max_retries=3,
+    default_retry_delay=120,
+    name='notifications.send_sms',
+    queue='notifications',
+    acks_late=True,
+)
+def send_sms_notification_task(
+    self,
+    user_id: int,
+    template_slug: str,
+    phone: str,
+    context: dict,
+):
+    from django.contrib.auth import get_user_model
+    from django.template import Template, Context
+    from notifications.models import NotificationTemplate, NotificationLog, CHANNEL_SMS
+    from notifications.clients.sms import SmsClient, SmsApiError, SmsConfigError, SmsBridgeUnreachableError
+
+    User     = get_user_model()
+    try:
+        user     = User.objects.get(pk=user_id)
+    except User.DoesNotExist:
+        logger.error('Usuario no encontrado | user_id=%s. Abortando envio de notificacion SMS.', user_id)
+        return
+
+    try:
+        template = NotificationTemplate.objects.get(slug=template_slug)
+    except NotificationTemplate.DoesNotExist:
+        logger.error('Plantilla no encontrada | slug=%s. Abortando envio de notificacion SMS.', template_slug)
+        return
+
+    log = NotificationLog.objects.create(
+        user=user, template=template, template_slug=template_slug,
+        channel=CHANNEL_SMS,
+        status=NotificationLog.STATUS_PENDING,
+        payload_context=context,
+    )
+    try:
+        body = Template(template.sms_body).render(Context(context, autoescape=False))
+        message_ref = SmsClient().send(to=f'+57{phone}', message=body)
+        log.status  = NotificationLog.STATUS_SENT
+        log.sent_at = timezone.now()
+        log.save(update_fields=['status', 'sent_at'])
+        logger.info('SMS enviado | to=57%s template=%s ref=%s', phone, template_slug, message_ref)
+    except SmsConfigError as exc:
+        # SMS_BRIDGE_URL no configurado: error permanente, no reintentar.
+        log.status        = NotificationLog.STATUS_FAILED
+        log.error_message = str(exc)
+        log.save(update_fields=['status', 'error_message'])
+        logger.critical(
+            'SMS error de configuracion (sin reintento) | template=%s error=%s '
+            '— Revisa SMS_BRIDGE_URL/SMS_BRIDGE_TOKEN',
+            template_slug, exc,
+        )
+        from security.models import SecurityEvent
+        from security.services.commands import SecurityCommands
+        SecurityCommands.log_event(
+            SecurityEvent.NOTIFICATION_CHANNEL_FAILED, user=user, severity=SecurityEvent.SEVERITY_CRITICAL,
+            metadata={'channel': 'SMS', 'template': template_slug, 'error': str(exc)},
+        )
+    except (SmsBridgeUnreachableError, SmsApiError) as exc:
+        log.status        = NotificationLog.STATUS_FAILED
+        log.error_message = str(exc)
+        log.save(update_fields=['status', 'error_message'])
+        logger.error('SMS fallido | to=57%s template=%s error=%s', phone, template_slug, exc)
+        raise self.retry(exc=exc)
+
+
 # ─── Fase 7 AI Core: canal WhatsApp entrante + Event Bus proactivo ───────────
 
 @shared_task(

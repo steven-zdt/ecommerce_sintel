@@ -13,6 +13,7 @@ class NotificationTemplateAdmin(admin.ModelAdmin):
         ('WebSocket', {'fields': ('ws_event_type',)}),
         ('Email', {'fields': ('subject', 'email_body'), 'classes': ('collapse',)}),
         ('WhatsApp', {'fields': ('whatsapp_template_name',), 'classes': ('collapse',)}),
+        ('SMS', {'fields': ('sms_body',), 'classes': ('collapse',)}),
         ('Auditoria', {'fields': ('uuid', 'created_at', 'updated_at'), 'classes': ('collapse',)}),
     )
 
@@ -27,6 +28,9 @@ class UserNotificationPreferenceAdmin(admin.ModelAdmin):
 
 @admin.register(NotificationLog)
 class NotificationLogAdmin(admin.ModelAdmin):
+    # N-06 (auditoria enterprise): sin esto, renderizar las columnas
+    # template/user en el listado admin dispara una query extra por fila.
+    list_select_related = ('template', 'user')
     list_display  = ('template', 'user', 'channel', 'status', 'sent_at', 'created_at')
     list_filter   = ('channel', 'status')
     search_fields = ('user__email', 'template__slug')

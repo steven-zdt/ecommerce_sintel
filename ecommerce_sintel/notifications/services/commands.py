@@ -1,15 +1,44 @@
 import re
 import logging
+from django.core.cache import cache
 from django.db import transaction
 
 from notifications.models import (
     NotificationTemplate, NotificationLog, UserNotificationPreference,
-    CHANNEL_EMAIL, CHANNEL_WHATSAPP, CHANNEL_WEB_SOCKET,
+    CHANNEL_EMAIL, CHANNEL_WHATSAPP, CHANNEL_SMS, CHANNEL_WEB_SOCKET,
 )
 
 logger        = logging.getLogger(__name__)
 _PHONE_RE     = re.compile(r'^[3][0-9]{9}$')
-_ALL_CHANNELS = {CHANNEL_EMAIL, CHANNEL_WHATSAPP, CHANNEL_WEB_SOCKET}
+_ALL_CHANNELS = {CHANNEL_EMAIL, CHANNEL_WHATSAPP, CHANNEL_SMS, CHANNEL_WEB_SOCKET}
+
+# N-03 (auditoria enterprise): dispatch_notification no tenia ningun limite
+# de tasa propio -- muchos de sus 8+ llamadores (kyc, operations, renting,
+# technical_services) tampoco tienen throttle en su propio endpoint, asi que
+# una accion de negocio repetida podia generar SMS/WhatsApp sin limite al
+# mismo destinatario (costo real por SMS). Se gatea aqui, en el unico punto
+# de entrada real, en vez de en cada endpoint disperso.
+_RATE_LIMITED_CHANNELS = {CHANNEL_SMS, CHANNEL_WHATSAPP}
+_RATE_LIMIT_MAX = 5
+_RATE_LIMIT_WINDOW_SECONDS = 3600
+
+
+def _channel_rate_limited(channel: str, recipient: str) -> bool:
+    if channel not in _RATE_LIMITED_CHANNELS or not recipient:
+        return False
+    key = f'notif_throttle:{channel}:{recipient}'
+    count = cache.get(key)
+    if count is None:
+        cache.set(key, 1, timeout=_RATE_LIMIT_WINDOW_SECONDS)
+        return False
+    if count >= _RATE_LIMIT_MAX:
+        return True
+    try:
+        cache.incr(key)
+    except ValueError:
+        # la llave expiro entre el get() y el incr() -- tratar como primer envio
+        cache.set(key, 1, timeout=_RATE_LIMIT_WINDOW_SECONDS)
+    return False
 
 
 def _resolve_phone(user) -> str | None:
@@ -99,6 +128,7 @@ class NotificationCommands:
             send_ws_notification_task,
             send_email_notification_task,
             send_whatsapp_notification_task,
+            send_sms_notification_task,
         )
 
         # ── WebSocket ─────────────────────────────────────────────────────────
@@ -127,12 +157,37 @@ class NotificationCommands:
             and phone
             and template.whatsapp_template_name
         ):
-            send_whatsapp_notification_task.delay(
-                user_id=user.pk,
-                template_slug=template_slug,
-                phone=phone,
-                context=context,
-            )
+            if _channel_rate_limited(CHANNEL_WHATSAPP, phone):
+                logger.warning(
+                    "dispatch_notification: WhatsApp rate-limited para %s (template=%s)",
+                    phone, template_slug,
+                )
+            else:
+                send_whatsapp_notification_task.delay(
+                    user_id=user.pk,
+                    template_slug=template_slug,
+                    phone=phone,
+                    context=context,
+                )
+
+        # ── SMS (modem GSM local, ver sms_bridge/bridge.py) ─────────────────────
+        if (
+            CHANNEL_SMS in active_channels
+            and phone
+            and template.sms_body
+        ):
+            if _channel_rate_limited(CHANNEL_SMS, phone):
+                logger.warning(
+                    "dispatch_notification: SMS rate-limited para %s (template=%s)",
+                    phone, template_slug,
+                )
+            else:
+                send_sms_notification_task.delay(
+                    user_id=user.pk,
+                    template_slug=template_slug,
+                    phone=phone,
+                    context=context,
+                )
 
         # ── AI Core Event Bus (Fase 7, Componente 8) ─────────────────────────
         # El Action Graph se suscribe como UN CONSUMIDOR MAS de este mismo
@@ -201,7 +256,7 @@ class NotificationTemplateCommands:
 
     TEMPLATE_ALLOWED_FIELDS = {
         'name', 'subject', 'email_body',
-        'whatsapp_template_name', 'ws_event_type', 'is_active',
+        'whatsapp_template_name', 'sms_body', 'ws_event_type', 'is_active',
     }
 
     @staticmethod

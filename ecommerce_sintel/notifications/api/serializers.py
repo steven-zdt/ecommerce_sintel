@@ -7,7 +7,7 @@ class NotificationTemplateSerializer(serializers.ModelSerializer):
         model  = NotificationTemplate
         fields = [
             'uuid', 'slug', 'name', 'subject', 'email_body',
-            'whatsapp_template_name', 'ws_event_type', 'is_active', 'created_at',
+            'whatsapp_template_name', 'sms_body', 'ws_event_type', 'is_active', 'created_at',
         ]
         read_only_fields = ['uuid', 'slug', 'created_at']
 

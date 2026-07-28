@@ -1,3 +1,5 @@
+import hashlib
+import hmac
 import uuid
 from unittest.mock import patch, MagicMock
 from django.test import TransactionTestCase, override_settings
@@ -343,3 +345,54 @@ class NotificationsTestCase(TransactionTestCase):
                 self.assertFalse(item['is_enabled'])
             else:
                 self.assertTrue(item['is_enabled'])
+
+
+@override_settings(META_APP_SECRET='test-meta-app-secret')
+class WhatsAppInboundWebhookSignatureTestCase(TransactionTestCase):
+    """
+    Test de regresion para N-01 (auditoria enterprise, 2026-07-24).
+
+    El webhook entrante de WhatsApp no verificaba X-Hub-Signature-256 -- cualquiera
+    con la URL podia inyectar mensajes con un wa_id arbitrario y disparar el Action
+    Graph de IA suplantando a un cliente real. La correccion es fail-CLOSED: sin
+    META_APP_SECRET configurado, o con una firma que no calza, el evento se rechaza.
+    """
+
+    def setUp(self):
+        self.client = APIClient()
+        self.url = reverse('whatsapp-inbound-webhook')
+        self.body = b'{"entry": [{"changes": [{"value": {"messages": []}}]}]}'
+
+    def _signed_headers(self, secret, body):
+        signature = 'sha256=' + hmac.new(secret.encode('utf-8'), body, hashlib.sha256).hexdigest()
+        return {'HTTP_X_HUB_SIGNATURE_256': signature}
+
+    def test_missing_signature_header_is_rejected(self):
+        response = self.client.generic(
+            'POST', self.url, data=self.body, content_type='application/json'
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_wrong_signature_is_rejected(self):
+        bad_headers = self._signed_headers('a-completely-different-secret', self.body)
+        response = self.client.generic(
+            'POST', self.url, data=self.body, content_type='application/json', **bad_headers
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_valid_signature_is_accepted(self):
+        good_headers = self._signed_headers('test-meta-app-secret', self.body)
+        response = self.client.generic(
+            'POST', self.url, data=self.body, content_type='application/json', **good_headers
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    @override_settings(META_APP_SECRET='')
+    def test_missing_app_secret_fails_closed_even_with_a_signature(self):
+        # Fail-CLOSED (F-01 no se repite aqui): sin secreto configurado, ni
+        # siquiera una firma "valida" para un secreto viejo/adivinado debe pasar.
+        headers = self._signed_headers('whatever-the-caller-guesses', self.body)
+        response = self.client.generic(
+            'POST', self.url, data=self.body, content_type='application/json', **headers
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)

@@ -4,11 +4,13 @@ from ecommerce.base_models import SintelBaseModel
 
 CHANNEL_EMAIL      = 'EMAIL'
 CHANNEL_WHATSAPP   = 'WHATSAPP'
+CHANNEL_SMS        = 'SMS'
 CHANNEL_WEB_SOCKET = 'WEB_SOCKET'
 
 CHANNEL_CHOICES = [
     (CHANNEL_EMAIL,      'Correo electronico'),
     (CHANNEL_WHATSAPP,   'WhatsApp'),
+    (CHANNEL_SMS,        'SMS'),
     (CHANNEL_WEB_SOCKET, 'Notificacion web en tiempo real'),
 ]
 
@@ -31,6 +33,14 @@ class NotificationTemplate(SintelBaseModel):
     whatsapp_template_name = models.CharField(
         max_length=255, blank=True, default='',
         help_text='Nombre exacto de la plantilla aprobada en Meta Business Manager.'
+    )
+    # ── SMS (modem GSM local, ver sms_bridge/bridge.py) ───────────────────────
+    sms_body = models.CharField(
+        max_length=160, blank=True, default='',
+        help_text=(
+            'Texto del SMS (max 160 caracteres = 1 segmento GSM-7, sin partir '
+            'en varios mensajes). Soporta variables Django Template.'
+        ),
     )
     # ── WebSocket (Django Channels) ───────────────────────────────────────────
     ws_event_type          = models.CharField(
