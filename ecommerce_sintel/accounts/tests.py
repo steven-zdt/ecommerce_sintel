@@ -430,6 +430,28 @@ class FileValidationTestCase(TransactionTestCase):
         except ValidationError:
             self.fail("validate_file levantó error para un archivo None (campo opcional).")
 
+    # K-03 (auditoria enterprise): los tests de arriba nunca pasan
+    # magic_bytes_check=True, asi que ese camino (el mas relevante de
+    # seguridad -- nunca confiar solo en la extension declarada por el
+    # cliente) no tenia ninguna cobertura. content=b"PDF-CONTENT" (el
+    # default de _fake_file) no empieza con el magic-byte real de PDF
+    # (b'%PDF'), asi que estos 2 tests son el primer ejercicio real de ese
+    # bloque de codigo.
+    def test_magic_bytes_mismatch_raises_error(self):
+        """Un archivo .pdf cuyo contenido real no es un PDF (extension falsificada) se rechaza."""
+        f = _fake_file(name="falso.pdf", size_bytes=1024, content=b"PDF-CONTENT")
+        with self.assertRaises(ValidationError) as ctx:
+            validate_file(f, allowed_extensions=['.pdf'], magic_bytes_check=True)
+        self.assertIn("no coincide", str(ctx.exception))
+
+    def test_magic_bytes_match_passes(self):
+        """Un archivo .pdf cuyo contenido si empieza con el magic-byte real (%PDF) pasa."""
+        f = _fake_file(name="real.pdf", size_bytes=1024, content=b"%PDF-1.4 contenido real de prueba ")
+        try:
+            validate_file(f, allowed_extensions=['.pdf'], magic_bytes_check=True)
+        except ValidationError:
+            self.fail("validate_file levanto ValidationError para un PDF con magic-bytes validos.")
+
 
 # ===========================================================================
 # FASE 5 – Permisos de la API REST
@@ -876,3 +898,71 @@ class CustomerForgotPasswordTestCase(APITestCase):
         self.assertEqual(response.status_code, 400)
         self.admin.refresh_from_db()
         self.assertTrue(self.admin.check_password('OldPass123!'))
+
+
+class PasswordChangeRevokesRefreshTokensTestCase(TransactionTestCase):
+    """
+    Test de regresion para SEC-H6 (auditoria enterprise, 2026-07-25).
+
+    Ninguno de los 3 caminos que cambian la contrasena de un usuario
+    (self-service change-password, admin_reset_password, forgot-password
+    self-service) invalidaba las sesiones JWT existentes -- un refresh token
+    robado antes del cambio seguia emitiendo access tokens nuevos
+    indefinidamente despues. La correccion blacklistea TODOS los refresh
+    tokens emitidos al usuario en los 3 flujos.
+    """
+
+    def setUp(self):
+        from rest_framework_simplejwt.tokens import RefreshToken
+        self.RefreshToken = RefreshToken
+        self.user = _make_user('sec_h6@example.com', user_type=UserProfile.CUSTOMER)
+
+    def _issue_outstanding_token(self):
+        from rest_framework_simplejwt.token_blacklist.models import OutstandingToken
+        token = self.RefreshToken.for_user(self.user)
+        self.assertTrue(
+            OutstandingToken.objects.filter(user=self.user, jti=token['jti']).exists(),
+            'El token emitido deberia quedar registrado como OutstandingToken '
+            '(la app token_blacklist esta instalada) -- si esto falla, el resto '
+            'del test no prueba nada real.',
+        )
+        return token
+
+    def _is_blacklisted(self, token):
+        from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken, OutstandingToken
+        outstanding = OutstandingToken.objects.get(jti=token['jti'])
+        return BlacklistedToken.objects.filter(token=outstanding).exists()
+
+    def test_change_password_blacklists_existing_refresh_tokens(self):
+        token = self._issue_outstanding_token()
+        self.assertFalse(self._is_blacklisted(token))
+
+        AccountCommands.change_password(self.user, 'Pass@1234!', 'NewPass456!')
+
+        self.assertTrue(self._is_blacklisted(token))
+        with self.assertRaises(Exception):
+            token.check_blacklist()
+
+    def test_admin_reset_password_blacklists_existing_refresh_tokens(self):
+        token = self._issue_outstanding_token()
+        self.assertFalse(self._is_blacklisted(token))
+
+        AccountCommands.admin_reset_password(self.user)
+
+        self.assertTrue(self._is_blacklisted(token))
+
+    def test_forgot_password_self_service_blacklists_existing_refresh_tokens(self):
+        from accounts.services.commands import CustomerPasswordResetCommands
+        from users.services.commands import VerificationCommands
+
+        token = self._issue_outstanding_token()
+        self.assertFalse(self._is_blacklisted(token))
+
+        verification = VerificationCommands.request_email_verification(
+            self.user.email, payload={}, purpose=CustomerPasswordResetCommands.PURPOSE,
+        )
+        CustomerPasswordResetCommands.confirm_reset(
+            self.user.email, verification.code, 'NewPass789!',
+        )
+
+        self.assertTrue(self._is_blacklisted(token))

@@ -330,3 +330,60 @@ class UserEraseTestCase(TestCase):
     def test_erase_nonexistent_user_returns_404(self):
         response = self.client.delete('/api/v1/users/00000000-0000-0000-0000-000000000000/erase/')
         self.assertEqual(response.status_code, 404)
+
+
+class OtpNotLoggedTestCase(TestCase):
+    """
+    Test de regresion para A-01 (auditoria enterprise, 2026-07-24).
+
+    Los logs de "OTP generado"/"Nuevo OTP" incluian el codigo en texto plano
+    (f"...{code}"). Cualquiera con acceso de lectura a los logs (agregador
+    centralizado, error tracker, etc.) podia leer el OTP de cualquier usuario
+    sin necesidad de acceder al correo. La correccion quito el codigo del
+    mensaje de log -- el codigo real sigue viajando (hasheado o no) solo por
+    el canal legitimo: el correo enviado al usuario.
+    """
+
+    def test_request_verification_never_logs_the_otp_code(self):
+        from users.services.commands import VerificationCommands
+        from users.models import EmailVerificationCode
+
+        with self.assertLogs('users.services.commands', level='INFO') as captured:
+            verification = VerificationCommands.request_email_verification(
+                email='otp_log_test@example.com',
+                payload={'password': 'Sintel2026!Test', 'password_confirm': 'Sintel2026!Test'},
+            )
+
+        real_code = verification.code
+        self.assertEqual(len(real_code), 6)
+        log_text = '\n'.join(captured.output)
+        self.assertNotIn(real_code, log_text)
+        # La ausencia del codigo no debe ser porque el log dejo de escribirse:
+        # confirmar que SI se registro el evento (sin el codigo adentro).
+        self.assertIn('OTP generado', log_text)
+
+    def test_resend_verification_never_logs_the_otp_code(self):
+        from django.utils import timezone
+        from datetime import timedelta
+        from users.services.commands import VerificationCommands
+        from users.models import EmailVerificationCode
+
+        VerificationCommands.request_email_verification(
+            email='otp_resend_log_test@example.com',
+            payload={'password': 'Sintel2026!Test', 'password_confirm': 'Sintel2026!Test'},
+        )
+        # Sortear el cooldown de 60s de resend_email_verification (no es lo que
+        # este test cubre) retrocediendo el created_at del codigo existente.
+        EmailVerificationCode.objects.filter(email='otp_resend_log_test@example.com').update(
+            created_at=timezone.now() - timedelta(seconds=120)
+        )
+
+        with self.assertLogs('users.services.commands', level='INFO') as captured:
+            verification = VerificationCommands.resend_email_verification(
+                email='otp_resend_log_test@example.com',
+            )
+
+        real_code = verification.code
+        log_text = '\n'.join(captured.output)
+        self.assertNotIn(real_code, log_text)
+        self.assertIn('Nuevo OTP', log_text)

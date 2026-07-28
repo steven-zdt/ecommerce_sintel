@@ -92,6 +92,13 @@ class AccountViewSet(viewsets.ViewSet):
         'forgot_password_request': 'password_reset_request',
         'forgot_password_verify': 'password_reset_verify',
         'forgot_password_reset': 'password_reset_request',
+        # A-03 (auditoria enterprise): la unica proteccion de fuerza bruta
+        # de estos dos endpoints era el contador de 5 intentos fallidos por
+        # codigo especifico (a nivel de modelo, EmailVerificationCode) y el
+        # cooldown de 60s entre reenvios -- sin limite por IP contra intentos
+        # distribuidos en varios emails/codigos distintos.
+        'register_verify': 'register_verify',
+        'register_resend': 'register_resend',
     }
 
     def get_throttles(self):
@@ -111,7 +118,7 @@ class AccountViewSet(viewsets.ViewSet):
         validated_data['ip_address'] = request.META.get('REMOTE_ADDR', '')
         validated_data['user_agent'] = request.META.get('HTTP_USER_AGENT', '')
         user = AccountCommands.register_user(validated_data)
-        return Response(UserDetailSerializer(user).data, status=status.HTTP_201_CREATED)
+        return Response(UserDetailSerializer(user, context={'request': request}).data, status=status.HTTP_201_CREATED)
 
     @extend_schema(request=UserLoginSerializer, responses={200: UserDetailSerializer})
     @action(detail=False, methods=['post'], permission_classes=[permissions.AllowAny])
@@ -133,7 +140,7 @@ class AccountViewSet(viewsets.ViewSet):
             raise
         SecurityCommands.log_event(SecurityEvent.LOGIN_SUCCESS, request=request, user=user)
         tokens = AccountSelector.get_tokens_for_user(user)
-        return Response({'user': UserDetailSerializer(user).data, 'tokens': tokens})
+        return Response({'user': UserDetailSerializer(user, context={'request': request}).data, 'tokens': tokens})
 
     @extend_schema(request=LogoutSerializer, responses={204: None})
     @action(detail=False, methods=['post'], permission_classes=[permissions.IsAuthenticated])
@@ -150,11 +157,15 @@ class AccountViewSet(viewsets.ViewSet):
     def profile(self, request):
         """Obtener o actualizar el perfil del usuario autenticado. Soporta multipart/form-data para avatar."""
         if request.method == 'GET':
-            return Response(UserDetailSerializer(request.user).data)
+            return Response(UserDetailSerializer(request.user, context={'request': request}).data)
 
         data = {**request.data}
         if request.FILES:
-            data.update(request.FILES)
+            # request.FILES es un MultiValueDict (subclase de dict) -- data.update(request.FILES)
+            # copia las listas internas tal cual ([archivo] en vez de archivo), porque dict.update()
+            # usa un fast-path de copia directa entre subclases de dict que ignora el __getitem__
+            # de valor unico que MultiValueDict sobreescribe. Iterar con [key] si evita el problema.
+            data.update({key: request.FILES[key] for key in request.FILES})
 
         try:
             profile = ProfileResolver.resolve(request.user)
@@ -167,7 +178,7 @@ class AccountViewSet(viewsets.ViewSet):
         serializer = UserProfileUpdateSerializer(profile, data=data, partial=True)
         serializer.is_valid(raise_exception=True)
         updated = AccountCommands.update_profile(request.user, serializer.validated_data)
-        return Response(UserDetailSerializer(updated).data)
+        return Response(UserDetailSerializer(updated, context={'request': request}).data)
 
     @extend_schema(request=ChangePasswordSerializer, responses={200: None})
     @action(detail=False, methods=['post'], permission_classes=[permissions.IsAuthenticated], url_path='change-password')
@@ -258,7 +269,7 @@ class AccountViewSet(viewsets.ViewSet):
             user = get_object_or_404(User, email=email)
             tokens = AccountSelector.get_tokens_for_user(user)
             return Response(
-                {'user': UserDetailSerializer(user).data, 'tokens': tokens},
+                {'user': UserDetailSerializer(user, context={'request': request}).data, 'tokens': tokens},
                 status=status.HTTP_200_OK,
             )
 
@@ -281,7 +292,7 @@ class AccountViewSet(viewsets.ViewSet):
 
         tokens = AccountSelector.get_tokens_for_user(user)
         return Response(
-            {'user': UserDetailSerializer(user).data, 'tokens': tokens},
+            {'user': UserDetailSerializer(user, context={'request': request}).data, 'tokens': tokens},
             status=status.HTTP_201_CREATED,
         )
 
@@ -311,7 +322,7 @@ class AccountViewSet(viewsets.ViewSet):
         user = AccountCommands.confirm_email_verification_link(serializer.validated_data['token'])
         return Response({
             'detail': 'Correo verificado exitosamente.',
-            'user': UserDetailSerializer(user).data,
+            'user': UserDetailSerializer(user, context={'request': request}).data,
         })
 
     @extend_schema(request=ForgotPasswordRequestSerializer, responses={200: None})
@@ -353,7 +364,7 @@ class AccountViewSet(viewsets.ViewSet):
         )
         tokens = AccountSelector.get_tokens_for_user(user)
         return Response(
-            {'user': UserDetailSerializer(user).data, 'tokens': tokens},
+            {'user': UserDetailSerializer(user, context={'request': request}).data, 'tokens': tokens},
             status=status.HTTP_200_OK,
         )
 

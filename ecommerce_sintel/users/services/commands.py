@@ -1,5 +1,5 @@
-import random
 import logging
+import secrets
 from datetime import timedelta
 from django.utils import timezone
 from django.contrib.auth.hashers import make_password
@@ -80,7 +80,7 @@ class VerificationCommands:
         # Invalidar codigos anteriores no usados para este email, mismo purpose
         EmailVerificationCode.objects.filter(email=email, purpose=purpose, is_used=False).update(is_used=True)
 
-        code = f"{random.randint(0, 999999):06d}"
+        code = f"{secrets.randbelow(1_000_000):06d}"  # CSPRNG (A-02, auditoria enterprise) -- antes random.randint (no criptografico)
 
         # Hashear la contrasena antes de guardar el payload (nunca plaintext en BD)
         safe_payload = dict(payload)
@@ -182,7 +182,7 @@ class VerificationCommands:
         # Invalidar codigo anterior y crear uno nuevo con el mismo payload (ya con hash)
         EmailVerificationCode.objects.filter(email=email, purpose=purpose, is_used=False).update(is_used=True)
 
-        code = f"{random.randint(0, 999999):06d}"
+        code = f"{secrets.randbelow(1_000_000):06d}"  # CSPRNG (A-02, auditoria enterprise) -- antes random.randint (no criptografico)
         verification = EmailVerificationCode.objects.create(
             email=email,
             code=code,

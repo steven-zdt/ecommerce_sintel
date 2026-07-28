@@ -332,16 +332,23 @@ class AccountCommands:
         de abajo y quedaba con sesion valida en el dominio publico (bug
         real, sesion de admin reflejada en sintel.net.co).
         """
+        # A-04 (auditoria enterprise): mensaje generico unico para los tres
+        # casos de abajo -- antes cada uno tenia su propio texto ("Credenciales
+        # invalidas" / "Cuenta desactivada" / "debe usar el panel admin"), lo
+        # que permitia a alguien con solo un email candidato (sin password
+        # correcta) inferir si esa cuenta existe, esta desactivada, o es
+        # staff. Los mensajes de _assert_kyc_approved() de abajo NO cambian:
+        # esos solo se alcanzan DESPUES de una password ya correcta, un nivel
+        # de riesgo distinto (UX legitima para un usuario ya autenticado).
+        generic_error = "Credenciales invalidas."
         email = email.lower().strip()
         user = authenticate(email=email, password=password)
         if not user:
-            raise AuthenticationFailed("Credenciales invalidas.")
+            raise AuthenticationFailed(generic_error)
         if not user.is_active:
-            raise AuthenticationFailed("Cuenta desactivada.")
+            raise AuthenticationFailed(generic_error)
         if user.is_staff or user.is_superuser:
-            raise AuthenticationFailed(
-                "Esta cuenta debe iniciar sesion desde el panel de administracion."
-            )
+            raise AuthenticationFailed(generic_error)
         AccountCommands._assert_kyc_approved(user)
         return user
 
@@ -400,12 +407,32 @@ class AccountCommands:
             raise ValidationError({"refresh": "Token invalido o expirado."})
 
     @staticmethod
+    def _blacklist_all_refresh_tokens(user: User) -> None:
+        """
+        SEC-H6 (auditoria enterprise): sin esto, un refresh token robado antes
+        de un cambio/reset de contrasena seguia emitiendo access tokens nuevos
+        indefinidamente despues -- ni change_password() ni admin_reset_password()
+        revocaban ninguna sesion existente. Blacklistea TODOS los refresh
+        tokens emitidos al usuario (no solo uno pasado por la request, que
+        ninguno de los 2 callers recibe) -- mismo mecanismo que
+        AccountCommands.logout() usa para un solo token.
+        """
+        from rest_framework_simplejwt.token_blacklist.models import OutstandingToken, BlacklistedToken
+        outstanding = OutstandingToken.objects.filter(user=user)
+        BlacklistedToken.objects.bulk_create(
+            [BlacklistedToken(token=t) for t in outstanding],
+            ignore_conflicts=True,
+        )
+
+    @staticmethod
     @transaction.atomic
     def change_password(user: User, old_password: str, new_password: str) -> User:
         if not user.check_password(old_password):
             raise ValidationError({"old_password": "La contrasena actual es incorrecta."})
         user.set_password(new_password)
         user.save()
+
+        AccountCommands._blacklist_all_refresh_tokens(user)
         logger.info(f"[accounts:change_password] Contrasena cambiada: {user.email}")
         return user
 
@@ -471,6 +498,7 @@ class AccountCommands:
         temp_password = ''.join(secrets.choice(_TEMP_PASSWORD_ALPHABET) for _ in range(12))
         user.set_password(temp_password)
         user.save(update_fields=['password'])
+        AccountCommands._blacklist_all_refresh_tokens(user)
 
         from notifications.services.commands import NotificationCommands
         _user = user
@@ -896,6 +924,10 @@ class CustomerPasswordResetCommands:
         user = User.objects.select_for_update().get(email=email, is_staff=False)
         user.set_password(new_password)
         user.save(update_fields=['password'])
+        # SEC-H6: mismo hueco que AccountCommands.change_password/admin_reset_password
+        # -- este flujo es "olvide mi contrasena", el escenario donde MAS importa
+        # revocar sesiones existentes (la cuenta pudo estar comprometida).
+        AccountCommands._blacklist_all_refresh_tokens(user)
 
         UserAuditCommands.log(
             None, user, UserAuditLog.ACTION_PASSWORD_RESET, metadata={'method': 'self_service_otp'},
