@@ -93,13 +93,30 @@
       >
         <i class="bi bi-cart-plus"></i>
       </button>
+
+      <button
+        v-if="type === 'product' && defaultVariant"
+        class="ic-btn-wishlist"
+        :class="{ 'ic-btn-wishlist-active': isWishlisted }"
+        :disabled="wishlistLoading"
+        @click="toggleWishlist"
+        :title="isWishlisted ? 'Quitar de lista de deseos' : 'Agregar a lista de deseos'"
+        :aria-label="isWishlisted ? 'Quitar de lista de deseos' : 'Agregar a lista de deseos'"
+      >
+        <span v-if="wishlistLoading" class="spinner-border spinner-border-sm"></span>
+        <i v-else :class="['bi', isWishlisted ? 'bi-heart-fill' : 'bi-heart']"></i>
+      </button>
     </div>
 
   </div>
 </template>
 
 <script setup>
-import { computed } from 'vue';
+import { ref, computed } from 'vue';
+import { useRouter } from 'vue-router';
+import { useAuthStore } from '@/store/auth';
+import { useWishlistStore } from '@/store/wishlist';
+import { useToast } from '@/composables/useToast';
 import PriceDisplay from './PriceDisplay.vue';
 import StockBadge from './StockBadge.vue';
 
@@ -109,6 +126,13 @@ const props = defineProps({
 });
 
 defineEmits(['click', 'view', 'quote', 'add-to-cart']);
+
+const router = useRouter();
+const authStore = useAuthStore();
+const wishlistStore = useWishlistStore();
+const toast = useToast();
+
+const wishlistLoading = ref(false);
 
 const placeholderIcon = computed(() => ({
   rental: 'bi-truck',
@@ -132,6 +156,28 @@ const defaultVariantDiscountedPrice = computed(() =>
 );
 
 const hasStock = computed(() => (props.item.stock ?? defaultVariant.value?.stock ?? 0) > 0);
+
+const isWishlisted = computed(() =>
+  !!defaultVariant.value && wishlistStore.isInWishlist(defaultVariant.value.uuid)
+);
+
+async function toggleWishlist() {
+  if (!authStore.isAuthenticated) {
+    toast.info('Inicia sesion para guardar en tu lista de deseos');
+    router.push('/login');
+    return;
+  }
+  if (!defaultVariant.value) return;
+  wishlistLoading.value = true;
+  try {
+    const added = await wishlistStore.toggle(defaultVariant.value.uuid);
+    toast.success(added ? 'Agregado a tu lista de deseos' : 'Eliminado de tu lista de deseos');
+  } catch {
+    toast.error('No se pudo actualizar la lista de deseos');
+  } finally {
+    wishlistLoading.value = false;
+  }
+}
 
 const discountPercent = computed(() => {
   const v = defaultVariant.value;
@@ -356,4 +402,23 @@ const discountPercent = computed(() => {
   cursor: not-allowed;
   transform: none;
 }
+
+.ic-btn-wishlist {
+  flex-shrink: 0;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: #fff;
+  color: #64748b;
+  border: 1px solid rgba(0,0,0,.1);
+  cursor: pointer;
+  font-size: 0.9rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.22s ease, box-shadow 0.22s ease, color 0.18s, border-color 0.18s;
+}
+.ic-btn-wishlist:hover { transform: scale(1.1); border-color: #fca5a5; color: #dc2626; }
+.ic-btn-wishlist-active { color: #dc2626; border-color: #fca5a5; background: #fef2f2; }
+.ic-btn-wishlist:disabled { cursor: not-allowed; transform: none; }
 </style>

@@ -245,15 +245,29 @@
 
           <!-- Botones de accion -->
           <div class="d-flex flex-column gap-2 mb-4">
-            <button
-              class="btn btn-primary btn-lg fw-bold"
-              @click="addToCart"
-              :disabled="addingToCart || !selectedVariant?.stock"
-            >
-              <span v-if="addingToCart" class="spinner-border spinner-border-sm me-2"></span>
-              <i v-else class="bi bi-bag-plus me-2"></i>
-              {{ !selectedVariant?.stock ? 'Agotado' : 'Agregar al carrito' }}
-            </button>
+            <div class="d-flex gap-2">
+              <button
+                class="btn btn-primary btn-lg fw-bold flex-grow-1"
+                @click="addToCart"
+                :disabled="addingToCart || !selectedVariant?.stock"
+              >
+                <span v-if="addingToCart" class="spinner-border spinner-border-sm me-2"></span>
+                <i v-else class="bi bi-bag-plus me-2"></i>
+                {{ !selectedVariant?.stock ? 'Agotado' : 'Agregar al carrito' }}
+              </button>
+
+              <button
+                class="btn btn-outline-danger btn-lg wishlist-btn"
+                :class="{ 'wishlist-btn-active': isWishlisted }"
+                @click="toggleWishlist"
+                :disabled="wishlistLoading || !selectedVariant"
+                :title="isWishlisted ? 'Quitar de lista de deseos' : 'Agregar a lista de deseos'"
+                :aria-label="isWishlisted ? 'Quitar de lista de deseos' : 'Agregar a lista de deseos'"
+              >
+                <span v-if="wishlistLoading" class="spinner-border spinner-border-sm"></span>
+                <i v-else :class="['bi', isWishlisted ? 'bi-heart-fill' : 'bi-heart']"></i>
+              </button>
+            </div>
 
             <button
               class="btn btn-success fw-bold"
@@ -460,13 +474,18 @@ import { ref, computed, onMounted } from 'vue';
 import { useRoute, RouterLink, useRouter } from 'vue-router';
 import { shopService } from '@/services/shop/shopService';
 import { useToast } from '@/composables/useToast';
+import { useErrorHandler } from '@/composables/useErrorHandler';
 import { useCartStore } from '@/store/cart';
 import { useAuthStore } from '@/store/auth';
+import { useWishlistStore } from '@/store/wishlist';
+import { formatCOP } from '@/utils/money';
 import StockBadge from '@/components/customer/ui/StockBadge.vue';
 
-const toast     = useToast();
-const cartStore = useCartStore();
-const authStore = useAuthStore();
+const toast         = useToast();
+const { handleError } = useErrorHandler();
+const cartStore     = useCartStore();
+const authStore     = useAuthStore();
+const wishlistStore = useWishlistStore();
 const route     = useRoute();
 const router    = useRouter();
 
@@ -476,6 +495,7 @@ const variants        = ref([]);
 const selectedVariant = ref(null);
 const qty             = ref(1);
 const addingToCart    = ref(false);
+const wishlistLoading = ref(false);
 const activeImageIndex = ref(0);
 const activeTab       = ref('desc');
 
@@ -548,11 +568,7 @@ const embedUrl = computed(() => {
 });
 
 const fmtCOP = (n) =>
-  new Intl.NumberFormat('es-CO', {
-    style: 'currency',
-    currency: 'COP',
-    maximumFractionDigits: 0,
-  }).format(n);
+  formatCOP(n, { withSymbol: true });
 
 const fmtDate = (d) => d
   ? new Date(d).toLocaleDateString('es-CO', { year: 'numeric', month: 'short', day: 'numeric' })
@@ -614,6 +630,28 @@ async function addToCart() {
   }
 }
 
+const isWishlisted = computed(() =>
+  !!selectedVariant.value && wishlistStore.isInWishlist(selectedVariant.value.uuid)
+);
+
+async function toggleWishlist() {
+  if (!authStore.isAuthenticated) {
+    toast.info('Inicia sesion para guardar en tu lista de deseos');
+    router.push('/login');
+    return;
+  }
+  if (!selectedVariant.value) return;
+  wishlistLoading.value = true;
+  try {
+    const added = await wishlistStore.toggle(selectedVariant.value.uuid);
+    toast.success(added ? 'Agregado a tu lista de deseos' : 'Eliminado de tu lista de deseos');
+  } catch {
+    toast.error('No se pudo actualizar la lista de deseos');
+  } finally {
+    wishlistLoading.value = false;
+  }
+}
+
 function buyNow() {
   if (!authStore.isAuthenticated) {
     toast.info('Inicia sesion para continuar');
@@ -638,10 +676,7 @@ async function submitReview() {
     const data = await shopService.detail(product.value.uuid);
     product.value = { ...product.value, avg_rating: data.avg_rating, review_count: data.review_count };
   } catch (e) {
-    const msg = e.response?.data?.non_field_errors?.[0]
-      || e.response?.data?.detail
-      || 'Error al publicar la resena';
-    toast.error(msg);
+    handleError(e, 'Error al publicar la resena');
   } finally {
     reviewLoading.value = false;
   }
@@ -758,6 +793,14 @@ onMounted(fetchProduct);
 .btn-primary:hover { background: #1d4ed8; border-color: #1d4ed8; }
 .btn-success { background: #16a34a; border-color: #16a34a; }
 .btn-success:hover { background: #15803d; border-color: #15803d; }
+
+.wishlist-btn { flex-shrink: 0; }
+.wishlist-btn-active {
+  background: #dc2626;
+  border-color: #dc2626;
+  color: #fff;
+}
+.wishlist-btn-active:hover { background: #b91c1c; border-color: #b91c1c; color: #fff; }
 
 /* ── Reviews ── */
 .review-avatar {

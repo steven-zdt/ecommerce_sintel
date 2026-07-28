@@ -51,11 +51,12 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { RouterLink } from 'vue-router';
-import useApi from '@/composables/useApi';
 import { useToast } from '@/composables/useToast';
 import { useCartStore } from '@/store/cart';
+import { useWishlistStore } from '@/store/wishlist';
+import { formatCOP } from '@/utils/money';
 import CustomerAccountShell from '@/components/customer/account/CustomerAccountShell.vue';
 import CustomerPageHeader from '@/components/customer/account/CustomerPageHeader.vue';
 import CustomerCard from '@/components/customer/account/CustomerCard.vue';
@@ -65,25 +66,24 @@ import CustomerEmptyState from '@/components/customer/account/CustomerEmptyState
 import CustomerErrorState from '@/components/customer/account/CustomerErrorState.vue';
 import CustomerSkeleton from '@/components/customer/account/CustomerSkeleton.vue';
 
-const api = useApi();
 const toast = useToast();
 const cartStore = useCartStore();
+const wishlistStore = useWishlistStore();
 
 const loading = ref(true);
 const loadError = ref(false);
-const items = ref([]);
+const items = computed(() => wishlistStore.items);
 const removingId = ref(null);
 const addingId = ref(null);
 const pendingRemove = ref(null);
 
-const fmt = (v) => new Intl.NumberFormat('es-CO').format(parseFloat(v) || 0);
+const fmt = (v) => formatCOP(v);
 
 async function fetchWishlist() {
   loading.value = true;
   loadError.value = false;
   try {
-    const res = await api.get('cart/wishlist/');
-    items.value = res.data.results ?? res.data ?? [];
+    await wishlistStore.fetchWishlist();
   } catch {
     loadError.value = true;
     toast.error('Error al cargar la lista de deseos');
@@ -95,8 +95,7 @@ async function fetchWishlist() {
 async function removeItem(item) {
   removingId.value = item.uuid;
   try {
-    await api.delete(`cart/wishlist/${item.uuid}/`);
-    items.value = items.value.filter(i => i.uuid !== item.uuid);
+    await wishlistStore.remove(item.uuid);
     toast.success('Eliminado de la lista de deseos');
   } catch {
     toast.error('Error al eliminar el producto');
