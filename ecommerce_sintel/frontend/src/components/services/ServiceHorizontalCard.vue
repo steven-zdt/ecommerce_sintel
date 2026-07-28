@@ -57,6 +57,7 @@
 <script setup>
 import { computed } from 'vue';
 import BaseHorizontalCard from '@/components/base/BaseHorizontalCard.vue';
+import { formatCOP } from '@/utils/money';
 
 const props = defineProps({ service: { type: Object, required: true } });
 const emit = defineEmits(['view', 'quote']);
@@ -80,9 +81,7 @@ const minPrice = computed(() => {
   return prices.length ? Math.min(...prices) : null;
 });
 
-const fmtCOP = (n) => new Intl.NumberFormat('es-CO', {
-  style: 'currency', currency: 'COP', maximumFractionDigits: 0,
-}).format(n);
+const fmtCOP = (n) => formatCOP(n, { withSymbol: true });
 </script>
 
 <style scoped>

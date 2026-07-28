@@ -18,6 +18,11 @@
   <style>
     body { font-family: 'Inter', sans-serif; background-color: #f8fafc; margin: 0; }
     #shop-spa-root { min-height: 100vh; }
+    /* Los offcanvas (SintelOffcanvas y similares) se posicionan fuera de
+       vista via transform cuando estan cerrados, pero su caja pre-transform
+       igual cuenta en el scrollWidth del documento en viewports angostos,
+       generando un scroll horizontal fantasma en movil. */
+    html, body { overflow-x: hidden; }
   </style>
 </head>
 <body>

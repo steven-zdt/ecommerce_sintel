@@ -127,7 +127,9 @@ import { ref } from 'vue';
 import { useAuthStore } from '@/store/auth';
 import { useCartStore } from '@/store/cart';
 import { useToast } from '@/composables/useToast';
+import { useErrorHandler } from '@/composables/useErrorHandler';
 import SintelOffcanvas from '@/components/ui/SintelOffcanvas.vue';
+import { formatCOP } from '@/utils/money';
 
 const props = defineProps({
   modelValue: { type: Boolean, required: true },
@@ -137,6 +139,7 @@ defineEmits(['update:modelValue']);
 const authStore = useAuthStore();
 const cartStore = useCartStore();
 const toast = useToast();
+const { handleError } = useErrorHandler();
 const removing = ref(null);
 const updating = ref(null);
 const clearing = ref(false);
@@ -161,8 +164,7 @@ async function changeQty(item, newQty) {
     const serviceUuid = item.item_type === 'service' ? item.variant_uuid : null;
     await cartStore.updateQuantity(variantUuid, serviceUuid, newQty);
   } catch (e) {
-    const msg = e.response?.data?.detail || e.response?.data?.non_field_errors?.[0] || 'No se pudo actualizar la cantidad';
-    toast.error(msg);
+    handleError(e, 'No se pudo actualizar la cantidad');
   } finally {
     updating.value = null;
   }
@@ -180,7 +182,7 @@ async function handleClearCart() {
   }
 }
 
-const fmt = (val) => new Intl.NumberFormat('es-CO').format(parseFloat(val) || 0);
+const fmt = (val) => formatCOP(val);
 </script>
 
 <style scoped>

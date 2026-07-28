@@ -34,12 +34,14 @@
 </template>
 
 <script setup>
+import { formatCOP } from '@/utils/money';
+
 defineProps({
   priceInfo: { type: Object, default: null },
 });
 
 function fmt(val) {
-  return new Intl.NumberFormat('es-CO').format(Math.round(parseFloat(val) || 0));
+  return formatCOP(Math.round(parseFloat(val) || 0));
 }
 </script>
 

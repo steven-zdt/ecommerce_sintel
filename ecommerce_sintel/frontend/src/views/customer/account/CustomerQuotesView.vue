@@ -30,15 +30,10 @@
               <div class="d-flex align-items-center gap-2 mb-1 flex-wrap">
                 <span class="fw-semibold small">#{{ quote.uuid.slice(0, 8) }}</span>
                 <CustomerStatusBadge enum-name="quote-statuses" :value="quote.status" />
-                <span class="badge bg-light text-muted border">{{ typeLabel(quote.quote_type) }}</span>
+                <span class="badge bg-light text-muted border">{{ typeLabel(quote) }}</span>
                 <span class="text-muted small">{{ fmtDate(quote.created_at) }}</span>
               </div>
-              <p class="quote-desc mb-0">{{ truncate(quote.description, 140) }}</p>
-              <div v-if="quote.desired_date" class="mt-1">
-                <span class="text-muted small">
-                  <i class="bi bi-calendar3 me-1"></i>Fecha deseada: {{ fmtDate(quote.desired_date) }}
-                </span>
-              </div>
+              <p class="quote-desc mb-0">{{ summaryLine(quote) }}</p>
             </div>
 
             <div class="d-flex gap-2 flex-shrink-0">
@@ -65,7 +60,8 @@
     </template>
 
     <CustomerOverlayPanel v-model="showDetail" title="Detalle de cotizacion">
-      <template v-if="selected">
+      <CustomerSkeleton v-if="loadingDetail" :count="2" height="60px" />
+      <template v-else-if="selected">
         <div class="row g-3 mb-3">
           <div class="col-sm-6">
             <p class="text-muted small mb-0">Estado</p>
@@ -73,24 +69,47 @@
           </div>
           <div class="col-sm-6">
             <p class="text-muted small mb-0">Tipo</p>
-            <p class="fw-semibold mb-0">{{ typeLabel(selected.quote_type) }}</p>
+            <p class="fw-semibold mb-0">{{ typeLabel(selected) }}</p>
           </div>
           <div class="col-sm-6">
             <p class="text-muted small mb-0">Fecha de solicitud</p>
             <p class="fw-semibold mb-0">{{ fmtDate(selected.created_at) }}</p>
           </div>
-          <div v-if="selected.desired_date" class="col-sm-6">
-            <p class="text-muted small mb-0">Fecha deseada</p>
-            <p class="fw-semibold mb-0">{{ fmtDate(selected.desired_date) }}</p>
+        </div>
+
+        <template v-if="!selected.is_custom">
+          <div class="mb-3">
+            <p class="text-muted small mb-1">Items cotizados</p>
+            <div class="desc-box">
+              <div v-for="item in allQuoteItems(selected)" :key="item.uuid" class="d-flex justify-content-between">
+                <span>{{ item.name }} <span class="text-muted">x{{ item.quantity }}</span></span>
+                <span>${{ fmtMoney(item.subtotal) }}</span>
+              </div>
+            </div>
           </div>
-        </div>
-        <div class="mb-3">
-          <p class="text-muted small mb-1">Descripcion</p>
-          <div class="desc-box">{{ selected.description }}</div>
-        </div>
-        <div v-if="selected.response" class="mb-3">
-          <p class="text-muted small mb-1">Respuesta</p>
-          <div class="desc-box response-box">{{ selected.response }}</div>
+          <div class="d-flex justify-content-between fw-semibold mb-3">
+            <span>Total</span>
+            <span>${{ fmtMoney(selected.total_amount) }}</span>
+          </div>
+        </template>
+        <template v-else>
+          <div class="mb-3">
+            <p class="text-muted small mb-1">Detalle de la solicitud</p>
+            <div class="desc-box">
+              <div v-if="selected.project_name">Proyecto: {{ selected.project_name }}</div>
+              <div v-if="selected.company">Empresa: {{ selected.company }}</div>
+              <div v-if="selected.phone">Telefono: {{ selected.phone }}</div>
+              <div v-if="selected.address">Direccion: {{ selected.address }}, {{ selected.city }}</div>
+              <div v-if="selected.template_name">Plantilla: {{ selected.template_name }}</div>
+              <div v-if="!selected.project_name && !selected.company && !selected.phone && !selected.address">
+                {{ selected.notes || 'Sin informacion adicional.' }}
+              </div>
+            </div>
+          </div>
+        </template>
+        <div v-if="selected.notes && !selected.is_custom" class="mb-3">
+          <p class="text-muted small mb-1">Notas</p>
+          <div class="desc-box">{{ selected.notes }}</div>
         </div>
         <div v-if="selected.pdf_url" class="d-flex justify-content-end">
           <a :href="selected.pdf_url" target="_blank" class="btn btn-sm btn-outline-danger">
@@ -108,6 +127,7 @@ import { RouterLink } from 'vue-router';
 import useApi from '@/composables/useApi';
 import { useToast } from '@/composables/useToast';
 import { useEnums } from '@/composables/useEnums';
+import { formatCOP } from '@/utils/money';
 import CustomerAccountShell from '@/components/customer/account/CustomerAccountShell.vue';
 import CustomerPageHeader from '@/components/customer/account/CustomerPageHeader.vue';
 import CustomerCard from '@/components/customer/account/CustomerCard.vue';
@@ -131,6 +151,7 @@ const totalPages = ref(1);
 const pageSize = 10;
 const selected = ref(null);
 const showDetail = ref(false);
+const loadingDetail = ref(false);
 
 async function fetchQuotes() {
   loading.value = true;
@@ -154,21 +175,53 @@ function changePage(p) {
   fetchQuotes();
 }
 
-function viewDetail(quote) {
-  selected.value = quote;
+async function viewDetail(quote) {
+  // El endpoint de lista usa un serializer liviano (sin items/services/rental_items
+  // ni los campos del cuestionario) -- hay que pedir el detalle completo antes de
+  // mostrar el panel, o "Items cotizados"/"Detalle de la solicitud" salen vacios.
   showDetail.value = true;
+  selected.value = quote;
+  loadingDetail.value = true;
+  try {
+    const res = await api.get(`quotes/quotations/${quote.uuid}/`);
+    selected.value = res.data;
+  } catch {
+    toast.error('Error al cargar el detalle de la cotizacion');
+  } finally {
+    loadingDetail.value = false;
+  }
 }
 
 function downloadPdf(quote) {
   window.open(quote.pdf_url, '_blank');
 }
 
-const typeLabel = (t) => enums.label('quote-types', t, t);
+// El modelo Quotation no tiene un campo `quote_type` -- solo `is_custom`
+// distingue las 2 modalidades reales (ver quotes/CLAUDE.md: catalogo/legado
+// con precio inmediato vs cuestionario tecnico revisado por un asesor).
+const typeLabel = (q) => (q.is_custom ? 'Cuestionario tecnico' : 'Catalogo');
 const fmtDate = (d) => d ? new Date(d).toLocaleDateString('es-CO') : '-';
-const truncate = (str, len) => str?.length > len ? str.slice(0, len) + '...' : (str || '');
+const fmtMoney = (v) => formatCOP(v);
+
+function allQuoteItems(quote) {
+  const products = (quote.items || []).map(i => ({ uuid: i.uuid, name: i.product_name, quantity: i.quantity, subtotal: i.subtotal }));
+  const services = (quote.services || []).map(s => ({ uuid: s.uuid, name: s.service_name, quantity: 1, subtotal: s.subtotal }));
+  const rentals = (quote.rental_items || []).map(r => ({ uuid: r.uuid, name: r.equipment_name, quantity: r.computed_days, subtotal: r.subtotal }));
+  return [...products, ...services, ...rentals];
+}
+
+function summaryLine(quote) {
+  // El listado usa el serializer liviano: solo total_amount/template_name estan
+  // disponibles aqui (items/company/etc. se piden aparte en viewDetail al abrir
+  // el panel de detalle).
+  if (!quote.is_custom) {
+    return `Total cotizado: $${fmtMoney(quote.total_amount)}`;
+  }
+  return quote.template_name || 'Solicitud de cotizacion personalizada en revision.';
+}
 
 onMounted(() => {
-  enums.preload(['quote-statuses', 'quote-types']);
+  enums.preload(['quote-statuses']);
   fetchQuotes();
 });
 </script>

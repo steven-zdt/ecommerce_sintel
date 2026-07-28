@@ -782,6 +782,7 @@ import { ref, computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import useApi from '@/composables/useApi';
 import { useToast } from '@/composables/useToast';
+import { useErrorHandler } from '@/composables/useErrorHandler';
 import StatusTimeline from '@/components/shared/StatusTimeline.vue';
 import CustomerAccountShell from '@/components/customer/account/CustomerAccountShell.vue';
 import CustomerPageHeader from '@/components/customer/account/CustomerPageHeader.vue';
@@ -792,6 +793,7 @@ import CustomerSkeleton from '@/components/customer/account/CustomerSkeleton.vue
 
 const api    = useApi();
 const toast  = useToast();
+const { handleError } = useErrorHandler();
 const router = useRouter();
 
 // ─── Onboarding hub (pantalla de entrada) ──────────────────────────────────
@@ -1046,7 +1048,7 @@ async function addSpecialty() {
     specialties.value.push(data);
     newSpecialtyId.value = '';
   } catch (e) {
-    toast.error(e.response?.data?.detail || 'Error al agregar especialidad');
+    handleError(e, 'Error al agregar especialidad');
   } finally {
     addingSpecialty.value = false;
   }
@@ -1067,7 +1069,7 @@ async function addSkill() {
     const { data } = await api.post('auth/skills/', { name: newSkill.value.name.trim(), level: newSkill.value.level });
     skills.value.push(data);
     newSkill.value = { name: '', level: '' };
-  } catch (e) { toast.error(e.response?.data?.detail || 'Error al agregar habilidad'); }
+  } catch (e) { handleError(e, 'Error al agregar habilidad'); }
 }
 
 function startEditSkill(sk) {
@@ -1106,7 +1108,7 @@ async function addAcademic() {
     academics.value.push(data);
     newAcademic.value = { institution: '', degree: '', field_of_study: '', start_date: '', end_date: '', is_current: false };
     showAcademicForm.value = false;
-  } catch (e) { toast.error(e.response?.data?.detail || 'Error al guardar'); }
+  } catch (e) { handleError(e, 'Error al guardar'); }
 }
 
 function startEditAcademic(a) {
@@ -1145,7 +1147,7 @@ async function addCourse() {
     courses.value.push(data);
     newCourse.value = { title: '', institution: '', completion_date: '', hours: '' };
     showCourseForm.value = false;
-  } catch (e) { toast.error(e.response?.data?.detail || 'Error al guardar'); }
+  } catch (e) { handleError(e, 'Error al guardar'); }
 }
 
 function startEditCourse(c) {
@@ -1184,7 +1186,7 @@ async function addCert() {
     certifications.value.push(data);
     newCert.value = { name: '', issuing_organization: '', issue_date: '', expiration_date: '', credential_id: '' };
     showCertForm.value = false;
-  } catch (e) { toast.error(e.response?.data?.detail || 'Error al guardar'); }
+  } catch (e) { handleError(e, 'Error al guardar'); }
 }
 
 function startEditCert(cert) {
@@ -1223,7 +1225,7 @@ async function addExperience() {
     experiences.value.push(data);
     newExp.value = { company: '', position: '', description: '', start_date: '', end_date: '', is_current: false };
     showExpForm.value = false;
-  } catch (e) { toast.error(e.response?.data?.detail || 'Error al guardar'); }
+  } catch (e) { handleError(e, 'Error al guardar'); }
 }
 
 function startEditExperience(exp) {
@@ -1262,7 +1264,7 @@ async function addCase() {
     successCases.value.push(data);
     newCase.value = { title: '', description: '', completion_date: '' };
     showCaseForm.value = false;
-  } catch (e) { toast.error(e.response?.data?.detail || 'Error al guardar'); }
+  } catch (e) { handleError(e, 'Error al guardar'); }
 }
 
 function startEditCase(sc) {

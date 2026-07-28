@@ -72,31 +72,6 @@
             </div>
           </article>
         </div>
-
-        <div class="section-head">
-          <div>
-            <span class="section-kicker">Soluciones por industria</span>
-            <h2>Servicios listos para operar en ambientes exigentes</h2>
-          </div>
-          <RouterLink to="/cotizar" class="section-link">
-            Diseñar solucion <i class="bi bi-arrow-right"></i>
-          </RouterLink>
-        </div>
-
-        <div class="industry-strip">
-          <article
-            v-for="industry in industries"
-            :key="industry.name"
-            class="industry-card"
-          >
-            <i :class="['bi', industry.icon]"></i>
-            <span>{{ industry.name }}</span>
-          </article>
-        </div>
-
-        <div class="brand-cloud" aria-label="Marcas compatibles">
-          <span v-for="brand in compatibleBrands" :key="brand">{{ brand }}</span>
-        </div>
       </div>
     </section>
 
@@ -295,41 +270,29 @@
       </div>
     </div>
 
-    <!-- ── Proceso + Nuestro equipo (antes del footer) ──────────────────────── -->
-    <section class="market-split-section">
+    <!-- ── Busquedas relacionadas ────────────────────────────────────────────── -->
+    <section v-if="categories.length" class="related-search-section">
       <div class="container-xl">
-        <div class="market-split">
-          <div class="process-panel">
-            <div class="section-head compact">
-              <div>
-                <span class="section-kicker">Proceso</span>
-                <h2>De la compra a la entrega tecnica</h2>
-              </div>
-            </div>
-            <div class="process-line">
-              <div v-for="step in processSteps" :key="step" class="process-step">
-                <span>{{ step }}</span>
-              </div>
-            </div>
+        <div class="section-head compact">
+          <div>
+            <span class="section-kicker">Explora tambien</span>
+            <h2>Busquedas relacionadas</h2>
           </div>
-
-          <div class="technician-panel">
-            <span class="section-kicker">Nuestro equipo</span>
-            <h2>Tecnicos, ingenieros y especialistas certificados</h2>
-            <p>
-              Instalacion, diagnostico, configuracion, migracion y mantenimiento con documentacion,
-              pruebas y soporte postventa.
-            </p>
-            <div class="tech-stats">
-              <span><strong>24/7</strong> emergencias</span>
-              <span><strong>Nacional</strong> cobertura</span>
-              <span><strong>Senior</strong> liderazgo</span>
-            </div>
-          </div>
+        </div>
+        <div class="related-search-cloud">
+          <button
+            v-for="cat in categories"
+            :key="cat.slug"
+            type="button"
+            class="related-search-chip"
+            @click="searchByCategory(cat)"
+          >
+            <i class="bi bi-search"></i>
+            {{ cat.name }}
+          </button>
         </div>
       </div>
     </section>
-
   </div>
 </template>
 
@@ -435,6 +398,11 @@ function onFilterReset() {
 }
 
 function clearSearch() { search.value = ''; goPage(1); }
+
+function searchByCategory(cat) {
+  onFilterChange({ categorySlug: cat.slug, brandSlug: filterState.brandSlug });
+  document.getElementById('services-marketplace')?.scrollIntoView({ behavior: 'smooth' });
+}
 
 function goPage(p) { currentPage.value = p; fetchServices(); }
 
@@ -1064,6 +1032,37 @@ onMounted(() => { fetchFilters(); fetchServices(); });
   align-items: center;
   justify-content: center;
   border: 2px solid #fff;
+}
+
+/* ── Busquedas relacionadas ─────────────────────────────────────────────────── */
+.related-search-section {
+  padding: 0.5rem 0 2.5rem;
+}
+.related-search-cloud {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  margin-top: 0.9rem;
+}
+.related-search-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  border: 1px solid #fde68a;
+  background: #fffbeb;
+  color: #92400e;
+  border-radius: 999px;
+  padding: 0.5rem 1rem;
+  font-size: 0.82rem;
+  font-weight: 650;
+  cursor: pointer;
+  transition: background 0.18s, border-color 0.18s, transform 0.18s;
+}
+.related-search-chip i { font-size: 0.78rem; color: #d97706; }
+.related-search-chip:hover {
+  background: #fef3c7;
+  border-color: #fbbf24;
+  transform: translateY(-1px);
 }
 
 /* ── Mobile offcanvas header ────────────────────────────────────────────────── */

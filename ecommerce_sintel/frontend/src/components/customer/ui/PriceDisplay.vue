@@ -32,6 +32,7 @@
 
 <script setup>
 import { computed } from 'vue';
+import { formatCOP } from '@/utils/money';
 
 const props = defineProps({
   price: { type: [String, Number], default: null },
@@ -49,7 +50,7 @@ const hasActiveDiscount = computed(() => {
   return now >= new Date(props.discountStart) && now <= new Date(props.discountEnd);
 });
 
-const fmt = (val) => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(parseFloat(val) || 0);
+const fmt = (val) => formatCOP(val, { withSymbol: true });
 const fmtDate = (iso) => new Date(iso).toLocaleDateString('es-CO');
 </script>
 

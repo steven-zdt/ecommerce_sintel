@@ -44,8 +44,9 @@
 
 <script setup>
 import { computed } from 'vue';
+import { formatCOP } from '@/utils/money';
 const props = defineProps({ operation: { type: Object, required: true } });
-function fmt(v) { return new Intl.NumberFormat('es-CO').format(Math.round(parseFloat(v) || 0)); }
+function fmt(v) { return formatCOP(Math.round(parseFloat(v) || 0)); }
 const contact = computed(() => props.operation.order?.contact_person || null);
 const quotation = computed(() => props.operation.order?.quotation || null);
 const attachments = computed(() => props.operation.order?.attachments || []);

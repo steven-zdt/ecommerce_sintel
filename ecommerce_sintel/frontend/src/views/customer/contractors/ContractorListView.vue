@@ -109,6 +109,7 @@ import StarRating from '@/components/ui/StarRating.vue';
 import useApi from '@/composables/useApi';
 import { useToast } from '@/composables/useToast';
 import { useEnums } from '@/composables/useEnums';
+import { formatCOP } from '@/utils/money';
 
 const api = useApi();
 const toast = useToast();
@@ -138,7 +139,7 @@ function initials(c) {
 
 function truncate(s, n) { return s.length > n ? s.slice(0, n) + '...' : s; }
 
-function formatPrice(n) { return new Intl.NumberFormat('es-CO').format(n); }
+function formatPrice(n) { return formatCOP(n); }
 
 async function fetchContractors() {
   loading.value = true;

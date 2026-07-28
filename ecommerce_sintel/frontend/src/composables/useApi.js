@@ -13,6 +13,7 @@
  * un nuevo refresh token cada vez. Hay que guardarlo o el siguiente refresh falla.
  */
 import axios from 'axios';
+import { useAuthStore } from '@/store/auth';
 
 const NETWORK_RETRY_DELAYS_MS = [500, 1500]; // maximo 2 reintentos, backoff corto
 
@@ -31,10 +32,6 @@ function storageSet(key, value) {
   } else {
     localStorage.setItem(key, value);
   }
-}
-function storageRemove(key) {
-  localStorage.removeItem(key);
-  sessionStorage.removeItem(key);
 }
 
 const api = axios.create({
@@ -115,9 +112,11 @@ api.interceptors.response.use(
         const refreshToken = storageGet('sintel_refresh');
         if (!refreshToken) {
           console.error('[API] No refresh token available. Forcing logout.');
-          storageRemove('sintel_access');
-          storageRemove('sintel_refresh');
-          storageRemove('sintel_user');
+          // logout() (no storageRemove suelto) para que el store de Pinia
+          // quede sincronizado -- si solo se limpia el storage, isAuthenticated
+          // (leido de state.accessToken en memoria) sigue en true y el guard
+          // de rutas deja abrir /cotizar/personalizada sin token valido (H7).
+          useAuthStore().logout();
           return Promise.reject(error);
         }
 
@@ -139,9 +138,7 @@ api.interceptors.response.use(
         } catch (refreshError) {
           console.error('[API] Token refresh failed:', refreshError);
           processQueue(refreshError, null);
-          storageRemove('sintel_access');
-          storageRemove('sintel_refresh');
-          storageRemove('sintel_user');
+          useAuthStore().logout();
           // Redirigir al login para que el usuario se autentique de nuevo
           window.location.href = '/login';
           return Promise.reject(refreshError);

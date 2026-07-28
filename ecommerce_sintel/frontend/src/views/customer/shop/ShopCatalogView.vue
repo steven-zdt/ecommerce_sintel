@@ -38,7 +38,7 @@
       </div>
     </section>
 
-    <div class="container-xl py-4">
+    <div id="shop-marketplace" class="container-xl py-4">
 
       <!-- ── Toolbar ─────────────────────────────────────────────────────────── -->
       <div class="toolbar mb-4">
@@ -239,6 +239,30 @@
       </div>
     </div>
 
+    <!-- ── Busquedas relacionadas ────────────────────────────────────────────── -->
+    <section v-if="categories.length" class="related-search-section">
+      <div class="container-xl">
+        <div class="section-head compact">
+          <div>
+            <span class="section-kicker">Explora tambien</span>
+            <h2>Busquedas relacionadas</h2>
+          </div>
+        </div>
+        <div class="related-search-cloud">
+          <button
+            v-for="cat in categories"
+            :key="cat.slug"
+            type="button"
+            class="related-search-chip"
+            @click="searchByCategory(cat)"
+          >
+            <i class="bi bi-search"></i>
+            {{ cat.name }}
+          </button>
+        </div>
+      </div>
+    </section>
+
   </div>
 </template>
 
@@ -354,6 +378,11 @@ function onFilterReset() {
 }
 
 function resetFilters() { onFilterReset(); }
+
+function searchByCategory(cat) {
+  onFilterChange({ categorySlug: cat.slug, brandSlug: filterState.brandSlug });
+  document.getElementById('shop-marketplace')?.scrollIntoView({ behavior: 'smooth' });
+}
 
 function changePage(p) {
   if (p >= 1 && p <= totalPages.value) {
@@ -769,6 +798,61 @@ onMounted(() => {
   align-items: center;
   justify-content: center;
   border: 2px solid #fff;
+}
+
+/* ── Busquedas relacionadas ─────────────────────────────────────────────────── */
+.section-head {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 1rem;
+  margin: 1.8rem 0 0.9rem;
+}
+.section-head.compact { margin-top: 0; }
+.section-head h2 {
+  color: #0f172a;
+  font-weight: 850;
+  letter-spacing: 0;
+  margin: 0;
+  font-size: 1.35rem;
+}
+.section-kicker {
+  display: block;
+  color: #1d4ed8;
+  font-size: 0.72rem;
+  font-weight: 850;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  margin-bottom: 0.25rem;
+}
+.related-search-section {
+  padding: 0.5rem 0 2.5rem;
+}
+.related-search-cloud {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  margin-top: 0.9rem;
+}
+.related-search-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  border: 1px solid #bfdbfe;
+  background: #eff6ff;
+  color: #1e3a8a;
+  border-radius: 999px;
+  padding: 0.5rem 1rem;
+  font-size: 0.82rem;
+  font-weight: 650;
+  cursor: pointer;
+  transition: background 0.18s, border-color 0.18s, transform 0.18s;
+}
+.related-search-chip i { font-size: 0.78rem; color: #2563eb; }
+.related-search-chip:hover {
+  background: #dbeafe;
+  border-color: #93c5fd;
+  transform: translateY(-1px);
 }
 
 /* ── Mobile offcanvas header ────────────────────────────────────────────────── */

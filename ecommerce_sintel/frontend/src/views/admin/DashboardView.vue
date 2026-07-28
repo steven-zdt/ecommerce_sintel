@@ -234,6 +234,7 @@
 import { ref, computed, onMounted } from 'vue';
 import useApi from '@/composables/useApi';
 import { useToast } from '@/composables/useToast';
+import { marketingService } from '@/services/marketing/marketingService';
 
 const api = useApi();
 const toast = useToast();
@@ -321,10 +322,10 @@ onMounted(async () => {
   try {
     const [metricsRes, marketingRes] = await Promise.all([
       api.get('dashboard/metrics/'),
-      api.get('marketing/dashboard/')
+      marketingService.dashboard(),
     ]);
     metrics.value = metricsRes.data;
-    marketingData.value = marketingRes.data;
+    marketingData.value = marketingRes;
   } catch (e) {
     console.error('Error cargando dashboard:', e);
     toast.error('Error al sincronizar datos del servidor');

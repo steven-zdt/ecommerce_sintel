@@ -55,9 +55,11 @@
 import { ref, onMounted } from 'vue';
 import { operationsService } from '@/services/operations/operationsService';
 import { useToast } from '@/composables/useToast';
+import { useErrorHandler } from '@/composables/useErrorHandler';
 import { useEnums } from '@/composables/useEnums';
 
 const toast = useToast();
+const { handleError } = useErrorHandler();
 const enums = useEnums();
 const tasks = ref([]);
 const loading = ref(true);
@@ -79,7 +81,7 @@ async function fetchTasks() {
     const data = await operationsService.tasks();
     tasks.value = data.results ?? data;
   } catch (error) {
-    toast.error(error?.response?.data?.detail || 'No fue posible cargar las tareas.');
+    handleError(error, 'No fue posible cargar las tareas.');
   } finally {
     loading.value = false;
   }
@@ -94,7 +96,7 @@ async function advance(task) {
     toast.success('Estado actualizado.');
     await fetchTasks();
   } catch (error) {
-    toast.error(error?.response?.data?.detail || 'No fue posible actualizar la tarea.');
+    handleError(error, 'No fue posible actualizar la tarea.');
   } finally {
     updating.value = null;
   }

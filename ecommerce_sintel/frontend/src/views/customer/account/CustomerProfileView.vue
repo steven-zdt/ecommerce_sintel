@@ -86,7 +86,7 @@
             </div>
           </div>
           <div class="d-flex justify-content-end mt-3">
-            <CustomerButton variant="danger" size="md" :loading="savingPw">
+            <CustomerButton type="submit" variant="danger" size="md" :loading="savingPw">
               Cambiar contrasena
             </CustomerButton>
           </div>
@@ -132,7 +132,7 @@
           </div>
         </div>
         <div class="d-flex justify-content-end mt-4">
-          <CustomerButton variant="primary" size="md" :loading="saving">
+          <CustomerButton type="submit" variant="primary" size="md" :loading="saving">
             <i class="bi bi-floppy me-2"></i>Guardar cambios
           </CustomerButton>
         </div>
@@ -163,6 +163,7 @@ import { ref, computed, onMounted } from 'vue';
 import useApi from '@/composables/useApi';
 import { useEnums } from '@/composables/useEnums';
 import { useToast } from '@/composables/useToast';
+import { useErrorHandler } from '@/composables/useErrorHandler';
 import { useAuthStore } from '@/store/auth';
 import CustomerAccountShell from '@/components/customer/account/CustomerAccountShell.vue';
 import CustomerPageHeader from '@/components/customer/account/CustomerPageHeader.vue';
@@ -176,6 +177,7 @@ import CustomerErrorState from '@/components/customer/account/CustomerErrorState
 
 const api = useApi();
 const toast = useToast();
+const { handleError } = useErrorHandler();
 const authStore = useAuthStore();
 const enums = useEnums();
 
@@ -271,7 +273,17 @@ async function saveAvatar() {
   try {
     const fd = new FormData();
     fd.append('profile_picture', avatarFile.value);
-    const res = await api.patch('auth/profile/', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+    // El axios instance (useApi.js) fija 'Content-Type: application/json' como
+    // default y NO lo limpia solo porque el body sea FormData ('Content-Type':
+    // undefined en `headers` no alcanza a pisar el default ya fijado en la
+    // instancia) -- hay que borrarlo con AxiosHeaders.delete() en transformRequest
+    // para que XHR/fetch fije el boundary real del multipart.
+    const res = await api.patch('auth/profile/', fd, {
+      transformRequest: [(data, headers) => {
+        headers.delete('Content-Type');
+        return data;
+      }],
+    });
     user.value = { ...user.value, profile: { ...user.value.profile, ...res.data } };
     authStore.user = { ...authStore.user, ...res.data };
     avatarFile.value = null;
@@ -293,7 +305,7 @@ async function saveProfile() {
     showEdit.value = false;
     toast.success('Perfil actualizado');
   } catch (e) {
-    toast.error(e.response?.data?.detail || 'Error al guardar');
+    handleError(e, 'Error al guardar');
   } finally {
     saving.value = false;
   }
@@ -313,7 +325,7 @@ async function changePassword() {
     pwForm.value = { old_password: '', new_password: '', confirm: '' };
     toast.success('Contrasena cambiada correctamente');
   } catch (e) {
-    toast.error(e.response?.data?.old_password?.[0] || e.response?.data?.detail || 'Error al cambiar contrasena');
+    handleError(e, 'Error al cambiar contrasena');
   } finally {
     savingPw.value = false;
   }

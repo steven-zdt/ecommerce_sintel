@@ -1,6 +1,6 @@
 <template>
   <button
-    type="button"
+    :type="type"
     class="btn acc-btn"
     :class="[variantClass, sizeClass]"
     :disabled="disabled || loading"
@@ -25,6 +25,9 @@ const props = defineProps({
   size: { type: String, default: 'sm' }, // 'sm' | 'md'
   disabled: { type: Boolean, default: false },
   loading: { type: Boolean, default: false },
+  // 'button' (default) para acciones via @click; 'submit' para botones que
+  // deben disparar el @submit.prevent de un <form> padre sin handler propio.
+  type: { type: String, default: 'button' }, // 'button' | 'submit'
   // Requerido cuando variant="icon" (boton solo-icono sin texto visible) --
   // Vue no permite validar contra otra prop aqui, se documenta por convencion.
   ariaLabel: { type: String, default: null },

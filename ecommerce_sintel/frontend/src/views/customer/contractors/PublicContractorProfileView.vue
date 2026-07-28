@@ -218,12 +218,15 @@ import { useRoute } from 'vue-router';
 import StarRating from '@/components/ui/StarRating.vue';
 import useApi from '@/composables/useApi';
 import { useToast } from '@/composables/useToast';
+import { useErrorHandler } from '@/composables/useErrorHandler';
 import { useAuthStore } from '@/store/auth';
 import { useEnums } from '@/composables/useEnums';
+import { formatCOP } from '@/utils/money';
 
 const route = useRoute();
 const api = useApi();
 const toast = useToast();
+const { handleError } = useErrorHandler();
 const authStore = useAuthStore();
 const enums = useEnums();
 
@@ -263,7 +266,7 @@ const canReview = computed(() =>
   authStore.isAuthenticated && profile.value?.email !== authStore.user?.email
 );
 
-function fmt(n) { return new Intl.NumberFormat('es-CO').format(n); }
+function fmt(n) { return formatCOP(n); }
 
 function formatDate(d) {
   if (!d) return '';
@@ -294,7 +297,7 @@ async function submitReview() {
     await fetchProfile();
     reviewForm.value = { quality_rating: 5, punctuality_rating: 5, professionalism_rating: 5, communication_rating: 5, compliance_rating: 5, comment: '' };
   } catch (e) {
-    toast.error(e.response?.data?.detail || 'Error al publicar la resena');
+    handleError(e, 'Error al publicar la resena');
   } finally {
     submittingReview.value = false;
   }

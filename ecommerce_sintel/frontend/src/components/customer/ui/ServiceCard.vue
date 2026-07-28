@@ -72,6 +72,7 @@
 
 <script setup>
 import { computed } from 'vue';
+import { formatCOP } from '@/utils/money';
 
 const props = defineProps({ service: { type: Object, required: true } });
 defineEmits(['view', 'quote']);
@@ -97,9 +98,7 @@ function truncate(str, len) {
   return str.length > len ? str.slice(0, len) + '…' : str;
 }
 
-const fmtCOP = (n) => new Intl.NumberFormat('es-CO', {
-  style: 'currency', currency: 'COP', maximumFractionDigits: 0,
-}).format(n);
+const fmtCOP = (n) => formatCOP(n, { withSymbol: true });
 </script>
 
 <style scoped>

@@ -290,15 +290,13 @@ router.beforeEach(async (to) => {
       // en este origen antes de saltar al panel -- nunca debe quedar residuo
       // de una sesion de admin reflejado en sintel.net.co (bug real: el login
       // publico dejaba tokens de staff en este origen antes de este guard
-      // redirigir). Se limpian ambos storages: desde el rediseno de auth
-      // (2026-07-17) los tokens pueden vivir en sessionStorage si el usuario
-      // desmarco "Recordarme" (ver store/auth.js).
-      localStorage.removeItem('sintel_access');
-      localStorage.removeItem('sintel_refresh');
-      localStorage.removeItem('sintel_user');
-      sessionStorage.removeItem('sintel_access');
-      sessionStorage.removeItem('sintel_refresh');
-      sessionStorage.removeItem('sintel_user');
+      // redirigir). A-05 (auditoria enterprise): antes limpiaba ambos
+      // storages a mano (localStorage/sessionStorage.removeItem por clave),
+      // un tercer camino de limpieza de sesion fuera del store de auth --
+      // usar authStore.logout() unifica con useApi.js (que ya lo usa en sus
+      // 2 puntos de fallo de refresh/401) y ademas limpia el estado en
+      // memoria de Pinia (accessToken/user), no solo el storage.
+      useAuthStore().logout();
       // El dominio publico ya no sirve el panel. Redirige preservando el
       // path completo (incluye query/hash via fullPath) para no romper
       // bookmarks/enlaces antiguos a sintel.net.co/panel/* (ADR-001 D2).

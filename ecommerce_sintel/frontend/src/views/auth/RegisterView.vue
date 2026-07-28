@@ -170,6 +170,7 @@ import { ref, reactive, computed, watch, nextTick, onBeforeUnmount } from 'vue';
 import { useRouter, RouterLink } from 'vue-router';
 import useApi from '@/composables/useApi';
 import { useToast } from '@/composables/useToast';
+import { useErrorHandler } from '@/composables/useErrorHandler';
 import { useAuthStore } from '@/store/auth';
 import CustomerAuthLayout from '@/components/auth/CustomerAuthLayout.vue';
 import OtpInput from '@/components/auth/OtpInput.vue';
@@ -184,6 +185,7 @@ import {
 
 const api       = useApi();
 const toast     = useToast();
+const { handleError } = useErrorHandler();
 const router    = useRouter();
 const authStore = useAuthStore();
 
@@ -394,8 +396,7 @@ async function resendCode() {
     toast.success('Nuevo codigo enviado.');
     otpInputRef.value?.clear();
   } catch (e) {
-    const data = e.response?.data;
-    toast.error(data?.email?.[0] || data?.detail || 'No se pudo reenviar el codigo.');
+    handleError(e, 'No se pudo reenviar el codigo.');
   } finally {
     resending.value = false;
   }

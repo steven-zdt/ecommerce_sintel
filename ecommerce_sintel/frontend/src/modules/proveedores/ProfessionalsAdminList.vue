@@ -162,10 +162,12 @@
 import { ref, reactive, watch, onMounted } from 'vue';
 import useApi from '@/composables/useApi';
 import { useToast } from '@/composables/useToast';
+import { useErrorHandler } from '@/composables/useErrorHandler';
 import { useEnums } from '@/composables/useEnums';
 
 const api = useApi();
 const toast = useToast();
+const { handleError } = useErrorHandler();
 const enums = useEnums();
 
 const items = ref([]);
@@ -249,7 +251,7 @@ const toggleAvailability = async (pro) => {
     toast.success(`${pro.full_name} ahora está ${data.is_available ? 'disponible' : 'ocupado'}`);
     await loadMetrics();
   } catch (err) {
-    toast.error(err.response?.data?.detail || 'No se pudo cambiar la disponibilidad');
+    handleError(err, 'No se pudo cambiar la disponibilidad');
   } finally {
     togglingUuid.value = null;
   }

@@ -73,8 +73,9 @@
 
 <script setup>
 import { ref, computed } from 'vue';
-import useApi from '@/composables/useApi';
+import { kycService } from '@/services/kyc/kycService';
 import { useToast } from '@/composables/useToast';
+import { useErrorHandler } from '@/composables/useErrorHandler';
 
 const props = defineProps({
   documents: { type: Array, default: () => [] },
@@ -82,8 +83,8 @@ const props = defineProps({
 });
 const emit = defineEmits(['changed']);
 
-const api = useApi();
 const toast = useToast();
+const { handleError } = useErrorHandler();
 
 const REQUIRED_SLOTS = [
   { doc_type: 'CEDULA_FRONTAL', label: 'Cedula (frontal)', accept: '.pdf,.jpg,.jpeg' },
@@ -137,12 +138,11 @@ async function onFileChange(event, docType) {
     const formData = new FormData();
     formData.append('doc_type', docType);
     formData.append('file', file);
-    await api.post('auth/upload-document/', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+    await kycService.uploadDocument(formData);
     toast.success('Documento subido.');
     emit('changed');
   } catch (e) {
-    const data = e.response?.data;
-    toast.error(data?.file?.[0] || data?.detail || 'No se pudo subir el documento.');
+    handleError(e, 'No se pudo subir el documento.');
   } finally {
     uploadingSlot.value = null;
   }
@@ -151,11 +151,11 @@ async function onFileChange(event, docType) {
 async function deleteDoc(doc) {
   deletingUuid.value = doc.uuid;
   try {
-    await api.delete(`auth/documents/${doc.uuid}/`);
+    await kycService.deleteDocument(doc.uuid);
     toast.success('Documento eliminado.');
     emit('changed');
   } catch (e) {
-    toast.error(e.response?.data?.detail || 'No se pudo eliminar el documento.');
+    handleError(e, 'No se pudo eliminar el documento.');
   } finally {
     deletingUuid.value = null;
   }

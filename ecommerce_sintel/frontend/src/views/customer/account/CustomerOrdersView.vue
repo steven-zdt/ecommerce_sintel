@@ -146,9 +146,11 @@
 <script setup>
 import { ref, onMounted } from 'vue';
 import { RouterLink } from 'vue-router';
-import useApi from '@/composables/useApi';
+import { ordersService } from '@/services/orders/ordersService';
+import { formatCOP } from '@/utils/money';
 import { useSupportContextStore } from '@/store/supportContext';
 import { useToast } from '@/composables/useToast';
+import { useErrorHandler } from '@/composables/useErrorHandler';
 import { useEnums } from '@/composables/useEnums';
 import ServiceTimeline from '@/components/customer/services/ServiceTimeline.vue';
 import ShipmentTimeline from '@/components/customer/orders/ShipmentTimeline.vue';
@@ -180,8 +182,8 @@ function activeStepIndex(status) {
   return idx === -1 ? 0 : idx;
 }
 
-const api = useApi();
 const toast = useToast();
+const { handleError } = useErrorHandler();
 const enums = useEnums();
 const supportContextStore = useSupportContextStore();
 
@@ -204,9 +206,9 @@ async function fetchOrders() {
   loading.value = true;
   loadError.value = false;
   try {
-    const res = await api.get('orders/orders/', { params: { page: page.value, page_size: pageSize } });
-    orders.value = res.data.results || res.data || [];
-    const total = res.data.count || orders.value.length;
+    const data = await ordersService.list({ page: page.value, page_size: pageSize });
+    orders.value = data.results || data || [];
+    const total = data.count || orders.value.length;
     totalPages.value = Math.max(1, Math.ceil(total / pageSize));
   } catch {
     loadError.value = true;
@@ -227,8 +229,8 @@ async function viewOrder(order) {
   showDetail.value = true;
   if (!order.service_detail && !order.shipping_address) {
     try {
-      const res = await api.get(`orders/service-orders/${order.uuid}/`);
-      selected.value = { ...order, ...res.data };
+      const data = await ordersService.serviceOrderDetail(order.uuid);
+      selected.value = { ...order, ...data };
     } catch {
       // No es una orden de servicio o no accesible -- usar datos disponibles
     }
@@ -238,17 +240,17 @@ async function viewOrder(order) {
 async function confirmDelivery() {
   confirmingDelivery.value = true;
   try {
-    const { data } = await api.post(`orders/orders/${selected.value.uuid}/confirm-delivery/`);
+    const data = await ordersService.confirmDelivery(selected.value.uuid);
     selected.value = { ...selected.value, ...data };
     toast.success('Gracias por confirmar la recepcion de tu pedido.');
   } catch (e) {
-    toast.error(e?.response?.data?.detail || 'No fue posible confirmar la recepcion.');
+    handleError(e, 'No fue posible confirmar la recepcion.');
   } finally {
     confirmingDelivery.value = false;
   }
 }
 
-const fmt = (val) => new Intl.NumberFormat('es-CO').format(parseFloat(val) || 0);
+const fmt = (val) => formatCOP(val);
 const fmtDate = (d) => d ? new Date(d).toLocaleString('es-CO') : '-';
 
 onMounted(() => {

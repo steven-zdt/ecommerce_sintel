@@ -72,6 +72,7 @@
 import { ref, computed, watch } from 'vue';
 import useApi from '@/composables/useApi';
 import { useToast } from '@/composables/useToast';
+import { useErrorHandler } from '@/composables/useErrorHandler';
 import { useAuthStore } from '@/store/auth';
 
 const props = defineProps({
@@ -83,6 +84,7 @@ const props = defineProps({
 
 const api = useApi();
 const toast = useToast();
+const { handleError } = useErrorHandler();
 const authStore = useAuthStore();
 
 const reviews = ref([]);
@@ -142,7 +144,7 @@ async function submitReview() {
     await fetchReviews();
     toast.success('Gracias por tu reseña');
   } catch (e) {
-    toast.error(e.response?.data?.detail || 'No se pudo publicar la reseña');
+    handleError(e, 'No se pudo publicar la reseña');
   } finally {
     submitting.value = false;
   }

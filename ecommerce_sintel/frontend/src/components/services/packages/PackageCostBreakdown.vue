@@ -22,6 +22,7 @@
 
 <script setup>
 import { computed } from 'vue';
+import { formatCOP as formatCOPBase } from '@/utils/money';
 
 const props = defineProps({
   breakdown: { type: Object, required: true },
@@ -39,7 +40,7 @@ const rows = computed(() => {
 function formatCOP(value) {
   const number = parseFloat(value);
   if (!Number.isFinite(number)) return '$ 0';
-  return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(number);
+  return formatCOPBase(number, { withSymbol: true });
 }
 </script>
 

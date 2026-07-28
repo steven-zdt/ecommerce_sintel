@@ -61,6 +61,7 @@
 <script setup>
 import { ref, computed } from 'vue';
 import BaseHorizontalCard from '@/components/base/BaseHorizontalCard.vue';
+import { formatCOP } from '@/utils/money';
 
 const props = defineProps({
   product: { type: Object, required: true },
@@ -105,9 +106,7 @@ const savingsAmount = computed(() =>
   hasDiscount.value ? originalPrice.value - effectivePrice.value : 0
 );
 
-const fmtCOP = (n) => new Intl.NumberFormat('es-CO', {
-  style: 'currency', currency: 'COP', maximumFractionDigits: 0,
-}).format(n);
+const fmtCOP = (n) => formatCOP(n, { withSymbol: true });
 
 async function handleAddToCart() {
   if (stock.value === 0 || adding.value) return;

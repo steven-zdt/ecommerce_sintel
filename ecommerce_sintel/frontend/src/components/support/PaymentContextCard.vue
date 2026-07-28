@@ -13,8 +13,9 @@
 <script setup>
 import { useEnums } from '@/composables/useEnums';
 import BaseContextCard from '@/components/base/BaseContextCard.vue';
+import { formatCOP } from '@/utils/money';
 
 defineProps({ order: { type: Object, required: true } });
 const enums = useEnums();
-const fmt = (v) => new Intl.NumberFormat('es-CO').format(parseFloat(v) || 0);
+const fmt = (v) => formatCOP(v);
 </script>

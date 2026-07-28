@@ -22,6 +22,8 @@
 </template>
 
 <script setup>
+import { formatCOP as formatCOPBase } from '@/utils/money';
+
 defineProps({
   pkg: { type: Object, required: true },
   selectedCosts: { type: Array, default: () => [] },
@@ -30,7 +32,7 @@ defineProps({
 function formatCOP(value) {
   const number = parseFloat(value);
   if (!Number.isFinite(number)) return '';
-  return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(number);
+  return formatCOPBase(number, { withSymbol: true });
 }
 </script>
 

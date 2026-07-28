@@ -77,13 +77,14 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue';
 import { RouterLink } from 'vue-router';
-import useApi from '@/composables/useApi';
+import { kycService } from '@/services/kyc/kycService';
 import { useToast } from '@/composables/useToast';
+import { useErrorHandler } from '@/composables/useErrorHandler';
 import { useAuthStore } from '@/store/auth';
 import KycDocumentUploadStep from '@/components/auth/kyc/KycDocumentUploadStep.vue';
 
-const api = useApi();
 const toast = useToast();
+const { handleError } = useErrorHandler();
 const authStore = useAuthStore();
 
 const loading = ref(true);
@@ -106,8 +107,7 @@ const isContractorType = computed(() => {
 
 async function reload() {
   try {
-    const { data } = await api.get('auth/verification/');
-    verification.value = data;
+    verification.value = await kycService.myVerification();
   } catch (e) {
     toast.error('No se pudo cargar tu estado de verificacion.');
   }
@@ -116,12 +116,11 @@ async function reload() {
 async function submitForReview() {
   submitting.value = true;
   try {
-    await api.post('auth/submit-for-review/');
+    await kycService.submitForReview();
     toast.success('Tu documentacion fue enviada a revision.');
     await reload();
   } catch (e) {
-    const data = e.response?.data;
-    toast.error(data?.documents || data?.detail || 'No se pudo enviar a revision.');
+    handleError(e, 'No se pudo enviar a revision.');
   } finally {
     submitting.value = false;
   }

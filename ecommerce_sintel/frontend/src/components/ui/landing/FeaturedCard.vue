@@ -43,6 +43,7 @@
 <script setup>
 import { computed } from 'vue';
 import { RouterLink } from 'vue-router';
+import { formatCOP } from '@/utils/money';
 
 const props = defineProps({
   item: { type: Object, required: true },
@@ -67,11 +68,7 @@ const typeBadgeClass = computed(() => ({
 
 const priceLabel = computed(() => {
   if (!props.item.min_price) return 'Consultar';
-  return new Intl.NumberFormat('es-CO', {
-    style: 'currency',
-    currency: 'COP',
-    maximumFractionDigits: 0,
-  }).format(props.item.min_price);
+  return formatCOP(props.item.min_price, { withSymbol: true });
 });
 
 const priceSuffix = computed(() =>

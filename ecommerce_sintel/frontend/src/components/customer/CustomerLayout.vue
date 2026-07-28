@@ -32,6 +32,7 @@ import { ref, computed, watch, onMounted } from 'vue';
 import { useRoute } from 'vue-router';
 import { useAuthStore } from '@/store/auth';
 import { useCartStore } from '@/store/cart';
+import { useWishlistStore } from '@/store/wishlist';
 import { useAppConfigStore } from '@/store/appConfig';
 import CustomerNavbar from './CustomerNavbar.vue';
 import CustomerFooter from './CustomerFooter.vue';
@@ -43,6 +44,7 @@ import ToastManager from '@/components/layout/ToastManager.vue';
 const route = useRoute();
 const authStore = useAuthStore();
 const cartStore = useCartStore();
+const wishlistStore = useWishlistStore();
 const appConfigStore = useAppConfigStore();
 const showCart = ref(false);
 
@@ -65,14 +67,17 @@ onMounted(async () => {
   appConfigStore.fetchConfig();
   if (authStore.isAuthenticated) {
     await cartStore.fetchCart();
+    wishlistStore.fetchWishlist().catch(() => {});
   }
 });
 
 watch(() => authStore.isAuthenticated, async (authenticated) => {
   if (authenticated) {
     await cartStore.fetchCart();
+    wishlistStore.fetchWishlist().catch(() => {});
   } else {
     cartStore.reset();
+    wishlistStore.reset();
   }
 });
 </script>

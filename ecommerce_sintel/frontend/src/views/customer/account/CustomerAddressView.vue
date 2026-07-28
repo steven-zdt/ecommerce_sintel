@@ -100,7 +100,7 @@
         </div>
         <div class="d-flex gap-2 justify-content-end mt-4">
           <CustomerButton variant="secondary" @click="closeForm">Cancelar</CustomerButton>
-          <CustomerButton variant="primary" :loading="saving">
+          <CustomerButton type="submit" variant="primary" :loading="saving">
             {{ editing ? 'Guardar cambios' : 'Agregar direccion' }}
           </CustomerButton>
         </div>
@@ -111,8 +111,9 @@
 
 <script setup>
 import { ref, onMounted } from 'vue';
-import useApi from '@/composables/useApi';
+import { ordersService } from '@/services/orders/ordersService';
 import { useToast } from '@/composables/useToast';
+import { useErrorHandler } from '@/composables/useErrorHandler';
 import CustomerAccountShell from '@/components/customer/account/CustomerAccountShell.vue';
 import CustomerPageHeader from '@/components/customer/account/CustomerPageHeader.vue';
 import CustomerCard from '@/components/customer/account/CustomerCard.vue';
@@ -123,8 +124,8 @@ import CustomerEmptyState from '@/components/customer/account/CustomerEmptyState
 import CustomerErrorState from '@/components/customer/account/CustomerErrorState.vue';
 import CustomerSkeleton from '@/components/customer/account/CustomerSkeleton.vue';
 
-const api = useApi();
 const toast = useToast();
+const { handleError } = useErrorHandler();
 
 const loading = ref(true);
 const loadError = ref(false);
@@ -146,8 +147,8 @@ async function fetchAddresses() {
   loading.value = true;
   loadError.value = false;
   try {
-    const res = await api.get('orders/addresses/');
-    addresses.value = res.data.results ?? res.data ?? [];
+    const data = await ordersService.addresses.list();
+    addresses.value = data.results ?? data ?? [];
   } catch {
     loadError.value = true;
     toast.error('Error al cargar direcciones');
@@ -188,20 +189,20 @@ async function saveAddress() {
   saving.value = true;
   try {
     if (editing.value) {
-      const res = await api.patch(`orders/addresses/${editing.value.uuid}/`, form.value);
+      const data = await ordersService.addresses.update(editing.value.uuid, form.value);
       const idx = addresses.value.findIndex(a => a.uuid === editing.value.uuid);
-      if (idx !== -1) addresses.value[idx] = res.data;
-      if (res.data.is_default) addresses.value.forEach(a => { a.is_default = a.uuid === res.data.uuid; });
+      if (idx !== -1) addresses.value[idx] = data;
+      if (data.is_default) addresses.value.forEach(a => { a.is_default = a.uuid === data.uuid; });
       toast.success('Direccion actualizada');
     } else {
-      const res = await api.post('orders/addresses/', form.value);
-      if (res.data.is_default) addresses.value.forEach(a => { a.is_default = false; });
-      addresses.value.unshift(res.data);
+      const data = await ordersService.addresses.create(form.value);
+      if (data.is_default) addresses.value.forEach(a => { a.is_default = false; });
+      addresses.value.unshift(data);
       toast.success('Direccion agregada');
     }
     closeForm();
   } catch (e) {
-    toast.error(e.response?.data?.detail || 'Error al guardar la direccion');
+    handleError(e, 'Error al guardar la direccion');
   } finally {
     saving.value = false;
   }
@@ -209,7 +210,7 @@ async function saveAddress() {
 
 async function setDefault(addr) {
   try {
-    await api.post(`orders/addresses/${addr.uuid}/set-default/`);
+    await ordersService.addresses.setDefault(addr.uuid);
     addresses.value = addresses.value.map(a => ({ ...a, is_default: a.uuid === addr.uuid }));
     toast.success('Direccion de envio actualizada');
   } catch {
@@ -220,7 +221,7 @@ async function setDefault(addr) {
 async function executeDelete(addr) {
   deleting.value = true;
   try {
-    await api.delete(`orders/addresses/${addr.uuid}/`);
+    await ordersService.addresses.delete(addr.uuid);
     addresses.value = addresses.value.filter(a => a.uuid !== addr.uuid);
     toast.success('Direccion eliminada');
   } catch {

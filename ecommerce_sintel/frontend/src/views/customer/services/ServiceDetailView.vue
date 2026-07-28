@@ -301,6 +301,7 @@ import { ref, computed, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { servicesService } from '@/services/technical_services/servicesService';
 import { useToast } from '@/composables/useToast';
+import { formatCOP } from '@/utils/money';
 import ServicePackageCard from '@/components/services/packages/ServicePackageCard.vue';
 import BaseReviews from '@/components/base/BaseReviews.vue';
 import BaseGallery from '@/components/base/BaseGallery.vue';
@@ -460,11 +461,7 @@ function toEmbedUrl(url) {
 function fmtCOP(value) {
   const number = parseFloat(value);
   if (!Number.isFinite(number) || number <= 0) return 'A cotizar';
-  return new Intl.NumberFormat('es-CO', {
-    style: 'currency',
-    currency: 'COP',
-    maximumFractionDigits: 0,
-  }).format(number);
+  return formatCOP(number, { withSymbol: true });
 }
 
 async function fetchService() {

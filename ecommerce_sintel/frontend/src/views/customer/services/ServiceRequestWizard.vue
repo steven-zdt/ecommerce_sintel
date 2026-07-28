@@ -627,6 +627,7 @@ import { servicesService } from '@/services/technical_services/servicesService';
 import { useToast } from '@/composables/useToast';
 import { useErrorHandler } from '@/composables/useErrorHandler';
 import { useAuthStore } from '@/store/auth';
+import { formatCOP } from '@/utils/money';
 import ServiceAttachmentsUploader from '@/components/services/ServiceAttachmentsUploader.vue';
 import ServiceTermsCard from '@/components/customer/services/ServiceTermsCard.vue';
 import ServiceCheckoutModal from '@/components/customer/services/ServiceCheckoutModal.vue';
@@ -801,7 +802,7 @@ function validateStep3AndContinue() {
 }
 
 // Helpers
-const fmt = (v) => new Intl.NumberFormat('es-CO').format(Math.round(parseFloat(v) || 0));
+const fmt = (v) => formatCOP(Math.round(parseFloat(v) || 0));
 
 function fmtDate(val) {
   if (!val) return '';
