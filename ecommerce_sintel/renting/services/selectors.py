@@ -8,7 +8,7 @@ from renting.models import (
     RentalIncludedItem, RentalExcludedItem, RentalFeature,
     RentalSpecificationGroup, RentalSpecification, RentalRequirement,
     RentalServiceIncluded, RentalOptionalService, RentalFAQ,
-    RentalVideo, RentalDocument,
+    RentalVideo, RentalDocument, EquipmentCommercialOption,
 )
 
 
@@ -165,6 +165,20 @@ class EquipmentVariantSelector:
     @staticmethod
     def get_by_uuid(variant_uuid: str) -> EquipmentVariant:
         return get_object_or_404(EquipmentVariant, uuid=variant_uuid, is_deleted=False)
+
+
+class EquipmentCommercialOptionSelector:
+    @staticmethod
+    def list_for_equipment(equipment_uuid: str) -> QuerySet:
+        return (
+            EquipmentCommercialOption.objects
+            .filter(equipment__uuid=equipment_uuid, is_deleted=False)
+            .order_by('modality', 'term_months')
+        )
+
+    @staticmethod
+    def get_by_uuid(option_uuid: str) -> EquipmentCommercialOption:
+        return get_object_or_404(EquipmentCommercialOption, uuid=option_uuid, is_deleted=False)
 
 
 class EquipmentBlockSelector:

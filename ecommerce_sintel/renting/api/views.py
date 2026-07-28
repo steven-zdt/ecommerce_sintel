@@ -1,6 +1,4 @@
-import hashlib
-from decimal import Decimal, ROUND_DOWN
-
+import django_filters
 from rest_framework import viewsets, permissions, status, mixins
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -8,7 +6,6 @@ from rest_framework.pagination import PageNumberPagination
 from rest_framework.filters import SearchFilter, OrderingFilter
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema
-from django.conf import settings
 from django.shortcuts import get_object_or_404
 from users.api.permissions import IsAdminUser, IsBuyerOrAdmin
 
@@ -441,6 +438,21 @@ class RentalLaborViewSet(viewsets.ReadOnlyModelViewSet):
         return get_object_or_404(RentalLabor, uuid=self.kwargs[self.lookup_field], is_active=True, is_deleted=False)
 
 
+class RentalRequestFilterSet(django_filters.FilterSet):
+    """
+    payment_method dejo de ser columna de RentalRequest (auditoria DB-H1):
+    vive en RentalRequestPaymentInfo ('payment_info', OneToOne). filterset_fields
+    solo acepta campos reales del modelo, asi que se declara este FilterSet
+    explicito para mantener el mismo query param publico (?payment_method=WOMPI)
+    apuntando a la relacion.
+    """
+    payment_method = django_filters.CharFilter(field_name='payment_info__payment_method')
+
+    class Meta:
+        model = RentalRequest
+        fields = ['status', 'payment_method', 'refund_required']
+
+
 @extend_schema(tags=['renting'])
 class RentalRequestViewSet(
     mixins.ListModelMixin,
@@ -453,7 +465,7 @@ class RentalRequestViewSet(
     permission_classes = [IsBuyerOrAdmin]
     pagination_class = StandardResultsSetPagination
     filter_backends = [DjangoFilterBackend]
-    filterset_fields = ['status', 'payment_method', 'refund_required']
+    filterset_class = RentalRequestFilterSet
 
     def get_queryset(self):
         if getattr(self, 'swagger_fake_view', False):
@@ -507,13 +519,20 @@ class RentalRequestViewSet(
             )
 
         card_token = request.data.get('card_token')
-        if card_token:
-            # Mismo kill-switch real que Tienda/Servicios Tecnicos (ADR-001 Fase 5):
-            # rechazar en el backend, no solo ocultar el boton en el frontend.
+        if payment_method == RentalRequest.PAYMENT_WOMPI:
+            # Mismo kill-switch real que Tienda/Servicios Tecnicos (ADR-001 Fase 5
+            # + plan hibrido Widget+API): rechazar en el backend, no solo ocultar
+            # el boton en el frontend -- simetrico en ambos sentidos.
             from payment.models import PaymentFeatureFlags
-            if not PaymentFeatureFlags.get_active().card_api_flow_enabled:
+            flags = PaymentFeatureFlags.get_active()
+            if card_token and not flags.card_api_flow_enabled:
                 return Response(
                     {'detail': 'El pago con tarjeta via API esta deshabilitado temporalmente. Usa PSE/Otros.'},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+            if not card_token and not flags.widget_flow_enabled:
+                return Response(
+                    {'detail': 'El pago via Widget esta deshabilitado temporalmente. Usa Tarjeta.'},
                     status=status.HTTP_403_FORBIDDEN,
                 )
 
@@ -530,42 +549,12 @@ class RentalRequestViewSet(
 
         return Response(result, status=status.HTTP_200_OK)
 
-    @action(detail=True, methods=['post'], url_path='initialize-payment')
-    def initialize_payment(self, request, uuid=None):
-        """
-        POST /renting/rental-requests/{uuid}/initialize-payment/
-        Genera la firma de integridad Wompi para pagar una solicitud pendiente.
-        """
-        rental_request = self.get_object()
-
-        if rental_request.status != RentalRequest.STATUS_PENDING_PAYMENT:
-            return Response(
-                {'detail': 'La solicitud no esta pendiente de pago.'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        total_decimal = Decimal(str(rental_request.grand_total)).quantize(
-            Decimal('0.01'), rounding=ROUND_DOWN
-        )
-        amount_in_cents = int(total_decimal * 100)
-        currency = 'COP'
-        reference = str(rental_request.uuid)
-
-        integrity_secret = getattr(settings, 'WOMPI_INTEGRITY_SECRET', '')
-        raw = f"{reference}{amount_in_cents}{currency}{integrity_secret}"
-        integrity_signature = hashlib.sha256(raw.encode('utf-8')).hexdigest()
-
-        rental_request.wompi_reference = reference
-        rental_request.save(update_fields=['wompi_reference', 'updated_at'])
-
-        return Response({
-            'uuid': reference,
-            'amount_in_cents': amount_in_cents,
-            'currency': currency,
-            'public_key': getattr(settings, 'WOMPI_PUBLIC_KEY', ''),
-            'integrity_signature': integrity_signature,
-            'widget_url': getattr(settings, 'WOMPI_WIDGET_URL', 'https://checkout.wompi.co/widget.js'),
-        })
+    # initialize-payment (recalculaba la firma de integridad Wompi con su
+    # propia copia de hashlib.sha256) se elimino en la auditoria SSoT de
+    # Payment 2026-07-23 (hallazgo H-01): sin consumidores en frontend ni
+    # backend, y duplicaba _compute_integrity_signature() de
+    # payment/online/services/commands.py. El camino vigente es
+    # process-payment/ -> process_payment_selection() -> WompiCommands.
 
     @action(detail=True, methods=['post'], url_path='cancel')
     def cancel(self, request, uuid=None):

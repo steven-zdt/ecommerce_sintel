@@ -8,6 +8,7 @@ from renting.models import (
     Equipment, EquipmentVariant, RentingCategory, RentingBrand,
     RentalLabor, RentalRequest, RentalPeriod, EquipmentLogisticsConfig,
     EquipmentBlock, EquipmentReturnInspection, EquipmentReview, EquipmentMarketing,
+    EquipmentCommercialConfig, EquipmentCommercialOption,
 )
 from orders.models import Order, OrderItem
 
@@ -360,6 +361,13 @@ class RentalRequestCommands:
         ni WhatsApp al cliente. La unica comunicacion posible ocurre despues,
         cuando llega el PaymentResult (ver confirm_payment/
         approve_manual_validation/release_on_payment_failure).
+
+        Excepcion (Comodato, 2026-07-22): al no existir pasarela de pago que
+        inicializar, esta modalidad entra directo a pending_validation aqui
+        mismo (no via process_payment_selection(), que es donde COD lo hace).
+        Se dispara una notificacion, pero SOLO a admin_notifications -- igual
+        que el equivalente COD -- nunca al cliente, asi que la regla de arriba
+        sigue vigente sin excepcion real.
         """
         from renting.services.selectors import RentingSelector
 
@@ -378,8 +386,18 @@ class RentalRequestCommands:
                 "Por favor elige otras fechas."
             )
 
+        # Modalidad comercial (2026-07-22): Comodato no cobra tarifa diaria/hora
+        # (no hay pricing continuo), por eso base_cost queda en 0 para esa rama
+        # -- el resto del calculo (logistica/impuestos/RentalCostAssignment,
+        # abajo) se aplica identico para ambas modalidades sin cambios.
+        commercial_type: str = validated_data.get(
+            'commercial_type', RentalRequest.COMMERCIAL_RENTAL
+        )
+
         # Precio base
-        if mode == RentalRequest.RENTAL_MODE_DAYS:
+        if commercial_type == RentalRequest.COMMERCIAL_COMODATO:
+            base_cost = Decimal('0')
+        elif mode == RentalRequest.RENTAL_MODE_DAYS:
             base_cost = (variant.rental_price_per_day or Decimal('0')) * total_days * quantity
         else:
             hours = validated_data.get('estimated_hours') or Decimal(str(total_days * 8))
@@ -412,10 +430,32 @@ class RentalRequestCommands:
 
         terms_accepted: bool = validated_data.get('terms_accepted', False)
 
+        # Comodato salta pending_payment por completo: no hay pasarela que
+        # inicializar, pasa directo a pending_validation (mismo estado que ya
+        # usa COD dentro de process_payment_selection(), pero sin necesidad de
+        # inventar un "metodo de pago" falso para algo que no es un pago).
+        initial_status = (
+            RentalRequest.STATUS_PENDING_VALIDATION
+            if commercial_type == RentalRequest.COMMERCIAL_COMODATO
+            else RentalRequest.STATUS_PENDING_PAYMENT
+        )
+        # Fija payment_method aqui mismo -- Comodato nunca pasa por
+        # process_payment_selection() (que es donde COD/WOMPI/NEQUI lo fijan
+        # hoy), asi que sin esto el campo se quedaba en el default del modelo
+        # ('WOMPI') y el Order resultante (creado en approve_manual_validation())
+        # heredaba ese valor incorrecto via create_from_rental().
+        initial_payment_method = (
+            RentalRequest.PAYMENT_COMODATO
+            if commercial_type == RentalRequest.COMMERCIAL_COMODATO
+            else RentalRequest.PAYMENT_WOMPI
+        )
+
         rental_request = RentalRequest.objects.create(
             user=user,
             equipment_variant=variant,
-            status=RentalRequest.STATUS_PENDING_PAYMENT,
+            status=initial_status,
+            commercial_type=commercial_type,
+            payment_method=initial_payment_method,
             priority=validated_data.get('priority', RentalRequest.PRIORITY_LOW),
             # Paso 2
             location_address=validated_data.get('location_address', ''),
@@ -433,6 +473,12 @@ class RentalRequestCommands:
             contact_phone=validated_data.get('contact_phone', ''),
             contact_company=validated_data.get('contact_company', ''),
             contact_position=validated_data.get('contact_position', ''),
+            # Snapshot de precio (R-07, auditoria enterprise): tarifa vigente
+            # de la variante al momento de la reserva, congelada aqui para no
+            # perder el "cuanto costaba en ese momento" si el admin cambia el
+            # precio despues.
+            price_per_day_snapshot=variant.rental_price_per_day,
+            price_per_hour_snapshot=variant.rental_price_per_hour,
             # Paso 4
             start_date=start,
             end_date=end,
@@ -460,6 +506,23 @@ class RentalRequestCommands:
             tax_amount=tax_amount,
             grand_total=grand_total,
         )
+
+        if commercial_type == RentalRequest.COMMERCIAL_COMODATO:
+            from notifications.services.commands import NotificationCommands
+            _ctx = {
+                'request_uuid':   str(rental_request.uuid),
+                'equipment_name': variant.equipment.name,
+                'grand_total':    str(rental_request.grand_total),
+                'user_name':      user.get_short_name(),
+            }
+            transaction.on_commit(
+                lambda: NotificationCommands.dispatch_notification(
+                    user=user,
+                    template_slug='rental_comodato_review_pending',
+                    context=_ctx,
+                    ws_group='admin_notifications',
+                )
+            )
 
         return rental_request
 
@@ -570,6 +633,7 @@ class RentalRequestCommands:
             rental_mode=rental_request.rental_mode,
             quantity=rental_request.quantity,
             status=RentalPeriod.STATUS_SCHEDULED,
+            commercial_type=rental_request.commercial_type,
         )
 
     @staticmethod
@@ -756,10 +820,19 @@ class RentalRequestCommands:
             'ticket_uuid':    str(ticket.uuid),
             'user_name':      _user.get_short_name(),
         }
+        # Slug de notificacion segun modalidad (2026-07-22): rental_cod_confirmed
+        # tiene copy especifico de "contra entrega", no reutilizable para
+        # Comodato (que no cobra nada) -- rental_comodato_confirmed tiene su
+        # propio copy, sembrado en la migracion 0031.
+        confirm_slug = (
+            'rental_comodato_confirmed'
+            if rental_request.commercial_type == RentalRequest.COMMERCIAL_COMODATO
+            else 'rental_cod_confirmed'
+        )
         transaction.on_commit(
             lambda: NotificationCommands.dispatch_notification(
                 user=_user,
-                template_slug='rental_cod_confirmed',
+                template_slug=confirm_slug,
                 context=_ctx,
                 ws_group=f'user_{_user.uuid}',
             )
@@ -788,10 +861,19 @@ class RentalRequestCommands:
             'reason':         reason,
             'user_name':      _user.get_short_name(),
         }
+        # Slug de notificacion segun modalidad (2026-07-22) -- ver nota igual
+        # en approve_manual_validation(). rental_request_rejected es el slug
+        # generico ya usado por COD; rental_comodato_rejected tiene copy
+        # propio, sembrado en la migracion 0031.
+        reject_slug = (
+            'rental_comodato_rejected'
+            if rental_request.commercial_type == RentalRequest.COMMERCIAL_COMODATO
+            else 'rental_request_rejected'
+        )
         transaction.on_commit(
             lambda: NotificationCommands.dispatch_notification(
                 user=_user,
-                template_slug='rental_request_rejected',
+                template_slug=reject_slug,
                 context=_ctx,
                 ws_group=f'user_{_user.uuid}',
             )
@@ -1040,6 +1122,62 @@ class EquipmentLogisticsConfigCommands:
         borrando el equipo entero sin darse cuenta.
         """
         EquipmentLogisticsConfig.objects.filter(equipment=equipment, is_deleted=False).update(
+            is_deleted=True
+        )
+
+
+class EquipmentCommercialConfigCommands:
+    """Que modalidades comerciales admite un Equipment -- mismo patron que
+    EquipmentLogisticsConfigCommands (get_or_create + whitelist setattr)."""
+
+    @staticmethod
+    @transaction.atomic
+    def upsert(equipment: Equipment, **fields) -> EquipmentCommercialConfig:
+        # Bug real (hallado en produccion, 2026-07-22): get_or_create() busca
+        # solo por equipment, sin filtrar is_deleted -- si esta fila ya estaba
+        # soft-eliminada, la reutiliza (created=False) pero jamas la
+        # "resucitaba" (is_deleted se quedaba en True), asi que un admin que
+        # borraba y luego volvia a guardar la config quedaba con cambios
+        # invisibles para el serializer (que si filtra is_deleted=False).
+        config, _ = EquipmentCommercialConfig.objects.get_or_create(equipment=equipment)
+        config.is_deleted = False
+        allowed = ('renting_enabled', 'comodato_enabled', 'comodato_notes')
+        for key, val in fields.items():
+            if key in allowed:
+                setattr(config, key, val)
+        config.save()
+        return config
+
+    @staticmethod
+    @transaction.atomic
+    def delete(equipment: Equipment) -> None:
+        EquipmentCommercialConfig.objects.filter(equipment=equipment, is_deleted=False).update(
+            is_deleted=True
+        )
+
+
+class EquipmentCommercialOptionCommands:
+    """Plazos configurables (6/12/18/24/36 meses) por Equipment/modalidad."""
+
+    @staticmethod
+    @transaction.atomic
+    def upsert(equipment: Equipment, modality: str, term_months: int, is_enabled: bool = True) -> EquipmentCommercialOption:
+        # Mismo bug/fix que EquipmentCommercialConfigCommands.upsert() arriba:
+        # get_or_create() no filtra is_deleted, asi que sin resetearlo aqui una
+        # fila soft-eliminada se reactivaba con datos nuevos pero seguia
+        # invisible para el serializer.
+        option, _ = EquipmentCommercialOption.objects.get_or_create(
+            equipment=equipment, modality=modality, term_months=term_months,
+        )
+        option.is_deleted = False
+        option.is_enabled = is_enabled
+        option.save()
+        return option
+
+    @staticmethod
+    @transaction.atomic
+    def delete(option_uuid) -> None:
+        EquipmentCommercialOption.objects.filter(uuid=option_uuid, is_deleted=False).update(
             is_deleted=True
         )
 

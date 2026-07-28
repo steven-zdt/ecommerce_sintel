@@ -27,6 +27,12 @@ class SecurityEvent(SintelBaseModel):
     OPERATION_FORCE_CANCELLED = 'OPERATION_FORCE_CANCELLED'
     NOTIFICATION_CHANNEL_FAILED = 'NOTIFICATION_CHANNEL_FAILED'
     AI_ACTION_EXECUTED = 'AI_ACTION_EXECUTED'
+    # D-02 (auditoria enterprise): de las decenas de acciones administrativas
+    # destructivas del BFF admin (dashboard/api/views.py), solo 3 puntos
+    # dejaban SecurityEvent -- la mayoria de los destroy()/cambios de estado
+    # no dejaban mas rastro que el propio soft-delete. Tipo generico para
+    # cualquier borrado admin, en vez de uno especifico por cada recurso.
+    ADMIN_RESOURCE_DELETED = 'ADMIN_RESOURCE_DELETED'
     EVENT_CHOICES = [
         (LOGIN_SUCCESS,  'Login exitoso'),
         (LOGIN_FAILED,   'Login fallido'),
@@ -45,6 +51,7 @@ class SecurityEvent(SintelBaseModel):
         (OPERATION_FORCE_CANCELLED, 'Operacion cancelada forzosamente'),
         (NOTIFICATION_CHANNEL_FAILED, 'Canal de notificacion con fallo permanente'),
         (AI_ACTION_EXECUTED, 'Accion de escritura ejecutada por el AI Core'),
+        (ADMIN_RESOURCE_DELETED, 'Recurso eliminado desde el panel administrativo'),
     ]
 
     SEVERITY_INFO     = 'INFO'

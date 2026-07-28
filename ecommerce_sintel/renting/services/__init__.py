@@ -5,6 +5,7 @@ from .selectors import (
     EquipmentBlockSelector,
     EquipmentReturnInspectionSelector,
     EquipmentReviewSelector,
+    EquipmentCommercialOptionSelector,
 )
 from .commands import (
     RentingCommands,
@@ -16,6 +17,8 @@ from .commands import (
     RentalRequestCommands,
     EquipmentLogisticsConfigCommands,
     EquipmentMarketingCommands,
+    EquipmentCommercialConfigCommands,
+    EquipmentCommercialOptionCommands,
     EquipmentBlockCommands,
     EquipmentReturnInspectionCommands,
     EquipmentReviewCommands,
@@ -44,6 +47,7 @@ __all__ = [
     'EquipmentBlockSelector',
     'EquipmentReturnInspectionSelector',
     'EquipmentReviewSelector',
+    'EquipmentCommercialOptionSelector',
     'RentingCommands',
     'EquipmentCommands',
     'EquipmentVariantCommands',
@@ -53,6 +57,8 @@ __all__ = [
     'RentalRequestCommands',
     'EquipmentLogisticsConfigCommands',
     'EquipmentMarketingCommands',
+    'EquipmentCommercialConfigCommands',
+    'EquipmentCommercialOptionCommands',
     'EquipmentBlockCommands',
     'EquipmentReturnInspectionCommands',
     'EquipmentReviewCommands',

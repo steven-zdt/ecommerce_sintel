@@ -26,12 +26,15 @@ class RentalOperationSerializer(serializers.ModelSerializer):
     dispatcher_uuid = serializers.UUIDField(source='assigned_dispatcher.uuid', read_only=True)
     status_display = serializers.CharField(source='get_status_display', read_only=True)
     timeline = RentalOperationEventSerializer(many=True, read_only=True)
+    # Computado, no almacenado -- ver renting/models.py RentalOperation (sin
+    # columna propia a proposito, se lee siempre de la RentalRequest padre).
+    commercial_type = serializers.CharField(source='rental_request.commercial_type', read_only=True)
 
     class Meta:
         model = RentalOperation
         fields = [
             'uuid', 'request_uuid', 'status', 'status_display', 'priority', 'equipment_name',
-            'customer_name', 'location_address', 'dispatcher_uuid',
+            'customer_name', 'location_address', 'dispatcher_uuid', 'commercial_type',
             'dispatcher_name', 'assigned_vehicle', 'delivery_date', 'delivery_time',
             'pickup_date', 'pickup_time', 'estimated_duration_minutes', 'route',
             'notes', 'has_incident', 'incident_notes', 'timeline', 'created_at', 'updated_at',

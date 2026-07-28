@@ -8,6 +8,7 @@ from renting.models import (
     RentalSpecificationGroup, RentalSpecification, RentalRequirement,
     RentalServiceIncluded, RentalOptionalService, RentalFAQ,
     RentalVideo, RentalDocument,
+    EquipmentCommercialConfig, EquipmentCommercialOption,
 )
 
 
@@ -320,6 +321,35 @@ class EquipmentLogisticsConfigInputSerializer(serializers.Serializer):
     notes = serializers.CharField(required=False, allow_blank=True, default='')
 
 
+class EquipmentCommercialConfigSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = EquipmentCommercialConfig
+        fields = ['uuid', 'renting_enabled', 'comodato_enabled', 'comodato_notes']
+
+
+class EquipmentCommercialConfigInputSerializer(serializers.Serializer):
+    renting_enabled = serializers.BooleanField(default=True, required=False)
+    comodato_enabled = serializers.BooleanField(default=False, required=False)
+    comodato_notes = serializers.CharField(required=False, allow_blank=True, default='')
+
+
+class EquipmentCommercialOptionSerializer(serializers.ModelSerializer):
+    modality_display = serializers.CharField(source='get_modality_display', read_only=True)
+    term_months_display = serializers.CharField(source='get_term_months_display', read_only=True)
+
+    class Meta:
+        model = EquipmentCommercialOption
+        fields = ['uuid', 'modality', 'modality_display', 'term_months', 'term_months_display', 'is_enabled']
+
+
+class EquipmentCommercialOptionInputSerializer(serializers.Serializer):
+    modality = serializers.ChoiceField(
+        choices=RentalRequest.COMMERCIAL_TYPE_CHOICES, default=RentalRequest.COMMERCIAL_COMODATO
+    )
+    term_months = serializers.ChoiceField(choices=EquipmentCommercialOption.TERM_MONTHS_CHOICES)
+    is_enabled = serializers.BooleanField(default=True, required=False)
+
+
 class EquipmentMarketingSerializer(serializers.ModelSerializer):
     """
     Payload publico/admin de marketing. discount_percentage/savings_percentage
@@ -406,6 +436,16 @@ class EquipmentSerializer(serializers.ModelSerializer):
     brand_uuid = serializers.UUIDField(source='brand.uuid', read_only=True, allow_null=True)
     logistics_config = EquipmentLogisticsConfigSerializer(read_only=True, allow_null=True)
     marketing = EquipmentMarketingSerializer(read_only=True, allow_null=True)
+    # SerializerMethodField (no un OneToOneField/related-manager directo como
+    # logistics_config/marketing arriba) -- bug real hallado en produccion
+    # (2026-07-22): el accessor reverso de un OneToOneField no filtra
+    # is_deleted por si solo, asi que tras un DELETE (soft-delete) el
+    # serializer seguia devolviendo la config vieja como si siguiera activa.
+    # get_or_create()/upsert() nunca reactivan una fila soft-eliminada (crean
+    # una nueva), asi que ademas de filtrar is_deleted=False hay que tomar la
+    # mas reciente por si quedara mas de una fila historica.
+    commercial_config = serializers.SerializerMethodField()
+    commercial_options = serializers.SerializerMethodField()
 
     class Meta:
         model = Equipment
@@ -415,8 +455,17 @@ class EquipmentSerializer(serializers.ModelSerializer):
             'category_uuid', 'brand_uuid',
             'category', 'brand', 'images', 'variants',
             'logistics_config', 'marketing',
+            'commercial_config', 'commercial_options',
             'meta_title', 'meta_description', 'meta_keywords', 'og_image',
         ]
+
+    def get_commercial_config(self, obj):
+        config = EquipmentCommercialConfig.objects.filter(equipment=obj, is_deleted=False).order_by('-created_at').first()
+        return EquipmentCommercialConfigSerializer(config).data if config else None
+
+    def get_commercial_options(self, obj):
+        options = EquipmentCommercialOption.objects.filter(equipment=obj, is_deleted=False).order_by('modality', 'term_months')
+        return EquipmentCommercialOptionSerializer(options, many=True).data
 
 
 class EquipmentDetailSerializer(EquipmentSerializer):
@@ -595,6 +644,7 @@ class RentalRequestSerializer(serializers.ModelSerializer):
     project_attachments = RentalProjectAttachmentSerializer(many=True, read_only=True)
     equipment_variant = RentalRequestVariantSerializer(read_only=True)
     status_display = serializers.CharField(source='get_status_display', read_only=True)
+    commercial_type_display = serializers.CharField(source='get_commercial_type_display', read_only=True)
     contact_doc_type_display = serializers.CharField(
         source='get_contact_doc_type_display', read_only=True
     )
@@ -615,6 +665,7 @@ class RentalRequestSerializer(serializers.ModelSerializer):
         model = RentalRequest
         fields = [
             'uuid', 'status', 'status_display',
+            'commercial_type', 'commercial_type_display',
             'priority', 'priority_display', 'project_attachments',
             'equipment_variant',
             # Paso 2
@@ -647,6 +698,13 @@ class RentalRequestInputSerializer(serializers.Serializer):
     equipment_variant = serializers.SlugRelatedField(
         slug_field='uuid',
         queryset=EquipmentVariant.objects.filter(is_deleted=False, is_active=True),
+    )
+    # Modalidad comercial (2026-07-22) -- default RENTAL preserva el
+    # comportamiento de siempre para cualquier caller que no lo envie.
+    commercial_type = serializers.ChoiceField(
+        choices=RentalRequest.COMMERCIAL_TYPE_CHOICES,
+        default=RentalRequest.COMMERCIAL_RENTAL,
+        required=False,
     )
     # Paso 2
     location_address = serializers.CharField(max_length=500)
