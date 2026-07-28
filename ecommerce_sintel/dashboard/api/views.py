@@ -13,6 +13,7 @@ from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from rest_framework.views import APIView
 from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiParameter
 from django.db.models import Q
+from django.db import IntegrityError
 
 from users.api.permissions import IsAdminUser
 
@@ -33,7 +34,10 @@ from dashboard.services.admin_orchestrators import (
 from shop.services.pricing import ShopPricingCalculator, ProductCostRuleSelector, ProductCostRuleCommands
 from renting.services.pricing import RentalPricingCalculator, RentalCostRuleSelector, RentalCostRuleCommands
 from technical_services.services.pricing import ServicePricingCalculator, ServiceCostRuleSelector, ServiceCostRuleCommands
-from renting.services import EquipmentLogisticsConfigCommands, EquipmentMarketingCommands
+from renting.services import (
+    EquipmentLogisticsConfigCommands, EquipmentMarketingCommands,
+    EquipmentCommercialConfigCommands, EquipmentCommercialOptionCommands,
+)
 from dashboard.api.serializers import (
     # Shop
     ProductSerializer, ProductInputSerializer,
@@ -52,6 +56,8 @@ from dashboard.api.serializers import (
     RentalLaborSerializer, RentalLaborInputSerializer,
     EquipmentLogisticsConfigSerializer, EquipmentLogisticsConfigInputSerializer,
     EquipmentMarketingSerializer, EquipmentMarketingInputSerializer,
+    EquipmentCommercialConfigSerializer, EquipmentCommercialConfigInputSerializer,
+    EquipmentCommercialOptionSerializer, EquipmentCommercialOptionInputSerializer,
     RentalCostRuleSerializer, RentalCostRuleInputSerializer, RentalCostAssignmentInputSerializer,
     # Quotes
     QuotationSerializer, QuotationListSerializer, QuotationCreateInputSerializer,
@@ -197,6 +203,7 @@ class AdminProductViewSet(viewsets.ViewSet):
     def destroy(self, request, uuid=None):
         product = ShopAdminOrchestrator.get_product(uuid)
         ShopAdminOrchestrator.delete_product(product)
+        _log_admin_delete(request, 'Product', uuid)  # D-02
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     @extend_schema(summary="[Admin] Lista variantes del producto")
@@ -433,6 +440,7 @@ class AdminEquipmentViewSet(viewsets.ViewSet):
     def destroy(self, request, uuid=None):
         equipment = RentingAdminOrchestrator.get_equipment(uuid)
         RentingAdminOrchestrator.delete_equipment(equipment)
+        _log_admin_delete(request, 'Equipment', uuid)  # D-02
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     @extend_schema(summary="[Admin] Lista variantes del equipo")
@@ -501,6 +509,42 @@ class AdminEquipmentViewSet(viewsets.ViewSet):
         if request.method == 'DELETE':
             EquipmentMarketingCommands.delete(equipment)
             return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @extend_schema(summary="[Admin] Obtiene, crea/actualiza o elimina la configuracion comercial (Renting/Comodato) del equipo")
+    @action(detail=True, methods=['get', 'put', 'delete'], url_path='commercial-config')
+    def commercial_config(self, request, uuid=None):
+        equipment = RentingAdminOrchestrator.get_equipment(uuid)
+        if request.method == 'GET':
+            config = getattr(equipment, 'commercial_config', None)
+            if not config:
+                return Response(None)
+            return Response(EquipmentCommercialConfigSerializer(config).data)
+        if request.method == 'PUT':
+            ser = EquipmentCommercialConfigInputSerializer(data=request.data)
+            ser.is_valid(raise_exception=True)
+            config = EquipmentCommercialConfigCommands.upsert(equipment, **ser.validated_data)
+            return Response(EquipmentCommercialConfigSerializer(config).data)
+        if request.method == 'DELETE':
+            EquipmentCommercialConfigCommands.delete(equipment)
+            return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @extend_schema(summary="[Admin] Lista o crea/actualiza opciones de plazo comercial (Comodato) del equipo")
+    @action(detail=True, methods=['get', 'post'], url_path='commercial-options')
+    def commercial_options(self, request, uuid=None):
+        equipment = RentingAdminOrchestrator.get_equipment(uuid)
+        if request.method == 'GET':
+            qs = RentingAdminOrchestrator.list_commercial_options(uuid)
+            return Response(EquipmentCommercialOptionSerializer(qs, many=True).data)
+        ser = EquipmentCommercialOptionInputSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        option = RentingAdminOrchestrator.upsert_commercial_option(equipment, ser.validated_data)
+        return Response(EquipmentCommercialOptionSerializer(option).data, status=status.HTTP_201_CREATED)
+
+    @extend_schema(summary="[Admin] Elimina una opcion de plazo comercial")
+    @action(detail=True, methods=['delete'], url_path=r'commercial-options/(?P<option_uuid>[^/.]+)/delete')
+    def delete_commercial_option(self, request, uuid=None, option_uuid=None):
+        RentingAdminOrchestrator.delete_commercial_option(option_uuid)
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class AdminRentingCategoryViewSet(viewsets.ViewSet):
@@ -683,7 +727,10 @@ class AdminQuoteTemplateCategoryViewSet(viewsets.ViewSet):
     def create(self, request):
         ser = QuoteTemplateCategoryInputSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
-        category = QuoteTemplateAdminOrchestrator.create_category(ser.validated_data)
+        try:
+            category = QuoteTemplateAdminOrchestrator.create_category(ser.validated_data)
+        except IntegrityError:
+            return Response({"detail": "Ya existe una categoria con ese nombre."}, status=status.HTTP_400_BAD_REQUEST)
         return Response(QuoteTemplateCategorySerializer(category).data, status=status.HTTP_201_CREATED)
 
     def retrieve(self, request, uuid=None):
@@ -694,7 +741,10 @@ class AdminQuoteTemplateCategoryViewSet(viewsets.ViewSet):
         category = QuoteTemplateAdminOrchestrator.get_category(uuid)
         ser = QuoteTemplateCategoryInputSerializer(data=request.data, partial=True)
         ser.is_valid(raise_exception=True)
-        updated = QuoteTemplateAdminOrchestrator.update_category(category, ser.validated_data)
+        try:
+            updated = QuoteTemplateAdminOrchestrator.update_category(category, ser.validated_data)
+        except IntegrityError:
+            return Response({"detail": "Ya existe una categoria con ese nombre."}, status=status.HTTP_400_BAD_REQUEST)
         return Response(QuoteTemplateCategorySerializer(updated).data)
 
     def destroy(self, request, uuid=None):
@@ -717,7 +767,10 @@ class AdminQuoteTemplateViewSet(viewsets.ViewSet):
     def create(self, request):
         ser = QuoteTemplateInputSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
-        template = QuoteTemplateAdminOrchestrator.create_template(ser.validated_data)
+        try:
+            template = QuoteTemplateAdminOrchestrator.create_template(ser.validated_data)
+        except IntegrityError:
+            return Response({"detail": "Ya existe una plantilla con ese nombre o codigo."}, status=status.HTTP_400_BAD_REQUEST)
         return Response(QuoteTemplateSerializer(template).data, status=status.HTTP_201_CREATED)
 
     def retrieve(self, request, uuid=None):
@@ -728,12 +781,16 @@ class AdminQuoteTemplateViewSet(viewsets.ViewSet):
         template = QuoteTemplateAdminOrchestrator.get_template(uuid)
         ser = QuoteTemplateInputSerializer(data=request.data, partial=True)
         ser.is_valid(raise_exception=True)
-        updated = QuoteTemplateAdminOrchestrator.update_template(template, ser.validated_data)
+        try:
+            updated = QuoteTemplateAdminOrchestrator.update_template(template, ser.validated_data)
+        except IntegrityError:
+            return Response({"detail": "Ya existe una plantilla con ese nombre o codigo."}, status=status.HTTP_400_BAD_REQUEST)
         return Response(QuoteTemplateSerializer(updated).data)
 
     def destroy(self, request, uuid=None):
         template = QuoteTemplateAdminOrchestrator.get_template(uuid)
         QuoteTemplateAdminOrchestrator.delete_template(template)
+        _log_admin_delete(request, 'QuoteTemplate', uuid)  # D-02
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     @action(detail=True, methods=['post'])
@@ -761,7 +818,10 @@ class AdminQuoteTemplateAttributeViewSet(viewsets.ViewSet):
     def create(self, request):
         ser = QuoteTemplateAttributeInputSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
-        attribute = QuoteTemplateAdminOrchestrator.create_attribute(ser.validated_data)
+        try:
+            attribute = QuoteTemplateAdminOrchestrator.create_attribute(ser.validated_data)
+        except IntegrityError:
+            return Response({"detail": "Ya existe un atributo de ese tipo con ese nombre."}, status=status.HTTP_400_BAD_REQUEST)
         return Response(QuoteTemplateAttributeSerializer(attribute).data, status=status.HTTP_201_CREATED)
 
     def retrieve(self, request, uuid=None):
@@ -772,7 +832,10 @@ class AdminQuoteTemplateAttributeViewSet(viewsets.ViewSet):
         attribute = QuoteTemplateAdminOrchestrator.get_attribute(uuid)
         ser = QuoteTemplateAttributeInputSerializer(data=request.data, partial=True)
         ser.is_valid(raise_exception=True)
-        updated = QuoteTemplateAdminOrchestrator.update_attribute(attribute, ser.validated_data)
+        try:
+            updated = QuoteTemplateAdminOrchestrator.update_attribute(attribute, ser.validated_data)
+        except IntegrityError:
+            return Response({"detail": "Ya existe un atributo de ese tipo con ese nombre."}, status=status.HTTP_400_BAD_REQUEST)
         return Response(QuoteTemplateAttributeSerializer(updated).data)
 
     def destroy(self, request, uuid=None):
@@ -795,7 +858,10 @@ class AdminQuoteEquipmentTypeViewSet(viewsets.ViewSet):
     def create(self, request):
         ser = QuoteEquipmentTypeInputSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
-        equipment_type = QuoteTemplateAdminOrchestrator.create_equipment_type(ser.validated_data)
+        try:
+            equipment_type = QuoteTemplateAdminOrchestrator.create_equipment_type(ser.validated_data)
+        except IntegrityError:
+            return Response({"detail": "Ya existe un tipo de equipo con ese nombre."}, status=status.HTTP_400_BAD_REQUEST)
         return Response(QuoteEquipmentTypeSerializer(equipment_type).data, status=status.HTTP_201_CREATED)
 
     def retrieve(self, request, uuid=None):
@@ -806,7 +872,10 @@ class AdminQuoteEquipmentTypeViewSet(viewsets.ViewSet):
         equipment_type = QuoteTemplateAdminOrchestrator.get_equipment_type(uuid)
         ser = QuoteEquipmentTypeInputSerializer(data=request.data, partial=True)
         ser.is_valid(raise_exception=True)
-        updated = QuoteTemplateAdminOrchestrator.update_equipment_type(equipment_type, ser.validated_data)
+        try:
+            updated = QuoteTemplateAdminOrchestrator.update_equipment_type(equipment_type, ser.validated_data)
+        except IntegrityError:
+            return Response({"detail": "Ya existe un tipo de equipo con ese nombre."}, status=status.HTTP_400_BAD_REQUEST)
         return Response(QuoteEquipmentTypeSerializer(updated).data)
 
     def destroy(self, request, uuid=None):
@@ -830,7 +899,10 @@ class AdminQuoteTemplateSubcategoryViewSet(viewsets.ViewSet):
     def create(self, request):
         ser = QuoteTemplateSubcategoryInputSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
-        subcategory = QuoteTemplateAdminOrchestrator.create_subcategory(ser.validated_data)
+        try:
+            subcategory = QuoteTemplateAdminOrchestrator.create_subcategory(ser.validated_data)
+        except IntegrityError:
+            return Response({"detail": "Ya existe una subcategoria con ese nombre en esta categoria."}, status=status.HTTP_400_BAD_REQUEST)
         return Response(QuoteTemplateSubcategorySerializer(subcategory).data, status=status.HTTP_201_CREATED)
 
     def retrieve(self, request, uuid=None):
@@ -841,7 +913,10 @@ class AdminQuoteTemplateSubcategoryViewSet(viewsets.ViewSet):
         subcategory = QuoteTemplateAdminOrchestrator.get_subcategory(uuid)
         ser = QuoteTemplateSubcategoryInputSerializer(data=request.data, partial=True)
         ser.is_valid(raise_exception=True)
-        updated = QuoteTemplateAdminOrchestrator.update_subcategory(subcategory, ser.validated_data)
+        try:
+            updated = QuoteTemplateAdminOrchestrator.update_subcategory(subcategory, ser.validated_data)
+        except IntegrityError:
+            return Response({"detail": "Ya existe una subcategoria con ese nombre en esta categoria."}, status=status.HTTP_400_BAD_REQUEST)
         return Response(QuoteTemplateSubcategorySerializer(updated).data)
 
     def destroy(self, request, uuid=None):
@@ -931,7 +1006,10 @@ class AdminQuoteQuestionViewSet(viewsets.ViewSet):
         data = {k: v for k, v in request.data.items() if k != 'module'}
         ser = QuoteQuestionInputSerializer(data=data, context={'module': module})
         ser.is_valid(raise_exception=True)
-        question = QuoteTemplateAdminOrchestrator.create_question(module, ser.validated_data)
+        try:
+            question = QuoteTemplateAdminOrchestrator.create_question(module, ser.validated_data)
+        except IntegrityError:
+            return Response({"detail": "Ya existe una pregunta con esa clave (key) en este modulo."}, status=status.HTTP_400_BAD_REQUEST)
         return Response(QuoteQuestionSerializer(question).data, status=status.HTTP_201_CREATED)
 
     def retrieve(self, request, uuid=None):
@@ -945,7 +1023,10 @@ class AdminQuoteQuestionViewSet(viewsets.ViewSet):
             context={'module': question.module, 'exclude_question_uuid': str(question.uuid)},
         )
         ser.is_valid(raise_exception=True)
-        updated = QuoteTemplateAdminOrchestrator.update_question(question, ser.validated_data)
+        try:
+            updated = QuoteTemplateAdminOrchestrator.update_question(question, ser.validated_data)
+        except IntegrityError:
+            return Response({"detail": "Ya existe una pregunta con esa clave (key) en este modulo."}, status=status.HTTP_400_BAD_REQUEST)
         return Response(QuoteQuestionSerializer(updated).data)
 
     def destroy(self, request, uuid=None):
@@ -1047,6 +1128,7 @@ class AdminTechnicalServiceViewSet(viewsets.ViewSet):
     def destroy(self, request, uuid=None):
         service = ServiceAdminOrchestrator.get_service(uuid)
         ServiceAdminOrchestrator.delete_service(service)
+        _log_admin_delete(request, 'TechnicalService', uuid)  # D-02
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     @extend_schema(summary="[Admin] Subir imagen de servicio")
@@ -2547,6 +2629,43 @@ class AdminNotificationLogViewSet(viewsets.ViewSet):
         return paginator.get_paginated_response(NotificationLogSerializer(page, many=True).data)
 
 
+def _log_admin_delete(request, resource_type: str, resource_uuid) -> None:
+    """D-02 (auditoria enterprise): extiende el audit trail administrativo
+    mas alla de los 3 puntos que ya existian (feature flags, operations,
+    ticket de IA). Generico para no duplicar un log_event() casi identico
+    en cada destroy() -- se va adoptando incrementalmente en los ViewSets de
+    mayor valor primero (Product, Equipment, TechnicalService, QuoteTemplate);
+    el resto de los destroy() del BFF admin sigue el mismo patron de soft-
+    delete + esta llamada cuando se extienda."""
+    from security.models import SecurityEvent
+    from security.services.commands import SecurityCommands
+    SecurityCommands.log_event(
+        SecurityEvent.ADMIN_RESOURCE_DELETED, request=request, user=request.user,
+        severity=SecurityEvent.SEVERITY_WARNING,
+        metadata={'resource_type': resource_type, 'resource_uuid': str(resource_uuid)},
+    )
+
+
+def _log_feature_flag_change(request, flag_name: str, previous_value: bool, new_value: bool):
+    """ADR-001 Fase 8 (alertas operativas): togglear un kill-switch de pagos es
+    una accion operativamente significativa -- queda auditada en
+    /panel/seguridad, con quien/desde donde. Extraido a helper de modulo
+    (plan hibrido Widget+API, auditoria 2026-07-22) porque ahora hay dos flags
+    independientes que pueden cambiar en el mismo PATCH."""
+    from security.models import SecurityEvent
+    from security.services.commands import SecurityCommands
+    SecurityCommands.log_event(
+        SecurityEvent.PAYMENT_FEATURE_FLAG_CHANGED, request=request, user=request.user,
+        severity=SecurityEvent.SEVERITY_WARNING,
+        metadata={
+            'flag': flag_name,
+            'previous_value': previous_value,
+            'new_value': new_value,
+            'source': 'panel_admin',
+        },
+    )
+
+
 class AdminPaymentViewSet(viewsets.ViewSet):
     """
     /api/v1/dashboard/payment-transactions/
@@ -2610,40 +2729,45 @@ class AdminPaymentViewSet(viewsets.ViewSet):
     @extend_schema(summary="[Admin] Consulta/actualiza los flags de pagos (ADR-001 Fase 5/7)")
     @action(detail=False, methods=['get', 'patch'], url_path='feature-flags')
     def feature_flags(self, request):
-        if request.method == 'PATCH':
-            enabled_raw = request.data.get('card_api_flow_enabled')
-            if enabled_raw is None:
-                return Response(
-                    {'detail': 'card_api_flow_enabled es requerido.'}, status=status.HTTP_400_BAD_REQUEST,
-                )
+        def _parse_bool(raw):
             # bool('False') es True en Python -- si llega form-encoded (multipart,
             # el formato por defecto de APIClient/browsable API) el valor es un
             # string literal, no un bool real. Se interpreta explicitamente en
-            # vez de confiar en bool(enabled_raw).
-            if isinstance(enabled_raw, str):
-                enabled = enabled_raw.strip().lower() not in ('false', '0', 'no', '')
-            else:
-                enabled = bool(enabled_raw)
+            # vez de confiar en bool(raw).
+            if isinstance(raw, str):
+                return raw.strip().lower() not in ('false', '0', 'no', '')
+            return bool(raw)
 
-            previous_enabled = PaymentAdminOrchestrator.get_feature_flags().card_api_flow_enabled
-            flags = PaymentAdminOrchestrator.set_card_api_flow_enabled(enabled)
-
-            if enabled != previous_enabled:
-                # ADR-001 Fase 8 (alertas operativas): togglear el kill-switch
-                # es una accion operativamente significativa -- queda
-                # auditada en /panel/seguridad, con quien/desde donde.
-                from security.models import SecurityEvent
-                from security.services.commands import SecurityCommands
-                SecurityCommands.log_event(
-                    SecurityEvent.PAYMENT_FEATURE_FLAG_CHANGED, request=request, user=request.user,
-                    severity=SecurityEvent.SEVERITY_WARNING,
-                    metadata={
-                        'flag': 'card_api_flow_enabled',
-                        'previous_value': previous_enabled,
-                        'new_value': enabled,
-                        'source': 'panel_admin',
-                    },
+        if request.method == 'PATCH':
+            # Plan hibrido Widget+API (auditoria 2026-07-22): dos flags
+            # independientes, cada PATCH puede traer uno u otro (o ambos).
+            card_raw   = request.data.get('card_api_flow_enabled')
+            widget_raw = request.data.get('widget_flow_enabled')
+            if card_raw is None and widget_raw is None:
+                return Response(
+                    {'detail': 'card_api_flow_enabled o widget_flow_enabled es requerido.'},
+                    status=status.HTTP_400_BAD_REQUEST,
                 )
+
+            current = PaymentAdminOrchestrator.get_feature_flags()
+            flags = current
+
+            if card_raw is not None:
+                enabled = _parse_bool(card_raw)
+                previous_enabled = current.card_api_flow_enabled
+                flags = PaymentAdminOrchestrator.set_card_api_flow_enabled(enabled)
+                if enabled != previous_enabled:
+                    _log_feature_flag_change(request, 'card_api_flow_enabled', previous_enabled, enabled)
+
+            if widget_raw is not None:
+                enabled = _parse_bool(widget_raw)
+                previous_enabled = flags.widget_flow_enabled
+                flags = PaymentAdminOrchestrator.set_widget_flow_enabled(enabled)
+                if enabled != previous_enabled:
+                    _log_feature_flag_change(request, 'widget_flow_enabled', previous_enabled, enabled)
         else:
             flags = PaymentAdminOrchestrator.get_feature_flags()
-        return Response({'card_api_flow_enabled': flags.card_api_flow_enabled})
+        return Response({
+            'card_api_flow_enabled': flags.card_api_flow_enabled,
+            'widget_flow_enabled': flags.widget_flow_enabled,
+        })

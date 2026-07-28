@@ -1317,6 +1317,22 @@ global de `'pending'`/`"pending"` contra `order.status` en el resto del proyecto
 si se quiere cerrar el patron por completo; no se hizo en esta sesion por estar fuera del archivo
 que se estaba auditando.
 
+### 2026-07-22 — Bug adicional en `ServiceOrderViewSet.confirm_cod`: `payment_method` nunca se corregia a `'COD'`
+
+Distinto del bug de arriba (ese era sobre `order.status`). La `Order` de un servicio tecnico se crea
+**antes** de que el cliente elija metodo de pago (el modal de checkout se abre despues, sobre la
+orden ya creada — ver `technical_services/.AGENT/docs/ARQUITECTURA_COMPLETA_SERVICES.md` §13.4), asi
+que `Order.payment_method` quedaba en el default del modelo (`'WOMPI'`) aunque el cliente terminara
+pagando en sitio contra entrega. Efecto: ordenes de servicio pagadas por COD quedaban marcadas
+`payment_method='WOMPI'` en BD — dato incorrecto visible en reportes/paneles admin, aunque el pago en
+si se procesaba bien (el bug era de metadata, no de flujo). **Corregido** en
+`ServiceOrderViewSet.confirm_cod` (`orders/api/service_orders.py`): dentro del mismo
+`transaction.atomic()` donde ya se llama `CodCommands.confirm_order()`, ahora tambien fija
+`order.payment_method = 'COD'` (con `save(update_fields=['payment_method'])`) si aun no lo era —
+unico lugar donde "pagar en sitio" para un servicio tecnico se confirma de verdad. Shop
+(`OrderCommands.create_from_cart()`) no tenia este problema porque ya recibe `payment_method`
+explicito desde el checkout al momento de crear la orden.
+
 ### 2026-07-03 (Fase 6 — auditoria de base de datos) — N+1 real en OrderViewSet.list()/retrieve()
 
 **Bug encontrado y medido empiricamente:** `OrderSelector.list_for_user()`/`list_all_for_admin()`

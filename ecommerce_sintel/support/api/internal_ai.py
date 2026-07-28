@@ -14,6 +14,7 @@ aqui, adjuntando la solicitud como contexto (CONTEXT_RENTAL).
 from rest_framework import status as http_status
 from rest_framework.views import APIView
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 
 from support.models import ChatRoomContext
 from support.services.commands import ChatCommands
@@ -67,6 +68,11 @@ class AiOpenSupportTicketView(APIView):
     Action Graph (execute_write), nunca el LLM (no esta en el args_schema).
     """
     permission_classes = [IsAuthenticatedActiveUser]
+    # D-03 (auditoria enterprise): sin throttle, y el chat con IA invoca un
+    # LLM con costo real por mensaje. Segunda capa de defensa ademas del
+    # bloqueo de red de Nginx para /api/v1/internal/ (ver D-01).
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'ai_support_ticket'
 
     def post(self, request):
         message = str(request.data.get('message', '')).strip()

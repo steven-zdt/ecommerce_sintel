@@ -81,6 +81,8 @@ from renting.services import (
     RentingSelector, EquipmentVariantSelector, EquipmentCommands, EquipmentVariantCommands,
     RentingCategoryCommands, RentingBrandCommands, RentalLaborCommands,
     EquipmentLogisticsConfigCommands,
+    EquipmentCommercialConfigCommands, EquipmentCommercialOptionCommands,
+    EquipmentCommercialOptionSelector,
     EquipmentImageSelector, EquipmentImageCommands,
     RentalIncludedItemSelector, RentalIncludedItemCommands,
     RentalExcludedItemSelector, RentalExcludedItemCommands,
@@ -600,6 +602,32 @@ class RentingAdminOrchestrator:
     @staticmethod
     def delete_logistics_config(equipment):
         return EquipmentLogisticsConfigCommands.delete(equipment)
+
+    # Commercial Config (2026-07-22 -- Comodato)
+    @staticmethod
+    def upsert_commercial_config(equipment, data):
+        return EquipmentCommercialConfigCommands.upsert(equipment, **data)
+
+    @staticmethod
+    def delete_commercial_config(equipment):
+        return EquipmentCommercialConfigCommands.delete(equipment)
+
+    # Commercial Options -- plazos por equipo/modalidad
+    @staticmethod
+    def list_commercial_options(equipment_uuid):
+        return EquipmentCommercialOptionSelector.list_for_equipment(equipment_uuid)
+
+    @staticmethod
+    def get_commercial_option(uuid):
+        return EquipmentCommercialOptionSelector.get_by_uuid(uuid)
+
+    @staticmethod
+    def upsert_commercial_option(equipment, data):
+        return EquipmentCommercialOptionCommands.upsert(equipment, **data)
+
+    @staticmethod
+    def delete_commercial_option(option_uuid):
+        return EquipmentCommercialOptionCommands.delete(option_uuid)
 
     # Specifications (fila, cuelga de un RentalSpecificationGroup ademas de equipment)
     @staticmethod
@@ -1152,3 +1180,8 @@ class PaymentAdminOrchestrator:
     def set_card_api_flow_enabled(enabled: bool):
         from payment.models import PaymentFeatureFlags
         return PaymentFeatureFlags.set_card_api_flow_enabled(enabled)
+
+    @staticmethod
+    def set_widget_flow_enabled(enabled: bool):
+        from payment.models import PaymentFeatureFlags
+        return PaymentFeatureFlags.set_widget_flow_enabled(enabled)

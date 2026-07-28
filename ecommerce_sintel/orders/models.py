@@ -72,9 +72,14 @@ class Order(SintelBaseModel):
         (STATUS_LOST,               'Perdido'),
     ]
     PAYMENT_METHOD_CHOICES = [
-        ('WOMPI',  'Wompi (online)'),
-        ('COD',    'Pago contra entrega'),
-        ('NEQUI',  'Nequi Push'),
+        ('WOMPI',    'Wompi (online)'),
+        ('COD',      'Pago contra entrega'),
+        ('NEQUI',    'Nequi Push'),
+        # Ordenes creadas por OrderCommands.create_from_rental() para una
+        # RentalRequest en comodato (renting/services/commands.py) -- sin
+        # esto, get_payment_method_display() no tenia una etiqueta real
+        # para este valor (2026-07-22).
+        ('COMODATO', 'Comodato (sin costo)'),
     ]
 
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='orders')

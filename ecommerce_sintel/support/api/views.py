@@ -25,7 +25,13 @@ class RateConversationView(APIView):
         responses={200: dict, 400: dict, 404: dict},
     )
     def post(self, request, room_uuid=None):
-        room = ChatRoom.objects.filter(uuid=room_uuid, is_deleted=False).first()
+        # D-04 (auditoria enterprise): el lookup ahora esta scoped a
+        # request.user desde el inicio -- antes cualquier usuario
+        # autenticado podia distinguir "existe" (200/400 mas adelante) de
+        # "no existe" (404) para un room_uuid ajeno, antes de que
+        # rate_conversation() hiciera su propio chequeo de ownership. Ahora
+        # una sala ajena da 404 desde aca, igual que una que no existe.
+        room = ChatRoom.objects.filter(uuid=room_uuid, user=request.user, is_deleted=False).first()
         if room is None:
             return Response({'detail': 'Sala no encontrada.'}, status=status.HTTP_404_NOT_FOUND)
 

@@ -159,7 +159,15 @@ class StockRecordViewSet(
 # ---------------------------------------------------------------------------
 
 class InventoryTransactionViewSet(viewsets.ReadOnlyModelViewSet):
-    """Read-only view of all inventory transactions."""
+    """Read-only view of all inventory transactions.
+
+    permission_classes explicito (S-01, auditoria enterprise): antes caia al
+    default de DRF (IsAuthenticated), asi que cualquier cliente autenticado
+    -- no solo staff -- podia leer el historico completo de movimientos de
+    stock del sistema, a diferencia de StockRecordViewSet (su vecino) que si
+    exige IsAdminUser.
+    """
+    permission_classes = [IsAdminUser]
     queryset = InventoryTransaction.objects.all().order_by('-created_at')
     serializer_class = InventoryTransactionSerializer
     lookup_field = 'uuid'

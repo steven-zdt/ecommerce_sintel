@@ -10,6 +10,7 @@ from django.db.models import Prefetch, Q
 from django.shortcuts import get_object_or_404
 from rest_framework import viewsets, permissions, status
 from rest_framework.pagination import PageNumberPagination
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.response import Response
 from rest_framework.decorators import action
 from rest_framework.parsers import MultiPartParser, FormParser
@@ -61,6 +62,19 @@ class ServiceOrderViewSet(viewsets.ModelViewSet):
     serializer_class = ServiceOrderSerializer
     pagination_class = ServiceOrderPagination
     permission_classes = [permissions.IsAuthenticated]
+
+    # O-05 (auditoria enterprise): el mismo tipo de recurso (Order) esta
+    # protegido de forma desigual segun por que puerta se cree -- OrderViewSet
+    # (orders/api/views.py) ya tiene 'order_create' en create_from_cart, este
+    # ViewSet no tenia ningun throttle propio en su create().
+    ACTION_THROTTLE_SCOPES = {'create': 'order_create'}
+
+    def get_throttles(self):
+        scope = self.ACTION_THROTTLE_SCOPES.get(self.action)
+        if not scope:
+            return []
+        self.throttle_scope = scope
+        return [ScopedRateThrottle()]
 
     def get_queryset(self):
         if getattr(self, 'swagger_fake_view', False):

@@ -173,11 +173,11 @@ ecommerce_sintel/ecommerce/
 1. Service layer ejecuta código crítico (transacción)
 2. Después de SUCCESS, schedule tarea async (email, notificacion, reconciliacion)
 3. Signal o código directo: task.delay()
-4. Celery Worker (background), enrutado por CELERY_TASK_ROUTES:
+4. Celery Worker (background), enrutado por CELERY_TASK_ROUTES + CELERY_TASK_DEFAULT_QUEUE:
    - notifications.* → cola "notifications"
    - marketing.*     → cola "marketing"
    - accounts.*      → cola "default"
-   - el resto        → cola "default" (implicito)
+   - el resto        → cola "default" (via CELERY_TASK_DEFAULT_QUEUE, ver [CRITICAL] abajo)
 5. En caso de error: autoretry_for + max_retries (patron usado en notifications/tasks.py)
 6. Frontend (opcional): Polling o WebSocket para estado
 7. Task completada → BD actualizada, WebSocket notifica si aplica
@@ -505,7 +505,26 @@ CELERY_TASK_ROUTES = {
     'marketing.*':     {'queue': 'marketing'},
     'accounts.*':      {'queue': 'default'},
 }
+CELERY_TASK_DEFAULT_QUEUE = 'default'
 ```
+
+**[CRITICAL] `CELERY_TASK_DEFAULT_QUEUE` (agregado 2026-07-27, bug real cerrado):**
+sin esta linea, cualquier tarea de una app SIN entrada en `CELERY_TASK_ROUTES` cae en la
+cola nativa de Celery llamada literalmente `celery` -- **no** `default` como este mismo
+documento afirmaba antes de este fix (el supuesto "el resto cae en default implicito" era
+falso; Celery nunca hizo eso por si solo). `docker-compose.prod.yml` levanta `celery_worker`
+con `-Q default,marketing,notifications` -- la cola `celery` NUNCA tuvo un worker
+escuchandola. Con el tiempo se agregaron tareas en `payment`, `renting`, `orders` y `support`
+sin entrada propia en `CELERY_TASK_ROUTES`, y todas caian en esa cola fantasma sin que nada
+las procesara -- incluida `payment.tasks.reconcile_pending_wompi_transactions`, el fallback
+que reconcilia pagos Wompi cuyo webhook se perdio (ver
+`docs/.AGENT/AUDITORIA_FLUJO_VENTA_PAGO_CONFIRMACION.md`, verificacion 2026-07-27).
+**Regla para el futuro:** toda app nueva con tareas Celery queda cubierta automaticamente por
+`CELERY_TASK_DEFAULT_QUEUE = 'default'` (no requiere tocar nada) -- pero si se agrega una
+entrada nueva a `CELERY_TASK_ROUTES` con una cola propia (como `notifications`/`marketing`),
+esa cola nueva debe agregarse tambien al flag `-Q` de `celery_worker` en
+`docker-compose.prod.yml` (y en `docker-compose.yml` de desarrollo), o esas tareas quedaran
+sin worker igual que este bug.
 
 **[CRITICAL] Este proyecto NO usa un dict `CELERY_BEAT_SCHEDULE` en settings (verificado 2026-07-07,
 sigue vigente):** el contenedor `celery_beat` se levanta con
@@ -1005,7 +1024,14 @@ def send_email_task(self, ...):
 ### Enrutamiento a colas
 
 Ver `CELERY_TASK_ROUTES` en settings — 3 colas explícitas (`notifications`, `marketing`,
-`default` para `accounts.*`), el resto de tareas cae en `default` implícitamente.
+`default` para `accounts.*`), el resto de tareas cae en `default` vía
+`CELERY_TASK_DEFAULT_QUEUE` (ver [CRITICAL] en la sección 16 de settings arriba — antes de
+2026-07-27 esta linea no existia y el "resto" caia en la cola `celery`, sin worker
+escuchandola). **Si agregas una tarea Celery en una app nueva o en una que ya tiene tareas,
+verifica que su cola quede cubierta por `default` o por una entrada explícita en
+`CELERY_TASK_ROUTES` que a su vez esté en el `-Q` de `celery_worker` en
+`docker-compose.prod.yml` — de lo contrario la tarea se encola pero nunca se ejecuta, sin
+ningún error visible.**
 
 **Iniciar Celery Worker**:
 ```bash

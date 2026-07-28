@@ -54,6 +54,9 @@ class ShippingAddressViewSet(viewsets.ModelViewSet):
         address = ShippingAddressCommands.update(serializer.instance, **serializer.validated_data)
         serializer.instance = address
 
+    def perform_destroy(self, instance):
+        ShippingAddressCommands.delete(instance)
+
     @action(detail=True, methods=['post'], url_path='set-default')
     def set_default(self, request, uuid=None):
         """Marca esta direccion como la predeterminada (des-marca cualquier otra)."""

@@ -84,6 +84,19 @@ contrasena/verificacion/grupos.
 |---|---|
 | `orders/` | `AdminOrderViewSet` |
 
+### Pagos (`AdminPaymentViewSet`, agregado ADR-001 Fase 7 2026-07-13 — faltaba en este documento hasta 2026-07-22)
+
+| Ruta | Accion |
+|---|---|
+| `payment-transactions/` | Lectura de transacciones Wompi/Nequi/COD (vista centralizada) |
+| `payment-transactions/{uuid}/resync/` | POST — fuerza `_sync_wompi_status()` bajo demanda (409 si la transaccion no tiene `wompi_id`) |
+| `payment-transactions/{uuid}/events/` | GET — historial `TransactionEvent` de una transaccion |
+| `payment-transactions/feature-flags/` | GET/PATCH — `PaymentFeatureFlags.card_api_flow_enabled`/`widget_flow_enabled` (2do flag agregado 2026-07-22) en un solo PATCH |
+
+Documentado con detalle completo (incluye el porque de cada decision) en
+`payment/.AGENT/docs/ARQUITECTURA_COMPLETA_PAYMENT.md` §10.5/10.6 — este documento solo lista la
+ruta, siguiendo el mismo patron que Operations (nota abajo).
+
 ### Renting
 
 | Ruta | ViewSet |
@@ -183,6 +196,7 @@ operaciones de escritura.
 | `OrderAdminOrchestrator` | `OrderSelector` |
 | `MarketingAdminOrchestrator` | `MarketingSelector` |
 | `SupportAdminOrchestrator` | `ChatSelector`/`ChatCommands` (app `support`) |
+| `PaymentAdminOrchestrator` | `PaymentAdminSelector` (`payment/services/selectors.py`), `PaymentFeatureFlags.set_card_api_flow_enabled()`/`set_widget_flow_enabled()` — faltaba en esta tabla hasta 2026-07-22, ver `payment/.AGENT/docs/ARQUITECTURA_COMPLETA_PAYMENT.md` §10.5/10.6 |
 
 **Patron de escritura tipico** (ejemplo `ShopAdminOrchestrator.create_product`):
 ```python

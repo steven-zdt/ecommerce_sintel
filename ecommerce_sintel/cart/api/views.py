@@ -1,6 +1,7 @@
 from rest_framework import viewsets, status, permissions, serializers
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 from drf_spectacular.utils import extend_schema
 from django.shortcuts import get_object_or_404
 from django.core.exceptions import ValidationError
@@ -24,6 +25,23 @@ class CartViewSet(viewsets.ViewSet):
     This is not a ModelViewSet because actions are primarily session-based.
     """
     permission_classes = [IsBuyerOrAdmin]
+
+    # S-04 (auditoria enterprise): sin ningun throttle en las 5 acciones de
+    # mutacion del carrito.
+    ACTION_THROTTLE_SCOPES = {
+        'add_item': 'cart_mutate',
+        'update_item': 'cart_mutate',
+        'clear': 'cart_mutate',
+        'remove_item': 'cart_mutate',
+        'checkout': 'cart_checkout',
+    }
+
+    def get_throttles(self):
+        scope = self.ACTION_THROTTLE_SCOPES.get(self.action)
+        if not scope:
+            return []
+        self.throttle_scope = scope
+        return [ScopedRateThrottle()]
 
     def get_cart(self):
         return CartSelector.get_for_user(self.request.user)

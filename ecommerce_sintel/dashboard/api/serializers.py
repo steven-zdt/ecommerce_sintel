@@ -30,6 +30,8 @@ from renting.api.serializers import (
     RentalLaborSerializer, RentalLaborInputSerializer,
     EquipmentLogisticsConfigSerializer, EquipmentLogisticsConfigInputSerializer,
     EquipmentMarketingSerializer, EquipmentMarketingInputSerializer,
+    EquipmentCommercialConfigSerializer, EquipmentCommercialConfigInputSerializer,
+    EquipmentCommercialOptionSerializer, EquipmentCommercialOptionInputSerializer,
     RentalCostRuleSerializer, RentalCostRuleInputSerializer, RentalCostAssignmentInputSerializer,
 )
 

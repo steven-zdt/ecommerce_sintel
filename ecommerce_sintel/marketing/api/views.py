@@ -22,9 +22,17 @@ class MarketingCampaignViewSet(viewsets.ModelViewSet):
 class FlashOfferViewSet(viewsets.ReadOnlyModelViewSet):
     """Ofertas flash activas. Lectura publica (vitrina de la tienda)."""
     permission_classes = [permissions.AllowAny]
-    queryset = MarketingSelector.list_flash_offers()
     serializer_class = FlashOfferSerializer
     lookup_field = 'uuid'
+
+    def get_queryset(self):
+        # M-02 (auditoria enterprise): list_flash_offers() solo filtraba
+        # is_active=True, sin ventana de tiempo -- una oferta ya vencida o
+        # que aun no empieza (is_active=True pero start_time futuro) se
+        # mostraba en la vitrina publica. list_active_flash_offers() ya
+        # existia, optimizado (select_related/prefetch_related) y con el
+        # filtro de ventana correcto, pero no se usaba en ningun lado.
+        return MarketingSelector.list_active_flash_offers()
 
 class AgentRunViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [IsAdminUser]

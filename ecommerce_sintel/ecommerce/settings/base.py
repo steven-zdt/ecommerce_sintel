@@ -219,6 +219,24 @@ REST_FRAMEWORK = {
         'password_reset_verify': '20/hour',
         'admin_password_reset_request': '5/hour',
         'admin_password_reset_verify': '20/hour',
+        # A-03 (auditoria enterprise): antes sin ningun scope propio.
+        'register_verify': '20/hour',
+        'register_resend': '5/hour',
+        # F-03 (auditoria enterprise): endpoints de payment sin ningun
+        # throttle -- webhook/transaction_status/confirmation quedan sin
+        # scope a proposito (lectura/publico, ver payment/online/api/views.py).
+        'payment_initialize': '30/hour',
+        'payment_card_create': '10/hour',
+        'payment_nequi_initialize': '10/hour',
+        # Q-06 (auditoria enterprise): endpoints de quotes sin throttle.
+        'quote_from_template': '30/hour',
+        'quote_download_pdf': '60/hour',
+        # S-04 (auditoria enterprise): endpoints de carrito sin throttle.
+        'cart_mutate': '120/hour',
+        'cart_checkout': '20/hour',
+        # D-03 (auditoria enterprise): AiOpenSupportTicketView invoca un LLM
+        # con costo real por mensaje y no tenia scope propio registrado.
+        'ai_support_ticket': '30/hour',
     },
 }
 
@@ -254,6 +272,25 @@ CELERY_TASK_ROUTES = {
     'marketing.*':     {'queue': 'marketing'},
     'accounts.*':      {'queue': 'default'},
 }
+# Sin esto, cualquier tarea de una app SIN entrada arriba (payment, orders,
+# renting, support, etc.) cae en la cola nativa de Celery llamada 'celery' --
+# que docker-compose.prod.yml NUNCA escucha (celery_worker corre con
+# `-Q default,marketing,notifications`). Esas tareas se encolaban en Redis
+# sin ningun worker consumiendolas, entre ellas
+# payment.tasks.reconcile_pending_wompi_transactions (el fallback que
+# reconcilia pagos Wompi cuyo webhook se perdio). Con esto, cualquier tarea
+# no enrutada explicitamente cae en 'default', que si tiene worker asignado.
+CELERY_TASK_DEFAULT_QUEUE = 'default'
+# C-03 (auditoria enterprise): sin estos defaults, un worker que muere a mitad
+# de tarea (OOM, restart de contenedor) pierde la tarea sin dejar rastro (ack
+# ocurre al recibir, no al terminar), y una tarea colgada (HTTP a Wompi/
+# WhatsApp/LLM sin limite) bloquea ese slot de worker para siempre. Seguro
+# habilitarlo porque las tareas de este proyecto ya son idempotentes por
+# diseno (unique_together en CampaignLog, idempotency_key en Payment/Orders).
+CELERY_TASK_ACKS_LATE = True
+CELERY_TASK_REJECT_ON_WORKER_LOST = True
+CELERY_TASK_TIME_LIMIT = 300
+CELERY_TASK_SOFT_TIME_LIMIT = 240
 
 # El scheduler de beat en este proyecto es django_celery_beat.schedulers.DatabaseScheduler
 # (ver docker-compose: celery beat --scheduler django_celery_beat.schedulers:DatabaseScheduler),
