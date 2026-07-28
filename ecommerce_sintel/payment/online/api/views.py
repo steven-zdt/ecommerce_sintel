@@ -12,6 +12,7 @@ from drf_spectacular.utils import extend_schema
 from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 
 from orders.models import Order
 from payment.models import Transaction, TransactionEvent, PaymentFeatureFlags
@@ -271,6 +272,20 @@ class WompiPaymentViewSet(viewsets.ViewSet):
     permission_classes = [permissions.AllowAny]
     serializer_class   = TransactionSerializer
 
+    # F-03 (auditoria enterprise): initialize() no tenia ningun limite de
+    # tasa -- solo `initialize` lo necesita (es la accion que dispara dinero/
+    # cobro); el resto de acciones son lectura o publicas por diseno.
+    ACTION_THROTTLE_SCOPES = {
+        'initialize': 'payment_initialize',
+    }
+
+    def get_throttles(self):
+        scope = self.ACTION_THROTTLE_SCOPES.get(self.action)
+        if not scope:
+            return []
+        self.throttle_scope = scope
+        return [ScopedRateThrottle()]
+
     @extend_schema(request=None, responses={200: dict})
     @action(
         detail=False, methods=["get"],
@@ -339,38 +354,48 @@ class WompiPaymentViewSet(viewsets.ViewSet):
         # payment/.AGENT/docs/FASE4_OBSERVABILIDAD.md.
         correlation_id = str(uuid_lib.uuid4())
 
-        try:
-            with transaction.atomic():
-                # Idempotencia de inicio de pago (F-02): el select_for_update
-                # sobre la orden serializa dos initialize() concurrentes del
-                # mismo checkout (doble clic / reintento). El segundo espera al
-                # primero y, al re-verificar bajo el lock, reutiliza la
-                # Transaction PENDING ya creada en vez de crear una segunda (y,
-                # en el flujo Tarjeta, en vez de cobrar dos veces). El lock es
-                # por-fila de ESTA orden -- justo el doble-submit que frenamos.
-                locked_order = Order.objects.select_for_update().get(pk=order.pk)
-                if locked_order.status != Order.STATUS_PENDING_PAYMENT:
-                    return Response(
-                        {"error": "La orden no esta pendiente de pago."},
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
-                existing_tx = (
-                    Transaction.objects
-                    .filter(order=locked_order, status='PENDING')
-                    .order_by('-created_at')
-                    .first()
+        with transaction.atomic():
+            # Idempotencia de inicio de pago (F-02): el select_for_update
+            # sobre la orden serializa dos initialize() concurrentes del
+            # mismo checkout (doble clic / reintento). El segundo espera al
+            # primero y, al re-verificar bajo el lock, reutiliza la
+            # Transaction PENDING ya creada en vez de crear una segunda (y,
+            # en el flujo Tarjeta, en vez de cobrar dos veces). El lock es
+            # por-fila de ESTA orden -- justo el doble-submit que frenamos.
+            locked_order = Order.objects.select_for_update().get(pk=order.pk)
+            if locked_order.status != Order.STATUS_PENDING_PAYMENT:
+                return Response(
+                    {"error": "La orden no esta pendiente de pago."},
+                    status=status.HTTP_400_BAD_REQUEST,
                 )
-                if existing_tx is not None:
-                    wompi_tx: Transaction = existing_tx
-                else:
+            existing_tx = (
+                Transaction.objects
+                .filter(order=locked_order, status='PENDING')
+                .order_by('-created_at')
+                .first()
+            )
+            if existing_tx is not None:
+                wompi_tx: Transaction = existing_tx
+            else:
+                # Los except van DENTRO del bloque atomico (bug propio,
+                # corregido antes de comitear): WompiCommands.initialize_transaction()
+                # persiste una Transaction marcada ERROR y luego relanza la
+                # excepcion cuando la pasarela falla -- si el except vive
+                # fuera del `with`, la excepcion que escapa del bloque fuerza
+                # un rollback de TODA la transaccion, incluida esa fila
+                # ERROR que debia sobrevivir (asi lo prueba
+                # WompiSyncTransactionCreationTestCase). Manejando la
+                # excepcion aqui adentro, el bloque sale sin excepcion y
+                # Django comitea normalmente.
+                try:
                     wompi_tx = WompiCommands.initialize_transaction(
                         locked_order, card_token=card_token, payment_source_id=payment_source_id,
                         correlation_id=correlation_id,
                     )
-        except ValueError as exc:
-            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
-        except WompiApiError as exc:
-            return Response({"error": str(exc)}, status=status.HTTP_502_BAD_GATEWAY)
+                except ValueError as exc:
+                    return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+                except WompiApiError as exc:
+                    return Response({"error": str(exc)}, status=status.HTTP_502_BAD_GATEWAY)
 
         return Response({
             "uuid":                str(wompi_tx.uuid),

@@ -63,7 +63,7 @@ class CodCommands:
         cod_transaction.save(update_fields=['status', 'delivered_at'])
 
         order = cod_transaction.order
-        order.status = 'delivered'
+        order.status = Order.STATUS_DELIVERED  # O-03 (auditoria enterprise): constante en vez de literal
         order.save(update_fields=['status'])
 
         logger.info("COD delivered | order=%s", order.uuid)
@@ -77,7 +77,7 @@ class CodCommands:
         cod_transaction.save(update_fields=['status', 'notes'])
 
         order = cod_transaction.order
-        order.status = 'cancelled'
+        order.status = Order.STATUS_CANCELLED  # O-03 (auditoria enterprise): constante en vez de literal
         order.save(update_fields=['status'])
 
         logger.info("COD cancelled | order=%s", order.uuid)

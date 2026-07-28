@@ -2,6 +2,7 @@ import logging
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework import status
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.viewsets import GenericViewSet
 from users.api.permissions import IsAuthenticatedActiveUser
 from orders.models import Order
@@ -16,6 +17,17 @@ logger = logging.getLogger(__name__)
 
 class NequiPaymentViewSet(GenericViewSet):
     permission_classes = [IsAuthenticatedActiveUser]
+
+    # F-03 (auditoria enterprise): initialize() dispara un push real a Nequi
+    # (costo por intento) sin ningun limite de tasa.
+    ACTION_THROTTLE_SCOPES = {'initialize': 'payment_nequi_initialize'}
+
+    def get_throttles(self):
+        scope = self.ACTION_THROTTLE_SCOPES.get(self.action)
+        if not scope:
+            return []
+        self.throttle_scope = scope
+        return [ScopedRateThrottle()]
 
     @action(detail=False, methods=['post'], url_path='initialize')
     def initialize(self, request):

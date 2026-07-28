@@ -1,6 +1,7 @@
 # ARQUITECTURA COMPLETA — app `payment` (SSoT de Metodos de Pago)
 
-> **Ultima actualizacion:** 2026-07-13 (migracion a integracion API propia con Wompi, ADR-001 -- ver seccion 10)
+> **Ultima actualizacion:** 2026-07-22 (smoke test E2E post-ADR-001 en Shop/Servicios/Renting --
+> 2 bugs reales encontrados y corregidos, kill-switch simetrico Tarjeta/Widget -- ver seccion 10.6)
 > **Mantenido por:** Claude Code — sincronizado con el estado real del codigo
 >
 > **ADR-001 (10 fases, todas completas):** `docs/deployment/` no -- vive en este mismo directorio,
@@ -52,6 +53,8 @@ class Transaction(SintelBaseModel):
     redirect_url        → URLField
     integrity_signature → CharField          # SHA256 calculado para el widget
     correlation_id      → CharField(max_length=36, null=True, db_index=True)  # ADR-001 Fase 4
+    initiation_channel  → CharField(choices=[CHANNEL_CARD_API, CHANNEL_WIDGET], null=True,
+                                     blank=True)  # migration 0012, 2026-07-22
 
     class Meta:
         constraints = [CheckConstraint("exactamente uno de order/rental_request", name='payment_transaction_exactly_one_target')]
@@ -68,6 +71,13 @@ traves de todo el ciclo de vida de la transaccion porque todo lo que la toca des
 sincrona, sync por polling, webhook) lee este mismo campo -- no hace falta pasarlo entre capas
 manualmente. Permite seguir un intento de pago completo con un solo grep en los logs (`corr=<uuid>`)
 y queda tambien en cada fila de `TransactionEvent` (seccion 1.5).
+
+**`initiation_channel` (migration 0012, 2026-07-22):** lo fija `WompiCommands.initialize_transaction()`
+segun si se paso `card_token`/`payment_source_id` (`CHANNEL_CARD_API`) o no (`CHANNEL_WIDGET`) --
+puramente informativo, no cambia ningun comportamiento de negocio. Visible en `/panel/pagos` como
+columna "Canal" (badge "Tarjeta (API)"/"Widget"), util para diagnosticar en produccion si un pago
+que deberia haber usado el flujo directo cayo silenciosamente al Widget (exactamente el sintoma del
+bug de la seccion 10.6).
 
 **Lifecycle:** `PENDING` → `APPROVED | DECLINED | VOIDED | ERROR` (via webhook de Wompi, via
 sincronizacion activa `_sync_wompi_status()`, o -- desde ADR-001 Fase 2 -- via creacion sincrona en
@@ -157,6 +167,21 @@ asignar y guardar un campo `is_active` inexistente, lo que provocaba `ValueError
 **toda** llamada a `DELETE /api/v1/payment/cards/{uuid}/` — el endpoint nunca funciono en
 produccion hasta este fix.
 
+**Bug critico corregido 2026-07-22 (smoke test E2E, `_serialize_card()` en `payment/cards/views.py`):**
+el serializer de esta vista (una funcion module-level, no un `Serializer` DRF) devolvia `uuid` pero
+**nunca `token_id`** en el JSON de `GET payment/cards/` -- pese a que el modelo si lo tiene. El
+frontend (`useCardOrWidgetPayment.js`, seccion 10.4/10.6) siempre referencio `card.token_id` para
+resolver que token mandar a `payment/payments/initialize/` al pagar con una tarjeta guardada.
+Efecto real: **toda seleccion de tarjeta guardada resolvia `card_token: undefined`**, y
+`initialize()` -- que trata `card_token`/`payment_source_id` como opcionales -- silenciosamente
+tomaba el flujo Widget completo en vez de cobrar la tarjeta elegida, sin ningun error visible para
+el usuario ni en consola (justo el tipo de fallo silencioso que `initiation_channel`, arriba, existe
+para diagnosticar). Bug pre-existente desde la Fase 3a del ADR-001 (2026-07-13) -- nunca se habia
+detectado porque ninguna verificacion previa habia probado pagar con una tarjeta *ya guardada* (solo
+tarjeta nueva). **Corregido** agregando `'token_id': card.token_id` a `_serialize_card()`. Verificado
+end-to-end: pago con tarjeta guardada en Shop resuelve `Transaction.status='APPROVED'` /
+`initiation_channel='CARD_API'`.
+
 **Default:** Solo una tarjeta puede ser `is_default=True` por usuario, **garantizado a nivel de
 BD** desde 2026-07-03 con `UniqueConstraint(user, condition=is_default & ~is_deleted)` (migration
 `payment/0007_...`). Antes solo se garantizaba a nivel de aplicacion (dos UPDATE/SAVE separados,
@@ -232,12 +257,15 @@ ya existente del proyecto de no crear dependencias cruzadas para un mixin de 3 l
 ```python
 class PaymentFeatureFlags(SintelBaseModel):
     card_api_flow_enabled → BooleanField(default=True)
+    widget_flow_enabled    → BooleanField(default=True)   # migration 0013, 2026-07-22
     is_active              → BooleanField(default=True)
 
     @classmethod
     def get_active(cls) -> 'PaymentFeatureFlags': ...       # self-healing, crea el default si no existe
     @classmethod
     def set_card_api_flow_enabled(cls, enabled: bool) -> 'PaymentFeatureFlags': ...
+    @classmethod
+    def set_widget_flow_enabled(cls, enabled: bool) -> 'PaymentFeatureFlags': ...   # 2026-07-22
 ```
 
 **`card_api_flow_enabled`:** si esta activo (default), el checkout ofrece el sub-metodo "Tarjeta"
@@ -245,11 +273,28 @@ class PaymentFeatureFlags(SintelBaseModel):
 ofrece "PSE / Otros" (Widget completo de Wompi, que ya incluye tarjeta) — reversion instantanea sin
 necesidad de desplegar codigo nuevo si el flujo nuevo da problemas en produccion.
 
-**Es un kill-switch REAL, no solo cosmetico:** `WompiPaymentViewSet.initialize()` **rechaza con 403**
-cualquier request con `card_token`/`payment_source_id` si el flag esta desactivado -- aplicado en el
-backend, no solo ocultando el boton en el frontend (alguien podria llamar al endpoint directo
-saltandose la UI). El frontend (`CheckoutView.vue`) tambien **falla cerrado**: si la consulta al
-endpoint de flags falla por cualquier motivo, asume desactivado y usa el camino mas antiguo y probado.
+**`widget_flow_enabled` (2026-07-22, plan "Eliminar el Widget como mecanismo principal de pago para
+tarjetas"):** simetrico al de arriba, pero para el sub-metodo "PSE / Otros" -- permite apagar el
+Widget completo de Wompi independientemente de la Tarjeta backend-directo (ej. si Wompi reporta un
+incidente con su widget embebido, o cuando el rollout planeado sea confiar 100% en el flujo API y
+usar el Widget solo como respaldo temporal, no al reves como era antes de este cambio). Los dos
+flags son independientes -- pueden estar ambos activos (default), ambos desactivados (checkout de
+Wompi/Nequi/COD sin online, solo si se hace a proposito), o cualquier combinacion.
+
+**Son kill-switches REALES, no solo cosmeticos:** `WompiPaymentViewSet.initialize()` **rechaza con
+403** cualquier request con `card_token`/`payment_source_id` si `card_api_flow_enabled` esta
+desactivado, **y tambien rechaza con 403** cualquier request SIN esos campos (es decir, un intento
+de abrir el Widget) si `widget_flow_enabled` esta desactivado -- ambos aplicados en el backend, no
+solo ocultando el boton en el frontend (alguien podria llamar al endpoint directo saltandose la UI).
+Mismo par de checks, replicado identico en `renting/api/views.py::process_payment()` para que
+Renting respete los mismos 2 flags (antes del 2026-07-22 Renting no tenia ningun kill-switch backend
+para el pago online). El frontend (`CheckoutView.vue`/`ServiceCheckoutModal.vue`/
+`RentalConfirmationView.vue`, via `useCardOrWidgetPayment.js`, seccion 10.6) tambien **falla
+cerrado**: si la consulta al endpoint de flags falla por cualquier motivo, asume
+`card_api_flow_enabled=false` (nunca ofrece Tarjeta sin confirmar el flag) y deja
+`widget_flow_enabled` en su default `true` -- prefiere el camino Widget, ya probado, ante la duda.
+Si el backend responde que ambos flags estan apagados (mala configuracion del admin), el frontend
+prefiere mostrar Tarjeta antes que dejar al cliente sin ningun sub-metodo visible.
 
 **Togglable desde 2 lugares, ambos auditados (ver seccion 1.7):**
 - Django `/admin/` (`PaymentFeatureFlagsAdmin.save_model()`).
@@ -548,10 +593,11 @@ POST /api/v1/payment/payments/initialize/
 GET /api/v1/payment/payments/feature-flags/
     Auth:   AllowAny (se consulta ANTES de que el usuario inicie sesion/pague, desde
             CheckoutView.vue al montar)
-    Return: { card_api_flow_enabled: bool }
+    Return: { card_api_flow_enabled: bool, widget_flow_enabled: bool }  -- 2do campo agregado
+            2026-07-22 (seccion 1.6/10.6)
     Nota:   endpoint de SOLO LECTURA, distinto del endpoint de administracion
             (GET/PATCH dashboard/payment-transactions/feature-flags/, seccion 10.5) que si permite
-            togglear el flag y vive en la app `dashboard`, no en `payment`.
+            togglear ambos flags y vive en la app `dashboard`, no en `payment`.
 
 POST /api/v1/payment/payments/webhook/
     Auth:   AllowAny (firma HMAC-SHA256 validada internamente con WOMPI_EVENTS_SECRET)
@@ -776,6 +822,9 @@ path('api/v1/payment/', include('payment.urls')),
 | `payment` | `0008_seed_reconcile_periodic_task` | Siembra el `PeriodicTask`/`CrontabSchedule` de `reconcile_pending_wompi_transactions` (cada 5 min, `django_celery_beat.DatabaseScheduler`) |
 | `payment` | `0009_transaction_correlation_id_transactionevent` | `Transaction.correlation_id` + modelo nuevo `TransactionEvent` (ADR-001 Fase 4) |
 | `payment` | `0010_paymentfeatureflags` | Modelo nuevo `PaymentFeatureFlags` (ADR-001 Fase 5) |
+| `payment` | `0011_seed_notify_declined_payments_periodic_task` | Siembra `PeriodicTask` de notificacion de pagos rechazados (previo a esta auditoria) |
+| `payment` | `0012_transaction_initiation_channel` | Campo `Transaction.initiation_channel` (2026-07-22) |
+| `payment` | `0013_paymentfeatureflags_widget_flow_enabled` | Campo `PaymentFeatureFlags.widget_flow_enabled` (2026-07-22) |
 | `security` | `0004_alter_securityevent_event_type` | Agrega `PAYMENT_APPROVED` a `EVENT_CHOICES` (ADR-001 Fase 4) |
 | `security` | `0005_alter_securityevent_event_type` | Agrega `PAYMENT_TRANSACTION_ABANDONED`/`PAYMENT_FEATURE_FLAG_CHANGED` a `EVENT_CHOICES` (ADR-001 Fase 8) |
 | `orders` | `0008_order_payment_method` | Campo `payment_method` en `Order` |
@@ -902,21 +951,79 @@ GET /api/v1/dashboard/payment-transactions/{uuid}/events/
     Historial TransactionEvent de una transaccion (seccion 1.5), mas reciente primero.
 
 GET/PATCH /api/v1/dashboard/payment-transactions/feature-flags/
-    Consulta/actualiza PaymentFeatureFlags.card_api_flow_enabled (seccion 1.6) desde el panel
-    Vue, sin salir a /admin/ de Django. Dispara SecurityEvent.PAYMENT_FEATURE_FLAG_CHANGED
-    (seccion 1.7) solo si el valor realmente cambia.
+    Consulta/actualiza PaymentFeatureFlags.card_api_flow_enabled Y widget_flow_enabled
+    (seccion 1.6, 2do flag agregado 2026-07-22) desde el panel Vue, sin salir a /admin/ de
+    Django, en un solo PATCH. Dispara SecurityEvent.PAYMENT_FEATURE_FLAG_CHANGED
+    (seccion 1.7) por cada flag que realmente cambia (no si el valor enviado es igual al actual).
 ```
 
 Reflejado en `PaymentTransactionsAdminView.vue`: columna "Acciones" nueva **solo** en la pestaña
 Wompi (Nequi/COD no tienen el mismo problema de reconciliacion, sin cambios ahi) con botones
-"Reconciliar"/"Historial", mas un switch de feature flag arriba de las pestañas.
+"Reconciliar"/"Historial", mas **dos** switches de feature flag arriba de las pestañas ("Flujo de
+pago con tarjeta via API" / "Flujo de pago via Widget (PSE/Otros)", 2026-07-22) y una columna
+"Canal" nueva (badge "Tarjeta (API)"/"Widget", derivada de `Transaction.initiation_channel`,
+seccion 1.1) para diagnosticar de un vistazo por que ruta se proceso cada transaccion.
 
 **Capas nuevas:** `PaymentAdminSelector.get_wompi_transaction()`/`list_transaction_events()`
 (`payment/services/selectors.py`); `PaymentAdminOrchestrator.resync_wompi_transaction()`/
-`list_transaction_events()`/`get_feature_flags()`/`set_card_api_flow_enabled()`
-(`dashboard/services/admin_orchestrators.py`, delega la mutacion real a
-`PaymentFeatureFlags.set_card_api_flow_enabled()`, siguiendo el mismo patron ya usado en
-`NotificationAdminOrchestrator.update_template()`).
+`list_transaction_events()`/`get_feature_flags()`/`set_card_api_flow_enabled()`/
+`set_widget_flow_enabled()` (2026-07-22) (`dashboard/services/admin_orchestrators.py`, delega la
+mutacion real a `PaymentFeatureFlags.set_card_api_flow_enabled()`/`set_widget_flow_enabled()`,
+siguiendo el mismo patron ya usado en `NotificationAdminOrchestrator.update_template()`); helper
+module-level `_log_feature_flag_change()` (`dashboard/api/views.py`, 2026-07-22) que centraliza el
+disparo condicional de `SecurityEvent.PAYMENT_FEATURE_FLAG_CHANGED` para los 2 flags.
+
+### 10.6 Generalizacion a Servicios/Renting + kill-switch simetrico + smoke test E2E (2026-07-22)
+
+Hasta este punto, el flujo hibrido Tarjeta/Widget (10.2-10.4) solo existia realmente en
+`CheckoutView.vue` (Shop) -- Servicios Tecnicos y Renting seguian con el Widget completo como unico
+camino. Esta fase lo generaliza a las 3 superficies de checkout que ofrecen Wompi, a pedido
+explicito del usuario ("Eliminar el Widget como mecanismo principal de pago para tarjetas,
+definitivamente"), y agrega el kill-switch simetrico (10.5's `card_api_flow_enabled` ya existia;
+`widget_flow_enabled`, seccion 1.6, es nuevo).
+
+**Extraccion de composable/componente compartido (frontend):**
+- `frontend/src/composables/useCardOrWidgetPayment.js` -- estado (`wompiSubMethod`,
+  `cardApiFlowEnabled`, `widgetFlowEnabled`, `savedCards`, `loadingCards`, `selectedCardId`,
+  `newCardRaw`, `cardStepValid`) + funciones (`fetchFeatureFlags`, `fetchSavedCards`,
+  `resolveCardToken`, `resetNewCard`) que antes estaban duplicadas linea por linea en
+  `CheckoutView.vue`.
+- `frontend/src/components/shared/checkout/CardOrWidgetPanel.vue` -- UI presentacional
+  (tabs Tarjeta/PSE, lista de tarjetas guardadas, formulario de tarjeta nueva), props/emits puro.
+- Usado hoy identico por `CheckoutView.vue` (Shop), `ServiceCheckoutModal.vue` (Servicios
+  Tecnicos, reemplaza el antiguo `ServicePaymentMethodSelector.vue` documentado en
+  `technical_services/.AGENT/docs/ARQUITECTURA_COMPLETA_SERVICES.md` §13.4) y
+  `RentalConfirmationView.vue` (Renting, reemplaza el Widget-only descrito en
+  `renting/.AGENT/docs/ARQUITECTURA_COMPLETA_RENTIG.md` "Integracion con Wompi").
+- **Kill-switch backend simetrico replicado en Renting:** `renting/api/views.py::process_payment()`
+  gano el mismo par de checks 403 que `WompiPaymentViewSet.initialize()` (seccion 1.6) -- antes
+  Renting no tenia ningun kill-switch backend para su pago online.
+
+**2 bugs reales encontrados durante el smoke test E2E de esta fase (no introducidos por la
+extraccion en si, pero SI propagados a las 3 superficies porque comparten el mismo codigo):**
+
+1. **`_serialize_card()` sin `token_id`** (seccion 1.4) -- afectaba a Shop desde 2026-07-13, y ahora
+   tambien a Servicios/Renting por compartir `useCardOrWidgetPayment.js`. Corregido agregando el
+   campo faltante.
+2. **Tarjetas guardadas nunca cargaban en Servicios/Renting** -- `ServiceCheckoutModal.vue` y
+   `RentalConfirmationView.vue` disparaban `fetchSavedCards()` desde un `watch()` sobre el metodo de
+   pago (`store.paymentMethod`/`method`) **sin `{ immediate: true }`**. Como `'WOMPI'` ya es el
+   valor por defecto de ese ref/estado al montar el checkout, el watcher nunca detectaba un
+   "cambio" real y `fetchSavedCards()` jamas se ejecutaba -- el usuario solo veia "Agregar tarjeta
+   nueva", nunca sus tarjetas ya guardadas. `CheckoutView.vue` (Shop) no tenia este bug porque
+   llama `fetchSavedCards()` sin condicion en su `onMounted`. Corregido agregando
+   `{ immediate: true }` a ambos watchers. Verificado end-to-end en las 3 superficies: pago con
+   tarjeta guardada resuelve `Transaction.status='APPROVED'` / `initiation_channel='CARD_API'`.
+
+**Gap real encontrado, NO corregido (fuera de alcance de esta auditoria, requiere credenciales que
+el usuario no tiene a mano):** el checkout de Shop (`CheckoutView.vue`) no oculta la opcion "Nequi
+Push" aunque `NEQUI_CLIENT_ID`/`NEQUI_CLIENT_SECRET`/`NEQUI_API_KEY` sigan siendo placeholders en
+`.env` -- a diferencia de `RentalConfirmationView.vue`, que si consulta y oculta Nequi cuando no
+esta configurado (ver comentario `nequiEnabled` en ese archivo). Si un cliente de Shop selecciona
+Nequi y paga, `payment/nequi/initialize/` intentaria un OAuth real contra
+`oauth.sandbox.nequi.com` con credenciales invalidas y respondería `502 Bad Gateway` (no crashea,
+pero es una experiencia de cliente rota). Pendiente: replicar en `CheckoutView.vue` el mismo patron
+de `nequiEnabled` que ya usa Renting.
 
 ---
 

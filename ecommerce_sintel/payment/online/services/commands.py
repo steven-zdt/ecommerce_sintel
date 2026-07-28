@@ -87,6 +87,10 @@ class WompiCommands:
                 currency=currency,
                 status="PENDING",
                 correlation_id=correlation_id,
+                initiation_channel=(
+                    Transaction.CHANNEL_CARD_API if (card_token or payment_source_id)
+                    else Transaction.CHANNEL_WIDGET
+                ),
             )
             wompi_tx.integrity_signature = _compute_integrity_signature(
                 reference=str(wompi_tx.uuid),

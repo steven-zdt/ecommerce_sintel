@@ -13,6 +13,8 @@ class TransactionSerializer(serializers.ModelSerializer):
             'order', 'rental_request', 'payment_method_type',
             # ADR-001 Fase 7 (panel admin con acciones reales): trazabilidad visible.
             'correlation_id',
+            # Plan hibrido Widget+API (auditoria 2026-07-22): origen de la transaccion.
+            'initiation_channel',
         )
 
 

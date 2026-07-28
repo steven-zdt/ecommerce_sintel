@@ -18,6 +18,13 @@ class Transaction(SintelBaseModel):
         ('ERROR',    'Error en pasarela'),
     ]
 
+    CHANNEL_CARD_API = 'CARD_API'
+    CHANNEL_WIDGET   = 'WIDGET'
+    CHANNEL_CHOICES = [
+        (CHANNEL_CARD_API, 'Tarjeta (API directa)'),
+        (CHANNEL_WIDGET,   'Widget Wompi (PSE/Otros)'),
+    ]
+
     order               = models.ForeignKey(Order, null=True, blank=True, on_delete=models.CASCADE, related_name='transactions')
     rental_request       = models.ForeignKey('renting.RentalRequest', null=True, blank=True, on_delete=models.CASCADE, related_name='wompi_transactions')
     wompi_id            = models.CharField(max_length=255, unique=True, null=True, blank=True)
@@ -33,6 +40,13 @@ class Transaction(SintelBaseModel):
     # intento de pago completo con un solo grep, sin depender de reconstruir
     # el hilo a mano por reference/wompi_id como hoy.
     correlation_id      = models.CharField(max_length=36, null=True, blank=True, db_index=True)
+    # Dashboard admin (plan hibrido Widget+API, auditoria 2026-07-22): de que
+    # camino nacio esta transaccion -- CARD_API si initialize_transaction()
+    # recibio card_token/payment_source_id (creacion sincrona), WIDGET si no
+    # (el Widget completo de Wompi crea la transaccion del lado del navegador).
+    # Puramente informativo: nunca condiciona webhook/reconciliacion/PaymentResult,
+    # que siguen leyendo unicamente status/wompi_id como hasta ahora.
+    initiation_channel  = models.CharField(max_length=20, choices=CHANNEL_CHOICES, null=True, blank=True, db_index=True)
 
     class Meta:
         verbose_name        = 'Transaccion Wompi'
@@ -114,6 +128,21 @@ class PaymentFeatureFlags(SintelBaseModel):
             'problemas en produccion.'
         ),
     )
+    # Plan hibrido Widget+API (auditoria 2026-07-22): kill-switch independiente
+    # para el Widget. Antes solo existia card_api_flow_enabled -- desactivarlo
+    # dejaba el Widget como unico fallback posible, sin forma de apagar el
+    # Widget en si (ej. si Wompi reporta una incidencia con su iframe) sin
+    # tambien perder Tarjeta. Con los dos flags independientes, cualquier
+    # combinacion es reversible desde /admin/ sin deploy.
+    widget_flow_enabled = models.BooleanField(
+        default=True,
+        help_text=(
+            'Si esta activo, el checkout ofrece "PSE / Otros" (Widget completo '
+            'de Wompi -- PSE, Nequi, Bancolombia, etc.). Si se desactiva, ese '
+            'boton se oculta y el checkout solo permite pagar con Tarjeta via '
+            'API -- util si Wompi reporta una incidencia puntual con su Widget.'
+        ),
+    )
     is_active = models.BooleanField(default=True)
 
     class Meta:
@@ -142,6 +171,15 @@ class PaymentFeatureFlags(SintelBaseModel):
         flags = cls.get_active()
         flags.card_api_flow_enabled = enabled
         flags.save(update_fields=["card_api_flow_enabled", "updated_at"])
+        return flags
+
+    @classmethod
+    def set_widget_flow_enabled(cls, enabled: bool) -> "PaymentFeatureFlags":
+        """Simetrico a set_card_api_flow_enabled (plan hibrido Widget+API,
+        auditoria 2026-07-22)."""
+        flags = cls.get_active()
+        flags.widget_flow_enabled = enabled
+        flags.save(update_fields=["widget_flow_enabled", "updated_at"])
         return flags
 
 

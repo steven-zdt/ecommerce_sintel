@@ -9,7 +9,7 @@ from django.core.cache import cache
 from django.db import connection, transaction, IntegrityError
 from django.contrib.contenttypes.models import ContentType
 from django.utils import timezone
-from rest_framework.test import APITransactionTestCase
+from rest_framework.test import APITransactionTestCase, APIClient
 
 from users.models import User
 from accounts.models import UserProfile
@@ -710,6 +710,113 @@ class WompiWebhookConcurrencyTestCase(TransactionTestCase):
         self.assertEqual(self.wompi_tx.status, 'APPROVED')
         self.assertEqual(self.wompi_tx.wompi_id, 'wompi-concurrency-1')
         self.assertEqual(len(calls), 1)
+
+
+class WompiWebhookSignatureFailClosedTestCase(TransactionTestCase):
+    """
+    Test de regresion para F-01 (auditoria enterprise, 2026-07-24).
+
+    _verify_wompi_event_signature() retornaba True (fail-OPEN) cuando faltaba
+    WOMPI_EVENTS_SECRET, permitiendo falsificar un evento "pago aprobado" con
+    cualquier payload si la variable de entorno no estaba seteada en produccion.
+    La correccion es fail-CLOSED: sin el secreto, el evento se rechaza siempre,
+    sin importar que tan "correcta" parezca la firma que envia el atacante.
+    """
+
+    def _payload(self, checksum='cualquier-checksum-inventado'):
+        return {
+            'timestamp': 1234567890,
+            'data': {'transaction': {'reference': 'no-existe', 'status': 'APPROVED', 'id': 'fake-1'}},
+            'signature': {'checksum': checksum, 'properties': ['transaction.id', 'transaction.status']},
+        }
+
+    @override_settings(WOMPI_EVENTS_SECRET='')
+    def test_missing_secret_rejects_even_a_plausible_signature(self):
+        from payment.online.api.views import _verify_wompi_event_signature
+        self.assertFalse(_verify_wompi_event_signature(self._payload()))
+
+    @override_settings(WOMPI_EVENTS_SECRET='el-secreto-real')
+    def test_wrong_checksum_is_rejected(self):
+        from payment.online.api.views import _verify_wompi_event_signature
+        self.assertFalse(_verify_wompi_event_signature(self._payload(checksum='checksum-incorrecto')))
+
+    @override_settings(WOMPI_EVENTS_SECRET='el-secreto-real')
+    def test_correctly_signed_payload_is_accepted(self):
+        import hashlib
+        from payment.online.api.views import _verify_wompi_event_signature
+        payload = self._payload()
+        data = payload['data']['transaction']
+        concatenated = str(data['id']) + str(data['status']) + str(payload['timestamp']) + 'el-secreto-real'
+        payload['signature']['checksum'] = hashlib.sha256(concatenated.encode('utf-8')).hexdigest()
+        self.assertTrue(_verify_wompi_event_signature(payload))
+
+    @override_settings(WOMPI_EVENTS_SECRET='')
+    def test_webhook_endpoint_rejects_when_secret_missing(self):
+        # Extremo a extremo: sin el secreto, el endpoint HTTP real rechaza
+        # cualquier POST, sin importar el payload -- nunca marca nada como
+        # pagado en base a un evento no verificable.
+        client = APIClient()
+        response = client.post(
+            '/api/v1/payment/payments/webhook/', data=self._payload(), format='json',
+        )
+        self.assertEqual(response.status_code, 400)
+
+
+class WompiInitializeRaceConditionTestCase(TransactionTestCase):
+    """
+    Test de regresion para F-02 (auditoria enterprise, 2026-07-24).
+
+    initialize() hacia check-then-act sin idempotencia: dos requests casi
+    simultaneos del mismo checkout (doble clic / reintento de red) podian
+    crear dos Transaction PENDING para la misma orden (y, en el flujo
+    Tarjeta, cobrar dos veces). El fix usa select_for_update() sobre la
+    orden para serializar los dos intentos; el segundo, al re-verificar bajo
+    el lock, encuentra la Transaction PENDING que ya creo el primero y la
+    reutiliza en vez de crear una nueva.
+    """
+
+    def setUp(self):
+        self.customer = User.objects.create_user(
+            email='wompi_init_race@example.com', password='testpass123',
+        )
+        self.address = ShippingAddress.objects.create(
+            user=self.customer, full_name='Cliente Race F-02', address_line_1='Calle 2 # 2-2',
+            city='Bogota', phone_number='3000000010', is_default=True,
+        )
+        self.order = Order.objects.create(
+            user=self.customer, shipping_address=self.address, status=Order.STATUS_PENDING_PAYMENT,
+            payment_method='WOMPI', total_amount=Decimal('50000.00'),
+        )
+
+    def test_two_concurrent_initialize_calls_reuse_the_same_transaction(self):
+        results = []
+        lock = threading.Lock()
+
+        def worker():
+            client = APIClient()
+            client.force_authenticate(user=self.customer)
+            try:
+                response = client.post(
+                    '/api/v1/payment/payments/initialize/',
+                    data={'order_uuid': str(self.order.uuid)}, format='json',
+                )
+                with lock:
+                    results.append(response.data)
+            finally:
+                connection.close()
+
+        t1 = threading.Thread(target=worker)
+        t2 = threading.Thread(target=worker)
+        t1.start()
+        t2.start()
+        t1.join(timeout=15)
+        t2.join(timeout=15)
+
+        self.assertEqual(len(results), 2)
+        # Ambas respuestas HTTP deben apuntar a la MISMA Transaction -- el
+        # segundo request nunca creo una segunda fila.
+        self.assertEqual(results[0]['uuid'], results[1]['uuid'])
+        self.assertEqual(Transaction.objects.filter(order=self.order).count(), 1)
 
 
 @override_settings(ROOT_URLCONF='ecommerce.urls')

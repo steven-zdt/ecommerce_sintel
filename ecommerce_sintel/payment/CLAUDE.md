@@ -25,7 +25,7 @@ Montada en `INSTALLED_APPS` como `'payment'` y expuesta en `/api/v1/payment/`.
 | `nequi/client.py`, `nequi/services/commands.py` | NequiApiClient, NequiCommands |
 | `cards/views.py` | TokenizedCardViewSet (list, create, destroy, set_default) |
 | `cards/urls.py` | Router para /api/v1/payment/cards/ |
-| `tasks.py` | `reconcile_pending_wompi_transactions` (Celery beat, sembrada via migration 0008, ver `.AGENT/docs` seccion 5.1) |
+| `tasks.py` | `reconcile_pending_wompi_transactions`, `notify_declined_payments_followup` (Celery beat, sembradas via migration; ver `.AGENT/docs` seccion 5.1) |
 
 ## TokenizedCard — tarjetas guardadas del cliente
 
@@ -49,6 +49,7 @@ Permiso: `IsAuthenticatedActiveUser`. Soft-delete obligatorio (nunca `.delete()`
 - Si stock insuficiente en confirmación: marcar `Transaction.status = 'ERROR'` + raise ValueError → rollback
 - **Webhook idempotente:** Si llega duplicado (status ya era APPROVED), se ignora sin reprocesar
 - **Firma HMAC-SHA256 del webhook: YA IMPLEMENTADA** en `_verify_wompi_event_signature()` (`online/api/views.py`). **Fail-closed** (F-01, auditoria 2026-07-24): si `WOMPI_EVENTS_SECRET` no está seteado, el webhook RECHAZA el evento (`return False`) y registra un `SecurityEvent` CRITICAL — antes retornaba `True` (fail-open), lo que permitia falsificar un "pago aprobado". `settings/production.py` ademas exige el secreto para arrancar.
+- **Toda tarea Celery nueva en `tasks.py` queda cubierta por `CELERY_TASK_DEFAULT_QUEUE='default'`** (`ecommerce/settings/base.py`) — no requiere tocar nada extra. Pero si algun dia se le asigna una cola PROPIA (via `CELERY_TASK_ROUTES['payment.*']` o `queue=` explicito en el decorador), esa cola nueva debe agregarse tambien al flag `-Q` de `celery_worker` en `docker-compose.prod.yml`, o la tarea queda encolada sin worker que la procese — exactamente lo que le paso a `reconcile_pending_wompi_transactions` hasta el 2026-07-27 (ver detalle en `ecommerce/.AGENT/docs/ARQUITECTURACOMPLETA_SETTING.md`, seccion 16).
 
 ## Flujo de estados de Transaction
 

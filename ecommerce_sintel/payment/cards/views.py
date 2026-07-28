@@ -2,6 +2,7 @@ import logging
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 from django.db import IntegrityError
 
 from payment.models import TokenizedCard
@@ -22,6 +23,18 @@ class TokenizedCardViewSet(viewsets.ViewSet):
     """
     permission_classes = [IsAuthenticatedActiveUser]
     lookup_field = 'uuid'
+
+    # F-03 (auditoria enterprise): solo `create` (tokenizar una tarjeta)
+    # necesita limite de tasa -- es el punto con riesgo real de abuso
+    # (probar numeros de tarjeta robados, "carding").
+    ACTION_THROTTLE_SCOPES = {'create': 'payment_card_create'}
+
+    def get_throttles(self):
+        scope = self.ACTION_THROTTLE_SCOPES.get(self.action)
+        if not scope:
+            return []
+        self.throttle_scope = scope
+        return [ScopedRateThrottle()]
 
     def list(self, request):
         cards = (
@@ -93,6 +106,14 @@ class TokenizedCardViewSet(viewsets.ViewSet):
 def _serialize_card(card: TokenizedCard) -> dict:
     return {
         'uuid': str(card.uuid),
+        # Bug real preexistente (auditoria E2E, 2026-07-22): faltaba aqui pese a
+        # que el modelo si lo tiene -- el frontend siempre referencio
+        # `card.token_id` (initialize/ necesita el token_id real de Wompi para
+        # cobrar una tarjeta guardada, no el uuid interno), asi que toda
+        # seleccion de tarjeta guardada resolvia a `undefined`, y initialize/
+        # terminaba sin campo card_token -- silenciosamente caia al flujo
+        # Widget en vez de cobrar la tarjeta guardada elegida.
+        'token_id': card.token_id,
         'brand': card.brand,
         'masked_number': card.masked_number,
         'exp_month': card.exp_month,
