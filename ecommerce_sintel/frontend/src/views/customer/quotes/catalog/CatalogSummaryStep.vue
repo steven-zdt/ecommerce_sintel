@@ -57,6 +57,7 @@
 <script setup>
 import { computed } from 'vue';
 import useApi from '@/composables/useApi';
+import { formatCOP } from '@/utils/money';
 
 const props = defineProps({ wizard: { type: Object, required: true } });
 
@@ -67,7 +68,7 @@ async function handleSubmit() {
   await props.wizard.submitQuotation();
 }
 
-const fmt = (val) => new Intl.NumberFormat('es-CO').format(parseFloat(val) || 0);
+const fmt = (val) => formatCOP(val);
 </script>
 
 <style scoped>

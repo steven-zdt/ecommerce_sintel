@@ -30,6 +30,85 @@
             <div class="spinner-border spinner-border-sm"></div> Cargando cuestionario...
           </div>
 
+          <div v-if="quotation.labor_analysis" class="card border-0 shadow-sm mb-3 analysis-card">
+            <div class="card-header bg-white fw-semibold small text-uppercase d-flex align-items-center">
+              <i class="bi bi-cpu me-2 text-primary"></i>Análisis automático
+            </div>
+            <div class="card-body">
+              <div
+                v-for="(alert, i) in laborAlerts" :key="i"
+                class="alert py-2 px-3 mb-2 small d-flex align-items-center"
+                :class="alert.level === 'danger' ? 'alert-danger' : 'alert-warning'"
+              >
+                <i class="bi bi-exclamation-triangle-fill me-2"></i>{{ alert.text }}
+              </div>
+              <table class="table table-sm mb-0">
+                <tbody>
+                  <tr>
+                    <td class="ps-0 text-muted small" style="width: 45%">Altura</td>
+                    <td class="small">{{ quotation.labor_analysis.installation_height }} m</td>
+                  </tr>
+                  <tr>
+                    <td class="ps-0 text-muted small">Trabajo en alturas</td>
+                    <td class="small">{{ quotation.labor_analysis.work_at_height ? 'Sí' : 'No' }}</td>
+                  </tr>
+                  <tr>
+                    <td class="ps-0 text-muted small">Nivel de riesgo</td>
+                    <td class="small">{{ quotation.labor_analysis.risk_level }}</td>
+                  </tr>
+                  <tr>
+                    <td class="ps-0 text-muted small">Equipo recomendado</td>
+                    <td class="small">{{ quotation.labor_analysis.required_access_equipment }}</td>
+                  </tr>
+                  <tr v-if="quotation.labor_analysis.allowed_schedule">
+                    <td class="ps-0 text-muted small">Horario</td>
+                    <td class="small">{{ formatQuoteAnswerValue(quotation.labor_analysis.allowed_schedule) }}</td>
+                  </tr>
+                  <tr v-if="quotation.labor_analysis.site_access_requirements">
+                    <td class="ps-0 text-muted small">Restricciones</td>
+                    <td class="small">{{ formatQuoteAnswerValue(quotation.labor_analysis.site_access_requirements) }}</td>
+                  </tr>
+                  <tr v-if="quotation.labor_analysis.power_available">
+                    <td class="ps-0 text-muted small">Energía</td>
+                    <td class="small">{{ powerAvailableLabel(quotation.labor_analysis.power_available) }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div v-if="quotation.attachments?.length" class="card border-0 shadow-sm mb-3">
+            <div class="card-header bg-white fw-semibold small text-uppercase d-flex align-items-center">
+              <i class="bi bi-file-earmark-arrow-down me-2 text-primary"></i>Documentación adjunta
+            </div>
+            <div class="card-body p-0">
+              <table class="table table-sm mb-0">
+                <thead>
+                  <tr class="text-muted small">
+                    <th class="ps-3 fw-normal">Archivo</th>
+                    <th class="fw-normal">Tipo</th>
+                    <th class="fw-normal">Tamaño</th>
+                    <th class="fw-normal">Fecha</th>
+                    <th class="pe-3 fw-normal text-end">Descargar</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="att in quotation.attachments" :key="att.uuid">
+                    <td class="ps-3 small">{{ att.file_name }}</td>
+                    <td class="small text-muted">{{ fileExtension(att.file_name) }}</td>
+                    <td class="small text-muted">{{ formatFileSize(att.file_size) }}</td>
+                    <td class="small text-muted">{{ formatDate(att.created_at) }}</td>
+                    <td class="text-end pe-3">
+                      <a :href="att.file" target="_blank" class="btn btn-sm btn-light border">
+                        <i class="bi bi-download"></i>
+                      </a>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
           <div v-for="group in answerGroups" :key="group.type" v-show="group.rows.length" class="card border-0 shadow-sm mb-3">
             <div class="card-header bg-white fw-semibold small text-uppercase">{{ group.label }}</div>
             <div class="card-body p-0">
@@ -169,6 +248,8 @@ import { useQuotationsAdminStore } from '@/store/quotesAdmin/quotations';
 import { useToast } from '@/composables/useToast';
 import { useEnums } from '@/composables/useEnums';
 import useApi from '@/composables/useApi';
+import { formatQuoteAnswerValue, resolveQuestionLabel } from '@/utils/formatQuoteAnswer';
+import { formatCOP } from '@/utils/money';
 
 const props = defineProps({
   uuid: { type: String, required: true },
@@ -220,13 +301,33 @@ const answerGroups = computed(() => {
           const attachment = (quotation.value.attachments || []).find((a) => a.note === `${module.uuid}__${q.key}`);
           rows.push({ key: `${module.uuid}-${q.key}`, label: q.label, attachment });
         } else {
-          rows.push({ key: `${module.uuid}-${q.key}`, label: q.label, value: Array.isArray(value) ? value.join(', ') : String(value) });
+          rows.push({ key: `${module.uuid}-${q.key}`, label: q.label, value: resolveQuestionLabel(value, q) });
         }
       }
     }
     return { type, label, rows };
   });
 });
+
+// Avisos derivados del horario para el asesor (el analisis de altura/riesgo/
+// equipo ya viene calculado desde el backend en quotation.labor_analysis,
+// ver LaborConditionsEvaluator y QuotationSerializer.get_labor_analysis).
+const laborAlerts = computed(() => {
+  const schedule = quotation.value?.labor_analysis?.allowed_schedule || [];
+  const alerts = [];
+  if (schedule.includes('Horario Nocturno')) {
+    alerts.push({ level: 'warning', text: 'Horario nocturno seleccionado — la cotización puede requerir recargos.' });
+  }
+  if (schedule.includes('Festivos')) {
+    alerts.push({ level: 'warning', text: 'Instalación en días festivos — considerar recargo de mano de obra.' });
+  }
+  return alerts;
+});
+
+const POWER_LABELS = { Si: 'Disponible', No: 'No disponible', 'No estoy seguro': 'Por confirmar' };
+function powerAvailableLabel(value) {
+  return POWER_LABELS[value] || value;
+}
 
 async function load() {
   loading.value = true;
@@ -299,7 +400,19 @@ async function downloadPdf() {
 }
 
 function money(v) {
-  return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(v || 0);
+  return formatCOP(v, { withSymbol: true });
+}
+
+function fileExtension(name) {
+  const ext = (name || '').split('.').pop();
+  return ext ? ext.toUpperCase() : '—';
+}
+
+function formatFileSize(bytes) {
+  if (bytes === null || bytes === undefined) return '—';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function formatDate(d) {
@@ -310,4 +423,6 @@ function formatDate(d) {
 
 <style scoped>
 .smaller { font-size: 0.72rem; }
+.analysis-card { border: 1.5px solid #dbeafe !important; }
+.analysis-card .card-header { border-bottom: 1.5px solid #dbeafe; }
 </style>

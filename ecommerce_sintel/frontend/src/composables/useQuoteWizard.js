@@ -30,6 +30,12 @@ export function useQuoteWizard() {
   const applicant = reactive(blankApplicant());
   const answers = reactive({}); // { [moduleUuid]: { [questionKey]: valor } }
   const files = reactive({}); // { "moduleUuid__questionKey": File }
+  // H1 (auditoria E2E 2026-07-23): llave generada una sola vez por intento
+  // de solicitud y persistida -- si el usuario recarga a mitad del envio o
+  // este falla por red, el reintento reutiliza la MISMA llave y el backend
+  // devuelve la Quotation ya creada en vez de duplicarla. Se limpia junto
+  // con el resto del borrador en clear() (envio exitoso o nueva solicitud).
+  const idempotencyKey = ref(null);
 
   const loading = ref(false);
   const submitting = ref(false);
@@ -41,6 +47,7 @@ export function useQuoteWizard() {
       const saved = JSON.parse(localStorage.getItem(STORAGE_KEY)) || {};
       if (saved.applicant) Object.assign(applicant, saved.applicant);
       if (saved.answers) Object.assign(answers, saved.answers);
+      if (saved.idempotencyKey) idempotencyKey.value = saved.idempotencyKey;
       if (saved.templateUuid) return saved.templateUuid;
     } catch { /* borrador es una mejora progresiva */ }
     return null;
@@ -48,7 +55,7 @@ export function useQuoteWizard() {
 
   function persist() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({
-      applicant, answers,
+      applicant, answers, idempotencyKey: idempotencyKey.value,
       templateUuid: selectedTemplate.value?.uuid || null,
     }));
   }
@@ -59,6 +66,7 @@ export function useQuoteWizard() {
     Object.assign(applicant, blankApplicant());
     Object.keys(answers).forEach((k) => delete answers[k]);
     Object.keys(files).forEach((k) => delete files[k]);
+    idempotencyKey.value = null;
     createdQuotation.value = null;
     localStorage.removeItem(STORAGE_KEY);
   }
@@ -152,7 +160,8 @@ export function useQuoteWizard() {
         .filter((q) => q.is_required && isQuestionVisible(module.uuid, q))
         .every((q) => {
           if (FILE_TYPES.includes(q.question_type)) {
-            return !!files[fileKeyFor(module.uuid, q.key)];
+            const f = files[fileKeyFor(module.uuid, q.key)];
+            return Array.isArray(f) ? f.length > 0 : !!f;
           }
           const v = answerFor(module.uuid, q.key);
           return v !== undefined && v !== null && v !== '';
@@ -161,9 +170,19 @@ export function useQuoteWizard() {
   }
 
   async function submitQuotation() {
+    // H1 (auditoria E2E 2026-07-23): guard SINCRONO -- lee y escribe
+    // submitting.value antes de cualquier await, para que un segundo clic
+    // disparado en el mismo tick (antes de que Vue repinte :disabled en el
+    // DOM) tambien quede bloqueado aqui. No depender solo del atributo
+    // disabled del boton.
+    if (submitting.value) return false;
     if (!selectedTemplate.value) return false;
     submitting.value = true;
     error.value = '';
+    if (!idempotencyKey.value) {
+      idempotencyKey.value = crypto.randomUUID();
+      persist();
+    }
     try {
       const hasFiles = Object.keys(files).length > 0;
       let payload;
@@ -172,12 +191,15 @@ export function useQuoteWizard() {
         form.append('template', selectedTemplate.value.uuid);
         form.append('answers', JSON.stringify(answers));
         for (const [key, value] of Object.entries(applicant)) form.append(key, value ?? '');
-        for (const [key, file] of Object.entries(files)) form.append(`file__${key}`, file);
+        for (const [key, fileOrFiles] of Object.entries(files)) {
+          const arr = Array.isArray(fileOrFiles) ? fileOrFiles : [fileOrFiles];
+          for (const f of arr) form.append(`file__${key}`, f);
+        }
         payload = form;
       } else {
         payload = { template: selectedTemplate.value.uuid, answers, ...applicant };
       }
-      const data = await quotesService.createFromTemplate(payload);
+      const data = await quotesService.createFromTemplate(payload, idempotencyKey.value);
       createdQuotation.value = data;
       localStorage.removeItem(STORAGE_KEY);
       return true;

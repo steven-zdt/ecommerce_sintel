@@ -96,6 +96,7 @@
 
 <script setup>
 import { ref, reactive, computed } from 'vue';
+import { formatCOP } from '@/utils/money';
 
 const props = defineProps({ wizard: { type: Object, required: true } });
 
@@ -188,7 +189,7 @@ function handleAdd(item) {
   }
 }
 
-const fmt = (val) => new Intl.NumberFormat('es-CO').format(parseFloat(val) || 0);
+const fmt = (val) => formatCOP(val);
 </script>
 
 <style scoped>

@@ -24,7 +24,7 @@
 
       <button class="btn-submit" :disabled="wizard.submitting.value" @click="handleSubmit">
         <span v-if="wizard.submitting.value" class="spinner-border spinner-border-sm me-2"></span>
-        Enviar solicitud
+        {{ wizard.submitting.value ? 'Enviando solicitud...' : 'Enviar solicitud' }}
       </button>
       <p v-if="wizard.error.value" class="text-danger small mt-2">{{ wizard.error.value }}</p>
     </template>
@@ -53,6 +53,7 @@
 
 <script setup>
 import { computed } from 'vue';
+import { resolveQuestionLabel } from '@/utils/formatQuoteAnswer';
 
 const props = defineProps({ wizard: { type: Object, required: true } });
 
@@ -65,19 +66,28 @@ const groups = computed(() => Object.entries(GROUP_LABELS).map(([type, label]) =
   for (const module of modules) {
     for (const q of module.questions) {
       if (FILE_TYPES.includes(q.question_type)) {
-        const file = props.wizard.files[props.wizard.fileKeyFor(module.uuid, q.key)];
-        if (file) rows.push({ key: `${module.uuid}-${q.key}`, label: q.label, display: file.name });
+        const fileOrFiles = props.wizard.files[props.wizard.fileKeyFor(module.uuid, q.key)];
+        const fileList = Array.isArray(fileOrFiles) ? fileOrFiles : (fileOrFiles ? [fileOrFiles] : []);
+        if (fileList.length) {
+          rows.push({ key: `${module.uuid}-${q.key}`, label: q.label, display: fileList.map((f) => f.name).join(', ') });
+        }
         continue;
       }
       const value = props.wizard.answerFor(module.uuid, q.key);
       if (value === undefined || value === null || value === '') continue;
-      rows.push({ key: `${module.uuid}-${q.key}`, label: q.label, display: Array.isArray(value) ? value.join(', ') : String(value) });
+      rows.push({ key: `${module.uuid}-${q.key}`, label: q.label, display: resolveQuestionLabel(value, q) });
     }
   }
   return { type, label, rows };
 }));
 
+// H1 (auditoria E2E 2026-07-23): chequeo sincrono aqui ademas del guard
+// dentro de submitQuotation() -- ambos leen/escriben submitting.value antes
+// de cualquier await, asi que un segundo clic disparado en el mismo tick
+// (antes de que Vue repinte el atributo disabled del boton) tambien queda
+// bloqueado, sin depender del repintado.
 async function handleSubmit() {
+  if (props.wizard.submitting.value) return;
   await props.wizard.submitQuotation();
 }
 </script>

@@ -1,7 +1,11 @@
 <template>
   <div>
-    <h1 class="step-title">Mano de Obra</h1>
-    <p class="step-subtitle">Condiciones del trabajo — esto nos ayuda a coordinar la instalación.</p>
+    <h1 class="step-title">Condiciones de la instalación</h1>
+    <p class="step-subtitle">Cuéntanos las condiciones generales donde se realizará el trabajo.</p>
+    <p class="step-subtitle step-subtitle-secondary">
+      Con esta información podremos determinar automáticamente los recursos necesarios
+      para realizar la instalación.
+    </p>
 
     <div v-if="!modules.length" class="text-muted">Esta plantilla no requiere información de mano de obra.</div>
 
@@ -58,7 +62,8 @@ defineExpose({ isValid });
 
 <style scoped>
 .step-title { font-size: clamp(1.8rem, 4vw, 2.6rem); font-weight: 850; letter-spacing: -0.03em; margin-bottom: 0.4rem; }
-.step-subtitle { color: #64748b; margin-bottom: 2rem; }
+.step-subtitle { color: #64748b; margin-bottom: 0.4rem; }
+.step-subtitle-secondary { font-size: 0.86rem; margin-bottom: 2rem; }
 .booking-card { background: #fff; border: 1px solid #e8e7ee; border-radius: 20px; padding: 1.4rem; }
 .booking-card h2 { font-size: 1.05rem; font-weight: 780; margin-bottom: 0.2rem; }
 .booking-card h2 i { color: #7c3aed; }

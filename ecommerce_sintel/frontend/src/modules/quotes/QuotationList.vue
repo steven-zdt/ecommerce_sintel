@@ -68,7 +68,14 @@
                 <code class="text-primary small fw-bold">#{{ item.uuid.slice(0, 8) }}</code>
               </td>
               <td>
-                <div class="fw-semibold text-dark">{{ item.client_name }}</div>
+                <div class="fw-semibold text-dark">
+                  {{ item.client_name }}
+                  <i
+                    v-if="item.attachments_count"
+                    class="bi bi-file-earmark-text-fill text-primary ms-1 small"
+                    :title="`${item.attachments_count} documento(s) adjunto(s)`"
+                  ></i>
+                </div>
                 <div class="text-muted smaller">{{ item.client_email }}</div>
               </td>
               <td class="text-center">
@@ -155,6 +162,7 @@ import useApi from '@/composables/useApi';
 import { useToast } from '@/composables/useToast';
 import { useOffcanvas } from '@/composables/useOffcanvas';
 import { useEnums } from '@/composables/useEnums';
+import { formatCOP } from '@/utils/money';
 import SintelOffcanvas from '@/components/ui/SintelOffcanvas.vue';
 import QuotationDetail from './QuotationDetail.vue';
 import RequestViewer from './RequestViewer.vue';
@@ -238,11 +246,7 @@ async function downloadPdf(quotation) {
 }
 
 function formatCurrency(value) {
-  return new Intl.NumberFormat('es-CO', {
-    style: 'currency',
-    currency: 'COP',
-    minimumFractionDigits: 0
-  }).format(value);
+  return formatCOP(value, { withSymbol: true });
 }
 
 function formatDate(dateStr) {

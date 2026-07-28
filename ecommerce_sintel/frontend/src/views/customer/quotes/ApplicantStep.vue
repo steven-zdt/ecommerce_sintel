@@ -103,6 +103,7 @@ function applySelfData() {
   props.wizard.applicant.company = profile.company || '';
   props.wizard.applicant.address = profile.address || '';
   props.wizard.applicant.city = profile.city || '';
+  props.wizard.applicant.department = profile.state || '';
 }
 
 function clearForThird() {
@@ -114,6 +115,7 @@ function clearForThird() {
   props.wizard.applicant.company = '';
   props.wizard.applicant.address = '';
   props.wizard.applicant.city = '';
+  props.wizard.applicant.department = '';
 }
 
 function chooseSelf() {

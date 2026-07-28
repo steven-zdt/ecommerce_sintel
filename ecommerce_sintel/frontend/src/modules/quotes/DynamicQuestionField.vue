@@ -5,11 +5,28 @@
     <div v-if="question.help_text" class="form-text small mb-1">{{ question.help_text }}</div>
 
     <input
-      v-if="['TEXT', 'ADDRESS', 'GPS'].includes(question.question_type)"
+      v-if="['TEXT', 'ADDRESS'].includes(question.question_type)"
       :value="modelValue" @input="$emit('update:modelValue', $event.target.value)"
       type="text" class="form-control form-control-sm" :placeholder="question.placeholder"
       :pattern="question.validation_regex || undefined"
     />
+
+    <div v-else-if="question.question_type === 'GPS'">
+      <button
+        type="button" class="btn btn-outline-primary btn-sm"
+        :disabled="gpsLoading" @click="shareLocation"
+      >
+        <span v-if="gpsLoading" class="spinner-border spinner-border-sm me-1"></span>
+        <i v-else class="bi bi-geo-alt me-1"></i>
+        {{ gpsCoords ? 'Actualizar ubicacion' : 'Compartir ubicacion' }}
+      </button>
+      <div v-if="gpsCoords" class="text-success small mt-1">
+        <i class="bi bi-check-circle-fill me-1"></i>Ubicacion compartida ({{ gpsCoords.lat.toFixed(5) }}, {{ gpsCoords.lng.toFixed(5) }})
+      </div>
+      <div v-else-if="modelValue === 'DENIED'" class="text-danger small mt-1">
+        No pudimos obtener tu ubicacion. Puedes ingresar la direccion manualmente.
+      </div>
+    </div>
     <input
       v-else-if="question.question_type === 'EMAIL'"
       :value="modelValue" @input="$emit('update:modelValue', $event.target.value)"
@@ -115,14 +132,32 @@
       </div>
     </div>
 
-    <div v-else-if="['IMAGE', 'FILE', 'SIGNATURE'].includes(question.question_type)">
+    <div v-else-if="['IMAGE', 'SIGNATURE'].includes(question.question_type)">
       <input
         type="file" class="form-control form-control-sm"
-        :accept="question.question_type === 'FILE' ? undefined : 'image/*'"
+        accept="image/*"
         @change="$emit('update:modelValue', $event.target.files[0] || null)"
       />
       <div v-if="modelValue" class="text-muted small mt-1"><i class="bi bi-paperclip me-1"></i>{{ modelValue.name }}</div>
       <div v-if="question.question_type === 'SIGNATURE'" class="form-text small">Sube una foto o captura de tu firma.</div>
+    </div>
+
+    <div v-else-if="question.question_type === 'FILE'">
+      <input
+        type="file" class="form-control form-control-sm" multiple
+        :accept="FILE_ACCEPT"
+        @change="onFilesSelected"
+      />
+      <div class="form-text small">PDF, DOC, DOCX, XLS, XLSX o TXT — máximo 20&nbsp;MB por archivo.</div>
+      <ul v-if="fileList.length" class="list-unstyled mt-2 mb-0">
+        <li v-for="(f, i) in fileList" :key="i" class="d-flex align-items-center justify-content-between small border rounded px-2 py-1 mb-1">
+          <span><i class="bi bi-paperclip me-1"></i>{{ f.name }} <span class="text-muted">({{ formatFileSize(f.size) }})</span></span>
+          <button type="button" class="btn btn-sm btn-link text-danger p-0" @click="removeFile(i)"><i class="bi bi-x-lg"></i></button>
+        </li>
+      </ul>
+      <div v-if="fileErrors.length" class="text-danger small mt-1">
+        <div v-for="(err, i) in fileErrors" :key="i">{{ err }}</div>
+      </div>
     </div>
 
     <div v-else-if="question.question_type === 'DYNAMIC_LIST'">
@@ -182,6 +217,80 @@ const otherMode = ref(
     !knownValues.value.includes(props.modelValue),
 );
 const selectValue = computed(() => (otherMode.value ? OTHER_VALUE : (props.modelValue ?? '')));
+
+// GPS -- modelValue es {lat,lng,accuracy} en exito, o el string sentinela
+// 'DENIED' si el navegador nego/no tiene el permiso (activa la pregunta
+// ADDRESS de respaldo via depends_on_values, ver quotes/migrations
+// 0028_seed_installation_info_questions.py y quoteVisibility.js).
+const gpsLoading = ref(false);
+const gpsCoords = computed(() => (
+  props.modelValue && typeof props.modelValue === 'object' ? props.modelValue : null
+));
+
+function shareLocation() {
+  if (!navigator.geolocation) {
+    emit('update:modelValue', 'DENIED');
+    return;
+  }
+  gpsLoading.value = true;
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      gpsLoading.value = false;
+      emit('update:modelValue', {
+        lat: pos.coords.latitude,
+        lng: pos.coords.longitude,
+        accuracy: pos.coords.accuracy,
+      });
+    },
+    () => {
+      gpsLoading.value = false;
+      emit('update:modelValue', 'DENIED');
+    },
+    { enableHighAccuracy: true, timeout: 10000 },
+  );
+}
+
+// FILE (multi-archivo) -- ver requirement_documents, Fase 5 de la
+// simplificacion del wizard (2026-07-23). modelValue es un array de File;
+// la misma politica de extension/tamaño se re-valida en el backend
+// (validate_file, quotes/services/commands.py) -- esto es solo UX temprana.
+const FILE_ALLOWED_EXT = ['.pdf', '.doc', '.docx', '.xls', '.xlsx', '.txt'];
+const FILE_ACCEPT = FILE_ALLOWED_EXT.join(',');
+const FILE_MAX_SIZE = 20 * 1024 * 1024;
+const fileErrors = ref([]);
+const fileList = computed(() => (Array.isArray(props.modelValue) ? props.modelValue : []));
+
+function onFilesSelected(event) {
+  const picked = Array.from(event.target.files || []);
+  event.target.value = '';
+  const errors = [];
+  const accepted = [];
+  for (const f of picked) {
+    const ext = `.${f.name.split('.').pop().toLowerCase()}`;
+    if (!FILE_ALLOWED_EXT.includes(ext)) {
+      errors.push(`${f.name}: formato no permitido.`);
+    } else if (f.size > FILE_MAX_SIZE) {
+      errors.push(`${f.name}: supera el limite de 20 MB.`);
+    } else {
+      accepted.push(f);
+    }
+  }
+  fileErrors.value = errors;
+  if (accepted.length) {
+    emit('update:modelValue', [...fileList.value, ...accepted]);
+  }
+}
+
+function removeFile(index) {
+  const next = fileList.value.filter((_, i) => i !== index);
+  emit('update:modelValue', next.length ? next : undefined);
+}
+
+function formatFileSize(bytes) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
 
 function onSelectChange(value) {
   if (value === OTHER_VALUE) {

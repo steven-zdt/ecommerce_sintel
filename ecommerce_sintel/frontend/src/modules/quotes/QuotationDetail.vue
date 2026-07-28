@@ -135,6 +135,7 @@
 
 <script setup>
 import { useEnums } from '@/composables/useEnums';
+import { formatCOP } from '@/utils/money';
 const props = defineProps({
   quotation: { type: Object, required: true }
 });
@@ -144,11 +145,7 @@ defineEmits(['download']);
 const enums = useEnums();
 
 function formatCurrency(value) {
-  return new Intl.NumberFormat('es-CO', {
-    style: 'currency',
-    currency: 'COP',
-    minimumFractionDigits: 0
-  }).format(value);
+  return formatCOP(value, { withSymbol: true });
 }
 
 function formatDate(dateStr) {

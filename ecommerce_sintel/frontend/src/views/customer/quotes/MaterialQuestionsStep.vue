@@ -1,14 +1,15 @@
 <template>
   <div>
-    <h1 class="step-title">Materiales</h1>
-    <p class="step-subtitle">Cuéntanos qué materiales necesitas — nosotros calculamos el resto.</p>
+    <h1 class="step-title">Información de la Instalación</h1>
+    <p class="step-subtitle">Cuéntanos dónde y cómo se realizará el proyecto.</p>
+    <p class="step-subtitle step-subtitle-secondary">
+      Con esta información —distancias, ubicación y tipo de proyecto— nuestro equipo determina
+      los materiales y recursos necesarios; no hace falta que nos indiques el detalle técnico.
+    </p>
 
-    <div v-if="!modules.length" class="text-muted">Esta plantilla no requiere información de materiales.</div>
+    <div v-if="!modules.length" class="text-muted">Esta plantilla no requiere información de instalación.</div>
 
     <div v-for="module in modules" :key="module.uuid" class="booking-card mb-3">
-      <h2><i class="bi bi-box-seam me-2"></i>{{ module.name }}</h2>
-      <p v-if="module.description" class="text-muted small">{{ module.description }}</p>
-
       <div class="form-grid">
         <div
           v-for="q in module.questions" v-show="wizard.isQuestionVisible(module.uuid, q)"
@@ -21,6 +22,7 @@
           />
         </div>
       </div>
+      <p v-if="distanceError" class="text-danger small mt-2">{{ distanceError }}</p>
     </div>
 
     <p v-if="!isValid" class="text-danger small mt-2">Completa las preguntas obligatorias (*) para continuar.</p>
@@ -35,14 +37,13 @@ const props = defineProps({ wizard: { type: Object, required: true } });
 
 const FILE_TYPES = ['IMAGE', 'FILE', 'SIGNATURE'];
 const modules = computed(() => props.wizard.modulesByType('MATERIALS'));
-const isValid = computed(() => props.wizard.validateModuleType('MATERIALS'));
 
 function isFileType(type) {
   return FILE_TYPES.includes(type);
 }
 
 function isWideType(type) {
-  return ['TEXT', 'TEXTAREA', 'ADDRESS', 'MULTISELECT', 'CHECKBOX', 'TABLE', 'DYNAMIC_LIST'].includes(type);
+  return ['TEXT', 'TEXTAREA', 'ADDRESS', 'GPS', 'MULTISELECT', 'CHECKBOX', 'TABLE', 'DYNAMIC_LIST'].includes(type);
 }
 
 function onUpdate(moduleUuid, question, value) {
@@ -53,16 +54,32 @@ function onUpdate(moduleUuid, question, value) {
   }
 }
 
+// Validacion cruzada: la distancia del equipo mas cercano no puede superar
+// la del mas lejano. No es una regla generica del motor de preguntas
+// (QuoteQuestion no modela "depende del VALOR de otra pregunta", solo
+// visibilidad) -- se resuelve aqui, acotada a estas 2 keys.
+const distanceError = computed(() => {
+  for (const module of modules.value) {
+    const near = props.wizard.answerFor(module.uuid, 'nearest_equipment_distance');
+    const far = props.wizard.answerFor(module.uuid, 'farthest_equipment_distance');
+    if (near !== null && near !== undefined && near !== '' && far !== null && far !== undefined && far !== '' && Number(near) > Number(far)) {
+      return 'La distancia del equipo mas cercano no puede ser mayor que la del mas lejano.';
+    }
+  }
+  return '';
+});
+
+const isValid = computed(() => props.wizard.validateModuleType('MATERIALS') && !distanceError.value);
+
 defineExpose({ isValid });
 </script>
 
 <style scoped>
 .step-title { font-size: clamp(1.8rem, 4vw, 2.6rem); font-weight: 850; letter-spacing: -0.03em; margin-bottom: 0.4rem; }
-.step-subtitle { color: #64748b; margin-bottom: 2rem; }
+.step-subtitle { color: #64748b; margin-bottom: 0.4rem; }
+.step-subtitle-secondary { font-size: 0.86rem; margin-bottom: 2rem; }
 .booking-card { background: #fff; border: 1px solid #e8e7ee; border-radius: 20px; padding: 1.4rem; }
-.booking-card h2 { font-size: 1.05rem; font-weight: 780; margin-bottom: 0.2rem; }
-.booking-card h2 i { color: #7c3aed; }
-.form-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem; margin-top: 1rem; }
+.form-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem; margin-top: 0; }
 .wide { grid-column: 1 / -1; }
 @media (max-width: 700px) { .form-grid { grid-template-columns: 1fr; } .wide { grid-column: auto; } }
 </style>
