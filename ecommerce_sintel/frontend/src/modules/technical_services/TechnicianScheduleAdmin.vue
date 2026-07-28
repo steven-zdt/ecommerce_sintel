@@ -167,9 +167,11 @@
 import { computed, onMounted, reactive, ref } from 'vue';
 import useApi from '@/composables/useApi';
 import { useToast } from '@/composables/useToast';
+import { useErrorHandler } from '@/composables/useErrorHandler';
 
 const api = useApi();
 const toast = useToast();
+const { handleError } = useErrorHandler();
 
 const WEEKDAYS = [
   { value: 0, label: 'Lunes' },
@@ -259,7 +261,7 @@ async function saveDay(weekday) {
     toast.success('Horario guardado.');
     await loadCapacitySummary();
   } catch (e) {
-    toast.error(e?.response?.data?.detail || 'No fue posible guardar el horario.');
+    handleError(e, 'No fue posible guardar el horario.');
   } finally {
     savingDay.value = null;
   }
@@ -282,7 +284,7 @@ async function createException() {
     Object.assign(exceptionForm, { exception_type: 'VACATION', start_date: '', end_date: '', start_time: '', end_time: '', reason: '' });
     await Promise.all([loadExceptions(), loadCapacitySummary()]);
   } catch (e) {
-    toast.error(e?.response?.data?.detail || 'No fue posible registrar.');
+    handleError(e, 'No fue posible registrar.');
   } finally {
     savingException.value = false;
   }
@@ -295,7 +297,7 @@ async function deleteException(uuid) {
     toast.success('Liberado correctamente.');
     await Promise.all([loadExceptions(), loadCapacitySummary()]);
   } catch (e) {
-    toast.error(e?.response?.data?.detail || 'No fue posible liberar.');
+    handleError(e, 'No fue posible liberar.');
   } finally {
     deletingUuid.value = null;
   }

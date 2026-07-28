@@ -161,6 +161,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue'
 import useApi from '@/composables/useApi'
+import { formatCOP } from '@/utils/money'
 
 interface Quotation {
   variant_id: string
@@ -199,10 +200,7 @@ const showRulesButton = computed(() => quotation.value?.breakdown?.cost_rules?.l
 
 const formatNumber = (num: number): string => {
   if (!num) return '0'
-  return new Intl.NumberFormat('es-CO', {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(num)
+  return formatCOP(num)
 }
 
 const fetchQuotation = async () => {

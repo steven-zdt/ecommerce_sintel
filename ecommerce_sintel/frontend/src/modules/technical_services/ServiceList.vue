@@ -306,6 +306,7 @@ import { useTechnicalServicesStore } from '@/store/technicalServicesAdmin/servic
 import { useTechnicalServicesCatalogStore } from '@/store/technicalServicesAdmin/catalog';
 import { useToast } from '@/composables/useToast';
 import { useOffcanvas } from '@/composables/useOffcanvas';
+import { formatCOP } from '@/utils/money';
 import SintelOffcanvas from '@/components/ui/SintelOffcanvas.vue';
 import ServiceDetail from './ServiceDetail.vue';
 import ServiceForm from './ServiceForm.vue';
@@ -459,9 +460,7 @@ async function executeDelete(item) {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function formatCurrency(value) {
   if (!value) return 'N/A';
-  return new Intl.NumberFormat('es-CO', {
-    style: 'currency', currency: 'COP', minimumFractionDigits: 0,
-  }).format(value);
+  return formatCOP(value, { withSymbol: true });
 }
 
 // ── Eventos ───────────────────────────────────────────────────────────────────

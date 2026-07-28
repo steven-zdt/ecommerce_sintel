@@ -881,6 +881,8 @@ import { useTechnicalServicesCatalogStore } from '@/store/technicalServicesAdmin
 import { useTechnicalServicePackagesStore } from '@/store/technicalServicesAdmin/packages';
 import { useToast } from '@/composables/useToast';
 import useApi from '@/composables/useApi';
+import { useErrorHandler } from '@/composables/useErrorHandler';
+import { formatCOP } from '@/utils/money';
 import CostCalculationPanel from './CostCalculationPanel.vue';
 import ServicePackagesPanel from './ServicePackagesPanel.vue';
 import ServiceFAQManager from './ServiceFAQManager.vue';
@@ -893,6 +895,7 @@ const emit = defineEmits(['success', 'cancel']);
 
 const toast = useToast();
 const api = useApi();
+const { handleError } = useErrorHandler();
 const store = useTechnicalServicesStore();
 const catalogStore = useTechnicalServicesCatalogStore();
 const packagesStore = useTechnicalServicePackagesStore();
@@ -1051,7 +1054,7 @@ async function saveMarketing() {
     hasMarketing.value = true;
     toast.success('Marketing guardado');
   } catch (e) {
-    toast.error(e.response?.data?.detail || 'Error al guardar marketing');
+    handleError(e, 'Error al guardar marketing');
   } finally {
     marketingLoading.value = false;
   }
@@ -1407,7 +1410,7 @@ const cleanNum = (val) => {
 
 const formatNum = (val) => {
   if (val == null || val === '') return '0';
-  return new Intl.NumberFormat('es-CO', { minimumFractionDigits: 0 }).format(val);
+  return formatCOP(val);
 };
 
 const formatDate = (val) => {

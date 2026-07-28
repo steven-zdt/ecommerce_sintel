@@ -240,10 +240,12 @@
 import { ref, reactive, watch, onMounted } from 'vue';
 import useApi from '@/composables/useApi';
 import { useToast } from '@/composables/useToast';
+import { useErrorHandler } from '@/composables/useErrorHandler';
 import { useEnums } from '@/composables/useEnums';
 
 const api = useApi();
 const toast = useToast();
+const { handleError } = useErrorHandler();
 const enums = useEnums();
 
 const items = ref([]);
@@ -318,7 +320,7 @@ async function changePriority(order, priority) {
     order.priority = priority;
     toast.success('Prioridad actualizada');
   } catch (err) {
-    toast.error(err.response?.data?.detail || 'No se pudo cambiar la prioridad');
+    handleError(err, 'No se pudo cambiar la prioridad');
   }
 }
 
@@ -330,7 +332,7 @@ async function unassign(order) {
     toast.success('Asignación cancelada');
     await loadPage();
   } catch (err) {
-    toast.error(err.response?.data?.detail || 'No se pudo cancelar la asignación');
+    handleError(err, 'No se pudo cancelar la asignación');
   } finally {
     actionLoading.value = false;
   }
@@ -365,7 +367,7 @@ async function confirmAssign(tech) {
     closeAssignModal();
     await loadPage();
   } catch (err) {
-    toast.error(err.response?.data?.detail || 'No se pudo asignar el técnico');
+    handleError(err, 'No se pudo asignar el técnico');
   } finally {
     assignModal.loading = false;
   }
@@ -378,7 +380,7 @@ async function autoAssign() {
     closeAssignModal();
     await loadPage();
   } catch (err) {
-    toast.error(err.response?.data?.detail || 'No se pudo asignar automáticamente');
+    handleError(err, 'No se pudo asignar automáticamente');
   } finally {
     assignModal.loading = false;
   }

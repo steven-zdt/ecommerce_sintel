@@ -123,11 +123,13 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import useApi from '@/composables/useApi';
 import { useToast } from '@/composables/useToast';
+import { useErrorHandler } from '@/composables/useErrorHandler';
 import { useEnums } from '@/composables/useEnums';
 import ScheduleModal from '@/components/customer/services/ScheduleModal.vue';
 
 const api = useApi();
 const toast = useToast();
+const { handleError } = useErrorHandler();
 const enums = useEnums();
 
 const viewMode = ref('day');
@@ -225,7 +227,7 @@ async function load() {
     feed.value = calendarRes.data;
     capacitySummary.value = summaryRes.data;
   } catch (e) {
-    toast.error(e?.response?.data?.detail || 'No fue posible cargar la agenda.');
+    handleError(e, 'No fue posible cargar la agenda.');
   } finally {
     loading.value = false;
   }
@@ -250,7 +252,7 @@ async function saveReschedule(form) {
     showReschedule.value = false;
     await load();
   } catch (e) {
-    toast.error(e?.response?.data?.detail || 'No fue posible reprogramar.');
+    handleError(e, 'No fue posible reprogramar.');
   } finally {
     saving.value = false;
   }

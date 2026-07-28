@@ -201,6 +201,7 @@
 import { ref, watch } from 'vue';
 import { useTechnicalServicePackagesStore } from '@/store/technicalServicesAdmin/packages';
 import { useToast } from '@/composables/useToast';
+import { formatCOP } from '@/utils/money';
 import PackageFormFields from './PackageFormFields.vue';
 import PackageChildManager from './PackageChildManager.vue';
 
@@ -322,7 +323,7 @@ function toggleExpand(pkg) {
 
 const formatNum = (val) => {
   if (val == null || val === '') return '0';
-  return new Intl.NumberFormat('es-CO', { minimumFractionDigits: 0 }).format(val);
+  return formatCOP(val);
 };
 </script>
 

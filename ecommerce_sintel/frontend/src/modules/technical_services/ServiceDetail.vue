@@ -97,16 +97,14 @@
 </template>
 
 <script setup>
+import { formatCOP } from '@/utils/money';
+
 const props = defineProps({
   service: { type: Object, required: true }
 });
 
 function formatCurrency(value) {
-  return new Intl.NumberFormat('es-CO', {
-    style: 'currency',
-    currency: 'COP',
-    minimumFractionDigits: 0
-  }).format(value);
+  return formatCOP(value, { withSymbol: true });
 }
 </script>
 

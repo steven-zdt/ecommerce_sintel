@@ -136,6 +136,7 @@
 import { computed, onMounted, reactive, ref } from 'vue';
 import useApi from '@/composables/useApi';
 import { useToast } from '@/composables/useToast';
+import { useErrorHandler } from '@/composables/useErrorHandler';
 import BaseOperationBoard from '@/components/shared/BaseOperationBoard.vue';
 import OperationStatusBadge from '@/components/customer/services/OperationStatusBadge.vue';
 import OperationProgress from '@/components/customer/services/OperationProgress.vue';
@@ -147,6 +148,7 @@ import TechnicianAgendaList from '@/components/customer/services/TechnicianAgend
 
 const api = useApi();
 const toast = useToast();
+const { handleError } = useErrorHandler();
 
 const items = ref([]);
 const selected = ref(null);
@@ -226,7 +228,7 @@ async function execute(action, successMessage) {
     toast.success(successMessage);
     await load();
   } catch (e) {
-    toast.error(e?.response?.data?.detail || 'No fue posible completar la accion.');
+    handleError(e, 'No fue posible completar la accion.');
   } finally {
     saving.value = false;
   }

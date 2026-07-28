@@ -78,6 +78,7 @@
 import { ref, watch } from 'vue';
 import useApi from '@/composables/useApi';
 import { useToast } from '@/composables/useToast';
+import { useErrorHandler } from '@/composables/useErrorHandler';
 
 /**
  * Manager de ServiceFAQ -- unificacion con Renting (2026-07-18). Dedicado a
@@ -94,6 +95,7 @@ const props = defineProps({
 
 const api = useApi();
 const toast = useToast();
+const { handleError } = useErrorHandler();
 
 const items = ref([]);
 const loading = ref(false);
@@ -155,8 +157,7 @@ async function save() {
     cancelForm();
     await fetchItems();
   } catch (e) {
-    const errs = e.response?.data;
-    toast.error(errs?.detail || Object.values(errs || {})[0]?.[0] || 'Error al guardar');
+    handleError(e, 'Error al guardar');
   } finally {
     saving.value = false;
   }
