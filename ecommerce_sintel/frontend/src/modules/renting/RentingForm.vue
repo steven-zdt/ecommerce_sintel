@@ -778,8 +778,10 @@
 
 <script setup>
 import { ref, reactive, watch, computed, onMounted } from 'vue';
+import { formatCOP as formatCOPBase } from '@/utils/money';
 import useApi from '@/composables/useApi';
 import { useToast } from '@/composables/useToast';
+import { useErrorHandler } from '@/composables/useErrorHandler';
 import CatalogListManager from '@/modules/renting/catalog/CatalogListManager.vue';
 import SpecificationsManager from '@/modules/renting/catalog/SpecificationsManager.vue';
 import GalleryManager from '@/modules/renting/catalog/GalleryManager.vue';
@@ -795,6 +797,7 @@ const emit = defineEmits(['success', 'cancel']);
 
 const api   = useApi();
 const toast = useToast();
+const { handleError } = useErrorHandler();
 
 // Estado interno — permite transicion create→edit sin involucrar al padre
 const localMode       = ref(props.mode);
@@ -1017,8 +1020,7 @@ async function submitCreate() {
     activeTab.value = 'variantes';
     toast.success('Equipo creado. Ahora agrega variantes y configura precios.');
   } catch (e) {
-    const errs = e.response?.data;
-    toast.error(errs?.name?.[0] || errs?.detail || 'Error al crear el equipo');
+    handleError(e, 'Error al crear el equipo');
   } finally {
     loading.value = false;
   }
@@ -1039,7 +1041,7 @@ async function submitUpdate() {
     localItem.value = { ...localItem.value, ...data };
     toast.success('Datos del equipo actualizados');
   } catch (e) {
-    toast.error(e.response?.data?.detail || 'Error al actualizar');
+    handleError(e, 'Error al actualizar');
   } finally {
     loading.value = false;
   }
@@ -1105,8 +1107,7 @@ async function saveVariant() {
     cancelVariantForm();
     await fetchVariants(localItem.value.uuid);
   } catch (e) {
-    const errs = e.response?.data;
-    toast.error(errs?.sku?.[0] || errs?.detail || errs?.non_field_errors?.[0] || 'Error al guardar variante');
+    handleError(e, 'Error al guardar variante');
   } finally {
     vLoading.value = false;
   }
@@ -1156,7 +1157,7 @@ async function saveLogistics() {
     hasLogistics.value = true;
     toast.success('Costos de logistica guardados');
   } catch (e) {
-    toast.error(e.response?.data?.detail || 'Error al guardar logistica');
+    handleError(e, 'Error al guardar logistica');
   } finally {
     logisticsLoading.value = false;
   }
@@ -1218,7 +1219,7 @@ async function saveMarketing() {
     hasMarketing.value = true;
     toast.success('Marketing guardado');
   } catch (e) {
-    toast.error(e.response?.data?.detail || 'Error al guardar marketing');
+    handleError(e, 'Error al guardar marketing');
   } finally {
     marketingLoading.value = false;
   }
@@ -1270,7 +1271,7 @@ async function saveCostRule() {
     });
     toast.success('Regla de costo creada');
   } catch (e) {
-    toast.error(e.response?.data?.detail || 'Error al crear regla');
+    handleError(e, 'Error al crear regla');
   } finally {
     costLoading.value = false;
   }
@@ -1300,7 +1301,7 @@ async function deleteCostRule(rule) {
     await fetchCostRules();
     toast.success('Regla eliminada');
   } catch (e) {
-    toast.error(e.response?.data?.detail || 'Error al eliminar la regla');
+    handleError(e, 'Error al eliminar la regla');
   } finally {
     costLoading.value = false;
   }
@@ -1315,7 +1316,7 @@ async function assignCostRule(ruleUuid) {
     });
     toast.success('Regla asignada a la variante principal');
   } catch (e) {
-    toast.error(e.response?.data?.detail || 'Ya asignada o error al asignar');
+    handleError(e, 'Ya asignada o error al asignar');
   } finally {
     costLoading.value = false;
   }
@@ -1324,9 +1325,7 @@ async function assignCostRule(ruleUuid) {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function formatCOP(value) {
   if (value == null || value === '') return null;
-  return new Intl.NumberFormat('es-CO', {
-    style: 'currency', currency: 'COP', minimumFractionDigits: 0,
-  }).format(value);
+  return formatCOPBase(value, { withSymbol: true });
 }
 
 function contextLabel(ctx) {

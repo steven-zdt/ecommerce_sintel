@@ -44,6 +44,14 @@
       :equipment-uuid="equipmentUuid"
     />
 
+    <!-- TAB: Modalidades comerciales (Renting/Comodato, 2026-07-22) -->
+    <div v-if="activeTab === 'commercial'">
+      <CommercialConfigPanel :equipment-uuid="equipmentUuid" />
+      <div class="mt-4">
+        <CommercialOptionsPanel :equipment-uuid="equipmentUuid" />
+      </div>
+    </div>
+
     <!-- TAB: Reglas de Costo -->
     <CostRulesPanel
       v-if="activeTab === 'costs'"
@@ -67,6 +75,8 @@ import VariantsPanel from './panels/VariantsPanel.vue';
 import LogisticsPanel from './panels/LogisticsPanel.vue';
 import CostRulesPanel from './panels/CostRulesPanel.vue';
 import BlocksPanel from './panels/BlocksPanel.vue';
+import CommercialConfigPanel from './panels/CommercialConfigPanel.vue';
+import CommercialOptionsPanel from './panels/CommercialOptionsPanel.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -82,10 +92,11 @@ const primaryVariantUuid = computed(() => {
 });
 
 const tabs = [
-  { key: 'variants',  label: 'Variantes',      icon: 'bi bi-layers' },
-  { key: 'logistics', label: 'Logística',       icon: 'bi bi-truck' },
-  { key: 'costs',     label: 'Reglas de Costo', icon: 'bi bi-tags' },
-  { key: 'blocks',    label: 'Bloqueos',        icon: 'bi bi-shield-lock' },
+  { key: 'variants',   label: 'Variantes',              icon: 'bi bi-layers' },
+  { key: 'logistics',  label: 'Logística',               icon: 'bi bi-truck' },
+  { key: 'commercial', label: 'Modalidades comerciales', icon: 'bi bi-hand-index-thumb' },
+  { key: 'costs',      label: 'Reglas de Costo',         icon: 'bi bi-tags' },
+  { key: 'blocks',     label: 'Bloqueos',                icon: 'bi bi-shield-lock' },
 ];
 
 onMounted(async () => {

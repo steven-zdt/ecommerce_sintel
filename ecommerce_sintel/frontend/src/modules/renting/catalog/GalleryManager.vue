@@ -70,6 +70,7 @@
 import { ref, watch } from 'vue';
 import useApi from '@/composables/useApi';
 import { useToast } from '@/composables/useToast';
+import { useErrorHandler } from '@/composables/useErrorHandler';
 
 const props = defineProps({
   equipmentUuid: { type: String, required: true },
@@ -77,6 +78,7 @@ const props = defineProps({
 
 const api = useApi();
 const toast = useToast();
+const { handleError } = useErrorHandler();
 const ENDPOINT = 'dashboard/equipment-images/';
 
 const imageTypes = [
@@ -125,7 +127,7 @@ async function upload() {
     await fetchImages();
     toast.success('Imagen subida');
   } catch (e) {
-    toast.error(e.response?.data?.detail || 'Error al subir imagen');
+    handleError(e, 'Error al subir imagen');
   } finally {
     uploading.value = false;
   }

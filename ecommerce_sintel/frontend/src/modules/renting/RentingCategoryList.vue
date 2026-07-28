@@ -110,7 +110,7 @@ const fetchCategories = async () => {
 const executeDelete = async (cat) => {
   actionLoading.value = true;
   try {
-    await api.delete(`dashboard/renting-categories/${cat.id}/`);
+    await api.delete(`dashboard/renting-categories/${cat.uuid}/`);
     toast.success(`Categoría "${cat.name}" eliminada`);
     await fetchCategories();
   } catch {

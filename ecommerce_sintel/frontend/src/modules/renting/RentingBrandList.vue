@@ -104,7 +104,7 @@ const fetchBrands = async () => {
 const executeDelete = async (brd) => {
   actionLoading.value = true;
   try {
-    await api.delete(`dashboard/renting-brands/${brd.id}/`);
+    await api.delete(`dashboard/renting-brands/${brd.uuid}/`);
     toast.success(`Marca "${brd.name}" eliminada`);
     await fetchBrands();
   } catch {

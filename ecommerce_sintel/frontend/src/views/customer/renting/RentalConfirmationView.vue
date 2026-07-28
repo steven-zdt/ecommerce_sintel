@@ -67,79 +67,20 @@
           <!-- Tarjeta vs PSE/Otros (mismo patron portado a Tienda y Servicios Tecnicos,
                ADR-001 Fase 3b): Tarjeta usa el flujo backend-directo, sin abrir el
                widget completo; PSE/Otros mantiene el widget (redireccion bancaria). -->
-          <div v-if="method === 'WOMPI' && cardApiFlowEnabled" class="mt-3">
-            <div class="btn-group w-100 mb-3" role="group">
-              <button type="button" class="btn btn-sm"
-                :class="wompiSubMethod === 'CARD' ? 'btn-checkout-accent' : 'btn-outline-secondary'"
-                @click="wompiSubMethod = 'CARD'">
-                <i class="bi bi-credit-card-2-front me-1"></i>Tarjeta
-              </button>
-              <button type="button" class="btn btn-sm"
-                :class="wompiSubMethod === 'WIDGET' ? 'btn-checkout-accent' : 'btn-outline-secondary'"
-                @click="wompiSubMethod = 'WIDGET'">
-                <i class="bi bi-bank me-1"></i>PSE / Otros
-              </button>
-            </div>
-
-            <div v-if="wompiSubMethod === 'CARD'">
-              <div v-if="loadingCards" class="text-center py-2">
-                <span class="spinner-border spinner-border-sm text-checkout-accent"></span>
-              </div>
-              <div v-else class="d-flex flex-column gap-2">
-                <PaymentMethodCard
-                  v-for="card in savedCards" :key="card.uuid"
-                  :active="selectedCardId === card.token_id"
-                  @select="selectedCardId = card.token_id"
-                >
-                  <div class="d-flex align-items-center gap-2">
-                    <i class="bi bi-credit-card"></i>
-                    <span class="small">{{ card.brand }} •••• {{ card.masked_number.slice(-4) }}</span>
-                    <span class="text-muted small ms-auto">{{ card.exp_month }}/{{ card.exp_year }}</span>
-                    <i class="bi flex-shrink-0" :class="selectedCardId === card.token_id ? 'bi-check-circle-fill text-success' : 'bi-circle text-muted'"></i>
-                  </div>
-                </PaymentMethodCard>
-
-                <PaymentMethodCard :active="selectedCardId === 'NEW'" @select="selectedCardId = 'NEW'">
-                  <div class="d-flex align-items-center gap-2">
-                    <i class="bi bi-plus-circle"></i>
-                    <span class="small fw-semibold">Agregar tarjeta nueva</span>
-                    <i class="bi flex-shrink-0 ms-auto" :class="selectedCardId === 'NEW' ? 'bi-check-circle-fill text-success' : 'bi-circle text-muted'"></i>
-                  </div>
-                </PaymentMethodCard>
-
-                <div v-if="selectedCardId === 'NEW'" class="row g-2 mt-1">
-                  <div class="col-12">
-                    <input v-model="newCardRaw.number" type="text" inputmode="numeric" autocomplete="cc-number"
-                      class="form-control form-control-sm" placeholder="Numero de tarjeta" maxlength="19">
-                  </div>
-                  <div class="col-4">
-                    <input v-model="newCardRaw.exp_month" type="text" inputmode="numeric" autocomplete="cc-exp-month"
-                      class="form-control form-control-sm" placeholder="MM" maxlength="2">
-                  </div>
-                  <div class="col-4">
-                    <input v-model="newCardRaw.exp_year" type="text" inputmode="numeric" autocomplete="cc-exp-year"
-                      class="form-control form-control-sm" placeholder="AA" maxlength="2">
-                  </div>
-                  <div class="col-4">
-                    <input v-model="newCardRaw.cvc" type="password" inputmode="numeric" autocomplete="cc-csc"
-                      class="form-control form-control-sm" placeholder="CVC" maxlength="4">
-                  </div>
-                  <div class="col-12">
-                    <input v-model="newCardRaw.card_holder" type="text" autocomplete="cc-name"
-                      class="form-control form-control-sm" placeholder="Nombre del titular">
-                  </div>
-                </div>
-                <p class="text-muted mb-0" style="font-size:.7rem">
-                  <i class="bi bi-shield-lock-fill me-1"></i>Tus datos de tarjeta se envian directo a Wompi, nunca pasan por nuestros servidores.
-                </p>
-
-                <button class="btn btn-checkout-accent w-100 mt-2" :disabled="paying || !cardStepValid" @click="pay">
-                  <span v-if="paying" class="spinner-border spinner-border-sm me-2"></span>
-                  Pagar
-                </button>
-              </div>
-            </div>
-          </div>
+          <CardOrWidgetPanel
+            v-if="method === 'WOMPI' && cardApiFlowEnabled"
+            v-model:sub-method="wompiSubMethod"
+            v-model:selected-card-id="selectedCardId"
+            :saved-cards="savedCards"
+            :loading-cards="loadingCards"
+            :new-card="newCardRaw"
+            :card-step-valid="cardStepValid"
+            :loading="paying"
+            :card-api-flow-enabled="cardApiFlowEnabled"
+            :widget-flow-enabled="widgetFlowEnabled"
+            @update:new-card="({ field, value }) => newCardRaw[field] = value"
+            @pay="pay"
+          />
         </template>
       </CheckoutModal>
 
@@ -149,18 +90,19 @@
 
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue';
+import { formatCOP } from '@/utils/money';
 import { useRoute, useRouter } from 'vue-router';
 import RentalBookingSuccess from '@/components/customer/renting/RentalBookingSuccess.vue';
 import { useBookingStore } from '@/store/renting/bookingStore';
 import { bookingService } from '@/services/renting/bookingService';
 import { paymentService } from '@/services/renting/paymentService';
 import { useWompiWidget } from '@/composables/useWompiWidget';
-import { useCardTokenization } from '@/composables/useCardTokenization';
+import { useCardOrWidgetPayment } from '@/composables/useCardOrWidgetPayment';
 import { useToast } from '@/composables/useToast';
 import useApi from '@/composables/useApi';
 import CheckoutModal from '@/components/shared/checkout/CheckoutModal.vue';
 import PaymentMethodSelector from '@/components/shared/checkout/PaymentMethodSelector.vue';
-import PaymentMethodCard from '@/components/shared/checkout/PaymentMethodCard.vue';
+import CardOrWidgetPanel from '@/components/shared/checkout/CardOrWidgetPanel.vue';
 import PaymentCTA from '@/components/shared/checkout/PaymentCTA.vue';
 
 const route  = useRoute();
@@ -168,7 +110,6 @@ const router = useRouter();
 const store  = useBookingStore();
 const api    = useApi();
 const { openWompiWidget } = useWompiWidget();
-const { tokenizeCard }    = useCardTokenization();
 const toast  = useToast();
 
 const rental      = ref(null);
@@ -184,50 +125,23 @@ const paying      = ref(false);
 // roto hoy, así que ocultarlo es la opcion segura, no al reves.
 const nequiEnabled = ref(false);
 
-// Tarjeta vs PSE/Otros (ADR-001 Fase 3b, portado desde CheckoutView.vue /
-// ServiceCheckoutModal.vue -- Renting era la ultima superficie de checkout
-// que seguia abriendo el widget completo tambien para tarjetas).
-const wompiSubMethod     = ref('CARD');
-const cardApiFlowEnabled = ref(false); // fail-safe: widget completo hasta confirmar el flag
-const savedCards     = ref([]);
-const loadingCards   = ref(false);
-const cardsFetched   = ref(false);
-const selectedCardId = ref('NEW');
-const defaultNewCard = () => ({ number: '', exp_month: '', exp_year: '', cvc: '', card_holder: '' });
-const newCardRaw     = ref(defaultNewCard());
-const cardStepValid  = computed(() => selectedCardId.value !== 'NEW'
-  || Object.values(newCardRaw.value).every((v) => String(v).trim() !== ''));
+// Tarjeta vs PSE/Otros -- estado y logica compartidos con CheckoutView.vue y
+// ServiceCheckoutModal.vue via useCardOrWidgetPayment() (extraido en la
+// auditoria 2026-07-22, plan hibrido Widget+API). No se usa el
+// fetchFeatureFlags() propio del composable porque esta vista ya hace una
+// sola llamada combinada (tambien necesita nequi_enabled) en el onMounted de
+// abajo -- cardApiFlowEnabled sigue siendo un ref normal, asignable desde aqui.
+const {
+  wompiSubMethod, cardApiFlowEnabled, widgetFlowEnabled,
+  savedCards, loadingCards, selectedCardId, newCardRaw, cardStepValid,
+  fetchSavedCards, resolveCardToken, resetNewCard,
+} = useCardOrWidgetPayment();
 
-async function fetchSavedCards() {
-  if (cardsFetched.value) return;
-  cardsFetched.value = true;
-  loadingCards.value = true;
-  try {
-    const res = await api.get('payment/cards/');
-    savedCards.value = res.data.results ?? res.data ?? [];
-    if (savedCards.value.length > 0) selectedCardId.value = savedCards.value[0].token_id;
-  } catch {
-    // Sin tarjetas guardadas o error de red -- el usuario ve "agregar tarjeta nueva".
-  } finally {
-    loadingCards.value = false;
-  }
-}
-
-async function resolveCardToken() {
-  if (selectedCardId.value !== 'NEW') return selectedCardId.value;
-  const tokenData = await tokenizeCard(newCardRaw.value);
-  await api.post('payment/cards/', {
-    token_id: tokenData.id,
-    masked_number: `************${tokenData.last_four}`,
-    brand: tokenData.brand,
-    exp_month: tokenData.exp_month,
-    exp_year: tokenData.exp_year,
-    cardholder_name: tokenData.card_holder || newCardRaw.value.card_holder,
-  });
-  return tokenData.id;
-}
-
-watch(method, (m) => { if (m === 'WOMPI') fetchSavedCards(); });
+// immediate: true -- 'WOMPI' ya es el valor por defecto de `method` al montar
+// esta vista, asi que un watch sin immediate nunca dispara (no hay cambio de
+// valor que detectar) y las tarjetas guardadas jamas se cargaban (bug real,
+// hallado en smoke test E2E 2026-07-22).
+watch(method, (m) => { if (m === 'WOMPI') fetchSavedCards(); }, { immediate: true });
 
 const created      = computed(() => store.created);
 const shortId      = computed(() => String(route.params.uuid || '').slice(0, 8).toUpperCase());
@@ -250,7 +164,7 @@ const editRoute = computed(() => ({
 }));
 
 const money = (v) =>
-  new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(v || 0);
+  formatCOP(v, { withSymbol: true });
 
 const nequiError = ref(false);
 
@@ -311,7 +225,7 @@ async function pay() {
       : (e.response?.data?.detail || e?.message || 'No pudimos iniciar el pago.');
     toast.error(message);
   } finally {
-    if (isCardFlow) newCardRaw.value = defaultNewCard();
+    if (isCardFlow) resetNewCard();
     paying.value = false;
   }
 }
@@ -324,15 +238,30 @@ onMounted(async () => {
   } finally {
     loading.value = false;
   }
+  // Comodato no tiene paso de pago -- si el cliente vuelve a esta reserva mas
+  // tarde (ej. desde "Mis alquileres"), redirige a la misma pantalla de
+  // "pendiente de aprobacion" que ya usa el wizard al enviar la solicitud, en
+  // vez de mostrar el CTA "Proceder al pago" (bug real, hallado en smoke test
+  // 2026-07-22: esta vista no distinguia comercial_type y siempre asumia que
+  // faltaba pagar).
+  if (rental.value?.commercial_type === 'COMODATO') {
+    router.replace({
+      path: '/payment/result',
+      query: { status: 'RENTAL_COD_APPROVED', rental_uuid: route.params.uuid },
+    });
+    return;
+  }
   try {
     const res = await api.get('payment/payments/feature-flags/');
     nequiEnabled.value = !!res.data.nequi_enabled;
     cardApiFlowEnabled.value = !!res.data.card_api_flow_enabled;
+    widgetFlowEnabled.value  = res.data.widget_flow_enabled !== false;
   } catch {
     nequiEnabled.value = false;
     cardApiFlowEnabled.value = false; // fail-safe, no fail-open
   }
-  if (!cardApiFlowEnabled.value) wompiSubMethod.value = 'WIDGET';
+  if (!cardApiFlowEnabled.value && widgetFlowEnabled.value) wompiSubMethod.value = 'WIDGET';
+  else if (cardApiFlowEnabled.value && !widgetFlowEnabled.value) wompiSubMethod.value = 'CARD';
 });
 </script>
 

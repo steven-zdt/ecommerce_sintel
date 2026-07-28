@@ -16,6 +16,8 @@ export const useRentingCatalogAdminStore = defineStore('rentingCatalogAdmin', {
     currentEquipment: null,
     variants: [],
     logisticsConfig: null,
+    commercialConfig: null,
+    commercialOptions: [],
     equipmentBlocks: [],
     loading: false,
     actionLoading: false,
@@ -211,6 +213,92 @@ export const useRentingCatalogAdminStore = defineStore('rentingCatalogAdmin', {
         return { ok: true };
       } catch (err) {
         return { ok: false, error: 'Error eliminando configuración logística.' };
+      } finally {
+        this.actionLoading = false;
+      }
+    },
+
+    // ─── Commercial Config (2026-07-22 -- Renting/Comodato) ────────────────────
+    // Mismo patron que Logistics Config (singleton por equipo, PUT idempotente).
+
+    async fetchCommercialConfig(equipmentUuid) {
+      try {
+        const { data } = await this._api().get(`dashboard/equipment/${equipmentUuid}/commercial-config/`);
+        this.commercialConfig = data;
+        return data;
+      } catch (err) {
+        this.commercialConfig = null;
+        return null;
+      }
+    },
+
+    async upsertCommercialConfig(equipmentUuid, payload) {
+      this.actionLoading = true;
+      try {
+        const { data } = await this._api().put(`dashboard/equipment/${equipmentUuid}/commercial-config/`, payload);
+        this.commercialConfig = data;
+        return { ok: true, data };
+      } catch (err) {
+        return { ok: false, error: err.response?.data?.detail || 'Error guardando configuración comercial.' };
+      } finally {
+        this.actionLoading = false;
+      }
+    },
+
+    async deleteCommercialConfig(equipmentUuid) {
+      this.actionLoading = true;
+      try {
+        await this._api().delete(`dashboard/equipment/${equipmentUuid}/commercial-config/`);
+        this.commercialConfig = null;
+        return { ok: true };
+      } catch (err) {
+        return { ok: false, error: 'Error eliminando configuración comercial.' };
+      } finally {
+        this.actionLoading = false;
+      }
+    },
+
+    // ─── Commercial Options (plazos de Comodato: 6/12/18/24/36 meses) ─────────
+    // POST hace upsert (get_or_create por equipment+modality+term_months en el
+    // backend) -- no hace falta un endpoint PATCH separado para "actualizar".
+
+    async fetchCommercialOptions(equipmentUuid) {
+      this._clearError();
+      this.loading = true;
+      try {
+        const { data } = await this._api().get(`dashboard/equipment/${equipmentUuid}/commercial-options/`);
+        this.commercialOptions = data.results ?? data;
+        return this.commercialOptions;
+      } catch (err) {
+        this.error = 'Error cargando opciones comerciales.';
+        return [];
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    async upsertCommercialOption(equipmentUuid, payload) {
+      this.actionLoading = true;
+      try {
+        const { data } = await this._api().post(`dashboard/equipment/${equipmentUuid}/commercial-options/`, payload);
+        await this.fetchCommercialOptions(equipmentUuid);
+        return { ok: true, data };
+      } catch (err) {
+        const msg = err.response?.data?.detail || JSON.stringify(err.response?.data) || 'Error al guardar la opción comercial.';
+        return { ok: false, error: msg };
+      } finally {
+        this.actionLoading = false;
+      }
+    },
+
+    async deleteCommercialOption(equipmentUuid, optionUuid) {
+      this.actionLoading = true;
+      try {
+        await this._api().delete(`dashboard/equipment/${equipmentUuid}/commercial-options/${optionUuid}/delete/`);
+        await this.fetchCommercialOptions(equipmentUuid);
+        return { ok: true };
+      } catch (err) {
+        return { ok: false, error: err.response?.data?.detail || 'Error al eliminar la opción comercial.' };
       } finally {
         this.actionLoading = false;
       }

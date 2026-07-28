@@ -33,6 +33,7 @@
 import { ref, watch } from 'vue';
 import useApi from '@/composables/useApi';
 import { useToast } from '@/composables/useToast';
+import { useErrorHandler } from '@/composables/useErrorHandler';
 
 const props = defineProps({
   equipment: { type: Object, required: true },
@@ -41,6 +42,7 @@ const emit = defineEmits(['updated']);
 
 const api = useApi();
 const toast = useToast();
+const { handleError } = useErrorHandler();
 
 const saving = ref(false);
 const fileInputRef = ref(null);
@@ -85,7 +87,7 @@ async function save() {
     emit('updated', data);
     toast.success('SEO actualizado');
   } catch (e) {
-    toast.error(e.response?.data?.detail || 'Error al guardar SEO');
+    handleError(e, 'Error al guardar SEO');
   } finally {
     saving.value = false;
   }

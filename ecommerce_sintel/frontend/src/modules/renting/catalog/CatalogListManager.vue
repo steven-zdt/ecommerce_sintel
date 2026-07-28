@@ -95,8 +95,10 @@
 
 <script setup>
 import { ref, computed, watch } from 'vue';
+import { formatCOP } from '@/utils/money';
 import useApi from '@/composables/useApi';
 import { useToast } from '@/composables/useToast';
+import { useErrorHandler } from '@/composables/useErrorHandler';
 import IconRenderer from '@/components/ui/IconRenderer.vue';
 
 const props = defineProps({
@@ -115,6 +117,7 @@ const props = defineProps({
 
 const api = useApi();
 const toast = useToast();
+const { handleError } = useErrorHandler();
 
 const items = ref([]);
 const showForm = ref(false);
@@ -140,14 +143,15 @@ function secondaryText(item) {
   const val = item[key];
   if (val === null || val === undefined || val === '') return '';
   const field = props.fields.find((f) => f.key === key);
-  if (field?.type === 'price') return formatCOP(val);
+  if (field?.type === 'price') return formatPrice(val);
   return val;
 }
 
-function formatCOP(value) {
+
+function formatPrice(value) {
   const number = parseFloat(value);
   if (!Number.isFinite(number)) return null;
-  return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(number);
+  return formatCOP(number, { withSymbol: true });
 }
 
 function emptyForm() {
@@ -210,8 +214,7 @@ async function save() {
     cancelForm();
     await fetchItems();
   } catch (e) {
-    const errs = e.response?.data;
-    toast.error(errs?.detail || Object.values(errs || {})[0]?.[0] || 'Error al guardar');
+    handleError(e, 'Error al guardar');
   } finally {
     saving.value = false;
   }

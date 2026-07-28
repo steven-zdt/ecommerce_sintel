@@ -30,6 +30,7 @@
 import { ref, watch } from 'vue';
 import useApi from '@/composables/useApi';
 import { useToast } from '@/composables/useToast';
+import { useErrorHandler } from '@/composables/useErrorHandler';
 
 const props = defineProps({
   item: { type: Object, default: null },
@@ -39,6 +40,7 @@ const emit = defineEmits(['success', 'cancel']);
 
 const api = useApi();
 const toast = useToast();
+const { handleError } = useErrorHandler();
 const loading = ref(false);
 const form = ref({ name: '', description: '', price_per_hour: '', is_active: true });
 
@@ -60,7 +62,7 @@ async function submit() {
     }
     emit('success');
   } catch (e) {
-    toast.error(e.response?.data?.detail || e.response?.data?.name?.[0] || 'Error al guardar');
+    handleError(e, 'Error al guardar');
   } finally {
     loading.value = false;
   }

@@ -95,6 +95,7 @@
 
 <script setup>
 import { ref } from 'vue';
+import { formatCOP as formatCOPBase } from '@/utils/money';
 import { useRentingCatalogAdminStore } from '@/store/rentingAdmin/catalog';
 import { useToast } from '@/composables/useToast';
 import VariantFormModal from '../VariantFormModal.vue';
@@ -113,9 +114,7 @@ const pendingDelete = ref(null);
 
 function formatCOP(value) {
   if (!value) return null;
-  return new Intl.NumberFormat('es-CO', {
-    style: 'currency', currency: 'COP', minimumFractionDigits: 0,
-  }).format(value);
+  return formatCOPBase(value, { withSymbol: true });
 }
 
 function openCreate() {

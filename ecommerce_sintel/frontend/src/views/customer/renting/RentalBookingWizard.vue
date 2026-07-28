@@ -54,6 +54,24 @@
                     </option>
                   </select></label
                 >
+                <div v-if="comodatoAvailable" class="priority-picker modality-picker">
+                  <button
+                    type="button"
+                    :class="{ active: draft.commercialType === 'RENTAL' }"
+                    @click="setCommercialType('RENTAL')"
+                  >
+                    <strong><i class="bi bi-calendar-check me-1"></i>Renting</strong
+                    ><small>Alquiler pagado por días u horas</small>
+                  </button>
+                  <button
+                    type="button"
+                    :class="{ active: draft.commercialType === 'COMODATO' }"
+                    @click="setCommercialType('COMODATO')"
+                  >
+                    <strong><i class="bi bi-hand-index-thumb me-1"></i>Comodato</strong
+                    ><small>Préstamo de uso, sin costo, sujeto a aprobación</small>
+                  </button>
+                </div>
                 <div class="included-grid">
                   <div v-for="item in inclusions" :key="item.label">
                     <i :class="item.icon"></i><span>{{ item.label }}</span
@@ -245,7 +263,7 @@
             <div v-if="step === 3" class="schedule-layout">
               <div class="booking-card">
                 <h2><i class="bi bi-calendar3"></i> Selecciona el período</h2>
-                <div class="priority-picker">
+                <div v-if="draft.commercialType !== 'COMODATO'" class="priority-picker">
                   <button
                     :class="{ active: draft.schedule.priority === 'LOW' }"
                     @click="setPriority('LOW')"
@@ -264,40 +282,83 @@
                   {{ formattedEarliestDate }}. El calendario bloquea hoy, fechas pasadas y días que
                   no cumplen la anticipación.
                 </p>
-                <div class="date-grid">
-                  <label class="date-tile"
+
+                <!-- Comodato: plazo fijo en vez de rango de fechas -->
+                <template v-if="draft.commercialType === 'COMODATO'">
+                  <label class="date-tile mb-3"
                     ><span>Fecha de inicio *</span
                     ><input
                       v-model="draft.schedule.startDate"
                       type="date"
-                      :min="earliestStartDate" /></label
-                  ><label class="date-tile"
-                    ><span>Fecha final *</span
-                    ><input
-                      v-model="draft.schedule.endDate"
-                      type="date"
-                      :min="minimumEndDate"
-                      :disabled="!draft.schedule.startDate"
+                      :min="earliestStartDate"
                   /></label>
-                </div>
-                <div class="form-grid mt-3">
-                  <label class="field"
-                    ><span>Cantidad *</span
-                    ><input v-model.number="draft.schedule.quantity" min="1" type="number" /></label
-                  ><label v-if="selectedVariant?.rental_price_per_hour" class="field"
-                    ><span>Modalidad</span
-                    ><select v-model="draft.schedule.mode">
-                      <option value="days">Por días</option>
-                      <option value="hours">Por horas</option>
-                    </select></label
-                  >
-                </div>
-                <RentalHourSelector
-                  v-if="draft.schedule.mode === 'hours'"
-                  class="mt-3"
-                  v-model:delivery-time="draft.schedule.deliveryTime"
-                  v-model:pickup-time="draft.schedule.pickupTime"
-                />
+                  <span class="builder-title"><i class="bi bi-hourglass-split"></i> Plazo del comodato *</span>
+                  <div class="choice-grid term-picker">
+                    <button
+                      v-for="term in comodatoTermOptions"
+                      :key="term.term_months"
+                      type="button"
+                      class="term-chip"
+                      :class="{ active: draft.termMonths === term.term_months }"
+                      @click="setTermMonths(term.term_months)"
+                    >
+                      {{ term.term_months_display || `${term.term_months} meses` }}
+                    </button>
+                  </div>
+                  <p v-if="!comodatoTermOptions.length" class="schedule-rule mt-2">
+                    <i class="bi bi-exclamation-triangle"></i> Este equipo aún no tiene plazos de
+                    comodato configurados.
+                  </p>
+                  <p v-else-if="draft.schedule.endDate" class="address-hint mt-2">
+                    <i class="bi bi-info-circle"></i> Fecha estimada de devolución:
+                    {{ dateLabel.split(' — ')[1] }}
+                  </p>
+                  <div class="form-grid mt-3">
+                    <label class="field"
+                      ><span>Cantidad *</span
+                      ><input v-model.number="draft.schedule.quantity" min="1" type="number" /></label
+                    >
+                  </div>
+                </template>
+
+                <!-- Renting: rango de fechas continuo, sin cambios -->
+                <template v-else>
+                  <div class="date-grid">
+                    <label class="date-tile"
+                      ><span>Fecha de inicio *</span
+                      ><input
+                        v-model="draft.schedule.startDate"
+                        type="date"
+                        :min="earliestStartDate" /></label
+                    ><label class="date-tile"
+                      ><span>Fecha final *</span
+                      ><input
+                        v-model="draft.schedule.endDate"
+                        type="date"
+                        :min="minimumEndDate"
+                        :disabled="!draft.schedule.startDate"
+                    /></label>
+                  </div>
+                  <div class="form-grid mt-3">
+                    <label class="field"
+                      ><span>Cantidad *</span
+                      ><input v-model.number="draft.schedule.quantity" min="1" type="number" /></label
+                    ><label v-if="selectedVariant?.rental_price_per_hour" class="field"
+                      ><span>Modalidad</span
+                      ><select v-model="draft.schedule.mode">
+                        <option value="days">Por días</option>
+                        <option value="hours">Por horas</option>
+                      </select></label
+                    >
+                  </div>
+                  <RentalHourSelector
+                    v-if="draft.schedule.mode === 'hours'"
+                    class="mt-3"
+                    v-model:delivery-time="draft.schedule.deliveryTime"
+                    v-model:pickup-time="draft.schedule.pickupTime"
+                  />
+                </template>
+
                 <div class="info-box">
                   <i class="bi bi-info-circle"></i
                   ><span
@@ -357,7 +418,10 @@
                 <div class="booking-card summary-card">
                   <button @click="step = 3">Editar</button><span>Programación</span>
                   <h2>{{ dateLabel }}</h2>
-                  <p>{{ draft.schedule.quantity }} equipo(s) · {{ costs.days }} días</p>
+                  <p v-if="draft.commercialType === 'COMODATO'">
+                    {{ draft.schedule.quantity }} equipo(s) · Comodato {{ draft.termMonths }} meses
+                  </p>
+                  <p v-else>{{ draft.schedule.quantity }} equipo(s) · {{ costs.days }} días</p>
                 </div>
                 <RentalCostsCard :costs="costs" />
               </div>
@@ -443,6 +507,7 @@ import { useAvailabilityStore } from '@/store/renting/availabilityStore';
 import { pricingService } from '@/services/renting/pricingService';
 import { bookingService } from '@/services/renting/bookingService';
 import { useAuthStore } from '@/store/auth';
+import { formatCOP } from '@/utils/money';
 import RentalCostsCard from '@/components/customer/renting/RentalCostsCard.vue';
 import AvailabilityPill from '@/components/customer/renting/AvailabilityPill.vue';
 import AvailabilityCard from '@/components/customer/renting/AvailabilityCard.vue';
@@ -495,9 +560,12 @@ const image = computed(() => {
   const imgs = equipment.value?.images || [];
   return (imgs.find((i) => i.is_primary) || imgs[0])?.image || equipment.value?.image;
 });
+// Comodato no tiene tarifa continua (no hay $/dia ni $/hora) -- pasar
+// variant: null hace que pricingService.calculate() ponga rental=0 mientras
+// sigue calculando logistica/impuestos/dias reales, sin tocar ese servicio.
 const costs = computed(() =>
   pricingService.calculate({
-    variant: selectedVariant.value,
+    variant: draft.commercialType === 'COMODATO' ? null : selectedVariant.value,
     logistics: equipment.value?.logistics_config || {},
     startDate: draft.schedule.startDate,
     endDate: draft.schedule.endDate,
@@ -506,6 +574,12 @@ const costs = computed(() =>
     deliveryTime: draft.schedule.deliveryTime,
     pickupTime: draft.schedule.pickupTime,
   }),
+);
+const comodatoAvailable = computed(() => !!equipment.value?.commercial_config?.comodato_enabled);
+const comodatoTermOptions = computed(() =>
+  (equipment.value?.commercial_options || []).filter(
+    (o) => o.modality === 'COMODATO' && o.is_enabled,
+  ),
 );
 const localISO = (date) => {
   const y = date.getFullYear(),
@@ -584,12 +658,7 @@ const inclusions = computed(() => {
     },
   ];
 });
-const money = (v) =>
-  new Intl.NumberFormat('es-CO', {
-    style: 'currency',
-    currency: 'COP',
-    maximumFractionDigits: 0,
-  }).format(v || 0);
+const money = (v) => formatCOP(v, { withSymbol: true });
 const variantName = (v) =>
   v
     ? Object.values(v.attributes || {}).join(' · ') || 'Configuración estándar'
@@ -622,7 +691,20 @@ function setAddressPart(field, event) {
   event.target.value = draft.project[field];
 }
 function onPhoneInput(event) {
-  draft.customer.phone = event.target.value.replace(/\D/g, '').slice(0, 10);
+  // Bug real (hallado 2026-07-22): el campo ya muestra "+57" como prefijo
+  // fijo al lado, pero muchos clientes de todos modos pegan/escriben su
+  // numero completo con el indicativo (+57, 57 o 057) porque asi lo tienen
+  // guardado en sus contactos. Sin esto, "+573041112233" quedaba en
+  // "5730411122" tras quitar simbolos y recortar a 10 digitos -- ni
+  // empezaba por 3 ni eran los digitos reales del numero, y el usuario veia
+  // el error de validacion pese a haber escrito un numero valido.
+  let digits = event.target.value.replace(/\D/g, '');
+  if (digits.length > 10) {
+    if (digits.startsWith('0057')) digits = digits.slice(4);
+    else if (digits.startsWith('057')) digits = digits.slice(3);
+    else if (digits.startsWith('57')) digits = digits.slice(2);
+  }
+  draft.customer.phone = digits.slice(0, 10);
   event.target.value = draft.customer.phone;
 }
 function earliestLabel(days) {
@@ -635,6 +717,38 @@ function setPriority(value) {
     draft.schedule.endDate = '';
   }
 }
+function addMonths(dateStr, months) {
+  const d = new Date(`${dateStr}T12:00:00`);
+  d.setMonth(d.getMonth() + months);
+  return localISO(d);
+}
+function recomputeComodatoEndDate() {
+  if (draft.commercialType === 'COMODATO' && draft.schedule.startDate && draft.termMonths) {
+    draft.schedule.endDate = addMonths(draft.schedule.startDate, draft.termMonths);
+  }
+}
+function setCommercialType(value) {
+  draft.commercialType = value;
+  if (value === 'COMODATO') {
+    // Comodato es siempre por dias (nunca por horas) y no usa el concepto de
+    // "prioridad" de renting -- se normaliza al elegir la modalidad.
+    draft.schedule.mode = 'days';
+    draft.schedule.priority = 'LOW';
+    draft.schedule.deliveryTime = '';
+    draft.schedule.pickupTime = '';
+    if (!draft.termMonths && comodatoTermOptions.value.length) {
+      draft.termMonths = comodatoTermOptions.value[0].term_months;
+    }
+    recomputeComodatoEndDate();
+  } else {
+    draft.termMonths = null;
+  }
+}
+function setTermMonths(months) {
+  draft.termMonths = months;
+  recomputeComodatoEndDate();
+}
+watch(() => draft.schedule.startDate, recomputeComodatoEndDate);
 function addProjectFiles(event) {
   fileError.value = '';
   const incoming = Array.from(event.target.files || []);
@@ -688,8 +802,11 @@ function validate() {
       costs.value.days < 1)
   )
     error.value = `La fecha inicial debe ser igual o posterior al ${formattedEarliestDate.value}.`;
+  if (step.value === 3 && draft.commercialType === 'COMODATO' && !draft.termMonths)
+    error.value = 'Selecciona un plazo de comodato.';
   if (
     step.value === 3 &&
+    draft.commercialType !== 'COMODATO' &&
     draft.schedule.mode === 'hours' &&
     (!draft.schedule.deliveryTime ||
       !draft.schedule.pickupTime ||
@@ -760,6 +877,7 @@ async function submit() {
   try {
     const created = await bookingService.create({
       equipment_variant: selectedVariant.value.uuid,
+      commercial_type: draft.commercialType,
       location_address: p.address,
       location_city: p.city,
       location_department: p.department,
@@ -792,7 +910,15 @@ async function submit() {
     booking.created = { ...created, equipment: equipment.value, costs: costs.value };
     projectFiles.value.forEach((entry) => entry.preview && URL.revokeObjectURL(entry.preview));
     projectFiles.value = [];
-    router.push({ name: 'rental-confirmation', params: { uuid: created.uuid } });
+    if (draft.commercialType === 'COMODATO') {
+      // Comodato no tiene paso de pago (create_request() ya la deja en
+      // pending_validation) -- salta directo a la pantalla de resultado,
+      // reusando la misma rama que ya maneja COD-Renting (mismo estado:
+      // "solicitud registrada, pendiente de aprobacion", sin pago).
+      router.push({ path: '/payment/result', query: { status: 'RENTAL_COD_APPROVED', rental_uuid: created.uuid } });
+    } else {
+      router.push({ name: 'rental-confirmation', params: { uuid: created.uuid } });
+    }
   } catch (e) {
     error.value =
       Object.values(e.response?.data || {})
@@ -811,7 +937,23 @@ onMounted(async () => {
   try {
     equipment.value = await bookingService.equipment(route.params.uuid);
     variants.value = equipment.value.variants || [];
-    draft.variantUuid = route.query.variant || draft.variantUuid || variants.value[0]?.uuid || '';
+    // Bug real (hallado en smoke test 2026-07-22): la variante se elegia por
+    // uuid (query param, borrador persistido, o variants[0]) sin mirar el
+    // stock. Si esa variante tenia stock=0 (ej. "taladro": drrrd stock=0,
+    // SKU-SMOKE-UPDATED stock=7), CUALQUIER fecha -- incluida la recomendada
+    // -- mostraba "no disponible" en el paso 3, sin ninguna pista de que el
+    // problema era la variante, no la fecha. Ademas, como el draft persiste
+    // en localStorage (bookingStore.js), un cliente que ya habia caido en la
+    // variante sin stock quedaba atascado ahi en visitas futuras. Se
+    // resuelve validando que la variante solicitada/persistida tenga stock
+    // real antes de aceptarla; si no, cae a la primera con stock, y solo si
+    // ninguna tiene se usa variants[0] (para que el usuario vea al menos una
+    // opcion en el selector, en vez de un uuid vacio).
+    const requestedUuid = route.query.variant || draft.variantUuid;
+    const requestedVariant = variants.value.find((v) => v.uuid === requestedUuid);
+    const fallbackVariant = variants.value.find((v) => v.stock > 0) || variants.value[0];
+    draft.variantUuid =
+      (requestedVariant?.stock > 0 ? requestedVariant.uuid : fallbackVariant?.uuid) || '';
     draft.schedule.startDate = route.query.start || draft.schedule.startDate;
     draft.schedule.endDate = route.query.end || draft.schedule.endDate;
     if (draft.schedule.startDate && draft.schedule.startDate < earliestStartDate.value) {
@@ -1330,6 +1472,25 @@ onMounted(async () => {
 }
 .schedule-rule i {
   margin-right: 0.4rem;
+}
+.term-picker {
+  margin-top: 0.6rem;
+}
+.term-chip {
+  border: 1.5px solid #e2e0e8;
+  background: #fff;
+  border-radius: 999px;
+  padding: 0.55rem 0.9rem;
+  font-weight: 650;
+  color: #475569;
+}
+.term-chip.active {
+  border-color: #7c3aed;
+  background: #f5f3ff;
+  color: #5b21b6;
+}
+.modality-picker {
+  margin-bottom: 1.3rem;
 }
 .upload-zone {
   border: 2px dashed #c4b5fd;

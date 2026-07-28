@@ -92,6 +92,7 @@
 import { ref, watch } from 'vue';
 import useApi from '@/composables/useApi';
 import { useToast } from '@/composables/useToast';
+import { useErrorHandler } from '@/composables/useErrorHandler';
 
 const props = defineProps({
   equipmentUuid: { type: String, required: true },
@@ -99,6 +100,7 @@ const props = defineProps({
 
 const api = useApi();
 const toast = useToast();
+const { handleError } = useErrorHandler();
 
 const GROUPS_ENDPOINT = 'dashboard/rental-specification-groups/';
 const SPECS_ENDPOINT = 'dashboard/rental-specifications/';
@@ -152,7 +154,7 @@ async function saveGroup() {
     cancelGroupForm();
     await fetchGroups();
   } catch (e) {
-    toast.error(e.response?.data?.detail || 'Error al guardar el grupo');
+    handleError(e, 'Error al guardar el grupo');
   } finally {
     savingGroup.value = false;
   }
@@ -226,7 +228,7 @@ async function saveSpec(group) {
     cancelSpecForm();
     await fetchGroups();
   } catch (e) {
-    toast.error(e.response?.data?.detail || 'Error al guardar la especificacion');
+    handleError(e, 'Error al guardar la especificacion');
   } finally {
     savingSpec.value = false;
   }

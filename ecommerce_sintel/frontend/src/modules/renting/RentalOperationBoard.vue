@@ -53,9 +53,11 @@
 import { computed, onMounted, reactive, ref } from 'vue';
 import useApi from '@/composables/useApi';
 import { useToast } from '@/composables/useToast';
+import { useErrorHandler } from '@/composables/useErrorHandler';
 import BaseOperationBoard from '@/components/shared/BaseOperationBoard.vue';
 const api = useApi();
 const toast = useToast();
+const { handleError } = useErrorHandler();
 const items = ref([]); const dispatchers = ref([]); const selected = ref(null); const loading = ref(false); const saving = ref(false); const filters = reactive({ status: '', search: '' });
 const metrics = ref({});
 const schedule = reactive({ delivery_date: '', delivery_time: '', pickup_date: '', pickup_time: '', route: '', notes: '', priority: 'LOW', estimated_duration_minutes: null });
@@ -88,7 +90,7 @@ const formatSlot = (date, time) => date ? `${date} ${time?.slice(0, 5) || ''}` :
 async function loadMetrics() { const { data } = await api.get('renting/operations/dashboard/'); metrics.value = data; }
 async function load() { loading.value = true; try { const [{ data }, dispatcherResponse] = await Promise.all([api.get('renting/operations/', { params: filters }), api.get('dashboard/dispatchers/'), loadMetrics()]); items.value = data.results ?? data; dispatchers.value = dispatcherResponse.data.results ?? dispatcherResponse.data; } finally { loading.value = false; } }
 function selectOperation(op) { selected.value = op; incidentNotes.value = ''; Object.assign(schedule, { delivery_date: op.delivery_date || '', delivery_time: op.delivery_time?.slice(0, 5) || '', pickup_date: op.pickup_date || '', pickup_time: op.pickup_time?.slice(0, 5) || '', route: op.route || '', notes: op.notes || '', priority: op.priority || 'LOW', estimated_duration_minutes: op.estimated_duration_minutes || null }); Object.assign(assignment, { dispatcher_uuid: '', vehicle: op.assigned_vehicle || '' }); }
-async function execute(action, successMessage) { saving.value = true; try { const { data } = await action(); selected.value = data; toast.success(successMessage); await load(); } catch (e) { toast.error(e?.response?.data?.detail || 'No fue posible completar la accion.'); } finally { saving.value = false; } }
+async function execute(action, successMessage) { saving.value = true; try { const { data } = await action(); selected.value = data; toast.success(successMessage); await load(); } catch (e) { handleError(e, 'No fue posible completar la accion.'); } finally { saving.value = false; } }
 async function saveSchedule() { await execute(() => api.post(`renting/operations/${selected.value.uuid}/schedule/`, schedule), 'Programacion guardada.'); }
 async function assign() { await execute(() => api.post(`renting/operations/${selected.value.uuid}/assign-dispatcher/`, assignment), 'Transportista asignado y notificaciones encoladas.'); }
 async function runTransition(action) { await execute(() => api.post(`renting/operations/${selected.value.uuid}/${action.endpoint}/`), 'Estado operativo actualizado.'); }

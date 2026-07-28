@@ -3,6 +3,10 @@ import { defineStore } from 'pinia';
 const KEY = 'sintel:rental-booking:v2';
 const blank = () => ({
   variantUuid: '',
+  // Modalidad comercial (2026-07-22) -- default RENTAL preserva el wizard tal
+  // cual estaba; termMonths solo se usa cuando commercialType es COMODATO.
+  commercialType: 'RENTAL',
+  termMonths: null,
   project: {
     address: '', city: '', department: '', neighborhood: '',
     roadType: 'Calle', roadNumber: '', roadSuffix: '', generator: '', plate: '', complement: '',

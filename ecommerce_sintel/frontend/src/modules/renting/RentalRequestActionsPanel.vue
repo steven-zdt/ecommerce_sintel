@@ -112,6 +112,7 @@
 
 <script setup>
 import { ref, computed } from 'vue';
+import { formatCOP } from '@/utils/money';
 import { useToast } from '@/composables/useToast';
 import { useRentingRequestsAdminStore } from '@/store/rentingAdmin/requests';
 
@@ -156,7 +157,7 @@ const hasAnyAction = computed(() =>
 );
 
 function money(value) {
-  return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(value || 0);
+  return formatCOP(value, { withSymbol: true });
 }
 
 function resetForms() {

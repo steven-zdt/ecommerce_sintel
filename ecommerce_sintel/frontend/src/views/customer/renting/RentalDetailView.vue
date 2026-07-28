@@ -346,6 +346,7 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue';
+import { formatCOP } from '@/utils/money';
 import { useRoute, useRouter } from 'vue-router';
 import useApi from '@/composables/useApi';
 import { useToast } from '@/composables/useToast';
@@ -492,7 +493,7 @@ const hasDocumentation = computed(() => manualsCount.value || datasheetsCount.va
 function money(value) {
   const number = parseFloat(value);
   if (!Number.isFinite(number) || number <= 0) return 'A cotizar';
-  return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(number);
+  return formatCOP(number, { withSymbol: true });
 }
 
 // Formato compacto ("520.000 COP") sin simbolo "$" repetido -- para usar
@@ -501,7 +502,7 @@ function money(value) {
 function moneyCompact(value) {
   const number = parseFloat(value);
   if (!Number.isFinite(number) || number <= 0) return 'A cotizar';
-  return `${new Intl.NumberFormat('es-CO', { maximumFractionDigits: 0 }).format(number)} COP`;
+  return `${formatCOP(number)} COP`;
 }
 
 function priceSummary(variant) {

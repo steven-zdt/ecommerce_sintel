@@ -78,6 +78,7 @@
 
 <script setup>
 import { ref, reactive, onMounted, computed } from 'vue';
+import { formatCOP as formatCOPBase } from '@/utils/money';
 import { useRentingCatalogAdminStore } from '@/store/rentingAdmin/catalog';
 import { useToast } from '@/composables/useToast';
 
@@ -113,7 +114,7 @@ const form = reactive({
 
 function formatCOP(value) {
   if (!value) return null;
-  return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(value);
+  return formatCOPBase(value, { withSymbol: true });
 }
 
 function startEdit() {

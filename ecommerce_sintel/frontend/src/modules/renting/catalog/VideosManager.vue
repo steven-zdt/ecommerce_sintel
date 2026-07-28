@@ -86,6 +86,7 @@
 import { ref, watch } from 'vue';
 import useApi from '@/composables/useApi';
 import { useToast } from '@/composables/useToast';
+import { useErrorHandler } from '@/composables/useErrorHandler';
 
 const props = defineProps({
   equipmentUuid: { type: String, required: true },
@@ -93,6 +94,7 @@ const props = defineProps({
 
 const api = useApi();
 const toast = useToast();
+const { handleError } = useErrorHandler();
 const ENDPOINT = 'dashboard/rental-videos/';
 
 const videos = ref([]);
@@ -170,7 +172,7 @@ async function save() {
     await fetchVideos();
     toast.success('Video guardado');
   } catch (e) {
-    toast.error(e.response?.data?.detail || 'Error al guardar el video');
+    handleError(e, 'Error al guardar el video');
   } finally {
     saving.value = false;
   }

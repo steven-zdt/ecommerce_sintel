@@ -83,6 +83,7 @@ import { ref, onMounted } from 'vue';
 import useApi from '@/composables/useApi';
 import { useToast } from '@/composables/useToast';
 import { useOffcanvas } from '@/composables/useOffcanvas';
+import { formatCOP } from '@/utils/money';
 import SintelOffcanvas from '@/components/ui/SintelOffcanvas.vue';
 import RentalLaborForm from './RentalLaborForm.vue';
 
@@ -122,9 +123,7 @@ const executeDelete = async (lab) => {
 };
 
 function formatCurrency(value) {
-  return new Intl.NumberFormat('es-CO', {
-    style: 'currency', currency: 'COP', minimumFractionDigits: 0
-  }).format(value);
+  return formatCOP(value, { withSymbol: true });
 }
 
 const onFormSuccess = () => { close(); fetchLabors(); };

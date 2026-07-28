@@ -184,6 +184,7 @@ import { useRouter } from 'vue-router';
 import useApi from '@/composables/useApi';
 import { useToast } from '@/composables/useToast';
 import { useOffcanvas } from '@/composables/useOffcanvas';
+import { formatCOP } from '@/utils/money';
 import SintelOffcanvas from '@/components/ui/SintelOffcanvas.vue';
 import RentingForm from './RentingForm.vue';
 
@@ -269,9 +270,7 @@ function extractPath(fullUrl) {
 
 function formatCurrency(value) {
   if (!value) return 'N/A';
-  return new Intl.NumberFormat('es-CO', {
-    style: 'currency', currency: 'COP', minimumFractionDigits: 0
-  }).format(value);
+  return formatCOP(value, { withSymbol: true });
 }
 
 const onFormSuccess = () => { close(); loadFilters(); loadPage(); };

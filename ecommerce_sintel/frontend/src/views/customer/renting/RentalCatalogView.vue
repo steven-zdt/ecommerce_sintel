@@ -66,27 +66,7 @@
           </article>
         </div>
 
-        <div class="section-head">
-          <div>
-            <span class="section-kicker">{{ groupMeta('renting_home_use_cases').subtitle || 'Aplicaciones recomendadas' }}</span>
-            <h2>{{ groupMeta('renting_home_use_cases').title || 'Renta tecnologia lista para operar en campo' }}</h2>
-          </div>
-          <RouterLink to="/servicios" class="section-link">
-            Servicios adicionales <i class="bi bi-arrow-right"></i>
-          </RouterLink>
-        </div>
-
-        <div class="use-case-strip">
-          <article v-for="useCase in useCases" :key="useCase.name" class="use-case-card">
-            <i :class="['bi', useCase.icon]"></i>
-            <span>{{ useCase.name }}</span>
-          </article>
-        </div>
-
-        <div class="brand-cloud" aria-label="Marcas y ecosistemas compatibles">
-          <span v-for="brand in compatibleBrands" :key="brand">{{ brand }}</span>
-        </div>
-      </div>
+ </div>
     </section>
 
     <div id="renting-marketplace" class="container-xl py-4">
@@ -274,28 +254,26 @@
       </div>
     </div>
 
-    <!-- ── Disponibilidad inteligente + Proceso (antes del footer) ─────────────── -->
-    <section class="renting-split-section">
+    <!-- ── Busquedas relacionadas ────────────────────────────────────────────── -->
+    <section v-if="categories.length" class="related-search-section">
       <div class="container-xl">
-        <div class="renting-split">
-          <div class="availability-panel">
-            <span class="section-kicker">{{ groupMeta('renting_home_availability').subtitle || 'Disponibilidad inteligente' }}</span>
-            <h2>{{ groupMeta('renting_home_availability').title || 'Reserva por dias u horas con verificacion automatica' }}</h2>
-            <div class="availability-grid">
-              <div v-for="item in availabilityHighlights" :key="item.label">
-                <span>{{ item.label }}</span>
-                <strong>{{ item.value }}</strong>
-              </div>
-            </div>
+        <div class="section-head compact">
+          <div>
+            <span class="section-kicker">Explora tambien</span>
+            <h2>Busquedas relacionadas</h2>
           </div>
-
-          <div class="process-panel">
-            <span class="section-kicker">{{ groupMeta('renting_home_process').subtitle || 'Proceso' }}</span>
-            <h2>{{ groupMeta('renting_home_process').title || 'Del equipo a la solucion instalada' }}</h2>
-            <div class="process-line">
-              <span v-for="stepName in rentalProcess" :key="stepName">{{ stepName }}</span>
-            </div>
-          </div>
+        </div>
+        <div class="related-search-cloud">
+          <button
+            v-for="cat in categories"
+            :key="cat.slug"
+            type="button"
+            class="related-search-chip"
+            @click="searchByCategory(cat)"
+          >
+            <i class="bi bi-search"></i>
+            {{ cat.name }}
+          </button>
         </div>
       </div>
     </section>
@@ -475,6 +453,11 @@ function onFilterReset() {
   filterFeatured.value = false;
   currentPage.value = 1;
   fetchEquipment();
+}
+
+function searchByCategory(cat) {
+  onFilterChange({ categorySlug: cat.slug, brandSlug: filterState.brandSlug });
+  document.getElementById('renting-marketplace')?.scrollIntoView({ behavior: 'smooth' });
 }
 
 function changePage(p) {
@@ -683,6 +666,7 @@ onMounted(() => { fetchMarketplaceContent(); fetchFilters(); fetchEquipment(); }
   margin: 1.8rem 0 .9rem;
 }
 .section-head h2 { font-size: 1.35rem; }
+.section-head.compact { margin-top: 0; }
 .section-kicker {
   display: block;
   color: #0369a1;
@@ -1061,6 +1045,37 @@ onMounted(() => { fetchMarketplaceContent(); fetchFilters(); fetchEquipment(); }
   align-items: center;
   justify-content: center;
   border: 2px solid #fff;
+}
+
+/* ── Busquedas relacionadas ─────────────────────────────────────────────────── */
+.related-search-section {
+  padding: 0.5rem 0 2.5rem;
+}
+.related-search-cloud {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  margin-top: 0.9rem;
+}
+.related-search-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  border: 1px solid #ddd6fe;
+  background: #f5f3ff;
+  color: #5b21b6;
+  border-radius: 999px;
+  padding: 0.5rem 1rem;
+  font-size: 0.82rem;
+  font-weight: 650;
+  cursor: pointer;
+  transition: background 0.18s, border-color 0.18s, transform 0.18s;
+}
+.related-search-chip i { font-size: 0.78rem; color: #7c3aed; }
+.related-search-chip:hover {
+  background: #ede9fe;
+  border-color: #c4b5fd;
+  transform: translateY(-1px);
 }
 
 /* ── Mobile offcanvas header ────────────────────────────────────────────────── */

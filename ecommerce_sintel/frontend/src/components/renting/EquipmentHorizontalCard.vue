@@ -65,6 +65,7 @@
 <script setup>
 import { computed } from 'vue';
 import BaseHorizontalCard from '@/components/base/BaseHorizontalCard.vue';
+import { formatCOP } from '@/utils/money';
 
 const props = defineProps({
   equipment: { type: Object, required: true },
@@ -83,9 +84,7 @@ const hasPricePerHour = computed(() => pricePerHour.value > 0);
 const categoryName  = computed(() => props.equipment.category_name  || props.equipment.category?.name  || null);
 const brandName     = computed(() => props.equipment.brand_name      || props.equipment.brand?.name      || null);
 
-const fmtCOP = (n) => new Intl.NumberFormat('es-CO', {
-  style: 'currency', currency: 'COP', maximumFractionDigits: 0,
-}).format(n);
+const fmtCOP = (n) => formatCOP(n, { withSymbol: true });
 </script>
 
 <style scoped>

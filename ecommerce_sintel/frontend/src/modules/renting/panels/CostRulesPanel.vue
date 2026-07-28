@@ -43,7 +43,7 @@
               </td>
               <td class="text-muted small">{{ rule.cost_type === 'PERCENTAGE' ? 'Porcentaje' : 'Fijo' }}</td>
               <td class="fw-bold">
-                {{ rule.cost_type === 'PERCENTAGE' ? rule.value + '%' : formatCOP(rule.value) }}
+                {{ rule.cost_type === 'PERCENTAGE' ? rule.value + '%' : formatCost(rule.value) }}
               </td>
               <td class="text-center">
                 <button
@@ -85,6 +85,7 @@
 
 <script setup>
 import { ref, onMounted } from 'vue';
+import { formatCOP } from '@/utils/money';
 import { useRentingPricingAdminStore } from '@/store/rentingAdmin/pricing';
 import { useToast } from '@/composables/useToast';
 import CostRuleFormModal from '../CostRuleFormModal.vue';
@@ -98,9 +99,9 @@ const store = useRentingPricingAdminStore();
 const toast = useToast();
 const showCreateModal = ref(false);
 
-function formatCOP(value) {
+function formatCost(value) {
   if (!value) return '—';
-  return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(value);
+  return formatCOP(value, { withSymbol: true });
 }
 
 function contextLabel(ctx) {

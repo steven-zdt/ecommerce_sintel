@@ -17,10 +17,11 @@
 
 <script setup>
 import { computed } from 'vue';
+import { formatCOP } from '@/utils/money';
 
 const props = defineProps({ costs: { type: Object, required: true } });
 
-const money = (v) => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(v || 0);
+const money = (v) => formatCOP(v, { withSymbol: true });
 
 const groups = computed(() => {
   const c = props.costs;

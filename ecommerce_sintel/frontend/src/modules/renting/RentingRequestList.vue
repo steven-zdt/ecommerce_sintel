@@ -37,6 +37,13 @@
           <option value="false">Sin reembolso pendiente</option>
         </select>
       </div>
+      <div class="col-md-4">
+        <select v-model="filters.commercial_type" class="form-select" @change="loadPage()">
+          <option value="">Modalidad: todas</option>
+          <option value="RENTAL">Renting</option>
+          <option value="COMODATO">Comodato</option>
+        </select>
+      </div>
     </div>
 
     <!-- Tabla -->
@@ -49,6 +56,7 @@
               <th class="py-3">Cliente</th>
               <th class="py-3">Fechas</th>
               <th class="py-3 text-center">Cantidad</th>
+              <th class="py-3">Modalidad</th>
               <th class="py-3">Estado</th>
               <th class="py-3 text-end">Costo</th>
               <th class="py-3 text-end px-4">Acciones</th>
@@ -56,13 +64,13 @@
           </thead>
           <tbody>
             <tr v-if="store.loading">
-              <td colspan="7" class="text-center py-5">
+              <td colspan="8" class="text-center py-5">
                 <div class="spinner-border spinner-border-sm text-primary me-2"></div>
                 <span class="text-muted">Cargando solicitudes...</span>
               </td>
             </tr>
             <tr v-else-if="!store.rentalRequests.length">
-              <td colspan="7" class="text-center py-5 text-muted">
+              <td colspan="8" class="text-center py-5 text-muted">
                 <i class="bi bi-clipboard-check fs-2 d-block mb-2"></i>
                 Sin registros.
               </td>
@@ -83,6 +91,14 @@
                 </td>
                 <td class="text-center">{{ item.quantity }}</td>
                 <td>
+                  <span
+                    class="badge rounded-pill"
+                    :class="item.commercial_type === 'COMODATO' ? 'bg-info-subtle text-info' : 'bg-primary-subtle text-primary'"
+                  >
+                    {{ item.commercial_type_display || item.commercial_type }}
+                  </span>
+                </td>
+                <td>
                   <span class="badge" :class="enums.cssClass('rental-statuses', item.status)">
                     {{ item.display_status || enums.label('rental-statuses', item.status, item.status) }}
                   </span>
@@ -98,7 +114,7 @@
                 </td>
               </tr>
               <tr v-if="expandedUuid === item.uuid">
-                <td colspan="7" class="p-0 bg-light">
+                <td colspan="8" class="p-0 bg-light">
                   <div class="p-3">
                     <RentalRequestActionsPanel :request="item" @changed="onChanged" @collapse="expandedUuid = null" />
                   </div>
@@ -127,6 +143,7 @@
 
 <script setup>
 import { ref, reactive, onMounted } from 'vue';
+import { formatCOP } from '@/utils/money';
 import { useEnums } from '@/composables/useEnums';
 import { useRentingRequestsAdminStore } from '@/store/rentingAdmin/requests';
 import RentalRequestActionsPanel from './RentalRequestActionsPanel.vue';
@@ -139,10 +156,10 @@ const nextPage = ref(null);
 const prevPage = ref(null);
 const currentPageUrl = ref(null);
 
-const filters = reactive({ status: '', payment_method: '', refund_required: '' });
+const filters = reactive({ status: '', payment_method: '', refund_required: '', commercial_type: '' });
 
 function money(value) {
-  return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(value || 0);
+  return formatCOP(value, { withSymbol: true });
 }
 
 function extractPath(fullUrl) {
@@ -170,6 +187,7 @@ function buildParams() {
   if (filters.status) params.status = filters.status;
   if (filters.payment_method) params.payment_method = filters.payment_method;
   if (filters.refund_required) params.refund_required = filters.refund_required;
+  if (filters.commercial_type) params.commercial_type = filters.commercial_type;
   return params;
 }
 
