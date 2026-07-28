@@ -625,7 +625,10 @@ class ServiceTimelineCommands:
         )
         
         if status == 'cancelled':
-            order.status = 'cancelled'
+            # O-03 (auditoria enterprise): constante en vez de literal --
+            # cero cambio de comportamiento (mismo valor de string), cierra
+            # el riesgo de un typo silencioso a futuro.
+            order.status = Order.STATUS_CANCELLED
             order.save()
             detail = OrderServiceDetail.objects.filter(order=order).first()
             if detail:
@@ -640,7 +643,7 @@ class ServiceTimelineCommands:
                         tech_profile.is_available = True
                         tech_profile.save(update_fields=['is_available', 'updated_at'])
         elif status == 'completed':
-            order.status = 'delivered'
+            order.status = Order.STATUS_DELIVERED
             order.save()
             detail = OrderServiceDetail.objects.filter(order=order).first()
             if detail:

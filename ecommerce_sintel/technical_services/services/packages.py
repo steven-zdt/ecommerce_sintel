@@ -274,7 +274,15 @@ class PackagePriceCalculator:
         config = ServiceConfigurationSelector.get_active()
         iva_rate = Decimal(str(getattr(config, 'iva_rate', Decimal('19.00'))))
 
-        discount_pct_val = Decimal(str(discount_pct)) if discount_pct is not None else Decimal('0.00')
+        # R-01 (auditoria enterprise): acotado 0..100 igual que
+        # ServiceSelector.get_variant_quotation(). Este calculador lo alimenta
+        # el endpoint publico quote-package (AllowAny) via request.data.get(
+        # 'discount_pct') sin pasar por ningun serializer -- sin este clamp,
+        # un valor > 100 producia total negativo.
+        if discount_pct is not None:
+            discount_pct_val = max(Decimal('0'), min(Decimal('100'), Decimal(str(discount_pct))))
+        else:
+            discount_pct_val = Decimal('0.00')
         discount_amount = (subtotal * discount_pct_val / Decimal('100.00')).quantize(Decimal('0.01'))
         taxable_base = subtotal - discount_amount
         iva_amount = (taxable_base * iva_rate / Decimal('100.00')).quantize(Decimal('0.01'))

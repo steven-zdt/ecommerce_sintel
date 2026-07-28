@@ -8,7 +8,8 @@
 > **2026-07-16:** agregado el **Sistema de Paquetes de Servicio** (§20) — extensión aditiva
 > (`ServicePackage`/`PackageIncludedItem`/`PackageAdditionalCost`, mig. 0027) que no modifica
 > ningún modelo, endpoint ni contrato previo.
-> **2026-07-17 — re-auditado y sincronizado completo, 30 migraciones aplicadas:** este doc
+> **2026-07-17 — re-auditado y sincronizado completo, 30 migraciones aplicadas (actualizado a
+> 31 el 2026-07-23 tras agregarse la mig. 0031 tras esta nota — ver §16 C8):** este doc
 > tenía varias secciones desactualizadas encontradas por auditoría (no reportadas por el
 > usuario, ver §16 C7). Correcciones: (1) el motor de reglas de costo `ServiceCostRule`/
 > `ServiceCostAssignment`/`ServicePricingCalculator` (`services/pricing.py`, mig. 0015) no
@@ -32,6 +33,21 @@
 > `service_status_updated` (usados desde siempre por `ServiceCommands`) nunca tuvieron
 > migración de seed (a diferencia de `service_payment_confirmed`/mig. 0022 y los 5 de
 > operaciones/mig. 0024) — cerrado con `0030_seed_service_request_status_templates.py`.
+> **2026-07-23 — auditoría de verificación puntual (sin cambios de código):** este doc ya
+> estaba en muy buen estado (auto-correcciones hasta 2026-07-22, §16 C7-C9) — se encontraron y
+> corrigieron 4 discrepancias menores, no una re-auditoría completa: (1) conteo de migraciones
+> inconsistente ("30" en este encabezado y en el diagrama del §1, "31" en la Conclusión) —
+> unificado a 31, que es el real; (2) **`ServiceBooking`** (mig. 0017, uno de los 3 sistemas
+> paralelos de disponibilidad del §14.1, contabilizado en `active_bookings` del §7) nunca tuvo
+> un bloque de modelo propio en §2 pese a mencionarse extensamente en prosa — agregado §2.10bis;
+> (3) las rutas `GET .../services/{uuid}/packages/` y `POST .../quote-package/` (documentadas
+> en detalle en §20.4 desde 2026-07-16) faltaban en el bloque de rutas consolidado del §11; (4)
+> **hallazgo real más importante:** este documento afirmaba en al menos 4 lugares (§14, tabla
+> §17.1, §17.2, §17.3 punto 4) que `TechnicianAssignmentBoard.vue`
+> (`/panel/servicios/asignacion-tecnicos`) fue retirada del sidebar el 2026-07-09 — verificado
+> contra `frontend/src/components/layout/Sidebar.vue:191` que **sigue apareciendo hoy**, dentro
+> del grupo "Operaciones". No se pudo determinar cuándo dejó de ser cierto (repo con un solo
+> commit, sin historial previo) — corregido en las 4 ubicaciones.
 
 ## Resumen Ejecutivo
 
@@ -90,7 +106,7 @@ El módulo **Technical Services** implementa un catálogo de servicios técnicos
 └──────────────┬──────────────────────────────────────────┘
                │
 ┌──────────────▼──────────────────────────────────────────┐
-│        Modelos Django ORM (30 migraciones)                │
+│        Modelos Django ORM (31 migraciones)                │
 │  - TechnicalService, ServiceVariant (HOURLY/DAILY/FIXED) │
 │  - ServiceCategory, ServiceLevel                         │
 │  - ServiceImage, ServiceMaterial                         │
@@ -304,7 +320,33 @@ mime_type   = CharField(max_length=100)
 uploaded_by = ForeignKey(AUTH_USER_MODEL, null=True)
 ```
 
-### 2.10bis ServiceOperation / ServiceOperationEvent `[mig. 0023, 2026-07-09]`
+### 2.10bis ServiceBooking `[mig. 0017]` — **[AGREGADO 2026-07-23, faltaba en este doc pese a
+mencionarse extensamente en prosa en §7/§14.1/Resumen Ejecutivo]**
+
+```python
+class ServiceBooking(SintelBaseModel):
+    """Bloque de tiempo reservado para una instancia de ServiceVariant. Controla la
+    disponibilidad temporal (capacidad simultanea) sin depender de StockRecord."""
+    STATUS_CHOICES = ['scheduled', 'active', 'completed', 'cancelled']
+
+    order_service_detail = ForeignKey(OrderServiceDetail, related_name='bookings')
+    service_variant       = ForeignKey(ServiceVariant, on_delete=PROTECT, related_name='bookings')
+    start_time = DateTimeField(db_index=True)
+    end_time   = DateTimeField(db_index=True)
+    status     = CharField(choices=STATUS_CHOICES, default='scheduled', db_index=True)
+```
+
+Uno de los **3 sistemas paralelos de disponibilidad de técnicos** documentados en §14.1 (junto
+con el booleano legado `TechnicianProfile.is_available` y el FSM de `ServiceOperation`+
+`accounts.ProfessionalAvailability` de §18.2) — este controla la **capacidad simultánea** de
+una `ServiceVariant` (campo `simultaneous_capacity`, mig. 0017) contra las reservas activas en
+un rango de fechas, no la disponibilidad de un técnico específico. Creado/gestionado desde
+`ServiceCommands.request_service`/`confirm_slot_on_payment`/`release_slot_on_failure` (§5.1) —
+sin comandos propios dedicados (`ServiceBookingCommands` no existe; la escritura vive inline en
+esos métodos de `ServiceCommands`). Contabilizado en `ServicesSummaryProvider.get_summary()`
+como `active_bookings` (§7).
+
+### 2.10ter ServiceOperation / ServiceOperationEvent `[mig. 0023, 2026-07-09]`
 
 Ver §18 para el detalle completo del dominio operativo. Resumen del modelo:
 
@@ -884,8 +926,12 @@ ocurre exclusivamente desde `/panel/servicios/operaciones` después de creada la
 `plan/` → `assign-technician/` (con chequeo real de conflicto de agenda, §18.2) → `notify-client/` →
 transiciones de FSM hasta `close/`. Este es el destino centralizado desde 2026-07-09.
 
-**Camino legado — `TechnicianAssignmentBoard.vue`** (ruta movida a
-`/panel/servicios/asignacion-tecnicos`, retirada del sidebar — sigue funcionando por URL directa):
+**Camino legado — `TechnicianAssignmentBoard.vue`** (ruta
+`/panel/servicios/asignacion-tecnicos` — **[CORREGIDO 2026-07-23]** SI sigue en el sidebar,
+`frontend/src/components/layout/Sidebar.vue:191`, dentro del grupo "Operaciones" junto a
+`/panel/servicios/operaciones`; versiones previas de este documento afirmaban en varios
+lugares que se habia retirado del sidebar en 2026-07-09 — eso ya no es cierto en el codigo
+actual, ver nota en §17.3):
 - **Manual (Admin):** `POST /api/v1/orders/service-orders/{uuid}/assign-technician/` con `{technician_uuid}` → `ServiceAssignmentCommands.assign_technician`. Sin chequeo de agenda real (§17.1).
 - **Automática (Admin):** `POST /api/v1/orders/service-orders/{uuid}/auto-assign/` → `ServiceAssignmentCommands.auto_assign_technician` → búsqueda jerárquica por categoría (sigue estricta a propósito).
 - **Reasignación (Admin):** llamar de nuevo a `assign-technician/` con otro `technician_uuid` — `assign_technician` libera al técnico previo automáticamente si es distinto.
@@ -985,6 +1031,8 @@ GET    /api/v1/services/services/quotation/               # Cotización pública
 GET    /api/v1/services/services/{uuid}/reviews/          # [2026-07-18] Lista reseñas (AllowAny)
 POST   /api/v1/services/services/{uuid}/review/           # [2026-07-18] Crea reseña (Autenticado, exige ServiceOperation.CLOSED previo)
 GET    /api/v1/services/services/{uuid}/technicians/      # [2026-07-18] Tecnicos disponibles/calificados para la categoria (AllowAny)
+GET    /api/v1/services/services/{uuid}/packages/         # [2026-07-16, AGREGADO a este bloque 2026-07-23 -- faltaba pese a estar documentado en §20.4] Lista paquetes activos (AllowAny; admin ve tambien inactivos)
+POST   /api/v1/services/services/{uuid}/quote-package/    # [2026-07-16, AGREGADO 2026-07-23] Cotizacion en vivo de paquete + costos adicionales -- ver §20.4
 
 # ServiceCategory
 GET    /api/v1/services/categories/
@@ -1152,16 +1200,26 @@ ruta.
 
 Rediseño completo del checkout de Servicios Técnicos para que el pago ocurra **dentro de un
 modal**, sin abandonar nunca la SPA — **sin modificar Payment, ni el flujo de Wompi/Nequi/COD**.
-Todos los componentes nuevos viven en `frontend/src/components/customer/services/`:
+Componentes especificos de este dominio en `frontend/src/components/customer/services/`; los de
+metodo/estado de pago se **generalizaron a `components/shared/checkout/`** (correccion de este
+documento, 2026-07-22 — ver nota debajo de la tabla):
 
 | Componente | Rol |
 |---|---|
-| `ServiceCheckoutModal.vue` | Orquestador: fases `summary → method → status`, montado tras crear la orden en el paso 4 del wizard |
-| `ServiceCheckoutStepper.vue` | Stepper visual de 3 pasos (Resumen / Método de pago / Estado) |
+| `ServiceCheckoutModal.vue` | Orquestador de este dominio: monta `CheckoutModal.vue` (shell compartido) con fases `summary → method → status`, tras crear la orden en el paso 4 del wizard |
+| ~~`ServiceCheckoutStepper.vue`~~ | **Reemplazado** por `components/shared/checkout/CheckoutStepper.vue` (el mismo stepper ya unificado con el wizard de Renting/Services, §16 C9) — ya no existe un stepper propio de este dominio |
 | `ServiceOrderSummaryCard.vue` + `ServicePriceBreakdown.vue` | Resumen de servicio/variante/profesional/duración + desglose de costos, alimentado 100% por `selectedVariant.price_info` (ya calculado por el backend — no requirió cambios de modelo) |
 | `ServiceTermsCard.vue` + `ServiceTermsModal.vue` | Checkbox de términos (paso 4 del wizard, reemplaza el checkbox plano anterior) con 6 popups: condiciones del servicio, cancelación, reprogramación, garantías, responsabilidades, tratamiento de datos. Mismo patrón que `HabeasDataConsent.vue`/`LegalTextModal.vue` (KYC), copiado a este dominio — no importado cross-domain |
-| `ServicePaymentMethodSelector.vue` | Selector WOMPI/NEQUI/COD (extraído del markup que antes vivía inline en el wizard) |
-| `ServicePaymentStatusPanel.vue` | 6 estados visuales sin ambigüedad: `processing` (spinner + "no cierres esta ventana"), `approved`, `declined`, `pending`, `expired`, `cancelled` |
+| ~~`ServicePaymentMethodSelector.vue`~~ | **Reemplazado** por el selector compartido `components/shared/checkout/PaymentMethodSelector.vue` + `CardOrWidgetPanel.vue` (mismo componente que usan Shop y Renting, via el composable `useCardOrWidgetPayment.js` — ver `payment/.AGENT/docs/ARQUITECTURA_COMPLETA_PAYMENT.md` §10.6). Selector WOMPI/NEQUI/COD original ya no existe como componente propio de este dominio. |
+| ~~`ServicePaymentStatusPanel.vue`~~ | **Reemplazado** por `components/shared/checkout/PaymentStatusPanel.vue` (6 estados: `processing`/`approved`/`declined`/`pending`/`expired`/`cancelled`, sin cambios de comportamiento — solo dejo de ser un componente propio de este dominio) + `components/shared/checkout/PaymentCTA.vue` (boton de pago/reintento, tambien compartido) |
+
+> **Correccion de este documento (2026-07-22):** la fila de arriba tachada describia componentes
+> `Service*` propios que, al verificar el codigo real de `ServiceCheckoutModal.vue` durante un smoke
+> test E2E, ya no existen — fueron generalizados a `components/shared/checkout/` en algun punto
+> entre su creacion (2026-07-09) y esta auditoria, sin que este documento se actualizara. Mismo
+> patron de drift ya visto en otros documentos de este proyecto (ver `payment/.AGENT/docs/
+> ARQUITECTURA_COMPLETA_PAYMENT.md` para la regla derivada: verificar el codigo real antes de
+> confiar en un documento SSoT que describe "componente propio de X").
 
 **Store Pinia:** `store/services/serviceCheckoutStore.js` (`useServiceCheckoutStore`) — única fuente
 de verdad del checkout en curso (orden creada, `price_info`, fase, método, transacción activa).
@@ -1173,6 +1231,16 @@ Renting (`RentalConfirmationView.vue`) no cambiaron ni una línea. El modal de S
 el único que pasa las tres callbacks para resolver el resultado del pago (aprobado/rechazado/
 pendiente) reutilizando el mismo polling sobre `payment/payments/transaction-status/` que ya usa
 `PaymentResultView.vue` — no se reimplementó ninguna lógica de Payment.
+
+**Bug real encontrado y corregido (smoke test E2E, 2026-07-22):** las tarjetas guardadas del
+cliente nunca aparecian en este modal — `watch(() => store.paymentMethod, (method) => { if
+(method === 'WOMPI') fetchSavedCards(); })` no tenia `{ immediate: true }`, y
+`store.paymentMethod` ya vale `'WOMPI'` por defecto (`serviceCheckoutStore.js`) al montar el
+modal, asi que el watcher nunca detectaba un cambio real y `fetchSavedCards()` jamas se ejecutaba
+— el cliente solo veia "Agregar tarjeta nueva". Corregido agregando `{ immediate: true }` en
+`ServiceCheckoutModal.vue`. Verificado end-to-end: pago con tarjeta guardada resuelve
+`Transaction.status='APPROVED'` / `initiation_channel='CARD_API'`. Mismo bug, mismo fix, en
+`RentalConfirmationView.vue` de Renting (ver `renting/.AGENT/docs/ARQUITECTURA_COMPLETA_RENTIG.md`).
 
 **Seguimiento post-compra:** `CustomerOrdersView.vue` (`/mi-cuenta/pedidos`) reemplaza, solo para
 filas con `service_detail` presente, el stepper genérico de 5 pasos (que no correspondía a los
@@ -1445,8 +1513,8 @@ fusionarlos sin instrucción explícita del usuario:
 | Modelos | `OperationTicket` / `OperationAssignment` | `OrderServiceDetail.technician` | `ServiceOperation` (§18) |
 | Capa de servicio | `OperationCommands` | `ServiceAssignmentCommands` (§5.1) | `ServiceOperationCommands` (§18.2) |
 | Alcance | **SHOP_DELIVERY / RENTAL / SERVICE** | Solo servicios técnicos, sin chequeo real de agenda | Solo servicios técnicos, **con chequeo real de conflicto de agenda** contra `ProfessionalAvailability` |
-| UI Admin | `OperationBoard.vue` / `OperationDetail.vue` | `TechnicianAssignmentBoard.vue` (ruta movida a `/panel/servicios/asignacion-tecnicos`, **retirada del sidebar** 2026-07-09) | `ServiceOperationBoard.vue` (`/panel/servicios/operaciones`) — **destino centralizado**, ver §17.3 |
-| Sidebar | Grupo "Logistica" (`fulfillment`) | Ya NO aparece en el sidebar (solo por URL directa) | Grupo "Serv. Tecnicos" (`ts`) |
+| UI Admin | `OperationBoard.vue` / `OperationDetail.vue` | `TechnicianAssignmentBoard.vue` (`/panel/servicios/asignacion-tecnicos`) | `ServiceOperationBoard.vue` (`/panel/servicios/operaciones`) — **destino recomendado**, ver §17.3 |
+| Sidebar | Grupo "Logistica" (`fulfillment`) | **[CORREGIDO 2026-07-23]** SI aparece, grupo "Operaciones" (`Sidebar.vue:191`) — no fue retirada como afirmaban versiones previas de este documento | Grupo "Serv. Tecnicos" (`ts`) |
 
 Los tres siguen siendo sistemas de datos **distintos y no sincronizados entre sí** — un ticket de
 `operations` no actualiza `OrderServiceDetail.technician` ni `ServiceOperation.technician`, y
@@ -1469,8 +1537,8 @@ para asignar técnicos — ver §17.3.
   queryset (§9.1) — documentado explícitamente para que no se repita.
 - Nuevo catálogo `service-order-statuses` en `core/api/views.py` (§11).
 - Panel `/panel/profesionales` (`ProfessionalsAdminList.vue`) y tablero
-  `/panel/asignacion-tecnicos` (`TechnicianAssignmentBoard.vue`, ruta y ubicación en el sidebar
-  vigentes en 2026-07-05 — movida y retirada de la navegación el 2026-07-09, ver §17.3) — ver
+  `/panel/servicios/asignacion-tecnicos` (`TechnicianAssignmentBoard.vue` — **[CORREGIDO
+  2026-07-23]** SI tiene entrada en el sidebar hoy, grupo "Operaciones", ver §17.3) — ver
   `ai_skills/frontend/FRONTEND_COMPONENT_REGISTRY.md`.
 - Nueva clave `marketplace` en `GET /api/v1/dashboard/metrics/` — ver
   `dashboard/.AGENT/docs/ARQUITECTURA_COMPLETA_DASHBOARD.md`.
@@ -1487,17 +1555,22 @@ Instrucción explícita del usuario: "toda la operación de servicios técnicos 
 2. **`TechnicianSelector.get_all_active_technicians()`** (§5.2) reemplaza el filtro estricto por
    categoría en `available-technicians/`, tanto en el tablero legado como en el nuevo — el
    administrador decide la calificación en ambos.
-3. **`ServiceOperationBoard.vue` ganó paridad de funciones** con el tablero legado antes de
-   retirarlo de la navegación principal: botón "Quitar asignación" (`unassign-technician/`, ya
-   existía el comando, faltaba el botón).
-4. **Sidebar**: "Asignación de Técnicos" se removió del grupo "Serv. Tecnicos" — la asignación
-   ahora se hace desde dentro de "Gestionar" en `ServiceOperationBoard.vue`, no como pantalla
-   separada. El acceso directo de `DashboardView.vue` ("Marketplace de Contratistas") apunta ahora
-   a `{ name: 'service-operations' }` en lugar de `{ name: 'technician-assignment-board' }`.
+3. **`ServiceOperationBoard.vue` ganó paridad de funciones** con el tablero legado: botón
+   "Quitar asignación" (`unassign-technician/`, ya existía el comando, faltaba el botón).
+4. **Sidebar [CORREGIDO 2026-07-23]:** este documento afirmaba, en esta fase y en varias
+   secciones relacionadas (§14, tabla §17.1, listado de arriba), que "Asignación de Técnicos"
+   se habia removido del sidebar el 2026-07-09. **Eso ya no es cierto contra el codigo
+   actual** — `frontend/src/components/layout/Sidebar.vue:191` la lista explicitamente dentro
+   del grupo "Operaciones", junto a `/panel/servicios/operaciones`. No se pudo determinar si
+   fue reintroducida en algun punto entre 2026-07-09 y hoy o si esta nota nunca reflejo
+   correctamente el codigo — el repo solo tiene un commit ("Initial commit") sin historial
+   previo que consultar. El acceso directo de `DashboardView.vue` ("Marketplace de
+   Contratistas") SI apunta a `{ name: 'service-operations' }` (no verificado si tambien
+   cambio, dato no re-auditado en esta pasada).
 5. **La ruta legada `/panel/servicios/asignacion-tecnicos` NO se eliminó** (conserva
-   `change-priority`, el filtro por categoría en la tabla, que no se portó) — solo se sacó de toda
-   navegación visible. Si se decide eliminarla del todo, falta portar "cambiar prioridad" al
-   tablero nuevo primero.
+   `change-priority`, el filtro por categoría en la tabla, que no se portó) y, corregido arriba,
+   sigue siendo alcanzable desde el sidebar, no solo por URL directa. Si se decide eliminarla
+   del todo, falta portar "cambiar prioridad" al tablero nuevo primero.
 
 ---
 
@@ -1513,7 +1586,7 @@ Cliente → Solicitud → Cotización     Recepción → Planeación → Asignac
 ```
 
 `OrderServiceDetail` (§2.9) sigue siendo **solo** el snapshot de la orden — nunca se convirtió en
-centro operativo. Toda la operación vive en `ServiceOperation`/`ServiceOperationEvent` (§2.10bis),
+centro operativo. Toda la operación vive en `ServiceOperation`/`ServiceOperationEvent` (§2.10ter),
 modelado explícitamente sobre el patrón ya probado de `RentalOperation` en `renting/` (mismo
 `@transaction.atomic` + `select_for_update()` por comando, mismo timeline append-only, mismo
 `transaction.on_commit` para notificaciones) — con una diferencia deliberada: Renting nunca valida
@@ -1523,7 +1596,7 @@ conectaba a la asignación de técnicos.
 
 ### 18.1 Estados propios y gancho de creación
 
-FSM propio, ninguno reutilizado de `Order`/`OrderServiceTimeline` (ver modelo completo en §2.10bis):
+FSM propio, ninguno reutilizado de `Order`/`OrderServiceTimeline` (ver modelo completo en §2.10ter):
 
 ```
 READY_FOR_PLANNING → PLANNED → TECHNICIAN_ASSIGNED → CUSTOMER_NOTIFIED → READY_TO_VISIT →
@@ -1677,7 +1750,7 @@ extender el patrón "Ver agenda" que ya existía en `TechnicianAssignmentBoard.v
 - Integración profunda de Marketplace/cobertura geográfica de contratistas — se cubre solo incluir
   CONTRACTOR vía `ProfileResolver` con el mismo chequeo de conflicto de agenda; sin UI de cobertura
   geográfica dedicada.
-- Widget de firma del cliente en UI — el campo `customer_signature` (§2.10bis) está listo en el
+- Widget de firma del cliente en UI — el campo `customer_signature` (§2.10ter) está listo en el
   modelo; el signature-pad se implementa después si se pide explícitamente.
 - Push WebSocket en tiempo real hacia el cliente para el timeline de `ServiceOperation` — hoy se
   resuelve con refetch al montar/expandir la vista, no con un consumer dedicado (a diferencia de

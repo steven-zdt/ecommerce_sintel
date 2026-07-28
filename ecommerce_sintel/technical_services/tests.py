@@ -831,5 +831,88 @@ class ServiceCostRulePricingTestCase(TransactionTestCase):
         self.assertEqual(len(quotation_deactivated['breakdown']['cost_rules']), 0)
 
 
+class DiscountPctLimitsTestCase(TransactionTestCase):
+    """
+    Test de regresion para R-01 (auditoria enterprise, 2026-07-24).
+
+    discount_pct llegaba del cliente sin limites hasta Order.total_amount. Un
+    valor > 100 producia un total negativo (el "descuento" superaba el
+    subtotal). Doble capa de defensa:
+      1. ServiceRequestInputSerializer (endpoint de creacion de orden): min/max_value.
+      2. ServiceSelector.get_variant_quotation() y PackagePriceCalculator.calculate()
+         (el segundo alimenta el endpoint publico AllowAny quote-package, que NO
+         pasa por el serializer de arriba): clamp defensivo 0..100.
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user(email='discount_r01@example.com', password='testpassword')
+        from accounts.models import UserProfile
+        UserProfile.objects.create(user=self.user, first_name='Test', last_name='User', user_type='VENDOR')
+
+        self.category = ServiceCategory.objects.create(name='Cat R-01', slug='cat-r01')
+        self.level = ServiceLevel.objects.create(name='Nivel R-01', slug='nivel-r01')
+        self.service = TechnicalService.objects.create(
+            vendor=self.user, category=self.category, level=self.level,
+            name='Servicio R-01', slug='servicio-r01',
+        )
+        self.variant = ServiceVariant.objects.create(
+            service=self.service, sku='SERV-R01-001', fixed_price=Decimal('100000.00'),
+            pricing_strategy=ServiceVariant.FIXED,
+        )
+
+        from technical_services.models import ServicePackage
+        self.package = ServicePackage.objects.create(
+            service=self.service, name='Paquete R-01', slug='paquete-r01',
+            base_price=Decimal('100000.00'),
+        )
+
+    def test_variant_quotation_clamps_discount_above_100(self):
+        quotation = ServiceSelector.get_variant_quotation(self.variant, discount_pct=Decimal('200'))
+        self.assertGreaterEqual(quotation['total_price'], 0)
+        self.assertEqual(quotation['discount_pct'], Decimal('100.00'))
+
+    def test_variant_quotation_clamps_discount_below_0(self):
+        quotation = ServiceSelector.get_variant_quotation(self.variant, discount_pct=Decimal('-10'))
+        self.assertEqual(quotation['discount_pct'], Decimal('0.00'))
+
+    def test_package_calculator_clamps_discount_above_100(self):
+        # Regresion real encontrada al escribir este test: el clamp existia en
+        # get_variant_quotation() pero NO en PackagePriceCalculator.calculate(),
+        # que es lo que consume el endpoint publico quote-package -- un
+        # discount_pct=200 producia un total negativo. Corregido en el mismo
+        # cambio que agrego este test.
+        from technical_services.services.packages import PackagePriceCalculator
+        breakdown = PackagePriceCalculator.calculate(self.package, discount_pct=Decimal('200'))
+        self.assertGreaterEqual(breakdown['total'], Decimal('0.00'))
+        self.assertEqual(breakdown['discount_pct'], Decimal('100'))
+
+    def test_package_calculator_clamps_negative_discount(self):
+        from technical_services.services.packages import PackagePriceCalculator
+        breakdown = PackagePriceCalculator.calculate(self.package, discount_pct=Decimal('-25'))
+        self.assertEqual(breakdown['discount_pct'], Decimal('0'))
+
+    def test_service_request_serializer_rejects_discount_above_100(self):
+        from technical_services.api.serializers import ServiceRequestInputSerializer
+        serializer = ServiceRequestInputSerializer(data={
+            'variant_uuid': str(self.variant.uuid),
+            'discount_pct': '150',
+            'description': 'Prueba R-01',
+            'address': 'Calle 1 # 2-3',
+        })
+        self.assertFalse(serializer.is_valid())
+        self.assertIn('discount_pct', serializer.errors)
+
+    def test_service_request_serializer_rejects_negative_discount(self):
+        from technical_services.api.serializers import ServiceRequestInputSerializer
+        serializer = ServiceRequestInputSerializer(data={
+            'variant_uuid': str(self.variant.uuid),
+            'discount_pct': '-5',
+            'description': 'Prueba R-01',
+            'address': 'Calle 1 # 2-3',
+        })
+        self.assertFalse(serializer.is_valid())
+        self.assertIn('discount_pct', serializer.errors)
+
+
 
 
