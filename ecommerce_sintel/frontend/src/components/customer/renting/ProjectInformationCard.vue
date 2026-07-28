@@ -1,1 +1,0 @@
-<template><section class="rental-card"><h3>Información del proyecto</h3><slot /></section></template><style scoped>.rental-card{background:#fff;border:1px solid #e8e7ee;border-radius:20px;padding:1.4rem}.rental-card h3{font-size:1.05rem;font-weight:750}</style>
