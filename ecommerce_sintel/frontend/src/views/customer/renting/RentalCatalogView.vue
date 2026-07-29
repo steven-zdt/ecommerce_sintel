@@ -166,7 +166,7 @@
                 :item="item"
                 type="rental"
                 @view="goToDetail"
-                @quote="goToQuote"
+                @quote="goToRentalRequest"
               />
             </div>
           </div>
@@ -178,7 +178,7 @@
               :key="item.uuid"
               :equipment="item"
               @view="goToDetail"
-              @quote="goToQuote"
+              @quote="goToRentalRequest"
             />
           </div>
 
@@ -472,8 +472,15 @@ function goToDetail(item) {
   router.push({ name: 'rental-detail', params: { uuid: item.uuid } });
 }
 
-function goToQuote(item) {
-  router.push({ name: 'quote-wizard', query: { equipment: item.uuid } });
+// Bug real (hallado 2026-07-29, probando pago con Nequi/Daviplata contra
+// produccion): este handler enrutaba a quote-wizard ("Cotizar") aunque el
+// boton dice "Solicitar alquiler" -- el cliente terminaba en un formulario
+// de cotizacion generico en vez del wizard real de reserva/pago
+// (rental-request, el mismo que usa el CTA de RentalDetailView.vue). variant
+// se omite a proposito: RentalBookingWizard ya hace fallback a
+// variants.value[0] cuando route.query.variant no viene (ver su onMounted).
+function goToRentalRequest(item) {
+  router.push({ name: 'rental-request', params: { uuid: item.uuid } });
 }
 
 onMounted(() => { fetchMarketplaceContent(); fetchFilters(); fetchEquipment(); });
