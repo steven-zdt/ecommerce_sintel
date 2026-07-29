@@ -366,7 +366,7 @@ class EquipmentViewSet(viewsets.ReadOnlyModelViewSet):
             return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(EquipmentReviewSerializer(review).data, status=status.HTTP_201_CREATED)
 
-    @action(detail=True, methods=['get'], url_path='detail', permission_classes=[permissions.AllowAny])
+    @action(detail=True, methods=['get'], url_path='detail', permission_classes=(permissions.AllowAny,))
     @extend_schema(
         description="Retorna EquipmentPublicDetailDTO completo sin breaking changes a endpoint existente.",
         responses={200: EquipmentPublicDetailDTOSerializer},
