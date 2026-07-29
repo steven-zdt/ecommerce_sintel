@@ -1,13 +1,13 @@
 <template>
   <div v-if="rating" class="rating-display">
     <div class="rating-header">
-      <div class="rating-stars">
-        <div class="star-group">
+      <div class="rating-stars" :aria-label="`Calificación: ${rating.average_rating.toFixed(1)} de 5 estrellas, basado en ${rating.total_count} reseñas`">
+        <div class="star-group" aria-hidden="true">
           <i v-for="n in 5" :key="n" :class="['bi', getStarIcon(n), 'star']"></i>
         </div>
-        <span class="rating-value">{{ rating.average_rating.toFixed(1) }}</span>
+        <span class="rating-value" aria-live="off">{{ rating.average_rating.toFixed(1) }}</span>
       </div>
-      <span class="rating-count">{{ rating.total_count }} reseña{{ rating.total_count !== 1 ? 's' : '' }}</span>
+      <span class="rating-count" aria-live="off">{{ rating.total_count }} reseña{{ rating.total_count !== 1 ? 's' : '' }}</span>
     </div>
 
     <div v-if="showBreakdown" class="rating-breakdown">

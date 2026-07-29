@@ -1,6 +1,10 @@
 <template>
-  <span :class="['tag-badge', tagClass]">
-    <i v-if="icon" :class="['bi', icon, 'me-1']"></i>
+  <span
+    :class="['tag-badge', tagClass]"
+    :aria-label="`Etiqueta: ${tag.label}`"
+    role="badge"
+  >
+    <i v-if="icon" :class="['bi', icon, 'me-1']" :aria-hidden="true"></i>
     {{ tag.label }}
   </span>
 </template>
