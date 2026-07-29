@@ -500,6 +500,174 @@
             </div>
           </div>
 
+          <!-- S12: CAROUSEL (Fase 10) -->
+          <div v-show="activeTab === 'carousel'" class="mb-section">
+            <div class="mb-section-title"><i class="bi bi-arrows-move me-2"></i>Carrusel (Marketplace Showcase)</div>
+            <p class="mb-section-sub">Configuración del scroll horizontal, autoplay y controles.</p>
+
+            <div class="mb-subsection">Número de items visibles</div>
+            <div class="mb-responsive-grid">
+              <div v-for="dev in DEVICES" :key="dev.key" class="mb-responsive-device">
+                <div class="mb-responsive-device__label">
+                  <i :class="['bi', dev.icon]"></i> {{ dev.label }}
+                </div>
+                <div class="mb-cols-picker mb-cols-picker--sm">
+                  <button v-for="n in [1,2,3,4,5,6]" :key="n"
+                    :class="['mb-col-btn mb-col-btn--sm', getCarouselItems(dev.key) === n && 'active']"
+                    @click="setCarouselItems(dev.key, n)">
+                    {{ n }}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div class="mb-grid mt-3">
+              <div class="mb-field">
+                <label class="mb-label">Velocidad autoplay (px/s)</label>
+                <input v-model.number="form.carousel.speed" type="number" class="mb-input" min="10" max="200" step="10">
+              </div>
+              <div class="mb-field">
+                <div class="form-check form-switch">
+                  <input v-model="form.carousel.autoplay" class="form-check-input" type="checkbox" id="mb-autoplay">
+                  <label class="form-check-label" for="mb-autoplay">Autoplay</label>
+                </div>
+              </div>
+              <div class="mb-field">
+                <div class="form-check form-switch">
+                  <input v-model="form.carousel.loop" class="form-check-input" type="checkbox" id="mb-loop">
+                  <label class="form-check-label" for="mb-loop">Loop infinito</label>
+                </div>
+              </div>
+              <div class="mb-field">
+                <div class="form-check form-switch">
+                  <input v-model="form.carousel.pause_on_hover" class="form-check-input" type="checkbox" id="mb-pause-hover">
+                  <label class="form-check-label" for="mb-pause-hover">Pausar en hover</label>
+                </div>
+              </div>
+              <div class="mb-field">
+                <div class="form-check form-switch">
+                  <input v-model="form.carousel.pause_on_touch" class="form-check-input" type="checkbox" id="mb-pause-touch">
+                  <label class="form-check-label" for="mb-pause-touch">Pausar en touch</label>
+                </div>
+              </div>
+              <div class="mb-field">
+                <div class="form-check form-switch">
+                  <input v-model="form.carousel.pause_on_focus" class="form-check-input" type="checkbox" id="mb-pause-focus">
+                  <label class="form-check-label" for="mb-pause-focus">Pausar en foco</label>
+                </div>
+              </div>
+              <div class="mb-field">
+                <div class="form-check form-switch">
+                  <input v-model="form.carousel.show_arrows" class="form-check-input" type="checkbox" id="mb-arrows">
+                  <label class="form-check-label" for="mb-arrows">Mostrar flechas</label>
+                </div>
+              </div>
+              <div class="mb-field">
+                <div class="form-check form-switch">
+                  <input v-model="form.carousel.show_indicators" class="form-check-input" type="checkbox" id="mb-indicators">
+                  <label class="form-check-label" for="mb-indicators">Mostrar indicadores (dots)</label>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- S13: MULTIMEDIA (Fase 10) -->
+          <div v-show="activeTab === 'multimedia'" class="mb-section">
+            <div class="mb-section-title"><i class="bi bi-film me-2"></i>Multimedia</div>
+
+            <div class="mb-subsection">Fondo de Card (Imagen/Video)</div>
+            <div class="mb-grid">
+              <div class="mb-field mb-field--full">
+                <label class="mb-label">Tipo de fondo</label>
+                <select v-model="form.media.type" class="mb-select">
+                  <option value="color">Color sólido</option>
+                  <option value="image">Imagen</option>
+                  <option value="video">Video</option>
+                </select>
+              </div>
+              <div v-if="form.media.type === 'video'" class="mb-field mb-field--full">
+                <label class="mb-label">URL del video (MP4)</label>
+                <input v-model="form.media.video_url" class="mb-input" placeholder="https://...">
+              </div>
+              <div v-if="form.media.type === 'video'" class="mb-field mb-field--full">
+                <label class="mb-label">URL del video (WebM - opcional)</label>
+                <input v-model="form.media.video_url_webm" class="mb-input" placeholder="https://...">
+              </div>
+              <div v-if="form.media.type === 'video'" class="mb-field mb-field--full">
+                <label class="mb-label">Poster (imagen preview)</label>
+                <input v-model="form.media.poster" class="mb-input" placeholder="https://...">
+              </div>
+              <div class="mb-field">
+                <label class="mb-label">Desenfoque (blur px)</label>
+                <input v-model.number="form.media.blur" type="number" class="mb-input" min="0" max="20" step="1">
+              </div>
+              <div class="mb-field mb-field--full">
+                <div class="form-check form-switch">
+                  <input v-model="form.media.glass" class="form-check-input" type="checkbox" id="mb-media-glass">
+                  <label class="form-check-label" for="mb-media-glass">Glassmorphism (overlay)</label>
+                </div>
+              </div>
+            </div>
+
+            <div class="mb-subsection mt-3">Encabezado de Sección</div>
+            <div class="mb-grid">
+              <div class="mb-field mb-field--full">
+                <label class="mb-label">Título</label>
+                <input v-model="form.header.title" class="mb-input" placeholder="El ecosistema Sintel">
+              </div>
+              <div class="mb-field mb-field--full">
+                <label class="mb-label">Subtítulo (eyebrow)</label>
+                <input v-model="form.header.subtitle" class="mb-input" placeholder="Marketplace">
+              </div>
+              <div class="mb-field mb-field--full">
+                <label class="mb-label">Descripción</label>
+                <textarea v-model="form.header.description" class="mb-input" rows="2" placeholder="Detalle sobre esta sección..."></textarea>
+              </div>
+              <div class="mb-field">
+                <label class="mb-label">CTA - Texto</label>
+                <input v-model="form.header.cta_text" class="mb-input" placeholder="Explorar todo">
+              </div>
+              <div class="mb-field">
+                <label class="mb-label">CTA - URL</label>
+                <input v-model="form.header.cta_url" class="mb-input" placeholder="/tienda">
+              </div>
+              <div class="mb-field">
+                <label class="mb-label">CTA - Target</label>
+                <select v-model="form.header.cta_target" class="mb-select">
+                  <option value="_self">Misma pestaña</option>
+                  <option value="_blank">Nueva pestaña</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="mb-subsection mt-3">Fondo de Sección Completa</div>
+            <div class="mb-grid">
+              <div class="mb-field mb-field--full">
+                <label class="mb-label">Tipo</label>
+                <select v-model="form.section_background.type" class="mb-select">
+                  <option value="none">Ninguno</option>
+                  <option value="image">Imagen</option>
+                  <option value="video">Video</option>
+                  <option value="color">Color sólido</option>
+                </select>
+              </div>
+              <div v-if="form.section_background.type === 'image' || form.section_background.type === 'video'" class="mb-field mb-field--full">
+                <label class="mb-label">URL de media</label>
+                <input v-model="form.section_background.video_url" class="mb-input" placeholder="https://...">
+              </div>
+              <div v-if="form.section_background.type === 'video'" class="mb-field mb-field--full">
+                <label class="mb-label">Poster</label>
+                <input v-model="form.section_background.poster" class="mb-input" placeholder="https://...">
+              </div>
+              <div class="mb-field mb-field--full">
+                <div class="form-check form-switch">
+                  <input v-model="form.section_background.parallax" class="form-check-input" type="checkbox" id="mb-section-parallax">
+                  <label class="form-check-label" for="mb-section-parallax">Efecto Parallax</label>
+                </div>
+              </div>
+            </div>
+          </div>
+
         </div><!-- /mb-form -->
 
         <!-- LIVE PREVIEW -->
@@ -604,6 +772,8 @@ const TABS = [
   { id: 'buttons',      icon: 'bi-cursor',                label: 'Botones' },
   { id: 'background',   icon: 'bi-paint-bucket',          label: 'Fondo' },
   { id: 'responsive',   icon: 'bi-tablet',                label: 'Responsive' },
+  { id: 'carousel',     icon: 'bi-arrows-move',           label: 'Carrusel' },
+  { id: 'multimedia',   icon: 'bi-film',                  label: 'Multimedia' },
 ];
 const activeTab = ref('general');
 
@@ -758,6 +928,46 @@ const DEFAULT_FORM = () => ({
   bg_overlay:           false,
   bg_overlay_opacity:   50,
   bg_filter:            'none',
+
+  // ── Marketplace Showcase Fase 10 ──
+  carousel: {
+    items_desktop:   6,
+    items_tablet:    3,
+    items_mobile:    1.2,
+    autoplay:        false,
+    loop:            true,
+    speed:           40,
+    pause_on_hover:  true,
+    pause_on_touch:  true,
+    pause_on_focus:  true,
+    show_arrows:     true,
+    show_indicators: true,
+  },
+  media: {
+    type:           'color',
+    image:          '',
+    video_url:      '',
+    video_url_webm: '',
+    poster:         '',
+    blur:           0,
+    glass:          false,
+  },
+  header: {
+    title:      '',
+    subtitle:   '',
+    description: '',
+    cta_text:   '',
+    cta_url:    '',
+    cta_target: '_self',
+  },
+  section_background: {
+    type:           'none',
+    image:          '',
+    video_url:      '',
+    video_url_webm: '',
+    poster:         '',
+    parallax:       false,
+  },
 });
 
 const form = reactive(DEFAULT_FORM());
@@ -845,6 +1055,44 @@ function loadModule(mod) {
     bg_overlay:           bg.overlay           || false,
     bg_overlay_opacity:   bg.overlay_opacity   || 50,
     bg_filter:            lc.bg_filter         || 'none',
+    carousel:             lc.carousel ? {
+      items_desktop:   lc.carousel.items_desktop ?? 6,
+      items_tablet:    lc.carousel.items_tablet ?? 3,
+      items_mobile:    lc.carousel.items_mobile ?? 1.2,
+      autoplay:        lc.carousel.autoplay ?? false,
+      loop:            lc.carousel.loop ?? true,
+      speed:           lc.carousel.speed ?? 40,
+      pause_on_hover:  lc.carousel.pause_on_hover !== false,
+      pause_on_touch:  lc.carousel.pause_on_touch !== false,
+      pause_on_focus:  lc.carousel.pause_on_focus !== false,
+      show_arrows:     lc.carousel.show_arrows !== false,
+      show_indicators: lc.carousel.show_indicators !== false,
+    } : DEFAULT_FORM().carousel,
+    media:                lc.media ? {
+      type:           lc.media.type || 'color',
+      image:          lc.media.image || '',
+      video_url:      lc.media.video_url || '',
+      video_url_webm: lc.media.video_url_webm || '',
+      poster:         lc.media.poster || '',
+      blur:           lc.media.blur || 0,
+      glass:          lc.media.glass || false,
+    } : DEFAULT_FORM().media,
+    header:               lc.header ? {
+      title:       lc.header.title || '',
+      subtitle:    lc.header.subtitle || '',
+      description: lc.header.description || '',
+      cta_text:    lc.header.cta_text || '',
+      cta_url:     lc.header.cta_url || '',
+      cta_target:  lc.header.cta_target || '_self',
+    } : DEFAULT_FORM().header,
+    section_background:   lc.section_background ? {
+      type:           lc.section_background.type || 'none',
+      image:          lc.section_background.image || '',
+      video_url:      lc.section_background.video_url || '',
+      video_url_webm: lc.section_background.video_url_webm || '',
+      poster:         lc.section_background.poster || '',
+      parallax:       lc.section_background.parallax || false,
+    } : DEFAULT_FORM().section_background,
   });
 
   bgImgPreview.value = mod.background_image || '';
@@ -915,6 +1163,10 @@ const configPayload = computed(() => ({
     overlay:         form.bg_overlay,
     overlay_opacity: form.bg_overlay_opacity,
   },
+  carousel:        form.carousel,
+  media:           form.media,
+  header:          form.header,
+  section_background: form.section_background,
 }));
 
 // ── Preview computed ──────────────────────────────────────────────────────────
@@ -967,6 +1219,19 @@ function handleImgDrop(e) {
   bgImgFile.value    = file;
   bgImgPreview.value = URL.createObjectURL(file);
   removeImg.value    = false;
+}
+
+// ── Carousel helpers ──────────────────────────────────────────────────────────
+function getCarouselItems(device) {
+  if (device === 'desktop') return form.carousel.items_desktop;
+  if (device === 'tablet') return form.carousel.items_tablet;
+  return form.carousel.items_mobile;
+}
+
+function setCarouselItems(device, value) {
+  if (device === 'desktop') form.carousel.items_desktop = value;
+  else if (device === 'tablet') form.carousel.items_tablet = value;
+  else form.carousel.items_mobile = value;
 }
 
 // ── Save ──────────────────────────────────────────────────────────────────────

@@ -132,11 +132,11 @@ const router = createRouter({
         { path: 'contacto',                  name: 'contact',         component: ContactoView },
         // Tienda
         { path: 'tienda',                    name: 'shop-catalog',    component: ShopCatalogView },
-        { path: 'tienda/producto/:uuid',     name: 'product-detail',  component: ProductDetailView },
+        { path: 'tienda/:uuid',              name: 'product-detail',  component: ProductDetailView },
         // Alquiler
         { path: 'alquiler',                            name: 'rental-catalog',  component: RentalCatalogView },
-        { path: 'alquiler/equipo/:uuid',               name: 'rental-detail',   component: RentalDetailView },
-        { path: 'alquiler/equipo/:uuid/solicitar',     name: 'rental-request',  component: RentalRequestWizard, meta: { requiresAuth: true } },
+        { path: 'alquiler/:uuid',                      name: 'rental-detail',   component: RentalDetailView },
+        { path: 'alquiler/:uuid/solicitar',            name: 'rental-request',  component: RentalRequestWizard, meta: { requiresAuth: true } },
         { path: 'alquiler/reserva/:uuid',              name: 'rental-confirmation', component: RentalConfirmationView, meta: { requiresAuth: true } },
         { path: 'alquiler/reserva/:uuid/exito',        name: 'rental-success', component: RentalSuccessView, meta: { requiresAuth: true } },
         // Servicios

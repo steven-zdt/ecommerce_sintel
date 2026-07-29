@@ -4,8 +4,8 @@
     <!-- ── Imagen ──────────────────────────────────────────────────────────── -->
     <div class="ic-img-wrap">
       <img
-        v-if="item.image"
-        :src="item.image"
+        v-if="primaryImageUrl"
+        :src="primaryImageUrl"
         :alt="item.name"
         class="ic-img"
         loading="lazy"
@@ -142,6 +142,12 @@ const placeholderIcon = computed(() => ({
 const categoryName = computed(() =>
   props.item.category_name || props.item.category?.name || props.item.service_category_name || null
 );
+
+const primaryImageUrl = computed(() => {
+  const images = props.item.images;
+  if (!images?.length) return null;
+  return (images.find(img => img.is_primary) || images[0]).image;
+});
 
 const defaultVariant = computed(() =>
   props.item.variants?.find(v => v.is_default) || props.item.variants?.[0] || null

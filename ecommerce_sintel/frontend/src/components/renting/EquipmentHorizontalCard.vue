@@ -1,6 +1,6 @@
 <template>
   <BaseHorizontalCard
-    :image="equipment.image || ''"
+    :image="primaryImage"
     image-fit="contain"
     placeholder-icon="bi-truck"
     placeholder-bg="linear-gradient(135deg, #faf5ff, #f3e8ff)"
@@ -76,6 +76,12 @@ const emit = defineEmits(['view', 'quote']);
 const defaultVariant = computed(() =>
   props.equipment.variants?.find(v => v.is_default) || props.equipment.variants?.[0] || {}
 );
+
+const primaryImage = computed(() => {
+  const images = props.equipment.images;
+  if (!images?.length) return '';
+  return (images.find(img => img.is_primary) || images[0]).image;
+});
 
 const pricePerDay   = computed(() => parseFloat(defaultVariant.value.rental_price_per_day  || 0));
 const pricePerHour  = computed(() => parseFloat(defaultVariant.value.rental_price_per_hour || 0));

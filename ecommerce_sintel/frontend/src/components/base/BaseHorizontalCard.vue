@@ -93,7 +93,7 @@ const accentStyle = computed(() => ({
 
 .bhc-img-col { flex-shrink: 0; }
 .bhc-img-wrap {
-  width: 150px; height: 100%; min-height: 140px;
+  width: 150px; height: 140px;
   position: relative; overflow: hidden; background: #f8fafc;
 }
 .bhc-img {
@@ -129,7 +129,7 @@ const accentStyle = computed(() => ({
 .bhc-btns { display: flex; flex-direction: column; gap: 0.4rem; }
 
 @media (max-width: 575px) {
-  .bhc-img-wrap { width: 110px; min-height: 120px; }
+  .bhc-img-wrap { width: 110px; height: 120px; }
   .bhc-actions { padding: 0.75rem 1rem; min-width: 155px; }
 }
 </style>

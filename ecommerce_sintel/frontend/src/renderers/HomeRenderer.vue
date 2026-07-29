@@ -7,13 +7,13 @@
       <DividerWave from="#080d1a" fill="#ffffff" />
     </template>
 
-    <!-- ── MÓDULOS + STATS ───────────────────────────────────────────────────── -->
+    <!-- ── MARKETPLACE SHOWCASE + STATS ──────────────────────────────────────── -->
+    <!-- Reemplaza al antiguo ModuleGrid.vue (grid fijo) -- MarketplaceShowcase.vue
+         es un carrusel horizontal premium (ver frontend/.AGENT/doc, seccion
+         "Marketplace Showcase 2.0"). ModuleGrid.vue/ModuleCard.vue quedan en
+         disco sin importar (mismo trato que HeroCarousel.vue/ModuleCardsGrid.vue). -->
     <template v-if="showSection('modules')">
-      <div class="home-modules-belt">
-        <div class="container-xl">
-          <ModuleGrid :modules="modules" :loading="loading" />
-        </div>
-      </div>
+      <MarketplaceShowcase :modules="modules" :loading="loading" />
 
       <div v-if="!loading && stats.length" class="home-stats-belt">
         <div class="container-xl">
@@ -142,7 +142,7 @@ import { RouterLink } from 'vue-router';
 
 import HeroSection     from '@/components/ui/landing/HeroSection.vue';
 import DividerWave     from '@/components/ui/landing/DividerWave.vue';
-import ModuleGrid      from '@/components/ui/landing/ModuleGrid.vue';
+import MarketplaceShowcase from '@/components/ui/showcase/MarketplaceShowcase.vue';
 import AnimatedCounter from '@/components/ui/landing/AnimatedCounter.vue';
 import FlashOffers     from '@/components/ui/landing/FlashOffers.vue';
 import FeaturedSection from '@/components/ui/landing/FeaturedSection.vue';
@@ -234,7 +234,6 @@ const stats = computed(() => {
   background: var(--c-bg);
   min-height: 100vh;
 }
-.home-modules-belt { background: var(--c-bg); padding: clamp(2.5rem, 5vw, 4rem) 0; }
 .home-stats-belt { background: var(--c-bg); padding-bottom: clamp(1.5rem, 3vw, 2.5rem); }
 .home-stats-row {
   display: flex; justify-content: center; flex-wrap: wrap; gap: 0;

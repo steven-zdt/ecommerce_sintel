@@ -464,6 +464,30 @@
           en el detalle publico. Nada de esto se comparte ni se hereda de otros equipos.
         </p>
 
+        <!-- Precio Base de Referencia (desde variante) -->
+        <div v-if="variants.length" class="alert alert-info border-0 p-3 mb-3 rounded-3" style="background-color:#dbeafe;border-left:3px solid #0284c7 !important">
+          <div class="d-flex align-items-start gap-2">
+            <i class="bi bi-info-circle-fill text-info mt-1" style="font-size:.9rem;flex-shrink:0"></i>
+            <div class="flex-grow-1 small">
+              <div class="fw-semibold text-dark mb-1">Precio base (desde variante principal)</div>
+              <div class="text-muted mb-2">SKU: <code class="text-dark">{{ variants[0]?.sku }}</code></div>
+              <div v-if="variants[0]?.rental_price_per_day" class="text-dark fw-semibold">
+                <i class="bi bi-tag me-1"></i>{{ formatCOP(variants[0].rental_price_per_day) }} por día
+                <span v-if="variants[0]?.rental_price_per_hour" class="ms-2">
+                  <i class="bi bi-clock me-1"></i>{{ formatCOP(variants[0].rental_price_per_hour) }} por hora
+                </span>
+              </div>
+              <div v-else class="text-warning small">
+                <i class="bi bi-exclamation-circle me-1"></i>No has configurado precios en la variante
+              </div>
+            </div>
+          </div>
+        </div>
+        <div v-else class="alert alert-warning border-0 p-3 mb-3 rounded-3" style="background-color:#fef3c7;border-left:3px solid #f59e0b !important">
+          <i class="bi bi-exclamation-triangle me-2 text-warning"></i>
+          <span class="small">Crea una variante primero para establecer el precio base de marketing</span>
+        </div>
+
         <!-- Precio comercial -->
         <h6 class="fw-semibold small text-uppercase text-muted mb-2">Precio comercial</h6>
         <div class="row g-2 mb-3">
@@ -473,6 +497,13 @@
               <span class="input-group-text">$</span>
               <input v-model.number="marketingForm.reference_price" type="number" min="0" step="0.01" class="form-control" placeholder="850000">
             </div>
+            <small class="text-muted mt-1 d-block">
+              <i class="bi bi-lightbulb me-1"></i>
+              <span v-if="variants[0]?.rental_price_per_day">
+                Sugerencia: usa {{ formatCOP(variants[0].rental_price_per_day) }} como referencia
+              </span>
+              <span v-else>Completa el precio en la variante principal</span>
+            </small>
           </div>
           <div class="col-6">
             <label class="form-label small">Precio promocional</label>
@@ -951,6 +982,17 @@ watch(
     }
   },
   { immediate: true },
+);
+
+// ─── Sincronizar precio de variante principal con marketing.reference_price ───
+watch(
+  () => variants.value[0]?.rental_price_per_day,
+  (newPrice) => {
+    if (newPrice != null && newPrice > 0) {
+      // Auto-actualizar reference_price con el precio de la variante principal
+      marketingForm.reference_price = parseFloat(newPrice);
+    }
+  },
 );
 
 function syncBasicForm(item) {
