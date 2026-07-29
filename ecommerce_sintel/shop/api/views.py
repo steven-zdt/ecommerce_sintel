@@ -111,11 +111,11 @@ class ProductViewSet(viewsets.ReadOnlyModelViewSet):
             )
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
+    @action(detail=True, methods=['get'], permission_classes=[permissions.AllowAny], url_path='detail')
     @extend_schema(
         description="Retorna detalle completo de un producto (hero, pricing, marketing, media, reviews, etc.)",
         responses={200: ProductSerializer}
     )
-    @action(detail=True, methods=['get'], permission_classes=[permissions.AllowAny], url_path='detail')
     def detail(self, request, uuid=None):
         """GET /shop/products/{uuid}/detail/
 

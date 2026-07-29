@@ -202,11 +202,11 @@ class TechnicalServiceViewSet(viewsets.ReadOnlyModelViewSet):
         technicians = TechnicianSelector.get_available_for_category(service.category)[:12]
         return Response(AvailableTechnicianSerializer(technicians, many=True, context={'request': request}).data)
 
+    @action(detail=True, methods=['get'], permission_classes=[permissions.AllowAny], url_path='detail')
     @extend_schema(
         description="Retorna detalle completo de un servicio técnico (hero, pricing, marketing, media, reviews, etc.)",
         responses={200: TechnicalServiceSerializer}
     )
-    @action(detail=True, methods=['get'], permission_classes=[permissions.AllowAny], url_path='detail')
     def detail(self, request, uuid=None):
         """GET /services/services/{uuid}/detail/
 
