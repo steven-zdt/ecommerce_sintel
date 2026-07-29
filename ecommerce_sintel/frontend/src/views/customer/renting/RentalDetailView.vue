@@ -383,6 +383,7 @@ import useApi from '@/composables/useApi';
 import { useToast } from '@/composables/useToast';
 import { useSeo } from '@/composables/useSeo';
 import { usePreloadImage } from '@/composables/useLazyImage';
+import { generateProductSchema, generateBreadcrumbSchema, injectJsonLd } from '@/composables/useSeoStructuredData';
 
 // Hero section (above fold - eager load)
 import BaseGallery from '@/components/base/BaseGallery.vue';
@@ -500,6 +501,17 @@ async function fetchDetail() {
     if (heroImageUrl) {
       usePreloadImage(heroImageUrl);
     }
+
+    // Inject JSON-LD structured data
+    const productSchema = generateProductSchema(detail.value);
+    const breadcrumbSchema = generateBreadcrumbSchema([
+      { name: 'Inicio', url: '/' },
+      { name: 'Renting', url: '/alquiler' },
+      { name: detail.value.hero?.category_name || 'Equipo', url: `/alquiler?category=${detail.value.slug}` },
+      { name: detail.value.hero?.name, url: window.location.pathname },
+    ]);
+    injectJsonLd(productSchema);
+    injectJsonLd(breadcrumbSchema);
 
     setSeo({
       title: detail.value.seo?.meta_title || detail.value.hero?.name,
