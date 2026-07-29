@@ -11,7 +11,7 @@ Frontend renders data as-is.
 from decimal import Decimal
 from typing import Optional, List, Dict, Any
 from django.db.models import Avg, Count
-from django.utils.text import truncate_words
+from django.utils.text import Truncator
 
 from renting.models import Equipment, EquipmentVariant
 from renting.services.dtos import (
@@ -456,7 +456,7 @@ class EquipmentPublicDetailPresenter:
             review_items.append(ReviewDTO(
                 user_name=review.user.email.split('@')[0],
                 rating=review.rating,
-                comment=truncate_words(review.comment, 30),
+                comment=Truncator(review.comment).words(30, truncate=' ...'),
                 created_at=review.created_at.isoformat(),
             ))
 
@@ -550,6 +550,10 @@ class EquipmentPublicDetailPresenter:
         """Presenta equipos relacionados (misma categoría)."""
         related = []
 
+        # Verificar que category exista antes de acceder
+        if not self.equipment.category:
+            return related
+
         related_items = self.equipment.category.equipments.filter(
             is_active=True
         ).exclude(uuid=self.equipment.uuid).order_by('-created_at')[:6]
@@ -575,7 +579,7 @@ class EquipmentPublicDetailPresenter:
         """Presenta SEO metadata."""
         return SEODTO(
             meta_title=self.equipment.meta_title or self.equipment.name,
-            meta_description=self.equipment.meta_description or truncate_words(self.equipment.description, 20),
+            meta_description=self.equipment.meta_description or Truncator(self.equipment.description).words(20, truncate=' ...'),
             meta_keywords=self.equipment.meta_keywords,
             og_image_url=self.equipment.og_image.url if self.equipment.og_image else None,
         )
