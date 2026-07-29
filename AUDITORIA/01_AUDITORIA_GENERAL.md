@@ -762,6 +762,45 @@ de consola limpia (sin errores) en una pestaña de navegador completamente nueva
 
 **Punch list de §6: [OK] 7 de 7 puntos cerrados — 100%.**
 
+### 7.23 [OK] Incidente de producción 2026-07-29 — sitio inalcanzable (timeout, no 502) — puerto 7844 saliente bloqueado
+
+Segundo incidente real de producción de esta rama, causa raíz **completamente
+distinta** al de §7.11 (ese fue nginx cacheando una IP vieja de Django, daba
+`502`; este es de infraestructura de red — daba **timeout puro**, ni
+siquiera llegaba a nginx). Reportado por el usuario en vivo.
+
+**Diagnóstico:** los 7 contenedores de `docker-compose.prod.yml` (django,
+nginx, redis, db, celery_worker, celery_beat, cloudflared) estaban
+`Up`/`healthy` — la aplicación nunca fue el problema. `docker logs
+sintel_prod_cloudflared` ya lo diagnosticaba solo: `ERROR: Allow outbound
+QUIC traffic on port 7844 or use HTTP2` / `ERROR: Allow outbound TCP on
+port 7844`, con conexiones muriendo repetidamente por `"no recent network
+activity"`. Aislado capa por capa **desde el host Windows, fuera de
+Docker** (para descartar que fuera NAT de Docker): internet general y
+Cloudflare-por-443 (`1.1.1.1`) funcionaban sin problema; `Test-NetConnection`
+al puerto 7844 específicamente fallaba (ni TCP connect ni ping) — el único
+puerto no estándar que usa el protocolo de Cloudflare Tunnel, bloqueado a
+nivel de router/red local.
+
+**Se descartó una vía de solución por software:** forzar `protocol: http2`
+en `config.yml` (para evitar QUIC/UDP) no cambió nada, porque el puerto
+estaba bloqueado para ambos transportes (TCP y UDP) por igual — se probó,
+se confirmó que no resolvía, y se revirtió. **No existe ningún archivo de
+este repositorio que controle esta capa de red.**
+
+**Fix real:** el usuario abrió el puerto 7844 (TCP+UDP) saliente en el
+router/firewall de la red — acción fuera del código, confirmada por el
+usuario. Verificado: `docker logs sintel_prod_cloudflared` mostró conexión
+estable (`Registered tunnel connection ... location=bog01`, sin caídas);
+los 4 dominios (`sintel.net.co`, `www`, `api`, `panel`) volvieron a `200`
+vía `curl` externo.
+
+**Conocimiento persistido para que este diagnóstico no se repita desde
+cero:** árbol de decisión completo (contenedores → 502 vs timeout puro →
+logs de cloudflared → confirmar desde el host fuera de Docker) documentado
+en `docs/deployment/ROADMAP_CLOUDFLARE_TUNNEL.md` (nueva sección "Incidente
+2026-07-29"), y como memoria de proyecto para sesiones futuras.
+
 ---
 
 ## 8. Documentos Generados

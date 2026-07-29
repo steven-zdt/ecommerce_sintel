@@ -1146,3 +1146,71 @@ el contenedor `frontend` de desarrollo, ya que Vite no recarga su propio
 archivo de configuración en caliente); `https://sintel.net.co/` en
 producción (tras rebuild) sigue sirviendo con el prefijo correcto
 (`/static/panel/js/bundle/assets/...`) y respondiendo `200`.
+
+## Incidente 2026-07-29: sitio inalcanzable (timeout, no 502) — puerto 7844 saliente bloqueado
+
+**Síntoma:** los 4 dominios (`sintel.net.co`, `www`, `api`, `panel`) daban
+**timeout** externo (curl `28`, sin respuesta) — distinto del incidente de
+nginx documentado en `AUDITORIA/01_AUDITORIA_GENERAL.md` §7.11, que daba
+`502` (ese sí llegaba hasta nginx; este no llegaba ni al túnel).
+
+**Primer paso, siempre — descartar la app antes de sospechar de la red:**
+```
+docker ps --filter "name=sintel_prod"        # los 7 servicios, healthy?
+docker logs sintel_prod_cloudflared --tail 60
+```
+En este incidente los 7 contenedores estaban `Up`/`healthy` (django, nginx,
+redis, db, celery_worker, celery_beat, cloudflared) — la app nunca fue el
+problema. `cloudflared` ya lo diagnostica solo en sus propios logs, sin
+necesidad de adivinar:
+```
+ERROR: Allow outbound QUIC traffic on port 7844 or use HTTP2.
+ERROR: Allow outbound TCP on port 7844.
+SUMMARY: Environment has critical failures. cloudflared may not be able to establish a tunnel.
+...
+WRN Failed to dial a quic connection error="failed to dial to edge with quic: timeout: no recent network activity"
+```
+
+**Causa raíz:** el **puerto 7844 saliente** (TCP y UDP, el único puerto que
+usa el protocolo de Cloudflare Tunnel/Argo — no es HTTP/HTTPS estándar) quedó
+bloqueado o inestable a nivel de router/red local. Confirmado aislando la
+causa capa por capa, **desde el host Windows, fuera de Docker** (si el
+bloqueo existe ahí, no es un problema de Docker/NAT):
+```powershell
+Test-Connection -ComputerName 8.8.8.8                         # internet general: OK
+Invoke-WebRequest -Uri "https://1.1.1.1"                       # Cloudflare por 443: OK
+Test-NetConnection -ComputerName <IP de argotunnel.com> -Port 7844   # esto es lo que falla
+```
+Con internet general y Cloudflare-por-443 funcionando bien, pero el puerto
+7844 específicamente inalcanzable (ni TCP connect ni ping), la única
+explicación es un firewall/router que bloquea o filtra ese puerto no
+estándar — no hay ningún workaround de software: forzar `protocol: http2`
+en `config.yml` (en vez del automático que prueba QUIC primero) **no
+soluciona nada**, porque el puerto está bloqueado para ambos transportes por
+igual. Se probó y se revirtió — el comentario que quedó en
+`C:\Users\Administrator\.cloudflared\sintel-production\config.yml` documenta
+esto explícitamente para que una sesión futura no vuelva a perder tiempo
+en esa vía.
+
+**Fix real:** el usuario abrió el puerto 7844 (TCP+UDP) saliente en el
+router/firewall de la red. Nada de esto se toca desde el código — no hay
+ningún archivo de este repo que controle esta capa.
+
+**Verificación:** `docker logs sintel_prod_cloudflared` mostró
+`Registered tunnel connection ... location=bog01` estable (antes se caían
+a los segundos con "no recent network activity"); los 4 dominios volvieron
+a `200` vía `curl` externo.
+
+**Lección para diagnóstico futuro — árbol de decisión rápido:**
+1. `docker ps` — ¿los 7 contenedores `healthy`? Si no, es la app (ver
+   incidente de nginx §7.11 de la auditoría, causa distinta: DNS cacheado).
+2. Si están healthy pero el sitio da **502** → nginx no puede hablarle a
+   django (revisar `nginx-common.conf`, resolver DNS dinámico).
+3. Si están healthy pero el sitio da **timeout puro** (sin respuesta, ni
+   siquiera un error HTTP) → el problema está *antes* de nginx: el túnel de
+   Cloudflare. `docker logs sintel_prod_cloudflared` primero — casi siempre
+   ya dice exactamente qué puerto/protocolo falta.
+4. Si cloudflared reporta fallas de conectividad, confirmar SIEMPRE desde
+   el host (fuera de Docker) con `Test-NetConnection`/`Test-Connection`
+   antes de tocar cualquier archivo de configuración — si falla ahí
+   también, es la red/router, no algo que este repo pueda arreglar.
