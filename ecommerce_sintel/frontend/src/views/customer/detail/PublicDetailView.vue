@@ -27,142 +27,138 @@
         </ol>
       </nav>
 
-      <!-- MAIN 2-COLUMN LAYOUT -->
-      <div class="row g-4 g-lg-5 mb-5">
-        <!-- LEFT COLUMN: Gallery + Availability -->
-        <div class="col-lg-5">
-          <div class="gallery-sticky">
-            <!-- Trust Grid -->
-            <div class="trust-grid mb-4">
-              <div><i class="bi bi-shield-check text-success"></i><span>{{ getTrustMsg(0) }}</span></div>
-              <div><i class="bi bi-credit-card text-primary"></i><span>{{ getTrustMsg(1) }}</span></div>
-              <div><i class="bi bi-truck text-info"></i><span>{{ getTrustMsg(2) }}</span></div>
-              <div><i class="bi bi-headset text-warning"></i><span>{{ getTrustMsg(3) }}</span></div>
+      <!-- MAIN CONTENT -->
+      <div class="mb-5">
+        <!-- Hero Title -->
+        <h1 class="detail-title mb-3">{{ detail.hero?.name }}</h1>
+
+        <!-- Trust Grid -->
+        <div class="trust-grid mb-4">
+          <div><i class="bi bi-shield-check text-success"></i><span>{{ getTrustMsg(0) }}</span></div>
+          <div><i class="bi bi-credit-card text-primary"></i><span>{{ getTrustMsg(1) }}</span></div>
+          <div><i class="bi bi-truck text-info"></i><span>{{ getTrustMsg(2) }}</span></div>
+          <div><i class="bi bi-headset text-warning"></i><span>{{ getTrustMsg(3) }}</span></div>
+        </div>
+
+        <!-- 2-Column: Left (Availability/Gallery) + Right (Details) -->
+        <div class="row g-5 mb-5">
+          <!-- LEFT: Availability + Gallery -->
+          <div class="col-lg-6">
+            <!-- DISPONIBILIDAD SECTION -->
+            <div class="availability-section mb-5">
+              <h3 class="section-title">DISPONIBILIDAD</h3>
+              <p class="availability-status">{{ detail.availability?.status_label }}</p>
+              <p class="availability-detail">{{ detail.availability?.status_detail }}</p>
+              <RouterLink v-if="detail.hero?.cta_enabled" :to="`/${moduleType}/${detail.uuid}/solicitar`" class="btn btn-primary">
+                Consultar fechas exactas
+              </RouterLink>
             </div>
-            <!-- Gallery Placeholder -->
-            <div class="gallery-area mb-4 rounded-3" style="height:420px;background:#f8f9fa;display:flex;align-items:center;justify-content:center">
-              <span class="text-muted">Galería</span>
+
+            <!-- Gallery -->
+            <div class="gallery-area rounded-3 mb-4" style="height:420px;background:#f8f9fa;display:flex;align-items:center;justify-content:center">
+              <span class="text-muted">Galería de imágenes</span>
             </div>
-            <!-- Availability Card -->
-            <div class="availability-card">
-              <span class="section-kicker">Disponibilidad</span>
-              <h2>{{ detail.availability?.status_label }}</h2>
-              <p>{{ detail.availability?.status_detail }}</p>
-              <RouterLink v-if="detail.hero?.cta_enabled" :to="`/${moduleType}/${detail.uuid}/solicitar`" class="availability-link">
-                Consultar fechas <i class="bi bi-arrow-right"></i>
+          </div>
+
+          <!-- RIGHT: Product Details -->
+          <div class="col-lg-6">
+            <!-- Badges -->
+            <div class="d-flex flex-wrap gap-2 mb-3">
+              <span v-if="detail.hero?.brand_name" class="badge bg-light text-dark border">{{ detail.hero.brand_name }}</span>
+              <span v-if="detail.hero?.category_name" class="badge bg-light text-dark border">{{ detail.hero.category_name }}</span>
+              <span :class="getAvailBadge()">{{ detail.availability?.status_label }}</span>
+            </div>
+
+            <!-- Description -->
+            <p v-if="detail.hero?.description" class="detail-description mb-4">{{ detail.hero.description }}</p>
+
+            <!-- Quick Specs -->
+            <div class="quick-specs mb-4">
+              <div class="spec-row">
+                <span class="spec-label">Marca</span>
+                <span class="spec-val">{{ detail.hero?.brand_name || 'N/A' }}</span>
+              </div>
+              <div class="spec-row">
+                <span class="spec-label">Categoría</span>
+                <span class="spec-val">{{ detail.hero?.category_name || 'N/A' }}</span>
+              </div>
+              <div class="spec-row">
+                <span class="spec-label">Disponibilidad</span>
+                <span class="spec-val">{{ detail.availability?.status_label }}</span>
+              </div>
+              <div class="spec-row">
+                <span class="spec-label">Stock total</span>
+                <span class="spec-val">{{ detail.availability?.available_now || 0 }} unidad(es)</span>
+              </div>
+            </div>
+
+            <!-- CONFIGURACIÓN SECTION -->
+            <div class="config-section mb-4">
+              <h4 class="section-subtitle">CONFIGURACION</h4>
+              <div class="config-item">
+                <span class="config-label">Valor del alquiler</span>
+                <span class="config-val" v-if="moduleType === 'renting'">Desde {{ detail.pricing?.formatted_price_per_day }} / dia</span>
+                <span class="config-val" v-else>{{ detail.pricing?.formatted_promo_price }}</span>
+              </div>
+            </div>
+
+            <!-- Pricing Card -->
+            <div v-if="detail.pricing" class="pricing-card mb-4">
+              <div class="price-display">
+                <span class="price-label" v-if="moduleType === 'renting'">${{ detail.pricing?.price_per_day }} / dia</span>
+                <span class="price-label" v-else>{{ detail.pricing?.formatted_promo_price }}</span>
+              </div>
+              <RouterLink v-if="detail.hero?.cta_enabled" :to="`/${moduleType}/${detail.uuid}/solicitar`" class="btn btn-primary btn-lg w-100">
+                {{ getCTALabel() }}
               </RouterLink>
             </div>
           </div>
         </div>
 
-        <!-- RIGHT COLUMN: Details -->
-        <div class="col-lg-7">
-          <!-- Badges Row -->
-          <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
-            <span v-for="tag in detail.marketing?.tags" :key="tag" class="badge bg-primary-subtle text-primary border">{{ tag }}</span>
-            <span v-if="detail.hero?.brand_name" class="badge bg-primary-subtle text-primary border">{{ detail.hero.brand_name }}</span>
-            <span v-if="detail.hero?.category_name" class="badge bg-light text-muted border">{{ detail.hero.category_name }}</span>
-            <span :class="getAvailBadge()">{{ detail.availability?.status_label }}</span>
-            <div v-if="detail.reviews?.total_count > 0" class="rating-inline">
-              <i class="bi bi-star-fill text-warning"></i>
-              <span>{{ detail.reviews.average_rating?.toFixed(1) }}</span> ({{ detail.reviews.total_count }})
-            </div>
-            <div class="ms-lg-auto d-flex gap-2">
-              <button type="button" class="icon-btn" @click="shareItem"><i class="bi bi-share"></i></button>
-              <button type="button" class="icon-btn" :class="{ active: isFavorite }" @click="toggleFavorite"><i :class="['bi', isFavorite ? 'bi-heart-fill' : 'bi-heart']"></i></button>
+        <!-- OPINIONES SECTION -->
+        <div class="section-opiniones mb-5">
+          <h3 class="section-title">OPINIONES</h3>
+          <p class="section-subtitle">Reseñas de clientes</p>
+          <div v-if="detail?.reviews?.items?.length" class="reviews-list">
+            <div v-for="review in detail.reviews.items" :key="review.uuid" class="review-item">
+              <div class="review-header">
+                <h5>{{ review.author_name }}</h5>
+                <span class="review-rating">⭐ {{ review.rating }}/5</span>
+              </div>
+              <p class="review-text">{{ review.text }}</p>
             </div>
           </div>
-
-          <!-- Title -->
-          <h1 class="detail-title">{{ detail.hero?.name }}</h1>
-          <p v-if="detail.hero?.description" class="detail-description">{{ detail.hero.description }}</p>
-
-          <!-- Pricing Card -->
-          <div v-if="detail.pricing" class="pricing-section mb-4">
-            <div class="row g-3" v-if="moduleType === 'renting'">
-              <div class="col-6">
-                <span class="kicker">Precio por día</span>
-                <div class="price-value">{{ detail.pricing.formatted_price_per_day }}</div>
-              </div>
-              <div class="col-6">
-                <span class="kicker">Precio por hora</span>
-                <div class="price-value">{{ detail.pricing.formatted_price_per_hour }}</div>
-              </div>
-            </div>
-            <div v-else class="row g-3">
-              <div class="col-12">
-                <span class="kicker">Precio</span>
-                <div class="price-value">{{ detail.pricing.formatted_promo_price }}</div>
-              </div>
-            </div>
-            <div v-if="detail.pricing?.has_promotion" class="discount-banner mt-3">
-              <span class="discount-badge">-{{ detail.pricing.discount_percentage }}%</span>
-              <span>Ahorra {{ detail.pricing.formatted_discount_amount }}</span>
-            </div>
-            <RouterLink v-if="detail.hero?.cta_enabled" :to="`/${moduleType}/${detail.uuid}/solicitar`" class="btn btn-primary w-100 mt-3">
-              {{ getCTALabel() }}
-            </RouterLink>
-          </div>
-
-          <!-- Quick Specs -->
-          <div class="quick-specs">
-            <span class="kicker">Especificaciones rápidas</span>
-            <div class="specs-grid">
-              <div><span class="spec-label">Marca</span><span class="spec-val">{{ detail.hero?.brand_name || 'N/A' }}</span></div>
-              <div><span class="spec-label">Categoría</span><span class="spec-val">{{ detail.hero?.category_name || 'N/A' }}</span></div>
-              <div><span class="spec-label">Disponibilidad</span><span class="spec-val">{{ detail.availability?.status_label }}</span></div>
-              <div><span class="spec-label">Stock</span><span class="spec-val">{{ detail.availability?.available_now || 0 }}</span></div>
-            </div>
+          <div v-else class="no-reviews">
+            <p>—</p>
+            <p class="text-muted">0 reseñas</p>
+            <p class="text-muted">Aun no hay reseñas para este {{ getModuleLabel().toLowerCase() }}.</p>
+            <button class="btn btn-outline-primary btn-sm" @click="toggleFavorite">Escribe tu reseña</button>
           </div>
         </div>
-      </div>
 
-      <!-- SECTIONS BELOW FOLD -->
-      <div v-if="detail?.included_items?.length || detail?.excluded_items?.length" class="section mt-5">
-        <h2>Alcance</h2>
-        <p class="subtitle">Qué incluye y qué no</p>
-        <div class="row g-4">
-          <div v-if="detail?.included_items?.length" class="col-lg-6">
-            <h5 class="mb-3"><i class="bi bi-check-circle text-success me-2"></i>Incluido</h5>
-            <ul class="item-list">
-              <li v-for="(item, i) in detail.included_items" :key="i">{{ item }}</li>
-            </ul>
-          </div>
-          <div v-if="detail?.excluded_items?.length" class="col-lg-6">
-            <h5 class="mb-3"><i class="bi bi-x-circle text-danger me-2"></i>No incluido</h5>
-            <ul class="item-list">
-              <li v-for="(item, i) in detail.excluded_items" :key="i">{{ item }}</li>
-            </ul>
-          </div>
-        </div>
-      </div>
-
-      <!-- FAQ -->
-      <div v-if="detail?.faq?.length" class="section mt-5">
-        <h2>Preguntas frecuentes</h2>
-        <div class="accordion">
-          <div v-for="(faq, i) in detail.faq" :key="i" class="accordion-item">
-            <h2 class="accordion-header">
-              <button class="accordion-button" type="button" :data-bs-target="`#faq${i}`" data-bs-toggle="collapse">{{ faq.question }}</button>
-            </h2>
-            <div :id="`faq${i}`" class="accordion-collapse collapse" data-bs-parent=".accordion">
-              <div class="accordion-body">{{ faq.answer }}</div>
+        <!-- INTEGRACIONES SECTION (Renting only) -->
+        <div v-if="moduleType === 'renting'" class="section-integraciones mb-5">
+          <h3 class="section-title">INTEGRACIONES</h3>
+          <p class="section-subtitle">Completa la solucion</p>
+          <div class="row g-3">
+            <div class="col-md-4">
+              <div class="integration-card">
+                <h5>Shop</h5>
+                <p>Accesorios, consumibles y repuestos compatibles</p>
+              </div>
             </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Related Items -->
-      <div v-if="detail?.related_items?.length" class="section mt-5">
-        <h2>{{ getModuleLabel() }}s relacionados</h2>
-        <p class="subtitle">Otros que podrían interesarte</p>
-        <div class="row g-3">
-          <div v-for="item in detail.related_items" :key="item.uuid" class="col-md-6 col-lg-4">
-            <RouterLink :to="`/${moduleType}/${item.uuid}`" class="item-card">
-              <div class="item-image"></div>
-              <h6>{{ item.name }}</h6>
-              <span class="price">{{ item.price_from }}</span>
-            </RouterLink>
+            <div class="col-md-4">
+              <div class="integration-card">
+                <h5>Technical Services</h5>
+                <p>Instalacion, configuracion, monitoreo y soporte</p>
+              </div>
+            </div>
+            <div class="col-md-4">
+              <div class="integration-card">
+                <h5>Proyecto</h5>
+                <p>Solucion temporal con alcance y SLA personalizado</p>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -314,93 +310,302 @@ onMounted(() => fetchDetail());
 
 .breadcrumb-item.active { color: #333; }
 
-.gallery-sticky { position: sticky; top: 20px; }
+/* MAIN LAYOUT */
+.availability-section {
+  margin-bottom: 2rem;
+}
 
-.gallery-area { background: #f8f9fa; }
+.availability-section h3 {
+  font-size: 0.875rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #495057;
+  margin-bottom: 1rem;
+}
 
-.trust-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem; }
+.availability-status {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #0d6efd;
+  margin-bottom: 0.5rem;
+}
 
-.trust-grid > div { display: flex; align-items: center; gap: 0.75rem; font-size: 0.875rem; color: #333; }
+.availability-detail {
+  font-size: 0.95rem;
+  color: #495057;
+  margin-bottom: 1.5rem;
+  line-height: 1.6;
+}
 
-.trust-grid i { font-size: 1.25rem; }
+.gallery-area {
+  background: #f8f9fa;
+  border: 1px solid #dee2e6;
+}
 
-.availability-card { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 2rem; border-radius: 0.75rem; margin-top: 2rem; }
+/* TRUST GRID */
+.trust-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1rem;
+  margin: 2rem 0;
+  padding: 1.5rem;
+  background: #f8f9fa;
+  border-radius: 0.5rem;
+}
 
-.availability-card h2 { font-size: 1.5rem; margin: 0.5rem 0; font-weight: 700; }
+.trust-grid div {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 0.9rem;
+}
 
-.availability-card p { margin-bottom: 1.5rem; font-size: 0.95rem; }
+.trust-grid i {
+  font-size: 1.5rem;
+  flex-shrink: 0;
+}
 
-.availability-link { display: inline-flex; align-items: center; gap: 0.5rem; color: white; text-decoration: none; font-weight: 600; transition: gap 0.2s; }
+/* BADGES */
+.badge {
+  padding: 0.375rem 0.75rem;
+  font-size: 0.8rem;
+}
 
-.availability-link:hover { gap: 0.75rem; }
+/* QUICK SPECS */
+.quick-specs {
+  border: 1px solid #dee2e6;
+  border-radius: 0.5rem;
+  padding: 1.5rem;
+  background: #f8f9fa;
+}
 
-.kicker { display: block; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #999; margin-bottom: 0.5rem; }
+.spec-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.75rem 0;
+  border-bottom: 1px solid #dee2e6;
+}
 
-.detail-title { font-size: 2rem; font-weight: 700; margin: 1rem 0 0.5rem; color: #1a1a1a; }
+.spec-row:last-child {
+  border-bottom: none;
+}
 
-.detail-description { font-size: 1.1rem; color: #666; margin-bottom: 1.5rem; line-height: 1.6; }
+.spec-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #6c757d;
+  text-transform: uppercase;
+}
 
-.pricing-section { background: #f8f9fa; border-radius: 0.75rem; padding: 1.5rem; border: 1px solid #e9ecef; }
+.spec-val {
+  font-weight: 500;
+  color: #212529;
+  text-align: right;
+}
 
-.price-value { font-size: 1.75rem; font-weight: 700; color: #007bff; }
+/* CONFIGURACION SECTION */
+.config-section {
+  border: 1px solid #dee2e6;
+  border-radius: 0.5rem;
+  padding: 1.5rem;
+  background: #f8f9fa;
+}
 
-.discount-banner { background: #fff3cd; padding: 1rem; border-radius: 0.5rem; display: flex; align-items: center; gap: 1rem; }
+.config-section h4 {
+  font-size: 0.875rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #495057;
+  margin-bottom: 1rem;
+}
 
-.discount-badge { background: #dc3545; color: white; padding: 0.5rem 0.75rem; border-radius: 0.25rem; font-weight: 700; font-size: 0.875rem; }
+.config-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem 0;
+}
 
-.quick-specs { background: #f8f9fa; border-radius: 0.75rem; padding: 1.5rem; }
+.config-label {
+  font-size: 0.9rem;
+  color: #495057;
+  font-weight: 500;
+}
 
-.specs-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem; }
+.config-val {
+  font-weight: 700;
+  color: #0d6efd;
+  font-size: 1rem;
+}
 
-.specs-grid > div { display: flex; flex-direction: column; }
+/* PRICING CARD */
+.pricing-card {
+  border: 2px solid #0d6efd;
+  border-radius: 0.5rem;
+  padding: 1.5rem;
+  background: #f0f7ff;
+}
 
-.spec-label { font-size: 0.875rem; color: #999; font-weight: 600; }
+.price-display {
+  text-align: center;
+  margin-bottom: 1rem;
+}
 
-.spec-val { font-size: 1rem; font-weight: 600; color: #1a1a1a; margin-top: 0.25rem; }
+.price-label {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: #0d6efd;
+}
 
-.icon-btn { background: none; border: none; font-size: 1.25rem; cursor: pointer; color: #666; transition: color 0.2s; }
+/* OPINIONES SECTION */
+.section-opiniones {
+  padding: 2rem 0;
+  border-bottom: 1px solid #dee2e6;
+}
 
-.icon-btn:hover,
-.icon-btn.active { color: #dc3545; }
+.section-opiniones h3 {
+  font-size: 1.25rem;
+  font-weight: 700;
+  margin-bottom: 0.5rem;
+}
 
-.rating-inline { display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem 1rem; background: #fff3cd; border-radius: 0.5rem; font-weight: 600; font-size: 0.875rem; }
+.section-subtitle {
+  font-size: 0.9rem;
+  color: #6c757d;
+  margin-bottom: 1.5rem;
+}
 
-.rating-inline i { color: #ff8c00; }
+.reviews-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
 
-.section { padding: 2rem 0; border-bottom: 1px solid #e9ecef; }
+.review-item {
+  border: 1px solid #dee2e6;
+  border-radius: 0.5rem;
+  padding: 1.5rem;
+  background: white;
+}
 
-.section h2 { font-size: 1.75rem; font-weight: 700; margin-bottom: 0.5rem; }
+.review-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 1rem;
+}
 
-.subtitle { color: #999; font-size: 1rem; margin-bottom: 2rem; }
+.review-header h5 {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0;
+}
 
-.item-list { list-style: none; padding: 0; margin: 0; }
+.review-rating {
+  font-weight: 600;
+  color: #ffc107;
+}
 
-.item-list li { padding: 0.75rem 0; border-bottom: 1px solid #e9ecef; color: #333; }
+.review-text {
+  font-size: 0.95rem;
+  color: #495057;
+  line-height: 1.6;
+  margin: 0;
+}
 
-.item-list li:last-child { border-bottom: none; }
+.no-reviews {
+  text-align: center;
+  padding: 2rem;
+  background: #f8f9fa;
+  border-radius: 0.5rem;
+}
 
-.accordion-item { background: none; border: 1px solid #e9ecef; margin-bottom: 0.5rem; border-radius: 0.5rem; }
+.no-reviews p {
+  margin: 0.5rem 0;
+}
 
-.accordion-button { padding: 1rem; background: none; font-weight: 600; }
+/* INTEGRACIONES SECTION */
+.section-integraciones {
+  padding: 2rem 0;
+}
 
-.accordion-button:not(.collapsed) { background: #f8f9fa; }
+.section-integraciones h3 {
+  font-size: 1.25rem;
+  font-weight: 700;
+  margin-bottom: 0.5rem;
+}
 
-.accordion-body { padding: 1rem; }
+.integration-card {
+  border: 1px solid #dee2e6;
+  border-radius: 0.5rem;
+  padding: 1.5rem;
+  background: #f8f9fa;
+  transition: all 0.3s ease;
+}
 
-.item-card { display: block; background: #fff; border-radius: 0.75rem; overflow: hidden; border: 1px solid #e9ecef; text-decoration: none; transition: all 0.3s; }
+.integration-card:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  transform: translateY(-2px);
+}
 
-.item-card:hover { box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1); transform: translateY(-4px); }
+.integration-card h5 {
+  font-size: 1rem;
+  font-weight: 700;
+  margin-bottom: 0.5rem;
+}
 
-.item-image { width: 100%; height: 200px; background: #f8f9fa; }
+.integration-card p {
+  font-size: 0.85rem;
+  color: #6c757d;
+  margin: 0;
+  line-height: 1.5;
+}
 
-.item-card h6 { padding: 1rem 1rem 0.5rem; margin: 0; font-weight: 600; color: #1a1a1a; }
+/* DETAIL TITLE */
+.detail-title {
+  font-size: 2rem;
+  font-weight: 700;
+  line-height: 1.2;
+  margin-bottom: 1rem;
+}
 
-.item-card .price { display: block; padding: 0 1rem 1rem; color: #007bff; font-weight: 700; }
+.detail-description {
+  font-size: 1rem;
+  line-height: 1.6;
+  color: #495057;
+  margin-bottom: 1rem;
+}
 
+/* RESPONSIVE */
 @media (max-width: 992px) {
-  .detail-title { font-size: 1.5rem; }
-  .specs-grid { grid-template-columns: 1fr; }
-  .trust-grid { grid-template-columns: 1fr; }
-  .gallery-sticky { position: static; }
+  .trust-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .detail-title {
+    font-size: 1.75rem;
+  }
+}
+
+@media (max-width: 576px) {
+  .detail-title {
+    font-size: 1.5rem;
+  }
+
+  .trust-grid {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+
+  .config-item {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .config-val {
+    margin-top: 0.5rem;
+  }
 }
 </style>
