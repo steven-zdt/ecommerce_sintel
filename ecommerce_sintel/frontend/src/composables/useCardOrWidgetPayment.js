@@ -21,6 +21,19 @@ export function useCardOrWidgetPayment() {
   const wompiSubMethod       = ref('CARD');
   const cardApiFlowEnabled   = ref(false); // fail-safe: widget completo hasta confirmar el flag
   const widgetFlowEnabled    = ref(true);  // fail-safe: si hay duda, no ocultar el camino mas antiguo/probado
+  // Fail-safe: Nequi Push oculto hasta confirmar credenciales reales (ver
+  // _is_nequi_configured en payment/online/api/views.py). Bug real
+  // (2026-07-29, probando la pasarela completa contra produccion): esta
+  // funcion ignoraba nequi_enabled del endpoint combinado, asi que
+  // CheckoutView.vue y ServiceCheckoutModal.vue (los dos consumidores de
+  // fetchFeatureFlags()) nunca podian pasar allow-nequi=false a
+  // PaymentMethodSelector.vue -- "Nequi Push" quedaba visible y seleccionable
+  // para cualquier cliente aunque NEQUI_CLIENT_ID/SECRET/API_KEY estuvieran
+  // vacios, y el pago fallaba siempre al enviar el push (ver payment/nequi/
+  // client.py::get_access_token()). RentalConfirmationView.vue no sufria esto
+  // porque hace su propia llamada cruda al endpoint en vez de usar esta
+  // funcion (ver su propio comentario al respecto).
+  const nequiEnabled         = ref(false);
   const savedCards         = ref([]);
   const loadingCards       = ref(false);
   const cardsFetched       = ref(false);
@@ -38,8 +51,10 @@ export function useCardOrWidgetPayment() {
       const res = await api.get('payment/payments/feature-flags/');
       cardApiFlowEnabled.value = !!res.data.card_api_flow_enabled;
       widgetFlowEnabled.value  = res.data.widget_flow_enabled !== false; // fail-safe: no fail-open a "false"
+      nequiEnabled.value       = !!res.data.nequi_enabled;
     } catch {
       cardApiFlowEnabled.value = false;
+      nequiEnabled.value       = false;
     }
     // Cada flag apagado empuja al otro camino; si ambos estan apagados (mala
     // configuracion del admin) se prefiere Tarjeta, corregible de inmediato
@@ -85,7 +100,7 @@ export function useCardOrWidgetPayment() {
   }
 
   return {
-    wompiSubMethod, cardApiFlowEnabled, widgetFlowEnabled,
+    wompiSubMethod, cardApiFlowEnabled, widgetFlowEnabled, nequiEnabled,
     savedCards, loadingCards, selectedCardId, newCardRaw, cardStepValid,
     fetchFeatureFlags, fetchSavedCards, resolveCardToken, resetNewCard,
   };

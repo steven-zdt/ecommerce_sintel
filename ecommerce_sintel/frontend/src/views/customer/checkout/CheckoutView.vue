@@ -38,6 +38,7 @@
               v-model="selectedPaymentMethod"
               v-model:nequi-phone="nequiPhone"
               :nequi-error="errors.nequiPhone"
+              :allow-nequi="nequiEnabled"
               hide-submit
               cod-label="Contra entrega"
               cod-description="Paga al recibir tu pedido"
@@ -186,7 +187,7 @@ const addressFormRef        = ref(null);
 // auditoria 2026-07-22, plan hibrido Widget+API, para no duplicar esta logica
 // una tercera vez).
 const {
-  wompiSubMethod, cardApiFlowEnabled, widgetFlowEnabled,
+  wompiSubMethod, cardApiFlowEnabled, widgetFlowEnabled, nequiEnabled,
   savedCards, loadingCards, selectedCardId, newCardRaw, cardStepValid,
   fetchFeatureFlags, fetchSavedCards, resolveCardToken, resetNewCard,
 } = useCardOrWidgetPayment();

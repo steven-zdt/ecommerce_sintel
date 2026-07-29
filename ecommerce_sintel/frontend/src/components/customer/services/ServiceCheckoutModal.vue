@@ -27,6 +27,7 @@
         v-model="store.paymentMethod"
         v-model:nequi-phone="store.nequiPhone"
         :nequi-error="nequiError"
+        :allow-nequi="nequiEnabled"
         :loading="methodLoading"
         :hide-submit="store.paymentMethod === 'WOMPI' && cardApiFlowEnabled"
         cod-label="Pagar en sitio"
@@ -116,7 +117,7 @@ const nequiError    = ref(false);
 // via useCardOrWidgetPayment() (extraido en la auditoria 2026-07-22, plan
 // hibrido Widget+API, para no duplicar esta logica una tercera vez).
 const {
-  wompiSubMethod, cardApiFlowEnabled, widgetFlowEnabled,
+  wompiSubMethod, cardApiFlowEnabled, widgetFlowEnabled, nequiEnabled,
   savedCards, loadingCards, selectedCardId, newCardRaw, cardStepValid,
   fetchFeatureFlags, fetchSavedCards, resolveCardToken, resetNewCard,
 } = useCardOrWidgetPayment();
