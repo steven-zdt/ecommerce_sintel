@@ -954,3 +954,283 @@ class RentalCostRuleInputSerializer(serializers.Serializer):
 
 class RentalCostAssignmentInputSerializer(serializers.Serializer):
     variant_uuid = serializers.UUIDField()
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# DTO SERIALIZERS FOR ENTERPRISE DETAIL PAGE (PHASE 3)
+# ──────────────────────────────────────────────────────────────────────────────
+
+class ImageDTOSerializer(serializers.Serializer):
+    url = serializers.CharField()
+    alt_text = serializers.CharField(required=False, default='')
+    image_type = serializers.CharField(required=False, default='GALERIA')
+
+
+class TagDTOSerializer(serializers.Serializer):
+    code = serializers.CharField()
+    label = serializers.CharField()
+    color = serializers.CharField()
+
+
+class BenefitDTOSerializer(serializers.Serializer):
+    icon = serializers.CharField()
+    label = serializers.CharField()
+
+
+class FeatureDTOSerializer(serializers.Serializer):
+    title = serializers.CharField()
+    value = serializers.CharField()
+    icon = serializers.CharField(required=False, allow_null=True)
+
+
+class SpecDTOSerializer(serializers.Serializer):
+    name = serializers.CharField()
+    value = serializers.CharField()
+
+
+class SpecGroupDTOSerializer(serializers.Serializer):
+    name = serializers.CharField()
+    specs = SpecDTOSerializer(many=True)
+
+
+class RequirementDTOSerializer(serializers.Serializer):
+    title = serializers.CharField()
+    description = serializers.CharField()
+
+
+class IncludedItemDTOSerializer(serializers.Serializer):
+    title = serializers.CharField()
+    description = serializers.CharField()
+    icon = serializers.CharField(required=False, allow_null=True)
+
+
+class ExcludedItemDTOSerializer(serializers.Serializer):
+    title = serializers.CharField()
+    description = serializers.CharField()
+    icon = serializers.CharField(required=False, allow_null=True)
+
+
+class ServiceDTOSerializer(serializers.Serializer):
+    title = serializers.CharField()
+    description = serializers.CharField()
+    icon = serializers.CharField(required=False, allow_null=True)
+
+
+class OptionalServiceDTOSerializer(serializers.Serializer):
+    title = serializers.CharField()
+    description = serializers.CharField()
+    price = serializers.DecimalField(max_digits=12, decimal_places=2)
+    formatted_price = serializers.CharField()
+    icon = serializers.CharField(required=False, allow_null=True)
+
+
+class VideoDTOSerializer(serializers.Serializer):
+    title = serializers.CharField()
+    source_type = serializers.CharField()
+    video_url = serializers.CharField()
+    thumbnail = serializers.CharField(required=False, allow_null=True)
+
+
+class DocumentDTOSerializer(serializers.Serializer):
+    title = serializers.CharField()
+    description = serializers.CharField()
+    document_type = serializers.CharField()
+    download_url = serializers.CharField()
+    version = serializers.CharField(required=False, allow_null=True)
+    download_count = serializers.IntegerField(default=0)
+
+
+class FAQItemDTOSerializer(serializers.Serializer):
+    question = serializers.CharField()
+    answer = serializers.CharField()
+
+
+class ReviewDTOSerializer(serializers.Serializer):
+    user_name = serializers.CharField()
+    rating = serializers.IntegerField()
+    comment = serializers.CharField()
+    created_at = serializers.CharField()
+    helpful_count = serializers.IntegerField(default=0)
+
+
+class ReviewsSummaryDTOSerializer(serializers.Serializer):
+    average_rating = serializers.FloatField()
+    total_count = serializers.IntegerField()
+    rating_breakdown = serializers.DictField(child=serializers.IntegerField())
+    items = ReviewDTOSerializer(many=True)
+
+
+class CommercialOptionDTOSerializer(serializers.Serializer):
+    modality = serializers.CharField()
+    enabled = serializers.BooleanField()
+    terms = serializers.ListField(child=serializers.IntegerField(), required=False, allow_null=True)
+
+
+class AvailabilityDTOSerializer(serializers.Serializer):
+    status = serializers.CharField()
+    status_label = serializers.CharField()
+    status_detail = serializers.CharField()
+    total_stock = serializers.IntegerField()
+    available_now = serializers.IntegerField()
+    next_available_date = serializers.DateField(required=False, allow_null=True)
+
+
+class LogisticsDTOSerializer(serializers.Serializer):
+    delivery_cost = serializers.DecimalField(max_digits=12, decimal_places=2, required=False, allow_null=True)
+    pickup_cost = serializers.DecimalField(max_digits=12, decimal_places=2, required=False, allow_null=True)
+    installation_cost = serializers.DecimalField(max_digits=12, decimal_places=2, required=False, allow_null=True)
+    calibration_cost = serializers.DecimalField(max_digits=12, decimal_places=2, required=False, allow_null=True)
+    training_cost = serializers.DecimalField(max_digits=12, decimal_places=2, required=False, allow_null=True)
+    startup_cost = serializers.DecimalField(max_digits=12, decimal_places=2, required=False, allow_null=True)
+
+    formatted_delivery = serializers.CharField(default='')
+    formatted_pickup = serializers.CharField(default='')
+    formatted_installation = serializers.CharField(default='')
+    formatted_total = serializers.CharField(default='')
+
+
+class EquipmentPreviewDTOSerializer(serializers.Serializer):
+    uuid = serializers.CharField()
+    name = serializers.CharField()
+    image_url = serializers.CharField()
+    price_from = serializers.CharField()
+
+
+class SEODTOSerializer(serializers.Serializer):
+    meta_title = serializers.CharField()
+    meta_description = serializers.CharField()
+    meta_keywords = serializers.CharField()
+    og_image_url = serializers.CharField(required=False, allow_null=True)
+
+
+# ─── Main DTOs ────────────────────────────────────────────────────────────────
+
+class EquipmentPricingDTOSerializer(serializers.Serializer):
+    price_per_day = serializers.DecimalField(max_digits=12, decimal_places=2, required=False, allow_null=True)
+    price_per_hour = serializers.DecimalField(max_digits=12, decimal_places=2, required=False, allow_null=True)
+
+    formatted_price_per_day = serializers.CharField(default='')
+    formatted_price_per_hour = serializers.CharField(default='')
+
+    reference_price = serializers.DecimalField(max_digits=12, decimal_places=2, required=False, allow_null=True)
+    promo_price = serializers.DecimalField(max_digits=12, decimal_places=2, required=False, allow_null=True)
+    formatted_reference_price = serializers.CharField(default='')
+    formatted_promo_price = serializers.CharField(default='')
+
+    discount_percentage = serializers.IntegerField(default=0)
+    discount_amount = serializers.DecimalField(max_digits=12, decimal_places=2, default=0)
+    formatted_discount_amount = serializers.CharField(default='')
+
+    has_promotion = serializers.BooleanField(default=False)
+    saving_message = serializers.CharField(default='')
+
+    components = serializers.ListField(child=serializers.DictField(), default=list)
+
+    currency_code = serializers.CharField(default='COP')
+    currency_symbol = serializers.CharField(default='$')
+
+
+class EquipmentHeroDTOSerializer(serializers.Serializer):
+    name = serializers.CharField()
+    brand_name = serializers.CharField(default='')
+    category_name = serializers.CharField(default='')
+    description = serializers.CharField(default='')
+
+    hero_image = ImageDTOSerializer(required=False, allow_null=True)
+
+    is_active = serializers.BooleanField(default=True)
+    is_featured = serializers.BooleanField(default=False)
+    availability_status = serializers.CharField(default='available')
+    availability_label = serializers.CharField(default='')
+    availability_detail = serializers.CharField(default='')
+
+    rating_average = serializers.FloatField(default=0.0)
+    rating_count = serializers.IntegerField(default=0)
+    rating_display = serializers.CharField(default='')
+
+    pricing = EquipmentPricingDTOSerializer(required=False, allow_null=True)
+
+    cta_label = serializers.CharField(default='Reservar ahora')
+    cta_enabled = serializers.BooleanField(default=True)
+    cta_disabled_reason = serializers.CharField(default='')
+
+
+class EquipmentMarketingDTOSerializer(serializers.Serializer):
+    tags = TagDTOSerializer(many=True)
+
+    featured_benefit = serializers.CharField(default='')
+    main_message = serializers.CharField(default='')
+    trust_message = serializers.CharField(default='')
+    urgency_message = serializers.CharField(default='')
+    social_proof_message = serializers.CharField(default='')
+
+    quick_benefits = BenefitDTOSerializer(many=True)
+
+    use_cases = serializers.ListField(child=serializers.CharField(), default=list)
+
+    purchase_price_reference = serializers.DecimalField(max_digits=12, decimal_places=2, required=False, allow_null=True)
+    financial_message = serializers.CharField(default='')
+    savings_vs_purchase_pct = serializers.IntegerField(default=0)
+
+    promo_banner_message = serializers.CharField(default='')
+
+
+class EquipmentTechnicalDTOSerializer(serializers.Serializer):
+    features = FeatureDTOSerializer(many=True)
+    specification_groups = SpecGroupDTOSerializer(many=True)
+    requirements = RequirementDTOSerializer(many=True)
+
+
+class EquipmentServicesDTOSerializer(serializers.Serializer):
+    included_items = IncludedItemDTOSerializer(many=True)
+    excluded_items = ExcludedItemDTOSerializer(many=True)
+
+    optional_services = OptionalServiceDTOSerializer(many=True)
+
+    services_included = ServiceDTOSerializer(many=True)
+
+
+class GalleryDTOSerializer(serializers.Serializer):
+    principal = ImageDTOSerializer(required=False, allow_null=True)
+    principal_images = ImageDTOSerializer(many=True)
+    installation_images = ImageDTOSerializer(many=True)
+    detail_images = ImageDTOSerializer(many=True)
+    view_360_images = ImageDTOSerializer(many=True)
+    all_images = ImageDTOSerializer(many=True)
+
+
+class EquipmentMediaDTOSerializer(serializers.Serializer):
+    gallery = GalleryDTOSerializer(required=False, allow_null=True)
+    videos = VideoDTOSerializer(many=True)
+    documents = DocumentDTOSerializer(many=True)
+
+
+class EquipmentPublicDetailDTOSerializer(serializers.Serializer):
+    """Main DTO serializer for complete equipment detail page.
+
+    Returns all information needed to render an enterprise-grade equipment
+    detail page without any additional API calls or frontend calculations.
+    """
+    uuid = serializers.CharField()
+    slug = serializers.CharField()
+
+    hero = EquipmentHeroDTOSerializer(required=False, allow_null=True)
+    pricing = EquipmentPricingDTOSerializer(required=False, allow_null=True)
+    marketing = EquipmentMarketingDTOSerializer(required=False, allow_null=True)
+    technical = EquipmentTechnicalDTOSerializer(required=False, allow_null=True)
+    services = EquipmentServicesDTOSerializer(required=False, allow_null=True)
+    media = EquipmentMediaDTOSerializer(required=False, allow_null=True)
+
+    faqs = FAQItemDTOSerializer(many=True)
+
+    reviews = ReviewsSummaryDTOSerializer(required=False, allow_null=True)
+
+    availability = AvailabilityDTOSerializer(required=False, allow_null=True)
+
+    commercial_options = CommercialOptionDTOSerializer(many=True)
+
+    logistics = LogisticsDTOSerializer(required=False, allow_null=True)
+
+    related_equipment = EquipmentPreviewDTOSerializer(many=True)
+
+    seo = SEODTOSerializer(required=False, allow_null=True)

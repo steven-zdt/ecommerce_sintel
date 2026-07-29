@@ -19,6 +19,7 @@ from renting.services import (
     EquipmentReturnInspectionCommands,
     EquipmentReviewSelector, EquipmentReviewCommands,
 )
+from renting.services.presenters import EquipmentPublicDetailPresenter
 from datetime import date as date_type, timedelta
 from renting.api.serializers import (
     EquipmentSerializer, EquipmentDetailSerializer, EquipmentVariantSerializer,
@@ -32,6 +33,7 @@ from renting.api.serializers import (
     RentalRequestExtendInputSerializer,
     EquipmentReturnInspectionSerializer, EquipmentReturnInspectionInputSerializer,
     EquipmentReviewSerializer, EquipmentReviewInputSerializer,
+    EquipmentPublicDetailDTOSerializer,
 )
 
 AVAILABILITY_LOOKAHEAD_DAYS = 60
@@ -363,6 +365,25 @@ class EquipmentViewSet(viewsets.ReadOnlyModelViewSet):
         except ValueError as exc:
             return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(EquipmentReviewSerializer(review).data, status=status.HTTP_201_CREATED)
+
+    @extend_schema(
+        description="Retorna EquipmentPublicDetailDTO completo sin breaking changes a endpoint existente.",
+        responses={200: EquipmentPublicDetailDTOSerializer},
+    )
+    @action(detail=True, methods=['get'], url_path='detail', permission_classes=[permissions.AllowAny])
+    def detail(self, request, uuid=None):
+        """GET /renting/equipment/{uuid}/detail/
+
+        Retorna EquipmentPublicDetailDTO con toda la información pública:
+        hero, pricing, marketing, technical, services, media, faqs,
+        reviews, availability, commercial_options, logistics, related,
+        y seo. Backend garantiza que cada DTO está 100% completo y listo.
+        """
+        equipment = self.get_object()
+        presenter = EquipmentPublicDetailPresenter(equipment, user=request.user)
+        dto = presenter.present()
+        serializer = EquipmentPublicDetailDTOSerializer(dto)
+        return Response(serializer.data)
 
 
 @extend_schema(tags=['renting'])

@@ -25,6 +25,7 @@ from .commands import (
 )
 from .pricing import RentalPricingCalculator, RentalCostRuleSelector, RentalCostRuleCommands
 from .availability import AvailabilityEngine
+from .presenters import EquipmentPublicDetailPresenter, EquipmentPricingPresenter
 from .catalog import (
     EquipmentImageSelector, EquipmentImageCommands,
     RentalIncludedItemSelector, RentalIncludedItemCommands,
@@ -66,6 +67,8 @@ __all__ = [
     'RentalCostRuleSelector',
     'RentalCostRuleCommands',
     'AvailabilityEngine',
+    'EquipmentPublicDetailPresenter',
+    'EquipmentPricingPresenter',
     'EquipmentImageSelector', 'EquipmentImageCommands',
     'RentalIncludedItemSelector', 'RentalIncludedItemCommands',
     'RentalExcludedItemSelector', 'RentalExcludedItemCommands',
