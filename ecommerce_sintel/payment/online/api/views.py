@@ -547,6 +547,20 @@ class WompiPaymentViewSet(viewsets.ViewSet):
 
         if wompi_tx.status == "PENDING":
             _sync_wompi_status(wompi_tx, wompi_id_hint=tx_wompi_id or None)
+            # Bug real (2026-07-29, probando el flujo de Tarjeta de Tienda contra
+            # produccion): _sync_wompi_status(), cuando el pago se aprueba dentro
+            # de esta misma request, confirma la orden via confirm_order_payment()
+            # -- pero esa funcion relee la Order con select_for_update() (necesario
+            # para el lock de fila), asi que muta y guarda una instancia DISTINTA a
+            # wompi_tx.order (cacheada por el select_related de la query de arriba,
+            # ANTES de la confirmacion). El UPDATE en BD queda correcto, pero la
+            # respuesta de este endpoint seguia mostrando la Order en
+            # 'pending_payment' -- pantalla contradictoria (Transaccion Aprobada /
+            # Orden Pendiente de pago) en el primer request que alcanza a disparar
+            # la reconciliacion. refresh_from_db() limpia el cache de relaciones
+            # (order/rental_request) ademas de los campos propios, forzando una
+            # lectura fresca mas abajo.
+            wompi_tx.refresh_from_db()
 
         if wompi_tx.rental_request_id:
             return Response(_build_rental_confirmation(wompi_tx))
