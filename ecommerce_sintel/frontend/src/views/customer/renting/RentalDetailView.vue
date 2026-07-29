@@ -90,14 +90,7 @@
           <!-- Badges & Actions -->
           <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
             <!-- Tags from Marketing -->
-            <span
-              v-for="tag in detail.marketing?.tags"
-              :key="tag.code"
-              class="badge border"
-              :style="{ backgroundColor: getTagBgColor(tag.color), borderColor: getTagBgColor(tag.color) }"
-            >
-              {{ tag.label }}
-            </span>
+            <TagBadge v-for="tag in detail.marketing?.tags" :key="tag.code" :tag="tag" />
 
             <!-- Brand Badge -->
             <span v-if="detail.hero?.brand_name" class="badge bg-primary-subtle text-primary border border-primary-subtle">
@@ -114,11 +107,12 @@
               {{ detail.availability?.status_label }}
             </span>
 
-            <!-- Rating -->
-            <span v-if="detail.reviews?.average_rating" class="text-muted small">
-              <i class="bi bi-star-fill text-warning me-1"></i>
-              {{ detail.reviews.average_rating.toFixed(1) }} ({{ detail.reviews.total_count }} reseña{{ detail.reviews.total_count !== 1 ? 's' : '' }})
-            </span>
+            <!-- Rating Badge -->
+            <div v-if="detail.reviews?.average_rating" class="rating-badge-inline">
+              <i class="bi bi-star-fill text-warning"></i>
+              <span class="rating-value">{{ detail.reviews.average_rating.toFixed(1) }}</span>
+              <span class="rating-count">({{ detail.reviews.total_count }})</span>
+            </div>
 
             <!-- Actions -->
             <div class="ms-lg-auto d-flex gap-2">
@@ -150,6 +144,21 @@
               <i class="bi bi-check-circle-fill me-1"></i>{{ detail.marketing.trust_message }}
             </span>
           </div>
+
+          <!-- Urgency Banner -->
+          <UrgencyBanner
+            :status="detail.availability?.status"
+            :available-now="detail.availability?.available_now || 0"
+            :total-stock="detail.availability?.total_stock || 0"
+            :urgency-message="detail.marketing?.urgency_message"
+          />
+
+          <!-- Discount Badge -->
+          <DiscountBadge
+            v-if="detail.pricing?.has_promotion"
+            :discount="detail.pricing?.discount_percentage"
+            :amount="detail.pricing?.formatted_discount_amount"
+          />
 
           <!-- Pricing Card -->
           <div v-if="detail.pricing" class="pricing-card mb-4">
@@ -327,12 +336,24 @@
       </div>
 
       <!-- Reviews -->
-      <div v-if="detail?.reviews?.items?.length" class="section-reviews mt-5">
+      <div v-if="detail?.reviews" class="section-reviews mt-5">
         <div class="section-header">
           <h2>Reseñas</h2>
           <p class="section-subtitle">Experiencias de otros clientes</p>
         </div>
-        <BaseReviews :reviews="detail.reviews.items" />
+
+        <!-- Rating Summary -->
+        <div class="rating-summary-card">
+          <RatingDisplay :rating="detail.reviews" :show-breakdown="true" />
+        </div>
+
+        <!-- Reviews List -->
+        <div v-if="detail.reviews.items?.length" class="reviews-list mt-4">
+          <BaseReviews :reviews="detail.reviews.items" />
+        </div>
+        <div v-else class="empty-reviews">
+          <p class="text-muted">Sé el primero en dejar una reseña</p>
+        </div>
       </div>
 
       <!-- Related Equipment -->
@@ -371,6 +392,11 @@ import EquipmentVideoGallery from '@/components/renting/detail/EquipmentVideoGal
 import BaseAccordion from '@/components/base/BaseAccordion.vue';
 import BaseReviews from '@/components/base/BaseReviews.vue';
 
+import DiscountBadge from '@/components/marketplace/DiscountBadge.vue';
+import UrgencyBanner from '@/components/marketplace/UrgencyBanner.vue';
+import TagBadge from '@/components/marketplace/TagBadge.vue';
+import RatingDisplay from '@/components/marketplace/RatingDisplay.vue';
+
 const api = useApi();
 const toast = useToast();
 const route = useRoute();
@@ -393,15 +419,6 @@ const quickSpecs = computed(() => {
   ];
 });
 
-function getTagBgColor(color) {
-  const colors = {
-    danger: '#f8d7da',
-    info: '#d1ecf1',
-    warning: '#fff3cd',
-    success: '#d4edda',
-  };
-  return colors[color] || '#e9ecef';
-}
 
 function getAvailabilityBadgeClass() {
   const status = detail.value?.availability?.status;
@@ -909,5 +926,44 @@ onMounted(() => {
   font-size: 0.75rem;
   font-weight: 600;
   text-transform: uppercase;
+}
+
+.rating-badge-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.375rem 0.75rem;
+  background: var(--bs-gray-100);
+  border-radius: 0.375rem;
+  font-size: 0.875rem;
+}
+
+.rating-badge-inline .rating-value {
+  font-weight: 700;
+  color: var(--bs-body-color);
+}
+
+.rating-badge-inline .rating-count {
+  color: var(--bs-secondary);
+}
+
+.rating-summary-card {
+  background: var(--bs-gray-100);
+  padding: 2rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--bs-border-color);
+}
+
+.reviews-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.empty-reviews {
+  text-align: center;
+  padding: 2rem;
+  background: var(--bs-gray-100);
+  border-radius: 0.5rem;
 }
 </style>
