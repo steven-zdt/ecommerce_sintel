@@ -111,6 +111,21 @@ class ProductViewSet(viewsets.ReadOnlyModelViewSet):
             )
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
+    @extend_schema(
+        description="Retorna detalle completo de un producto (hero, pricing, marketing, media, reviews, etc.)",
+        responses={200: ProductSerializer}
+    )
+    @action(detail=True, methods=['get'], permission_classes=[permissions.AllowAny], url_path='detail')
+    def detail(self, request, uuid=None):
+        """GET /shop/products/{uuid}/detail/
+
+        Retorna producto completo con toda la información pública.
+        No rompe API existente (endpoint nuevo, aditivo).
+        """
+        product = self.get_object()
+        serializer = ProductSerializer(product, context={'request': request})
+        return Response(serializer.data)
+
 
 # ---------------------------------------------------------------------------
 # ProductVariant  (READ-ONLY public — escritura via dashboard)

@@ -202,6 +202,21 @@ class TechnicalServiceViewSet(viewsets.ReadOnlyModelViewSet):
         technicians = TechnicianSelector.get_available_for_category(service.category)[:12]
         return Response(AvailableTechnicianSerializer(technicians, many=True, context={'request': request}).data)
 
+    @extend_schema(
+        description="Retorna detalle completo de un servicio técnico (hero, pricing, marketing, media, reviews, etc.)",
+        responses={200: TechnicalServiceSerializer}
+    )
+    @action(detail=True, methods=['get'], permission_classes=[permissions.AllowAny], url_path='detail')
+    def detail(self, request, uuid=None):
+        """GET /services/services/{uuid}/detail/
+
+        Retorna servicio técnico completo con toda la información pública.
+        No rompe API existente (endpoint nuevo, aditivo).
+        """
+        service = self.get_object()
+        serializer = TechnicalServiceSerializer(service, context={'request': request})
+        return Response(serializer.data)
+
 
 # ─── ServiceCategory ──────────────────────────────────────────────────────────
 
