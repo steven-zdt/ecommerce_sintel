@@ -1,6 +1,7 @@
 <template>
   <div class="rental-detail">
     <div class="container-xl py-3 py-lg-4">
+      <!-- Breadcrumb -->
       <nav class="mb-3" aria-label="breadcrumb">
         <ol class="breadcrumb breadcrumb-sm mb-0">
           <li class="breadcrumb-item">
@@ -8,11 +9,16 @@
               <i class="bi bi-hdd-rack me-1"></i>Renting
             </RouterLink>
           </li>
-          <li v-if="categoryName" class="breadcrumb-item text-muted">{{ categoryName }}</li>
-          <li class="breadcrumb-item active text-truncate" style="max-width:240px">{{ equipment?.name }}</li>
+          <li v-if="detail?.hero?.category_name" class="breadcrumb-item text-muted">
+            {{ detail.hero.category_name }}
+          </li>
+          <li class="breadcrumb-item active text-truncate" style="max-width:240px">
+            {{ detail?.hero?.name }}
+          </li>
         </ol>
       </nav>
 
+      <!-- Loading State -->
       <div v-if="loading" class="row g-4">
         <div class="col-lg-5">
           <div class="skeleton rounded-3" style="height:420px"></div>
@@ -24,15 +30,26 @@
         </div>
       </div>
 
-      <div v-else-if="equipment" class="row g-4 g-lg-5">
+      <!-- Main Content -->
+      <div v-else-if="detail" class="row g-4 g-lg-5">
+        <!-- Left Column: Gallery & Availability -->
         <div class="col-lg-5">
           <div class="gallery-sticky">
-            <BaseGallery :images="equipment.images || []" :title="equipment.name" icon-class="bi-hdd-rack" theme="renting">
+            <!-- Gallery -->
+            <BaseGallery
+              :images="detail.media?.gallery?.all_images || []"
+              :title="detail.hero?.name"
+              icon-class="bi-hdd-rack"
+              theme="renting"
+            >
               <template #badge="{ activeImage }">
-                <span v-if="activeImage" class="eq-gallery-type-badge">{{ activeImage.image_type_display }}</span>
+                <span v-if="activeImage" class="eq-gallery-type-badge">
+                  {{ activeImage.image_type || 'Galería' }}
+                </span>
               </template>
             </BaseGallery>
 
+            <!-- Trust Grid -->
             <div class="trust-grid">
               <div>
                 <i class="bi bi-shield-check text-success"></i>
@@ -44,7 +61,7 @@
               </div>
               <div>
                 <i class="bi bi-truck text-info"></i>
-                <span>Logistica opcional</span>
+                <span>Logística opcional</span>
               </div>
               <div>
                 <i class="bi bi-headset text-warning"></i>
@@ -52,13 +69,14 @@
               </div>
             </div>
 
+            <!-- Availability Card -->
             <div class="availability-card">
               <span class="section-kicker">Disponibilidad</span>
-              <h2>{{ availabilityLabel }}</h2>
-              <p>{{ availabilityDetail }}</p>
+              <h2>{{ detail.availability?.status_label }}</h2>
+              <p>{{ detail.availability?.status_detail }}</p>
               <RouterLink
-                v-if="equipment.is_active"
-                :to="{ name: 'rental-request', params: { uuid: equipment.uuid }, query: { variant: selectedVariant?.uuid } }"
+                v-if="detail.hero?.cta_enabled"
+                :to="{ name: 'rental-request', params: { uuid: detail.uuid } }"
                 class="availability-link"
               >
                 Consultar fechas exactas <i class="bi bi-arrow-right"></i>
@@ -67,14 +85,42 @@
           </div>
         </div>
 
+        <!-- Right Column: Details & Info -->
         <div class="col-lg-7">
+          <!-- Badges & Actions -->
           <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
-            <span v-if="brandName" class="badge bg-primary-subtle text-primary border border-primary-subtle">{{ brandName }}</span>
-            <span v-if="categoryName" class="badge bg-light text-muted border">{{ categoryName }}</span>
-            <span class="badge bg-success-subtle text-success border border-success-subtle">{{ equipment.is_active ? 'Disponible' : 'No disponible' }}</span>
-            <span v-if="reviewSummary" class="text-muted small">
-              <i class="bi bi-star-fill text-warning me-1"></i>{{ reviewSummary }}
+            <!-- Tags from Marketing -->
+            <span
+              v-for="tag in detail.marketing?.tags"
+              :key="tag.code"
+              class="badge border"
+              :style="{ backgroundColor: getTagBgColor(tag.color), borderColor: getTagBgColor(tag.color) }"
+            >
+              {{ tag.label }}
             </span>
+
+            <!-- Brand Badge -->
+            <span v-if="detail.hero?.brand_name" class="badge bg-primary-subtle text-primary border border-primary-subtle">
+              {{ detail.hero.brand_name }}
+            </span>
+
+            <!-- Category Badge -->
+            <span v-if="detail.hero?.category_name" class="badge bg-light text-muted border">
+              {{ detail.hero.category_name }}
+            </span>
+
+            <!-- Availability Badge -->
+            <span :class="getAvailabilityBadgeClass()">
+              {{ detail.availability?.status_label }}
+            </span>
+
+            <!-- Rating -->
+            <span v-if="detail.reviews?.average_rating" class="text-muted small">
+              <i class="bi bi-star-fill text-warning me-1"></i>
+              {{ detail.reviews.average_rating.toFixed(1) }} ({{ detail.reviews.total_count }} reseña{{ detail.reviews.total_count !== 1 ? 's' : '' }})
+            </span>
+
+            <!-- Actions -->
             <div class="ms-lg-auto d-flex gap-2">
               <button type="button" class="icon-action-btn" title="Compartir" @click="shareEquipment">
                 <i class="bi bi-share"></i>
@@ -91,254 +137,219 @@
             </div>
           </div>
 
-          <h1 class="equipment-title">{{ equipment.name }}</h1>
-          <p v-if="equipment.description" class="value-prop">{{ equipment.description }}</p>
+          <!-- Title & Description -->
+          <h1 class="equipment-title">{{ detail.hero?.name }}</h1>
+          <p v-if="detail.hero?.description" class="value-prop">{{ detail.hero.description }}</p>
 
-          <div v-if="marketing?.featured_benefit || marketing?.trust_message" class="d-flex flex-wrap gap-2 mb-3">
-            <span v-if="marketing.featured_benefit" class="badge bg-primary-subtle text-primary border border-primary-subtle">
-              <i class="bi bi-lightning-charge-fill me-1"></i>{{ marketing.featured_benefit }}
+          <!-- Marketing Messages -->
+          <div v-if="detail.marketing?.featured_benefit || detail.marketing?.trust_message" class="d-flex flex-wrap gap-2 mb-3">
+            <span v-if="detail.marketing?.featured_benefit" class="badge bg-primary-subtle text-primary border border-primary-subtle">
+              <i class="bi bi-lightning-charge-fill me-1"></i>{{ detail.marketing.featured_benefit }}
             </span>
-            <span v-if="marketing.trust_message" class="badge bg-success-subtle text-success border border-success-subtle">
-              <i class="bi bi-patch-check-fill me-1"></i>{{ marketing.trust_message }}
+            <span v-if="detail.marketing?.trust_message" class="badge bg-success-subtle text-success border border-success-subtle">
+              <i class="bi bi-check-circle-fill me-1"></i>{{ detail.marketing.trust_message }}
             </span>
           </div>
 
-          <div class="quick-specs">
-            <div v-for="spec in quickSpecs" :key="spec.label">
-              <span>{{ spec.label }}</span>
-              <strong>{{ spec.value }}</strong>
-            </div>
-          </div>
-
-          <div class="package-panel">
-            <div class="panel-head">
-              <div>
-                <span class="section-kicker">Configuracion</span>
-                <h2>{{ variants.length > 1 ? 'Selecciona la variante del equipo' : 'Valor del alquiler' }}</h2>
+          <!-- Pricing Card -->
+          <div v-if="detail.pricing" class="pricing-card mb-4">
+            <div class="row g-3">
+              <div class="col-6">
+                <span class="section-kicker">Precio por día</span>
+                <div class="pricing-value">{{ detail.pricing.formatted_price_per_day || 'A cotizar' }}</div>
               </div>
-              <span v-if="fromPrice" class="from-price">Desde {{ fromPrice }}</span>
-            </div>
-
-            <div v-if="variants.length > 1" class="package-grid">
-              <button
-                v-for="variant in variants"
-                :key="variant.uuid"
-                class="package-card"
-                :class="{ active: selectedVariant?.uuid === variant.uuid }"
-                @click="selectedVariant = variant"
-              >
-                <span class="pack-name">{{ variant.sku }}</span>
-                <strong>{{ priceSummary(variant) }}</strong>
-                <small>{{ variant.stock }} unidad(es) disponibles</small>
-              </button>
-            </div>
-
-            <div class="selected-package">
-              <div>
-                <h3>{{ selectedVariant ? selectedVariant.sku : equipment.name }}</h3>
-                <p v-if="!hasPromoPricing">{{ priceSummary(selectedVariant) }}</p>
-                <div v-else class="promo-price-block">
-                  <span class="old-price">{{ moneyCompact(marketing.reference_price) }}</span>
-                  <span class="promo-price">{{ moneyCompact(marketing.promo_price) }}</span>
-                  <span v-if="marketing.discount_percentage" class="discount-badge">
-                    AHORRA {{ marketing.discount_percentage }}%
-                  </span>
-                </div>
+              <div class="col-6">
+                <span class="section-kicker">Precio por hora</span>
+                <div class="pricing-value">{{ detail.pricing.formatted_price_per_hour || 'A cotizar' }}</div>
               </div>
-              <button class="reserve-btn" :disabled="!selectedVariant || !equipment.is_active" @click="requestRental">
-                <i class="bi bi-calendar-check me-2"></i>{{ ctaLabel }}
-              </button>
             </div>
 
-            <p v-if="marketing?.urgency_message" class="urgency-message">
-              <i class="bi bi-alarm me-1"></i>{{ marketing.urgency_message }}
+            <!-- Discount Banner -->
+            <div v-if="detail.pricing.has_promotion" class="discount-banner mt-3">
+              <span class="discount-badge">-{{ detail.pricing.discount_percentage }}%</span>
+              <span>Ahorra {{ detail.pricing.formatted_discount_amount }}</span>
+            </div>
+
+            <!-- Promotion Message -->
+            <p v-if="detail.pricing.saving_message" class="promo-message">{{ detail.pricing.saving_message }}</p>
+
+            <!-- CTA Button -->
+            <RouterLink
+              v-if="detail.hero?.cta_enabled"
+              :to="{ name: 'rental-request', params: { uuid: detail.uuid } }"
+              class="btn btn-primary w-100"
+            >
+              {{ detail.hero?.cta_label || 'Reservar ahora' }}
+            </RouterLink>
+            <p v-else-if="detail.hero?.cta_disabled_reason" class="text-danger small mt-2">
+              {{ detail.hero.cta_disabled_reason }}
             </p>
           </div>
 
-          <div v-if="marketing?.promo_banner_message" class="promo-banner">
-            <i class="bi bi-megaphone-fill me-2"></i>{{ marketing.promo_banner_message }}
+          <!-- Quick Benefits -->
+          <div v-if="detail.marketing?.quick_benefits?.length" class="quick-benefits mb-4">
+            <span class="section-kicker">Beneficios destacados</span>
+            <div class="benefits-grid">
+              <div v-for="benefit in detail.marketing.quick_benefits" :key="benefit.label" class="benefit-item">
+                <i :class="['bi', benefit.icon || 'bi-check-circle-fill']" class="benefit-icon"></i>
+                <span>{{ benefit.label }}</span>
+              </div>
+            </div>
           </div>
 
-          <div v-if="marketingTags.length" class="d-flex flex-wrap gap-2 mt-2">
-            <span v-for="tag in marketingTags" :key="tag.code" class="badge marketing-tag" :class="tag.cls">
-              {{ tag.label }}
-            </span>
+          <!-- Quick Specs -->
+          <div class="quick-specs mb-4">
+            <span class="section-kicker">Especificaciones rápidas</span>
+            <div class="specs-grid">
+              <div v-for="spec in quickSpecs" :key="spec.label" class="spec-item">
+                <span class="spec-label">{{ spec.label }}</span>
+                <span class="spec-value">{{ spec.value }}</span>
+              </div>
+            </div>
           </div>
-
-          <p v-if="marketing?.main_message" class="marketing-main-message">{{ marketing.main_message }}</p>
-
-          <p v-if="marketing?.social_proof_message" class="social-proof">
-            <i class="bi bi-people-fill me-1"></i>{{ marketing.social_proof_message }}
-          </p>
         </div>
       </div>
 
-      <div v-if="equipment && !loading" class="detail-sections">
-        <section v-if="marketing?.quick_benefits?.length" class="detail-section">
-          <div class="section-head">
-            <span class="section-kicker">Beneficios</span>
-            <h2>Lo que incluye tu alquiler</h2>
-          </div>
-          <div class="quick-benefits-grid">
-            <div v-for="(b, idx) in marketing.quick_benefits" :key="idx" class="quick-benefit-card">
-              <i :class="['bi', b.icon || 'bi-check-circle']"></i>
-              <span>{{ b.label }}</span>
+      <!-- Features Section -->
+      <div v-if="detail?.technical?.features?.length" class="section-features mt-5">
+        <div class="section-header">
+          <h2>Características destacadas</h2>
+          <p class="section-subtitle">Lo que hace especial este equipo</p>
+        </div>
+        <div class="row g-3">
+          <div v-for="feature in detail.technical.features" :key="feature.title" class="col-md-6 col-lg-4">
+            <div class="feature-card">
+              <span v-if="feature.icon" :class="['feature-icon', `bi ${feature.icon}`]"></span>
+              <h5>{{ feature.title }}</h5>
+              <p>{{ feature.value }}</p>
             </div>
           </div>
-        </section>
-
-        <section v-if="marketing?.use_cases?.length" class="detail-section">
-          <div class="section-head">
-            <span class="section-kicker">Casos de uso</span>
-            <h2>Donde puedes utilizar este equipo</h2>
-          </div>
-          <div class="use-cases-grid">
-            <span v-for="uc in marketing.use_cases" :key="uc" class="use-case-chip">{{ uc }}</span>
-          </div>
-        </section>
-
-        <section v-if="marketing?.purchase_price_reference" class="detail-section">
-          <div class="section-head">
-            <span class="section-kicker">Comparativa economica</span>
-            <h2>Comprar vs. Alquilar</h2>
-          </div>
-          <div class="compare-grid">
-            <div class="compare-card">
-              <span class="compare-label">Comprar</span>
-              <strong>{{ moneyCompact(marketing.purchase_price_reference) }}</strong>
-            </div>
-            <i class="bi bi-arrow-right compare-arrow"></i>
-            <div class="compare-card compare-card--highlight">
-              <span class="compare-label">Alquilar</span>
-              <strong>{{ moneyCompact(marketing.promo_price || marketing.reference_price || selectedVariant?.rental_price_per_day) }}</strong>
-            </div>
-            <div v-if="marketing.savings_percentage" class="compare-savings">
-              Ahorras {{ marketing.savings_percentage }}%
-            </div>
-          </div>
-          <p v-if="marketing.financial_message" class="text-muted small mt-2 mb-0">{{ marketing.financial_message }}</p>
-        </section>
-
-        <section v-if="equipment.included_items?.length || equipment.excluded_items?.length" class="detail-section">
-          <div class="section-head">
-            <span class="section-kicker">Alcance del alquiler</span>
-            <h2>Que incluye y que no incluye</h2>
-          </div>
-          <div class="scope-grid">
-            <EquipmentIncludedList :items="equipment.included_items || []" />
-            <EquipmentExcludedList :items="equipment.excluded_items || []" />
-          </div>
-        </section>
-
-        <section v-if="equipment.features?.length" class="detail-section">
-          <div class="section-head">
-            <span class="section-kicker">Caracteristicas</span>
-            <h2>Lo que distingue a este equipo</h2>
-          </div>
-          <EquipmentFeatureTable :features="equipment.features || []" />
-        </section>
-
-        <section v-if="equipment.specification_groups?.length" class="detail-section">
-          <div class="section-head">
-            <span class="section-kicker">Ficha tecnica</span>
-            <h2>Especificaciones profesionales</h2>
-          </div>
-          <EquipmentSpecificationTable :groups="equipment.specification_groups || []" />
-        </section>
-
-        <section v-if="equipment.services_included?.length || equipment.optional_services?.length" class="detail-section">
-          <div class="section-head">
-            <span class="section-kicker">Servicios</span>
-            <h2>Servicios incluidos y opcionales</h2>
-          </div>
-          <EquipmentServiceList
-            :included-services="equipment.services_included || []"
-            :optional-services="equipment.optional_services || []"
-          />
-        </section>
-
-        <section v-if="equipment.requirements?.length" class="detail-section">
-          <div class="section-head">
-            <span class="section-kicker">Requisitos</span>
-            <h2>Condiciones para el alquiler</h2>
-          </div>
-          <EquipmentRequirementList :items="equipment.requirements || []" />
-        </section>
-
-        <section v-if="hasDocumentation" class="detail-section">
-          <div class="section-head">
-            <span class="section-kicker">Documentacion</span>
-            <h2>Manuales, fichas y archivos</h2>
-          </div>
-          <div class="doc-columns">
-            <div v-if="manualsCount">
-              <h3 class="doc-subhead"><i class="bi bi-journal-text me-2"></i>Manuales</h3>
-              <EquipmentManualList :documents="equipment.documents || []" :equipment-uuid="equipment.uuid" />
-            </div>
-            <div v-if="datasheetsCount">
-              <h3 class="doc-subhead"><i class="bi bi-file-earmark-richtext me-2"></i>Fichas tecnicas</h3>
-              <EquipmentDocumentList :documents="equipment.documents || []" :equipment-uuid="equipment.uuid" />
-            </div>
-            <div v-if="otherFilesCount">
-              <h3 class="doc-subhead"><i class="bi bi-folder2-open me-2"></i>Archivos</h3>
-              <EquipmentDownloadSection :documents="equipment.documents || []" :equipment-uuid="equipment.uuid" />
-            </div>
-          </div>
-        </section>
-
-        <section v-if="equipment.videos?.length" class="detail-section">
-          <div class="section-head">
-            <span class="section-kicker">Video</span>
-            <h2>Demostraciones</h2>
-          </div>
-          <EquipmentVideoGallery :videos="equipment.videos || []" />
-        </section>
-
-        <section v-if="equipment.faqs?.length" class="detail-section">
-          <div class="section-head">
-            <span class="section-kicker">Preguntas frecuentes</span>
-            <h2>Resolvemos tus dudas</h2>
-          </div>
-          <BaseAccordion :items="equipment.faqs || []" accent-color="#2563eb" />
-        </section>
-
-        <section class="detail-section">
-          <div class="section-head">
-            <span class="section-kicker">Opiniones</span>
-            <h2>Reseñas de clientes</h2>
-          </div>
-          <BaseReviews base-path="renting/equipment" :entity-uuid="equipment.uuid" accent-color="#2563eb" item-label="este equipo" />
-        </section>
-
-        <section class="detail-section related-section">
-          <div class="section-head">
-            <span class="section-kicker">Integraciones</span>
-            <h2>Completa la solucion</h2>
-          </div>
-          <div class="related-grid">
-            <RouterLink to="/tienda" class="related-card">
-              <i class="bi bi-box-seam"></i>
-              <span>Shop</span>
-              <strong>Accesorios, consumibles y repuestos compatibles</strong>
-            </RouterLink>
-            <RouterLink to="/servicios" class="related-card">
-              <i class="bi bi-tools"></i>
-              <span>Technical Services</span>
-              <strong>Instalacion, configuracion, monitoreo y soporte</strong>
-            </RouterLink>
-            <RouterLink to="/cotizar" class="related-card">
-              <i class="bi bi-file-earmark-text"></i>
-              <span>Proyecto</span>
-              <strong>Solucion temporal con alcance y SLA personalizado</strong>
-            </RouterLink>
-          </div>
-        </section>
+        </div>
       </div>
 
-      <div v-else-if="!loading" class="text-center py-5">
-        <i class="bi bi-exclamation-circle display-4 text-muted"></i>
-        <p class="mt-3 text-muted">Equipo no encontrado.</p>
-        <RouterLink to="/alquiler" class="btn btn-primary btn-sm">Volver a alquiler</RouterLink>
+      <!-- Included vs Excluded -->
+      <div v-if="detail?.services?.included_items?.length || detail?.services?.excluded_items?.length" class="section-scope mt-5">
+        <div class="section-header">
+          <h2>Alcance del alquiler</h2>
+          <p class="section-subtitle">Qué incluye y qué no</p>
+        </div>
+        <div class="row g-4">
+          <div v-if="detail?.services?.included_items?.length" class="col-lg-6">
+            <h5 class="mb-3">
+              <i class="bi bi-check-circle text-success me-2"></i>Incluido en el precio
+            </h5>
+            <EquipmentIncludedList :items="detail.services.included_items" />
+          </div>
+          <div v-if="detail?.services?.excluded_items?.length" class="col-lg-6">
+            <h5 class="mb-3">
+              <i class="bi bi-x-circle text-danger me-2"></i>No incluido
+            </h5>
+            <EquipmentExcludedList :items="detail.services.excluded_items" />
+          </div>
+        </div>
+      </div>
+
+      <!-- Optional Services -->
+      <div v-if="detail?.services?.optional_services?.length" class="section-optional-services mt-5">
+        <div class="section-header">
+          <h2>Servicios adicionales</h2>
+          <p class="section-subtitle">Opciones disponibles por costo extra</p>
+        </div>
+        <div class="row g-3">
+          <div v-for="service in detail.services.optional_services" :key="service.title" class="col-md-6 col-lg-4">
+            <div class="optional-service-card">
+              <span v-if="service.icon" :class="['service-icon', `bi ${service.icon}`]"></span>
+              <h6>{{ service.title }}</h6>
+              <p class="service-description">{{ service.description }}</p>
+              <div class="service-price">{{ service.formatted_price }}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Specifications by Group -->
+      <div v-if="detail?.technical?.specification_groups?.length" class="section-specs mt-5">
+        <div class="section-header">
+          <h2>Especificaciones técnicas</h2>
+          <p class="section-subtitle">Detalles técnicos completos</p>
+        </div>
+        <div class="row g-4">
+          <div v-for="group in detail.technical.specification_groups" :key="group.name" class="col-lg-6">
+            <div class="spec-group-card">
+              <h5>{{ group.name }}</h5>
+              <div class="specs-table">
+                <div v-for="spec in group.specs" :key="spec.name" class="spec-row">
+                  <span class="spec-name">{{ spec.name }}</span>
+                  <span class="spec-val">{{ spec.value }}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Requirements -->
+      <div v-if="detail?.technical?.requirements?.length" class="section-requirements mt-5">
+        <div class="section-header">
+          <h2>Requisitos de alquiler</h2>
+          <p class="section-subtitle">Lo que necesitas cumplir</p>
+        </div>
+        <EquipmentRequirementList :items="detail.technical.requirements" />
+      </div>
+
+      <!-- FAQs -->
+      <div v-if="detail?.faqs?.length" class="section-faqs mt-5">
+        <div class="section-header">
+          <h2>Preguntas frecuentes</h2>
+          <p class="section-subtitle">Respuestas a dudas comunes</p>
+        </div>
+        <div class="faqs-list">
+          <BaseAccordion :items="detail.faqs.map(faq => ({ title: faq.question, content: faq.answer }))" />
+        </div>
+      </div>
+
+      <!-- Videos -->
+      <div v-if="detail?.media?.videos?.length" class="section-videos mt-5">
+        <div class="section-header">
+          <h2>Videos</h2>
+          <p class="section-subtitle">Visualiza el equipo en acción</p>
+        </div>
+        <EquipmentVideoGallery :videos="detail.media.videos" />
+      </div>
+
+      <!-- Documents -->
+      <div v-if="detail?.media?.documents?.length" class="section-documents mt-5">
+        <div class="section-header">
+          <h2>Documentación</h2>
+          <p class="section-subtitle">Manuales y certificados</p>
+        </div>
+        <EquipmentDocumentList :documents="detail.media.documents" />
+      </div>
+
+      <!-- Reviews -->
+      <div v-if="detail?.reviews?.items?.length" class="section-reviews mt-5">
+        <div class="section-header">
+          <h2>Reseñas</h2>
+          <p class="section-subtitle">Experiencias de otros clientes</p>
+        </div>
+        <BaseReviews :reviews="detail.reviews.items" />
+      </div>
+
+      <!-- Related Equipment -->
+      <div v-if="detail?.related_equipment?.length" class="section-related mt-5">
+        <div class="section-header">
+          <h2>Equipos relacionados</h2>
+          <p class="section-subtitle">Otros equipos que podrían interesarte</p>
+        </div>
+        <div class="row g-3">
+          <div v-for="equipment in detail.related_equipment" :key="equipment.uuid" class="col-md-6 col-lg-4">
+            <RouterLink :to="{ name: 'rental-detail', params: { uuid: equipment.uuid } }" class="related-card text-decoration-none">
+              <img :src="equipment.image_url" :alt="equipment.name" class="related-image" />
+              <h6>{{ equipment.name }}</h6>
+              <span class="price">{{ equipment.price_from }}</span>
+            </RouterLink>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -346,78 +357,59 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue';
-import { formatCOP } from '@/utils/money';
 import { useRoute, useRouter } from 'vue-router';
 import useApi from '@/composables/useApi';
 import { useToast } from '@/composables/useToast';
-import { useAuthStore } from '@/store/auth';
 import { useSeo } from '@/composables/useSeo';
 
 import BaseGallery from '@/components/base/BaseGallery.vue';
 import EquipmentIncludedList from '@/components/renting/detail/EquipmentIncludedList.vue';
 import EquipmentExcludedList from '@/components/renting/detail/EquipmentExcludedList.vue';
-import EquipmentFeatureTable from '@/components/renting/detail/EquipmentFeatureTable.vue';
-import EquipmentSpecificationTable from '@/components/renting/detail/EquipmentSpecificationTable.vue';
-import EquipmentServiceList from '@/components/renting/detail/EquipmentServiceList.vue';
 import EquipmentRequirementList from '@/components/renting/detail/EquipmentRequirementList.vue';
-import EquipmentManualList from '@/components/renting/detail/EquipmentManualList.vue';
 import EquipmentDocumentList from '@/components/renting/detail/EquipmentDocumentList.vue';
-import EquipmentDownloadSection from '@/components/renting/detail/EquipmentDownloadSection.vue';
 import EquipmentVideoGallery from '@/components/renting/detail/EquipmentVideoGallery.vue';
 import BaseAccordion from '@/components/base/BaseAccordion.vue';
 import BaseReviews from '@/components/base/BaseReviews.vue';
 
 const api = useApi();
 const toast = useToast();
-const authStore = useAuthStore();
 const route = useRoute();
 const router = useRouter();
 const { setSeo } = useSeo();
 
 const loading = ref(true);
-const equipment = ref(null);
-const variants = ref([]);
-const selectedVariant = ref(null);
-
-const brandName = computed(() => equipment.value?.brand?.name || '');
-const categoryName = computed(() => equipment.value?.category?.name || '');
-
-// ─── Marketing (EquipmentMarketing) ────────────────────────────────────────────
-// Toda esta seccion es 100% data-driven desde equipment.marketing -- si el
-// admin no configuro nada, marketing es null y ninguno de estos bloques
-// se muestra (ver v-if en el template). Nada hardcodeado por equipo.
-const marketing = computed(() => equipment.value?.marketing || null);
-
-const MARKETING_TAG_LABELS = {
-  OFERTA: 'Oferta', NUEVO: 'Nuevo', MAS_ALQUILADO: 'Mas alquilado', PREMIUM: 'Premium',
-  RECOMENDADO: 'Recomendado', HOT: 'Hot', TOP_VENTAS: 'Top ventas',
-  IDEAL_EVENTOS: 'Ideal para eventos', ULTIMAS_UNIDADES: 'Ultimas unidades',
-};
-const MARKETING_TAG_STYLES = {
-  OFERTA: 'bg-danger-subtle text-danger border-danger-subtle',
-  NUEVO: 'bg-info-subtle text-info border-info-subtle',
-  MAS_ALQUILADO: 'bg-primary-subtle text-primary border-primary-subtle',
-  PREMIUM: 'bg-dark-subtle text-dark border-dark-subtle',
-  RECOMENDADO: 'bg-success-subtle text-success border-success-subtle',
-  HOT: 'bg-danger-subtle text-danger border-danger-subtle',
-  TOP_VENTAS: 'bg-warning-subtle text-warning border-warning-subtle',
-  IDEAL_EVENTOS: 'bg-primary-subtle text-primary border-primary-subtle',
-  ULTIMAS_UNIDADES: 'bg-danger-subtle text-danger border-danger-subtle',
-};
-const marketingTags = computed(() => (marketing.value?.tags || []).map((code) => ({
-  code, label: MARKETING_TAG_LABELS[code] || code, cls: MARKETING_TAG_STYLES[code] || 'bg-light text-dark border',
-})));
-
-// Precio efectivo mostrado en el panel principal: promo_price configurado
-// gana sobre el precio de la variante -- si no hay marketing, se conserva el
-// comportamiento anterior (priceSummary de la variante seleccionada).
-const hasPromoPricing = computed(() => !!(marketing.value?.reference_price && marketing.value?.promo_price));
-const ctaLabel = computed(() => marketing.value?.cta_label || 'Reservar ahora');
-
-const totalStock = computed(() => variants.value.reduce((sum, v) => sum + (v.stock || 0), 0));
-
+const detail = ref(null);
 const isFavorite = ref(false);
+
 const FAVORITES_KEY = 'sintel_renting_favorites';
+
+const quickSpecs = computed(() => {
+  if (!detail.value?.hero) return [];
+  return [
+    { label: 'Marca', value: detail.value.hero.brand_name || 'Sintel' },
+    { label: 'Categoría', value: detail.value.hero.category_name || 'Equipo' },
+    { label: 'Disponibilidad', value: detail.value.availability?.status_label || 'N/A' },
+    { label: 'Stock', value: `${detail.value.availability?.available_now || 0} unidad(es)` },
+  ];
+});
+
+function getTagBgColor(color) {
+  const colors = {
+    danger: '#f8d7da',
+    info: '#d1ecf1',
+    warning: '#fff3cd',
+    success: '#d4edda',
+  };
+  return colors[color] || '#e9ecef';
+}
+
+function getAvailabilityBadgeClass() {
+  const status = detail.value?.availability?.status;
+  const baseClass = 'badge border';
+  if (status === 'available') return `${baseClass} bg-success-subtle text-success border-success-subtle`;
+  if (status === 'limited') return `${baseClass} bg-warning-subtle text-warning border-warning-subtle`;
+  return `${baseClass} bg-danger-subtle text-danger border-danger-subtle`;
+}
 
 function loadFavorites() {
   try {
@@ -429,7 +421,7 @@ function loadFavorites() {
 
 function toggleFavorite() {
   const favorites = loadFavorites();
-  const uuid = equipment.value?.uuid;
+  const uuid = detail.value?.uuid;
   const index = favorites.indexOf(uuid);
   if (index >= 0) {
     favorites.splice(index, 1);
@@ -445,8 +437,8 @@ function toggleFavorite() {
 
 async function shareEquipment() {
   const shareData = {
-    title: equipment.value?.name,
-    text: `Mira este equipo en alquiler: ${equipment.value?.name}`,
+    title: detail.value?.hero?.name,
+    text: `Mira este equipo en alquiler: ${detail.value?.hero?.name}`,
     url: window.location.href,
   };
   try {
@@ -457,417 +449,465 @@ async function shareEquipment() {
       toast.success('Enlace copiado al portapapeles');
     }
   } catch {
-    // Usuario cancelo el dialogo nativo de compartir -- no es un error real.
+    // Usuario canceló el diálogo nativo de compartir
   }
 }
 
-const quickSpecs = computed(() => [
-  { label: 'Marca', value: brandName.value || 'Sintel' },
-  { label: 'Categoria', value: categoryName.value || 'Equipo' },
-  { label: 'Variantes', value: `${variants.value.length || 1}` },
-  { label: 'Stock total', value: `${totalStock.value} unidad(es)` },
-]);
-
-const availabilityLabel = computed(() => {
-  if (!equipment.value?.is_active || totalStock.value <= 0) return 'Sin disponibilidad activa';
-  return 'Disponible para reserva';
-});
-const availabilityDetail = computed(() =>
-  `${totalStock.value} unidad(es) en total. El motor de disponibilidad valida fechas exactas al momento de reservar.`,
-);
-
-const reviewSummary = computed(() => {
-  const reviews = equipment.value?.reviews || [];
-  if (!reviews.length) return '';
-  const avg = reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length;
-  return `${avg.toFixed(1)} (${reviews.length} reseña${reviews.length === 1 ? '' : 's'})`;
-});
-
-const manualsCount = computed(() => (equipment.value?.documents || []).filter((d) => d.document_type === 'MANUAL').length);
-const datasheetsCount = computed(() => (equipment.value?.documents || []).filter((d) => d.document_type === 'FICHA_TECNICA').length);
-const otherFilesCount = computed(() =>
-  (equipment.value?.documents || []).filter((d) => d.document_type !== 'MANUAL' && d.document_type !== 'FICHA_TECNICA').length,
-);
-const hasDocumentation = computed(() => manualsCount.value || datasheetsCount.value || otherFilesCount.value);
-
-function money(value) {
-  const number = parseFloat(value);
-  if (!Number.isFinite(number) || number <= 0) return 'A cotizar';
-  return formatCOP(number, { withSymbol: true });
-}
-
-// Formato compacto ("520.000 COP") sin simbolo "$" repetido -- para usar
-// cuando se muestran varios precios juntos en la misma tarjeta (comparativa
-// comprar/alquilar, precio anterior + promocional).
-function moneyCompact(value) {
-  const number = parseFloat(value);
-  if (!Number.isFinite(number) || number <= 0) return 'A cotizar';
-  return `${formatCOP(number)} COP`;
-}
-
-function priceSummary(variant) {
-  if (!variant) return 'A cotizar';
-  if (variant.rental_price_per_day) return `${money(variant.rental_price_per_day)} / dia`;
-  if (variant.rental_price_per_hour) return `${money(variant.rental_price_per_hour)} / hora`;
-  return 'A cotizar';
-}
-
-const fromPrice = computed(() => {
-  const prices = variants.value
-    .map((v) => parseFloat(v.rental_price_per_day || v.rental_price_per_hour || 0))
-    .filter((p) => p > 0);
-  if (!prices.length) return '';
-  const cheapest = variants.value.find((v) => parseFloat(v.rental_price_per_day || v.rental_price_per_hour || 0) === Math.min(...prices));
-  return priceSummary(cheapest);
-});
-
-async function fetchEquipment() {
+async function fetchDetail() {
   loading.value = true;
   try {
     const uuid = route.params.uuid;
-    const res = await api.get(`renting/equipment/${uuid}/`);
-    equipment.value = res.data;
-    variants.value = res.data.variants || [];
-    selectedVariant.value = variants.value.find((variant) => variant.uuid === route.query.variant) || variants.value[0] || null;
-    isFavorite.value = loadFavorites().includes(equipment.value.uuid);
+    const res = await api.get(`renting/equipment/${uuid}/detail/`);
+    detail.value = res.data;
+    isFavorite.value = loadFavorites().includes(detail.value.uuid);
 
     setSeo({
-      title: equipment.value.meta_title || equipment.value.name,
-      description: equipment.value.meta_description || equipment.value.description,
-      ogImage: equipment.value.og_image,
+      title: detail.value.seo?.meta_title || detail.value.hero?.name,
+      description: detail.value.seo?.meta_description || detail.value.hero?.description,
+      ogImage: detail.value.seo?.og_image_url || detail.value.hero?.hero_image?.url,
       jsonLd: {
         '@context': 'https://schema.org',
         '@type': 'Product',
-        name: equipment.value.name,
-        description: equipment.value.description,
-        image: equipment.value.images?.[0]?.image,
-        brand: brandName.value || undefined,
-        offers: selectedVariant.value ? {
+        name: detail.value.hero?.name,
+        description: detail.value.hero?.description,
+        image: detail.value.media?.gallery?.principal?.url,
+        brand: detail.value.hero?.brand_name || undefined,
+        offers: {
           '@type': 'Offer',
           priceCurrency: 'COP',
-          price: selectedVariant.value.rental_price_per_day || selectedVariant.value.rental_price_per_hour || undefined,
-          availability: equipment.value.is_active ? 'https://schema.org/InStock' : 'https://schema.org/OutOfStock',
+          price: detail.value.pricing?.price_per_day || undefined,
+          availability: detail.value.availability?.status === 'available' ? 'https://schema.org/InStock' : 'https://schema.org/OutOfStock',
+        },
+        aggregateRating: detail.value.reviews?.average_rating ? {
+          '@type': 'AggregateRating',
+          ratingValue: detail.value.reviews.average_rating,
+          ratingCount: detail.value.reviews.total_count,
         } : undefined,
       },
     });
-  } catch {
-    toast.error('Error al cargar el equipo');
+  } catch (error) {
+    console.error('Error fetching equipment detail:', error);
+    toast.error('No pudimos cargar los detalles del equipo');
+    router.push('/alquiler');
   } finally {
     loading.value = false;
   }
 }
 
-function requestRental() {
-  if (!authStore.isAuthenticated) {
-    toast.info('Inicia sesion para realizar una reserva');
-    router.push('/login');
-    return;
-  }
-  router.push({
-    name: 'rental-request',
-    params: { uuid: equipment.value.uuid },
-    query: { variant: selectedVariant.value?.uuid || undefined },
-  });
-}
-
-onMounted(fetchEquipment);
+onMounted(() => {
+  fetchDetail();
+});
 </script>
 
 <style scoped>
-.rental-detail { background: #f8fafc; min-height: 100vh; }
-.breadcrumb-sm { font-size: .82rem; }
-.gallery-sticky { position: sticky; top: 88px; }
-.eq-gallery-type-badge {
-  position: absolute; top: .8rem; left: .8rem;
-  background: rgba(15, 23, 42, .75); color: #fff;
-  border-radius: 999px; padding: .25rem .65rem;
-  font-size: .68rem; font-weight: 700;
+.rental-detail {
+  min-height: 100vh;
+  background: var(--bs-body-bg);
 }
-.availability-card,
-.package-panel,
-.detail-section {
-  background: #fff;
-  border: 1px solid #e2e8f0;
-  border-radius: 16px;
+
+.gallery-sticky {
+  position: sticky;
+  top: 80px;
+  z-index: 10;
 }
-.availability-card { padding: 1rem; margin-top: .9rem; }
-.trust-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: .55rem;
-  margin-top: .9rem;
+
+.pricing-card {
+  background: var(--bs-gray-100);
+  padding: 1.5rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--bs-border-color);
 }
-.trust-grid div {
-  background: #fff;
-  border: 1px solid #e2e8f0;
-  border-radius: 12px;
-  padding: .65rem;
+
+.pricing-value {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: var(--bs-primary);
+}
+
+.discount-banner {
+  background: linear-gradient(135deg, #fff3cd 0%, #ffe69c 100%);
+  padding: 0.75rem;
+  border-radius: 0.375rem;
   display: flex;
   align-items: center;
-  gap: .45rem;
-  color: #475569;
-  font-size: .78rem;
-  font-weight: 700;
+  gap: 0.75rem;
+  color: #856404;
+  font-size: 0.875rem;
 }
-.icon-action-btn {
-  width: 38px;
-  height: 38px;
-  border-radius: 999px;
-  border: 1px solid #e2e8f0;
-  background: #fff;
-  color: #64748b;
-  display: inline-flex;
+
+.discount-badge {
+  background: #dc3545;
+  color: white;
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.25rem;
+  font-weight: 600;
+}
+
+.quick-benefits {
+  background: var(--bs-gray-100);
+  padding: 1.5rem;
+  border-radius: 0.5rem;
+}
+
+.benefits-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.benefit-item {
+  display: flex;
   align-items: center;
-  justify-content: center;
-  transition: color .15s ease, border-color .15s ease, background .15s ease;
+  gap: 0.5rem;
+  font-size: 0.875rem;
 }
-.icon-action-btn:hover { color: #2563eb; border-color: #bfdbfe; background: #eff6ff; }
-.icon-action-btn.active { color: #e11d48; border-color: #fecdd3; background: #fff1f2; }
-.section-kicker {
-  display: block;
-  color: #0369a1;
-  font-size: .72rem;
-  font-weight: 850;
+
+.benefit-icon {
+  color: var(--bs-success);
+  font-size: 1.25rem;
+}
+
+.quick-specs {
+  background: var(--bs-body-bg);
+  padding: 0;
+}
+
+.specs-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.spec-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.75rem;
+  background: var(--bs-gray-100);
+  border-radius: 0.375rem;
+}
+
+.spec-label {
+  font-size: 0.75rem;
+  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: .08em;
-  margin-bottom: .25rem;
+  color: var(--bs-secondary);
 }
-.availability-card h2,
-.panel-head h2,
-.section-head h2 {
-  color: #0f172a;
-  font-size: 1.1rem;
-  font-weight: 850;
-  letter-spacing: 0;
+
+.spec-value {
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: var(--bs-body-color);
+}
+
+.section-features,
+.section-scope,
+.section-optional-services,
+.section-specs,
+.section-requirements,
+.section-faqs,
+.section-videos,
+.section-documents,
+.section-reviews,
+.section-related {
+  padding: 2rem 0;
+  border-top: 1px solid var(--bs-border-color);
+}
+
+.section-header {
+  margin-bottom: 2rem;
+}
+
+.section-header h2 {
+  font-size: 1.75rem;
+  font-weight: 700;
+  margin-bottom: 0.5rem;
+}
+
+.section-subtitle {
+  color: var(--bs-secondary);
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.feature-card {
+  background: var(--bs-gray-100);
+  padding: 1.5rem;
+  border-radius: 0.5rem;
+  text-align: center;
+  transition: all 0.3s ease;
+}
+
+.feature-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.feature-icon {
+  font-size: 2rem;
+  color: var(--bs-primary);
+  display: block;
+  margin-bottom: 0.75rem;
+}
+
+.feature-card h5 {
+  font-size: 1rem;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+}
+
+.feature-card p {
+  font-size: 0.875rem;
+  color: var(--bs-secondary);
   margin: 0;
 }
-.availability-card p {
-  color: #64748b;
-  font-size: .85rem;
-  line-height: 1.6;
-  margin: .5rem 0 0;
+
+.optional-service-card {
+  background: var(--bs-gray-100);
+  padding: 1.5rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--bs-border-color);
 }
-.availability-link {
-  display: inline-flex;
-  align-items: center;
-  gap: .35rem;
-  margin-top: .6rem;
-  color: #2563eb;
-  font-size: .8rem;
-  font-weight: 750;
-  text-decoration: none;
+
+.service-icon {
+  font-size: 2rem;
+  color: var(--bs-info);
+  display: block;
+  margin-bottom: 0.75rem;
 }
-.value-prop {
-  color: #64748b;
-  font-size: 1rem;
-  line-height: 1.65;
+
+.optional-service-card h6 {
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+}
+
+.service-description {
+  font-size: 0.875rem;
+  color: var(--bs-secondary);
+  margin-bottom: 0.75rem;
+}
+
+.service-price {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--bs-success);
+}
+
+.spec-group-card {
+  background: var(--bs-gray-100);
+  padding: 1.5rem;
+  border-radius: 0.5rem;
+}
+
+.spec-group-card h5 {
+  font-weight: 600;
   margin-bottom: 1rem;
 }
-.equipment-title {
-  color: #0f172a;
-  font-size: clamp(1.65rem, 3vw, 2.45rem);
-  font-weight: 900;
-  letter-spacing: 0;
-  line-height: 1.08;
-  margin: 0 0 .75rem;
-}
-.quick-specs {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: .65rem;
-  margin-bottom: 1rem;
-}
-.quick-specs div {
-  background: #fff;
-  border: 1px solid #e2e8f0;
-  border-radius: 14px;
-  padding: .75rem;
-}
-.quick-specs span {
-  display: block;
-  color: #64748b;
-  font-size: .72rem;
-  font-weight: 760;
-}
-.quick-specs strong {
-  display: block;
-  color: #0f172a;
-  font-size: .86rem;
-  margin-top: .18rem;
-}
-.package-panel { padding: 1rem; box-shadow: 0 14px 30px rgba(15, 23, 42, .06); }
-.panel-head {
+
+.specs-table {
   display: flex;
-  align-items: end;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.spec-row {
+  display: flex;
   justify-content: space-between;
-  gap: 1rem;
-  margin-bottom: .9rem;
-}
-.from-price { color: #2563eb; font-weight: 850; white-space: nowrap; }
-.package-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: .65rem;
-}
-.package-card {
-  text-align: left;
-  border: 1px solid #e2e8f0;
-  background: #f8fafc;
-  border-radius: 14px;
-  padding: .8rem;
-  min-height: 104px;
-}
-.package-card.active {
-  background: #eff6ff;
-  border-color: #2563eb;
-  box-shadow: 0 0 0 2px rgba(37, 99, 235, .13);
-}
-.pack-name { display: block; color: #475569; font-size: .75rem; font-weight: 800; }
-.package-card strong { display: block; color: #0f172a; font-size: 1.05rem; margin-top: .25rem; }
-.package-card small { display: block; color: #64748b; margin-top: .15rem; }
-.selected-package {
-  display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  border-top: 1px solid #e2e8f0;
-  margin-top: .9rem;
-  padding-top: .9rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--bs-border-color);
+  font-size: 0.875rem;
 }
-.selected-package h3 { color: #0f172a; font-size: 1rem; font-weight: 850; margin: 0 0 .2rem; }
-.selected-package p { color: #64748b; font-size: .86rem; margin: 0; }
-.promo-price-block { display: flex; align-items: baseline; flex-wrap: wrap; gap: .5rem; }
-.old-price { color: #94a3b8; font-size: .82rem; text-decoration: line-through; }
-.promo-price { color: #2563eb; font-size: 1.35rem; font-weight: 900; }
-.discount-badge {
-  background: #dc2626; color: #fff; font-size: .68rem; font-weight: 850;
-  padding: .18rem .5rem; border-radius: 999px; letter-spacing: .02em;
+
+.spec-row:last-child {
+  border-bottom: none;
 }
-.urgency-message {
-  color: #dc2626; font-size: .82rem; font-weight: 750; margin: .6rem 0 0;
+
+.spec-name {
+  color: var(--bs-secondary);
+  font-weight: 500;
 }
-.promo-banner {
-  background: #fffbeb; border: 1px solid #fde68a; color: #92400e;
-  border-radius: 12px; padding: .6rem .9rem; font-size: .82rem; font-weight: 700;
-  margin-top: .9rem;
+
+.spec-val {
+  font-weight: 600;
+  color: var(--bs-body-color);
 }
-.marketing-tag { font-size: .7rem; font-weight: 750; }
-.marketing-main-message {
-  color: #334155; font-size: .9rem; line-height: 1.6; margin-top: .9rem; margin-bottom: 0;
+
+.faqs-list {
+  background: var(--bs-gray-100);
+  padding: 1.5rem;
+  border-radius: 0.5rem;
 }
-.social-proof { color: #475569; font-size: .8rem; font-weight: 700; margin: .6rem 0 0; }
-.quick-benefits-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: .65rem;
+
+.related-card {
+  display: block;
+  background: var(--bs-gray-100);
+  padding: 1rem;
+  border-radius: 0.5rem;
+  transition: all 0.3s ease;
+  overflow: hidden;
 }
-.quick-benefit-card {
-  display: flex; align-items: center; gap: .5rem;
-  background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: .75rem;
-  color: #334155; font-size: .82rem; font-weight: 700;
+
+.related-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 }
-.quick-benefit-card i { color: #2563eb; font-size: 1.1rem; }
-.use-cases-grid { display: flex; flex-wrap: wrap; gap: .5rem; }
-.use-case-chip {
-  background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe;
-  border-radius: 999px; padding: .35rem .85rem; font-size: .8rem; font-weight: 700;
+
+.related-image {
+  width: 100%;
+  height: 180px;
+  object-fit: cover;
+  border-radius: 0.375rem;
+  margin-bottom: 0.75rem;
 }
-.compare-grid {
-  display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;
-}
-.compare-card {
-  background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 14px;
-  padding: .9rem 1.25rem; text-align: center; min-width: 160px;
-}
-.compare-card--highlight { background: #eff6ff; border-color: #2563eb; }
-.compare-label { display: block; color: #64748b; font-size: .75rem; font-weight: 750; margin-bottom: .25rem; }
-.compare-card strong { display: block; color: #0f172a; font-size: 1.15rem; }
-.compare-card--highlight strong { color: #2563eb; }
-.compare-arrow { color: #94a3b8; font-size: 1.25rem; }
-.compare-savings {
-  background: #dcfce7; color: #166534; font-weight: 850; font-size: .85rem;
-  border-radius: 999px; padding: .4rem 1rem;
-}
-.reserve-btn {
-  border: 0;
-  background: #2563eb;
-  color: #fff;
-  border-radius: 999px;
-  padding: .75rem 1.15rem;
-  font-weight: 850;
+
+.related-card h6 {
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+  color: var(--bs-body-color);
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
-.reserve-btn:disabled { opacity: .55; cursor: not-allowed; }
-.detail-sections { display: flex; flex-direction: column; gap: 1rem; margin-top: 1.25rem; }
-.section-head { margin-bottom: .9rem; }
-.detail-section { padding: 1rem; }
-.scope-grid {
+
+.price {
+  display: block;
+  color: var(--bs-primary);
+  font-weight: 700;
+  font-size: 1rem;
+}
+
+.section-kicker {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--bs-secondary);
+  margin-bottom: 0.5rem;
+}
+
+.trust-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: .75rem;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1rem;
+  margin: 1.5rem 0;
+  padding: 1.5rem;
+  background: var(--bs-gray-100);
+  border-radius: 0.5rem;
 }
-.doc-columns { display: flex; flex-direction: column; gap: 1.25rem; }
-.doc-subhead {
-  color: #0f172a;
-  font-size: .88rem;
-  font-weight: 800;
-  margin: 0 0 .6rem;
+
+.trust-grid > div {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 0.5rem;
+  font-size: 0.875rem;
 }
-.related-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: .75rem;
+
+.trust-grid i {
+  font-size: 1.5rem;
 }
-.related-card {
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  border-radius: 14px;
-  padding: .9rem;
-  color: inherit;
+
+.availability-card {
+  background: linear-gradient(135deg, #e7f1ff 0%, #f0f6ff 100%);
+  padding: 1.5rem;
+  border-radius: 0.5rem;
+  border: 1px solid #c3deff;
+}
+
+.availability-card h2 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin-bottom: 0.5rem;
+  color: var(--bs-body-color);
+}
+
+.availability-card p {
+  font-size: 0.875rem;
+  color: var(--bs-secondary);
+  margin-bottom: 1rem;
+}
+
+.availability-link {
+  display: inline-block;
+  color: var(--bs-primary);
   text-decoration: none;
+  font-weight: 600;
+  font-size: 0.875rem;
+  transition: all 0.3s ease;
 }
-.related-card i { color: #2563eb; font-size: 1.35rem; }
-.related-card span {
-  display: block;
-  color: #64748b;
-  font-size: .72rem;
-  font-weight: 760;
-  margin-top: .45rem;
+
+.availability-link:hover {
+  transform: translateX(4px);
 }
-.related-card strong {
-  display: block;
-  color: #0f172a;
-  font-size: .86rem;
-  margin-top: .3rem;
+
+.icon-action-btn {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid var(--bs-border-color);
+  background: var(--bs-body-bg);
+  border-radius: 0.375rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--bs-body-color);
+  transition: all 0.3s ease;
 }
+
+.icon-action-btn:hover {
+  border-color: var(--bs-primary);
+  color: var(--bs-primary);
+}
+
+.icon-action-btn.active {
+  background: var(--bs-danger);
+  border-color: var(--bs-danger);
+  color: white;
+}
+
+.equipment-title {
+  font-size: 2rem;
+  font-weight: 700;
+  margin-bottom: 0.75rem;
+}
+
+.value-prop {
+  font-size: 1.125rem;
+  color: var(--bs-secondary);
+  margin-bottom: 1rem;
+}
+
+.promo-message {
+  color: var(--bs-success);
+  font-size: 0.875rem;
+  margin-top: 0.75rem;
+  margin-bottom: 0;
+}
+
 .skeleton {
-  background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 37%, #f1f5f9 63%);
-  background-size: 400% 100%;
-  animation: shimmer 1.4s infinite;
+  background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+  background-size: 200% 100%;
+  animation: loading 1.5s infinite;
 }
-@keyframes shimmer {
-  0% { background-position: 100% 50%; }
-  100% { background-position: 0 50%; }
+
+@keyframes loading {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
 }
-@media (max-width: 991px) {
-  .gallery-sticky { position: static; }
-  .quick-specs,
-  .package-grid,
-  .scope-grid,
-  .quick-benefits-grid,
-  .related-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-}
-@media (max-width: 575px) {
-  .quick-specs,
-  .package-grid,
-  .scope-grid,
-  .trust-grid,
-  .quick-benefits-grid,
-  .related-grid { grid-template-columns: 1fr; }
-  .panel-head,
-  .selected-package { flex-direction: column; align-items: flex-start; }
-  .reserve-btn { width: 100%; }
-  .compare-grid { flex-direction: column; align-items: stretch; }
-  .compare-arrow { transform: rotate(90deg); align-self: center; }
+
+.eq-gallery-type-badge {
+  display: inline-block;
+  background: rgba(0, 0, 0, 0.7);
+  color: white;
+  padding: 0.25rem 0.75rem;
+  border-radius: 0.25rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
 }
 </style>
