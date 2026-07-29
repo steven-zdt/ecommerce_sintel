@@ -67,10 +67,10 @@ const product = ref(null);
 
 async function fetchProduct() {
   try {
-    const slug = route.params.slug;
-    const res = await api.get(`shop/products/${slug}/detail/`);
+    const uuid = route.params.uuid;
+    const res = await api.get(`shop/products/${uuid}/detail/`);
     product.value = res.data;
-    setSeo({ title: product.value.hero?.name, description: product.value.hero?.description });
+    setSeo({ title: product.value.name, description: product.value.description });
   } catch {
     toast.error('Producto no encontrado');
   } finally {

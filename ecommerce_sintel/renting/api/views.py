@@ -367,7 +367,7 @@ class EquipmentViewSet(viewsets.ReadOnlyModelViewSet):
         return Response(EquipmentReviewSerializer(review).data, status=status.HTTP_201_CREATED)
 
     @action(detail=True, methods=['get'], url_path='detail', permission_classes=(permissions.AllowAny,))
-    def detail(self, request, uuid=None):
+    def full_detail(self, request, uuid=None):
         """GET /renting/equipment/{uuid}/detail/
 
         Retorna EquipmentPublicDetailDTO con toda la información pública:

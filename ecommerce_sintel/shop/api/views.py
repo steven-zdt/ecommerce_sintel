@@ -112,7 +112,7 @@ class ProductViewSet(viewsets.ReadOnlyModelViewSet):
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
     @action(detail=True, methods=['get'], permission_classes=(permissions.AllowAny,), url_path='detail')
-    def detail(self, request, uuid=None):
+    def full_detail(self, request, uuid=None):
         """GET /shop/products/{uuid}/detail/
 
         Retorna producto completo con toda la información pública.

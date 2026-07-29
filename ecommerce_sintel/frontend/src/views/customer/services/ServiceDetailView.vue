@@ -72,10 +72,10 @@ const service = ref(null);
 
 async function fetchService() {
   try {
-    const slug = route.params.slug;
-    const res = await api.get(`technical-services/services/${slug}/detail/`);
+    const uuid = route.params.uuid;
+    const res = await api.get(`services/services/${uuid}/detail/`);
     service.value = res.data;
-    setSeo({ title: service.value.hero?.name, description: service.value.hero?.description });
+    setSeo({ title: service.value.name, description: service.value.description });
   } catch {
     toast.error('Servicio no encontrado');
   } finally {

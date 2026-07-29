@@ -203,7 +203,7 @@ class TechnicalServiceViewSet(viewsets.ReadOnlyModelViewSet):
         return Response(AvailableTechnicianSerializer(technicians, many=True, context={'request': request}).data)
 
     @action(detail=True, methods=['get'], permission_classes=(permissions.AllowAny,), url_path='detail')
-    def detail(self, request, uuid=None):
+    def full_detail(self, request, uuid=None):
         """GET /services/services/{uuid}/detail/
 
         Retorna servicio técnico completo con toda la información pública.

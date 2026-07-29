@@ -380,7 +380,7 @@ class EquipmentPublicDetailPresenter:
                 image_type=primary.image_type,
             )
 
-        for img in self.equipment.images.filter(is_active=True):
+        for img in self.equipment.images.filter(is_deleted=False):
             img_dto = ImageDTO(
                 url=img.image.url,
                 alt_text=img.alt_text or f"{self.equipment.name} - {img.image_type}",
@@ -399,7 +399,7 @@ class EquipmentPublicDetailPresenter:
 
         # Videos
         videos = []
-        for video in self.equipment.videos.filter(is_active=True):
+        for video in self.equipment.videos.filter(is_deleted=False):
             videos.append(VideoDTO(
                 title=video.title,
                 source_type=video.source_type,
@@ -409,7 +409,7 @@ class EquipmentPublicDetailPresenter:
 
         # Documentos
         documents = []
-        for doc in self.equipment.documents.filter(is_active=True, is_public=True):
+        for doc in self.equipment.documents.filter(is_deleted=False, is_public=True):
             documents.append(DocumentDTO(
                 title=doc.title,
                 description=doc.description,
