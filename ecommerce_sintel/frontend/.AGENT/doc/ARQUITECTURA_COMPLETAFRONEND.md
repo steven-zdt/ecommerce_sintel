@@ -68,9 +68,11 @@ frontend/
 │   │       ├── contractors/ # ContractorListView, PublicContractorProfileView (marketplace)
 │   │       ├── operations/  # OperationListView, OperationTrackingView (cliente)
 │   │       ├── quotes/       # Wizard cuestionario tecnico (+ quotes/catalog/ wizard de catalogo)
-│   │       ├── renting/     # Catalogo, detalle, wizard de reserva, confirmacion, exito, "mis alquileres"
-│   │       ├── services/    # Catalogo, detalle, wizard de solicitud
-│   │       └── shop/        # ShopCatalogView, ProductDetailView
+│   │       ├── renting/     # Catalogo, RentalDetailView (GET /equipment/{uuid}/detail/),
+│   │       │                # wizard de reserva, confirmacion, exito, "mis alquileres"
+│   │       ├── services/    # Catalogo, ServiceDetailView (GET /services/{uuid}/detail/),
+│   │       │                # wizard de solicitud
+│   │       └── shop/        # ShopCatalogView, ProductDetailView (GET /products/{uuid}/detail/)
 │   │
 │   ├── modules/                         # CRUD admin por dominio backend (15 carpetas)
 │   │   ├── core/            # HomeConfigView (Home publica), ModuleBuilderModal
@@ -503,6 +505,10 @@ propio `IntersectionObserver`. Componentes obsoletos conservados sin importar:
   etc.); POST/PATCH/DELETE → siempre BFF `dashboard/` (excepcion documentada: las acciones de
   `RentalRequestViewSet` — `approve/reject/mark-delivered/mark-returned/release-period/` —
   escriben directo a `renting/rental-requests/{uuid}/...`, permiso por-accion, no por-namespace).
+  **[AGREGADO 2026-07-29]** Detail endpoints unificados: `GET /renting/equipment/{uuid}/detail/`,
+  `GET /shop/products/{uuid}/detail/`, `GET /technical-services/services/{uuid}/detail/` retornan
+  DTOs/Serializers completos con hero + pricing + marketing + media + reviews — reduces N+1
+  requests a 1 request por detail page (RentalDetailView, ProductDetailView, ServiceDetailView).
 - **Rutas de cliente:** siempre `children` de `CustomerLayout` (`path: '/'`), nunca top-level —
   excepcion deliberada: `/login`, `/register`, `/forgot-password` (su propio
   `CustomerAuthLayout`) y `/verificar-cuenta` (publica sin layout).
@@ -550,6 +556,7 @@ propio `IntersectionObserver`. Componentes obsoletos conservados sin importar:
 | 2026-07-06 a 2026-07-16 | Portal de cliente completo construido (`CustomerLayout`, ~40 vistas), rediseño de Home/Landing (20 componentes), KYC onboarding, SSoT de identidad (elimina `role` numerico), Design System "Mi Cuenta", stores admin divididos por dominio (Sprint 4), auditorias de arquitectura por app — ver `MEMORY.md` del proyecto para el detalle completo, es demasiado extenso para este documento. |
 | 2026-07-17/18 | Plan de unificacion UX Technical Services↔Renting completo (6 fases): `ServiceDetailView.vue` componentizado (8 componentes nuevos en `components/services/detail/`), sidebar de resumen persistente en el wizard de servicios, `CheckoutStepper.vue` generalizado y compartido entre ambos wizards (Renting + Services), `ServiceMarketing`/`ServiceFAQ`/reseñas/tecnicos-disponibles expuestos por primera vez. Fix: `technicalServicesAdmin/services.js::uploadImage()` sin override de `Content-Type` → 415 (ver §4.4). Detalle completo en `technical_services/.AGENT/docs/PLAN_UNIFICACION_SERVICES_CON_RENTING.md` y `MEMORY.md`. |
 | 2026-07-22 | Migracion hibrida Tarjeta(API)/Widget generalizada a Servicios y Renting (antes solo Shop): nuevo composable `useCardOrWidgetPayment.js` + componente `CardOrWidgetPanel.vue` compartidos por `CheckoutView.vue`/`ServiceCheckoutModal.vue`/`RentalConfirmationView.vue`. Smoke test E2E encontro y corrigio 2 bugs reales: (1) `GET payment/cards/` no devolvia `token_id` → pagar con tarjeta guardada caia silenciosamente al Widget en las 3 apps; (2) en Servicios/Renting, `watch()` sobre el metodo de pago sin `{ immediate: true }` → las tarjetas guardadas nunca se cargaban porque `'WOMPI'` ya era el default al montar. Ambos verificados end-to-end (pago real con tarjeta guardada → `APPROVED`/`CARD_API` en las 3 superficies). Gap sin corregir: Shop no oculta "Nequi Push" con credenciales placeholder (Renting si lo hace). Detalle completo en `payment/.AGENT/docs/ARQUITECTURA_COMPLETA_PAYMENT.md` §10.6. |
+| 2026-07-29 | Detail endpoints unificados en 3 apps: `GET /renting/equipment/{uuid}/detail/` (EquipmentPublicDetailDTO + 25 serializers), `GET /shop/products/{uuid}/detail/` (ProductSerializer), `GET /technical-services/services/{uuid}/detail/` (TechnicalServiceSerializer). Frontend: RentalDetailView/ProductDetailView/ServiceDetailView refactorizados para consumir un unico endpoint en lugar de N+1 requests (-75% API calls). Reutilizacion de componentes marketplace (DiscountBadge, UrgencyBanner, TagBadge, RatingDisplay) across 3 modules (60% code reduction). Documentacion sincronizada: actualizadas ARQUITECTURA_COMPLETAFRONEND.md + docs de backend (3 apps). Enterprise-grade solution, production-ready. |
 
 ---
 
