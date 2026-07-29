@@ -57,7 +57,11 @@
         </PaymentAlert>
 
         <div class="pr-actions">
-          <PaymentCTA icon="bi-bag" to="/mi-cuenta/pedidos">Ver mis solicitudes</PaymentCTA>
+          <!-- Bug real (2026-07-29): esta rama es COD Renting/Comodato -- la
+               solicitud vive en /mi-cuenta/alquileres, no en /mi-cuenta/pedidos
+               (esa es la lista de pedidos de tienda). Apuntaba mal y mandaba
+               al cliente a una lista vacia tras confirmar la reserva. -->
+          <PaymentCTA icon="bi-bag" to="/mi-cuenta/alquileres">Ver mis solicitudes</PaymentCTA>
           <PaymentCTA variant="secondary" to="/alquiler">Ver mas equipos</PaymentCTA>
         </div>
       </div>
