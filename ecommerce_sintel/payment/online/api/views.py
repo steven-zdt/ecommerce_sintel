@@ -219,7 +219,13 @@ def _build_rental_confirmation(wompi_tx: Transaction) -> dict:
     next_steps = [
         {
             "label": "Ver mis solicitudes",
-            "path": "/mi-cuenta/pedidos",
+            # Bug real (2026-07-29, encontrado simulando una compra de renting
+            # completa contra produccion): esta confirmacion es de RENTING
+            # (rental_request), no de un pedido de tienda -- /mi-cuenta/pedidos
+            # es la lista de ordenes de shop, la solicitud vive en
+            # /mi-cuenta/alquileres. Mismo bug que se encontro y corrigio en el
+            # lado de PaymentResultView.vue (rama isCodRenting).
+            "path": "/mi-cuenta/alquileres",
             "variant": "primary" if wompi_tx.status == "APPROVED" else "warning",
         },
         {"label": "Ver mas equipos", "path": "/alquiler", "variant": "outline-secondary"},
