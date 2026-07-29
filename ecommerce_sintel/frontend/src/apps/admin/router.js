@@ -63,15 +63,15 @@ const KycAdminDetail = () => import('@/modules/kyc/KycAdminDetail.vue');
 // ── Customer Portal (portal del comprador) ─────────────────────────────────
 const CustomerLayout        = () => import('@/components/customer/CustomerLayout.vue');
 const ShopCatalogView       = () => import('@/views/customer/shop/ShopCatalogView.vue');
-const ProductDetailView     = () => import('@/views/customer/shop/ProductDetailView.vue');
+const ProductDetailView     = () => import('@/views/customer/detail/PublicDetailView.vue');
 const RentalCatalogView       = () => import('@/views/customer/renting/RentalCatalogView.vue');
-const RentalDetailView        = () => import('@/views/customer/renting/RentalDetailView.vue');
+const RentalDetailView        = () => import('@/views/customer/detail/PublicDetailView.vue');
 const RentalRequestWizard     = () => import('@/views/customer/renting/RentalBookingWizard.vue');
 const RentalConfirmationView  = () => import('@/views/customer/renting/RentalConfirmationView.vue');
 const RentalSuccessView       = () => import('@/views/customer/renting/RentalSuccessView.vue');
 const MyRentalsView            = () => import('@/views/customer/renting/MyRentalsView.vue');
 const ServicesCatalogView   = () => import('@/views/customer/services/ServicesCatalogView.vue');
-const ServiceDetailView     = () => import('@/views/customer/services/ServiceDetailView.vue');
+const ServiceDetailView     = () => import('@/views/customer/detail/PublicDetailView.vue');
 const ServiceRequestWizard  = () => import('@/views/customer/services/ServiceRequestWizard.vue');
 const QuoteEntryView        = () => import('@/views/customer/quotes/QuoteEntryView.vue');
 const QuoteWizardView       = () => import('@/views/customer/quotes/QuoteWizardView.vue');
