@@ -747,6 +747,7 @@ Se llama en:
 | POST | `/equipment/{uuid}/documents/{document_uuid}/register-download/` | AllowAny | **[AGREGADO 2026-07-23]** Registra descarga (`downloads += 1`) y retorna la URL absoluta del archivo — solo `RentalDocument` publico/activo |
 | GET | `/equipment/{uuid}/reviews/` | AllowAny | **[AGREGADO 2026-07-23]** Lista reseñas publicadas del equipo |
 | POST | `/equipment/{uuid}/review/` | IsAuthenticated | **[AGREGADO 2026-07-23]** Crea una reseña — solo quien alquilo y devolvio el equipo, 1 por usuario/equipo |
+| GET | `/equipment/{uuid}/detail/` | AllowAny | **[AGREGADO 2026-07-29]** Detalle completo enterprise (hero, pricing, marketing, media, reviews, faqs, etc.) — retorna `EquipmentPublicDetailDTO` unificado, -75% API requests vs. N+1 |
 
 **check-availability / availability query params:**
 ```

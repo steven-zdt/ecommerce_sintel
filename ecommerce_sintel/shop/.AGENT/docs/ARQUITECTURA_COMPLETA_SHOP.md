@@ -177,14 +177,20 @@ class Tax(SintelBaseModel):
 ### 4.1 ProductViewSet
 
 ```
-GET    /api/v1/shop/products/              Lista (publico)
-POST   /api/v1/shop/products/              Crear (admin)
-GET    /api/v1/shop/products/{uuid}/       Detalle (publico)
-PUT    /api/v1/shop/products/{uuid}/       Actualizar (admin)
-PATCH  /api/v1/shop/products/{uuid}/       Actualizar parcial (admin)
-DELETE /api/v1/shop/products/{uuid}/       Soft-delete (admin)
-POST   /api/v1/shop/products/{uuid}/review/ Crear resena (IsAuthenticated)
+GET    /api/v1/shop/products/                  Lista (publico)
+POST   /api/v1/shop/products/                  Crear (admin)
+GET    /api/v1/shop/products/{uuid}/           Detalle (publico)
+GET    /api/v1/shop/products/{uuid}/detail/    Detalle completo enterprise [AGREGADO 2026-07-29]
+PUT    /api/v1/shop/products/{uuid}/           Actualizar (admin)
+PATCH  /api/v1/shop/products/{uuid}/           Actualizar parcial (admin)
+DELETE /api/v1/shop/products/{uuid}/           Soft-delete (admin)
+GET    /api/v1/shop/products/{uuid}/reviews/   Listar resenas (publico)
+POST   /api/v1/shop/products/{uuid}/review/    Crear resena (IsAuthenticated)
 ```
+
+**[AGREGADO 2026-07-29]:** Nuevo endpoint `/detail/` retorna producto completo unificado 
+(`ProductSerializer`), reusable por frontend como alternativa a N+1 requests. Aditivo, no 
+rompe API existente.
 
 **Permisos:** `create`, `update`, `partial_update`, `destroy` → `IsAdminUser`; resto → `AllowAny`
 

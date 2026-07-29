@@ -421,6 +421,16 @@ Permisos: AllowAny (público)
 Respuesta: desglose completo con IVA (ver sección 5.2)
 ```
 
+**@action `detail` [AGREGADO 2026-07-29]**
+```
+GET /api/v1/services/services/{uuid}/detail/
+
+Permisos: AllowAny (público)
+Respuesta: Detalle completo enterprise (hero, pricing, marketing, media, reviews, faqs, etc.)
+           Retorna TechnicalServiceSerializer unificado, -75% API requests vs. N+1
+           Aditivo, no rompe API existente
+```
+
 ### 3.2 ServiceCategoryViewSet
 **Endpoint:** `/api/v1/services/categories/`  
 Admin ve todas (is_deleted=False), público ve solo activas (is_active=True).
