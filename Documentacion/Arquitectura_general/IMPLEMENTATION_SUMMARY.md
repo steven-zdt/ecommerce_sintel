@@ -5,35 +5,39 @@
 > usarlo cuando la app exacta de una tarea no se conoce de antemano. Si SI se conoce la app,
 > ir directo a su fila en la tabla "DOCUMENTOS DE REFERENCIA POR MODULO" de `.AGENT.md`.
 
-Ultima revision: 2026-07-23 (v10 — auditoria de verificacion puntual contra codigo real via 5
-pasadas de lectura paralelas cubriendo las 19 apps + frontend + infra. A diferencia de v9, esta
-pasada SI releyo/verifico contra codigo real los reclamos concretos de `quotes`, `marketing`,
-`shop`, `cart`, `inventory`, `technical_services`, `renting`, `core`, `notifications`,
-`operations`, `payment`, `orders`, `dashboard` y la seccion Frontend/Infra/.env — no es una
-re-auditoria exhaustiva de cada app desde cero, es una verificacion linea-por-linea de cada
-afirmacion que ya estaba escrita en este documento. Encontrados y corregidos 8 discrepancias
-reales, la mas importante: **`support` ya tiene una ruta REST real** (`POST
-/api/v1/support/chats/<uuid>/rate/`, calificacion CSAT) que este documento negaba
-explicitamente en 2 lugares ("no existe `api/v1/support/`") — ver seccion `support` abajo. Las
-otras 7: signal de `TechnicianProfile` generalizado a los 4 tipos service-provider (no solo
-TECHNICIAN); endpoint de movimientos de inventario es `stock-records/<uuid>/movements/` (no
-`transactions/`, que es una ruta top-level distinta); `WishlistViewSet` usa `IsBuyerOrAdmin` (no
-`IsAuthenticatedActiveUser`); `core` tiene 12 modelos, no 9 (faltaban `BrandSliderConfig`,
-`BrandSliderItem`, `FooterGroup`, `FooterLink`, `AboutUsConfig`, `AboutUsValue` en el conteo);
-`/api/v1/dashboard/users/` (`AdminUserViewSet`) no existe, fue eliminado 2026-07-05 (gestion de
-usuarios vive solo en `/api/v1/users/`); `frontend/src/apps/customer/main.js` NO existe (Vite
-tiene un unico entry `admin`, no multi-entry); variables `.env` corregidas (`SECRET_KEY` no
-`DJANGO_SECRET_KEY`, agregada `JWT_SECRET_KEY`, eliminada `DATABASE_URL` que no se usa en ningun
-lado del codigo, `WOMPI_WIDGET_URL` marcada como hardcodeada no leida de env).
+Ultima revision: 2026-07-29 (v11 — no es una re-auditoria de las 19 apps (esa sigue siendo v10,
+2026-07-23): son 3 incidentes reales encontrados y corregidos en vivo durante una sesion de
+debugging (`docker compose up` fallando + `/alquiler` sin imagenes), documentados aqui con
+evidencia `archivo:linea` igual que las pasadas anteriores. (1) **CRITICO — Django no arrancaba**:
+`ecommerce_sintel_django` quedaba `unhealthy` en Docker (bloqueando por `depends_on:
+condition: service_healthy` a `celery_worker`, `celery_beat` y `nginx`) por
+`ImportError: cannot import name 'truncate_words' from 'django.utils.text'` en
+`renting/services/presenters.py:14` — funcion eliminada de Django hace mas de una decada, nunca
+valida en Django 5; rompia el import chain completo `ecommerce/urls.py` -> `internal_ai_urls` ->
+`marketing.api.internal_ai` -> `renting.services`, tumbando toda la app, no solo `renting`. Fix:
+`Truncator(texto).words(n, truncate=' ...')`. (2) **Mismatch de contrato frontend/backend**: las
+cards de catalogo de Renting (`EquipmentHorizontalCard.vue`) y las compartidas con Shop
+(`ItemCard.vue`) leian una propiedad plana `equipment.image`/`item.image` que el API nunca
+devuelve — el serializer real siempre expuso `images` (array via `EquipmentImageSerializer`/
+`ProductImageSerializer`, con `is_primary`) — resultado: 0 imagenes visibles en `/alquiler` pese a
+que el backend si las servia correctamente (no era problema de `MEDIA_URL`, CORS ni datos
+faltantes, las 3 hipotesis obvias). (3) **Bug de layout**: `BaseHorizontalCard.vue` (componente
+compartido Renting/Services/Shop, ver "Design System" en Frontend) dejaba que la altura intrinseca
+de cada `<img>` determinara la altura de toda la card — cadena de `height:100%` sin ningun
+ancestro con altura explicita en el DOM (`.row` -> `.col-auto` -> `.bhc-img-wrap`), asi que el
+porcentaje se resolvia como `auto` y una foto en orientacion retrato inflaba la card entera. Fix:
+altura fija (`140px`/`120px` mobile) en vez de `100%`. Detalle completo con `archivo:linea` en las
+secciones `renting` y "Design System" (Frontend) abajo.
 
-> **Nota sobre esta version:** todo lo verificado en esta pasada fue via grep/lectura directa de
-> codigo real (no inferencia) — cada correccion de abajo tiene evidencia `archivo:linea`. Lo que
-> **no** se hizo esta pasada: una relectura exhaustiva completa de cada app (eso seguiria siendo
-> trabajo pendiente si aparecieran funcionalidades nuevas no referenciadas en absoluto en ninguna
-> version de este documento — no se encontro ninguna app/modulo nuevo sin documentar, a diferencia
-> de v9 que encontro 2 apps enteras sin documentar). Las secciones "Correcciones y mejoras
-> aplicadas" y "Cambios recientes" al final del documento son **registro historico** de versiones
-> previas (2026-06-19 en adelante) — se conservan como bitacora, no como estado actual.
+> **Nota sobre esta version:** alcance deliberadamente angosto (3 incidentes puntuales, no una
+> pasada completa) — **pendiente**: propagar estos 3 hallazgos a
+> `renting/.AGENT/docs/ARQUITECTURA_COMPLETA_RENTIG.md` y
+> `frontend/.AGENT/doc/ARQUITECTURA_COMPLETAFRONEND.md` (secciones "Cambios Recientes" propias,
+> per protocolo de sincronizacion — ver "Tareas pendientes" al final de este documento). Las
+> versiones v1-v10 de esta nota (auditoria completa de 19 apps, ultima 2026-07-23) se conservan
+> como registro historico en "Tareas pendientes > Completadas". Las secciones "Correcciones y
+> mejoras aplicadas" y "Cambios recientes" al final del documento son **registro historico** de
+> versiones previas (2026-06-19 en adelante) — se conservan como bitacora, no como estado actual.
 
 ---
 
@@ -60,12 +64,12 @@ Actualizar el documento de la app afectada despues de cada cambio estructural.
 | `orders` | [ARQUITECTURA_COMPLETA_ORDERS.md](../../ecommerce_sintel/orders/.AGENT/docs/ARQUITECTURA_COMPLETA_ORDERS.md) | Sincronizado 2026-07-09 — "Shop Operations" extiende `Shipment` con FSM de picking/packing/despacho/entrega + `assigned_dispatcher`, ver seccion dedicada abajo |
 | `payment` | [ARQUITECTURA_COMPLETA_PAYMENT.md](../../ecommerce_sintel/payment/.AGENT/docs/ARQUITECTURA_COMPLETA_PAYMENT.md) | Sincronizado 2026-07-13 — migracion a integracion API propia con Wompi (ADR-001, 10 fases completas), ver seccion dedicada abajo (la app **no se llama `wompi`**) |
 | `quotes` | [ARQUITECTURA_COMPLETA_QUOTES.md](../../ecommerce_sintel/quotes/.AGENT/docs/ARQUITECTURA_COMPLETA_QUOTES.md) | Vigente — sistema CPQ/cuestionarios, no un wizard simple (ver seccion) |
-| `renting` | [ARQUITECTURA_COMPLETA_RENTIG.md](../../ecommerce_sintel/renting/.AGENT/docs/ARQUITECTURA_COMPLETA_RENTIG.md) | Gano `RentalOperation` (FSM post-pago, `/api/v1/renting/operations/`) y un `AvailabilityEngine` de 2 fases (2026-07-07) — ver seccion dedicada abajo |
+| `renting` | [ARQUITECTURA_COMPLETA_RENTIG.md](../../ecommerce_sintel/renting/.AGENT/docs/ARQUITECTURA_COMPLETA_RENTIG.md) | Gano `RentalOperation` (FSM post-pago, `/api/v1/renting/operations/`) y un `AvailabilityEngine` de 2 fases (2026-07-07) — ver seccion dedicada abajo. **2026-07-29: incidente critico corregido** (`ImportError` tumbaba todo Django, ver seccion dedicada) — doc propio de la app aun sin actualizar con este fix, ver "Tareas pendientes" |
 | `shop` | [ARQUITECTURA_COMPLETA_SHOP.md](../../ecommerce_sintel/shop/.AGENT/docs/ARQUITECTURA_COMPLETA_SHOP.md) | No releido a fondo desde 2026-07-03 — la evolucion de fulfillment de productos fisicos vive en el doc de `orders` ("Shop Operations"), no aqui |
 | `support` | [ARQUITECTURA_COMPLETA_SUPPORT.md](../../ecommerce_sintel/support/.AGENT/docs/ARQUITECTURA_COMPLETA_SUPPORT.md) | Corregido 2026-07-03, no releido en esta pasada |
 | `technical_services` | [ARQUITECTURA_COMPLETA_SERVICES.md](../../ecommerce_sintel/technical_services/.AGENT/docs/ARQUITECTURA_COMPLETA_SERVICES.md) | Sincronizado 2026-07-09 — checkout en modal (nunca sale de la SPA) + `ServiceOperation` (FSM post-pago), ver seccion dedicada abajo |
 | `users` | [ARQUITECTURA_COMPLETA_USER.md](../../ecommerce_sintel/users/.AGENT/docs/ARQUITECTURA_COMPLETA_USER.md) | Sincronizado 2026-07-09 (`UserAdminCreateSerializer`/`UserAdminUpdateSerializer` ya no exponen `user_type`) |
-| Frontend | [ARQUITECTURA_COMPLETAFRONEND.md](../../ecommerce_sintel/frontend/.AGENT/doc/ARQUITECTURA_COMPLETAFRONEND.md) | No releido a fondo en esta pasada — ver seccion Frontend actualizada abajo |
+| Frontend | [ARQUITECTURA_COMPLETAFRONEND.md](../../ecommerce_sintel/frontend/.AGENT/doc/ARQUITECTURA_COMPLETAFRONEND.md) | No releido a fondo en esta pasada — ver seccion Frontend actualizada abajo. **2026-07-29: 2 bugs de cards de catalogo corregidos** (imagenes no cargaban + layout roto por imagen, ver "Design System" abajo) — doc propio aun sin actualizar con estos fixes, ver "Tareas pendientes" |
 
 ### Regla de actualizacion
 
@@ -989,6 +993,25 @@ concurrencia real (2 threads, `TransactionTestCase`). Tambien: N+1 en `RentalReq
 (`get_primary_image()` ignoraba el prefetch) y `db_index` faltante en `Equipment.is_active`/
 `is_featured`. Ver `[[project_db_audit_duplicate_indexes]]`.
 
+**Corregido 2026-07-29 — CRITICO, tumbaba TODO Django, no solo `renting`:**
+`renting/services/presenters.py:14` importaba `from django.utils.text import truncate_words` —
+funcion que no existe en Django 5 (eliminada del framework hace mas de una decada; nunca fue
+valida en ninguna version reciente). Se usaba en 2 lugares del mismo archivo: `_present_reviews()`
+(linea ~459, trunca el comentario de una reseña a 30 palabras) y `_present_seo()` (linea ~578,
+trunca `meta_description` a 20 palabras si no hay una configurada manualmente). Como
+`renting/services/__init__.py` importa `presenters` a nivel de modulo, y `marketing/services/
+selectors.py` importa `RentingSummaryProvider` de `renting.services` para armar
+`internal_ai_urls.py` (montado sin condicion en `ecommerce/urls.py`), el `ImportError` se
+propagaba al cargar el URLconf raiz completo — Django no arrancaba en absoluto (`docker compose
+up` lo mostraba como `ecommerce_sintel_django` en `unhealthy`/reinicio en loop, bloqueando por
+`depends_on: condition: service_healthy` a `celery_worker`, `celery_beat` y `nginx`, que nunca
+llegaban a iniciar). Root cause de codigo real (visto en logs): probablemente un import
+"recordado" de una API de Django antigua/de otro framework, nunca ejecutado localmente sin Docker
+antes de este incidente. Fix: reemplazado por la API real y vigente,
+`Truncator(texto).words(n, truncate=' ...')` (`django.utils.text.Truncator`), en ambos usos.
+Verificado reconstruyendo la imagen (`docker compose up -d --build django`) — contenedor paso a
+`healthy` en ~20s y los 3 servicios dependientes arrancaron sin bloqueo.
+
 ### `RentalOperation` + `AvailabilityEngine` (2026-07-07, nuevo) — no capturado en v7
 
 - **`RentalOperation`** — FSM post-pago separado de `RentalRequest` (10 estados,
@@ -1275,6 +1298,29 @@ AboutUsAdminView.vue, grupo "Sitio Web" del sidebar). El login/registro de clien
 (2026-07-17) usa su propio `CustomerAuthLayout.vue` en vez de `CustomerLayout` para `/login` y
 `/register` — ver nota en seccion `accounts` arriba.
 
+**Corregidos 2026-07-29 — 2 bugs reales en las cards de catalogo, ambos afectando `/alquiler` y
+propagados a Shop por componente compartido:**
+1. **Mismatch de contrato con el backend (0 imagenes visibles).**
+   `components/renting/EquipmentHorizontalCard.vue:3` leia `equipment.image || ''` y
+   `components/customer/ui/ItemCard.vue:7-8` leia `item.image` — propiedad plana que
+   `EquipmentSerializer`/`ProductSerializer` (backend) **nunca devuelven**; ambos siempre
+   expusieron `images` (array de `EquipmentImageSerializer`/`ProductImageSerializer`, cada objeto
+   con `image`/`is_primary`/`position`). Como ambos componentes se usan tambien para `type="rental"`
+   y `type="product"` en Shop (`ItemCard.vue` es generico, no exclusivo de Renting), el bug era
+   identico en las 2 vistas (grid y lista) de `/alquiler` y en la vista grid de Shop. Fix: computed
+   `primaryImage`/`primaryImageUrl` en ambos componentes —
+   `images.find(img => img.is_primary) || images[0]`. `RentalDetailView.vue:543` y
+   `RentalBookingWizard.vue:561` ya leian `images` correctamente y no necesitaron cambio.
+2. **Layout roto por imagenes en orientacion retrato.** `components/base/BaseHorizontalCard.vue`
+   (ver "Design System" arriba — compartido Renting/Services/Shop) tenia `.bhc-img-wrap { height:
+   100%; }` sin que ningun ancestro (`.row` -> `.col-auto`) declarara una altura explicita —
+   el porcentaje se resolvia como `auto`, dejando que la altura intrinseca real de cada `<img>`
+   (segun su aspect ratio) determinara la altura de toda la fila/card. Fix: altura fija
+   (`140px` desktop, `120px` `@media (max-width: 575px)`) en vez de `100%` — con
+   `object-fit: var(--bhc-image-fit)` la imagen ahora se adapta al box fijo, nunca al reves.
+   `components/customer/ui/ItemCard.vue` (vista grid) ya usaba el truco de aspect-ratio fijo
+   (`padding-top: 72%` + `img` en `position: absolute`) y no tenia este problema.
+
 ### Notas de infraestructura frontend
 
 - **Vite** con un unico entry point (`admin`) — **[CORREGIDO 2026-07-23]** no es multi-entry,
@@ -1475,10 +1521,12 @@ matrices de riesgo, dependencias y estrategia de rollback.
 
 ---
 
-## Tareas pendientes (actualizado 2026-07-23)
+## Tareas pendientes (actualizado 2026-07-29)
 
 | Prioridad | Tarea |
 |-----------|-------|
+| Media | Propagar los 3 incidentes del 2026-07-29 (ver nota de version y secciones `renting`/Frontend arriba) a los docs de Nivel 2 propios: `renting/.AGENT/docs/ARQUITECTURA_COMPLETA_RENTIG.md` ("Cambios Recientes") y `frontend/.AGENT/doc/ARQUITECTURA_COMPLETAFRONEND.md` — solo se actualizo `IMPLEMENTATION_SUMMARY.md` en esta pasada, per protocolo de sincronizacion (paso 2 del `09_DOCUMENT_SYNCHRONIZATION_PROTOCOL.md`) |
+| Media | Auditar si existe el mismo patron `.image`/`item.image` (propiedad plana inexistente) en otros consumidores de `images[]` no revisados en esta pasada — solo se verificaron los componentes de catalogo de Renting/Shop; `technical_services` y `quotes` no se revisaron |
 | Media | `support/.AGENT/docs/ARQUITECTURA_COMPLETA_SUPPORT.md` sigue sin actualizar para reflejar (a) el endpoint CSAT nuevo (`POST /api/v1/support/chats/<uuid>/rate/`, ver seccion `support`) y (b) que el AI Core (2026-07-16) ahora tambien atiende ese chat en "modo AI" antes del Human Handoff — ver `ai_engine/.AGENT/PLAN_DE_ACCION_AI_CORE.md` Fase 7 |
 | Media | `organization/CLAUDE.md` dice "Fase 3 de 9" pero los 8 recursos ya estan operativos (re-verificado 2026-07-23, sigue sin corregir) — corregir esa nota (ver seccion `organization`) |
 | Media | Documentar en el doc de frontend (`ARQUITECTURA_COMPLETAFRONEND.md`) el Design System `components/base/*` con el mismo nivel de detalle que ya tiene `ai_skills/frontend/components/cards.md` |
@@ -1487,6 +1535,29 @@ matrices de riesgo, dependencias y estrategia de rollback.
 | Baja | Implementar rol/perfil VENDOR completo (hoy reservado, sin flujo end-to-end claro) |
 | Baja | Agregar test parametrizado que confirme `IsAdminUser` en las ViewSets de `dashboard` (blindaje contra regresiones de permisos, sugerido en `ARQUITECTURA_COMPLETA_DASHBOARD.md`) |
 | Descartado por decision del usuario (2026-07-09) | Sistema de eventos de dominio, wizard de upgrade independiente por tipo profesional (se mantiene 1 solo wizard reutilizado), reorganizacion del dashboard de usuarios por tipo, libreria de 8 componentes Vue de identidad — sin consumidor concreto hoy, ver `accounts/.AGENT/docs/ARQUITECTURA_COMPLETA_ACCOUNTS.md` seccion "Auditoria y Correcciones [2026-07-09]" |
+
+### Completadas (2026-07-29 — 3 incidentes reales encontrados y corregidos en vivo, no una pasada programada)
+- **CRITICO — Django no arrancaba en Docker.** `renting/services/presenters.py:14` importaba
+  `truncate_words` de `django.utils.text` (funcion que no existe en Django 5); el `ImportError` se
+  propagaba via `marketing.services.selectors` -> `internal_ai_urls.py` -> `ecommerce/urls.py`,
+  tumbando el URLconf raiz completo. `ecommerce_sintel_django` quedaba `unhealthy`, bloqueando
+  `celery_worker`/`celery_beat`/`nginx` (`depends_on: condition: service_healthy`). Corregido con
+  `Truncator(...).words(n, truncate=' ...')` en los 2 usos reales. Verificado con
+  `docker compose up -d --build django` -> `healthy` en ~20s, luego los 3 servicios dependientes
+  arrancaron sin bloqueo. Ver seccion `renting`.
+- **Imagenes de equipos/productos no cargaban en `/alquiler`.** `EquipmentHorizontalCard.vue` e
+  `ItemCard.vue` (este ultimo compartido con Shop) leian una propiedad plana `equipment.image`/
+  `item.image` que el backend nunca devuelve — el contrato real siempre fue `images` (array).
+  Corregido con un computed que toma la imagen `is_primary` o la primera del array, en ambos
+  componentes. Ver seccion Frontend > "Design System".
+- **Cards de catalogo cambiaban de tamaño segun la orientacion de la imagen.**
+  `BaseHorizontalCard.vue` (compartido Renting/Services/Shop) usaba `height: 100%` en el wrapper
+  de imagen sin que ningun ancestro tuviera altura explicita, dejando que el aspect ratio
+  intrinseco de cada `<img>` determinara la altura de toda la card. Corregido con altura fija.
+  Ver seccion Frontend > "Design System".
+- Alcance explicitamente NO cubierto en esta pasada: no se repitio la verificacion de las 19 apps
+  (eso sigue siendo v10, 2026-07-23); no se actualizaron los docs de Nivel 2 propios de `renting`
+  ni de `frontend` (ver "Tareas pendientes" arriba).
 
 ### Completadas (2026-07-23 — verificacion linea-por-linea contra codigo real, 5 pasadas paralelas)
 - Verificados contra codigo real (no solo referenciados): `payment`, `technical_services`,

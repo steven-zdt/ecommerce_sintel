@@ -71,6 +71,7 @@ urlpatterns = [
     path('api/v1/operations/',   include('operations.api.urls')),
     path('api/v1/organization/', include('organization.api.urls')),
     path('api/v1/',              include('security.api.urls')),
+    path('api/v1/',              include('shared.api.urls')),
 
     # ── SILENCER (Chrome DevTools 404) ────────────────────────────────────────
     path('.well-known/appspecific/com.chrome.devtools.json', lambda r: JsonResponse({})),

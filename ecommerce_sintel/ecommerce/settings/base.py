@@ -56,6 +56,7 @@ INSTALLED_APPS = [
     'kyc',
     'security',
     'organization',
+    'shared',
     'django_vite',
 ]
 
