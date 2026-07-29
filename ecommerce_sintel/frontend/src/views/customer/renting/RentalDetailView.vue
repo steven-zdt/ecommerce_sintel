@@ -377,25 +377,42 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, defineAsyncComponent } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import useApi from '@/composables/useApi';
 import { useToast } from '@/composables/useToast';
 import { useSeo } from '@/composables/useSeo';
+import { usePreloadImage } from '@/composables/useLazyImage';
 
+// Hero section (above fold - eager load)
 import BaseGallery from '@/components/base/BaseGallery.vue';
-import EquipmentIncludedList from '@/components/renting/detail/EquipmentIncludedList.vue';
-import EquipmentExcludedList from '@/components/renting/detail/EquipmentExcludedList.vue';
-import EquipmentRequirementList from '@/components/renting/detail/EquipmentRequirementList.vue';
-import EquipmentDocumentList from '@/components/renting/detail/EquipmentDocumentList.vue';
-import EquipmentVideoGallery from '@/components/renting/detail/EquipmentVideoGallery.vue';
-import BaseAccordion from '@/components/base/BaseAccordion.vue';
-import BaseReviews from '@/components/base/BaseReviews.vue';
-
 import DiscountBadge from '@/components/marketplace/DiscountBadge.vue';
 import UrgencyBanner from '@/components/marketplace/UrgencyBanner.vue';
 import TagBadge from '@/components/marketplace/TagBadge.vue';
 import RatingDisplay from '@/components/marketplace/RatingDisplay.vue';
+
+// Below fold - lazy load con defineAsyncComponent
+const EquipmentIncludedList = defineAsyncComponent(() =>
+  import('@/components/renting/detail/EquipmentIncludedList.vue')
+);
+const EquipmentExcludedList = defineAsyncComponent(() =>
+  import('@/components/renting/detail/EquipmentExcludedList.vue')
+);
+const EquipmentRequirementList = defineAsyncComponent(() =>
+  import('@/components/renting/detail/EquipmentRequirementList.vue')
+);
+const EquipmentDocumentList = defineAsyncComponent(() =>
+  import('@/components/renting/detail/EquipmentDocumentList.vue')
+);
+const EquipmentVideoGallery = defineAsyncComponent(() =>
+  import('@/components/renting/detail/EquipmentVideoGallery.vue')
+);
+const BaseAccordion = defineAsyncComponent(() =>
+  import('@/components/base/BaseAccordion.vue')
+);
+const BaseReviews = defineAsyncComponent(() =>
+  import('@/components/base/BaseReviews.vue')
+);
 
 const api = useApi();
 const toast = useToast();
@@ -477,6 +494,12 @@ async function fetchDetail() {
     const res = await api.get(`renting/equipment/${uuid}/detail/`);
     detail.value = res.data;
     isFavorite.value = loadFavorites().includes(detail.value.uuid);
+
+    // Preload hero image
+    const heroImageUrl = detail.value.media?.gallery?.principal?.url || detail.value.hero?.hero_image?.url;
+    if (heroImageUrl) {
+      usePreloadImage(heroImageUrl);
+    }
 
     setSeo({
       title: detail.value.seo?.meta_title || detail.value.hero?.name,
