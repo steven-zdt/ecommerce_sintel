@@ -592,184 +592,332 @@
       </div>
 
       <!-- ══════════════════════════════════════════════════════════════════
-           SHOP — sin cambios en este alcance (ver plan). Se deja intacto
-           tal cual estaba antes de las restauraciones de Renting/Services.
+           SHOP — Presentation Layer restaurada (ver plan
+           structured-strolling-sparkle.md). Igual que Services, el DTO
+           unificado (ShopPublicDetailPresenter) es demasiado escueto -- esta
+           rama hace su propio fetch a shopService.detail()/.reviews()
+           (endpoints públicos ya existentes). A diferencia de Renting y
+           Services, esta página no usa la familia Base*/marketplace* -- es,
+           y siempre fue, una PDP de e-commerce autocontenida (variantes,
+           carrito, wishlist), distinta por naturaleza de reserva/agenda.
            ══════════════════════════════════════════════════════════════════ -->
-      <template v-else>
-        <!-- MAIN 2-COLUMN LAYOUT (mirrors production: col-lg-5 gallery/availability, col-lg-7 details) -->
+      <div v-else-if="moduleType === 'shop' && shopProduct" class="product-detail-block">
         <div class="row g-4 g-lg-5">
-          <!-- LEFT COLUMN -->
+          <!-- Columna izquierda: galería -->
           <div class="col-lg-5">
             <div class="gallery-sticky">
-              <!-- Gallery -->
-              <div class="bv-gallery">
-                <div class="bv-gallery-main">
-                  <i :class="['bi', getModuleIcon()]"></i>
+              <div class="main-image-wrap rounded-3 border bg-white position-relative">
+                <img v-if="shopActiveImage" :src="shopActiveImage" :alt="shopProduct.name" class="main-image">
+                <div v-else class="main-image d-flex align-items-center justify-content-center bg-light">
+                  <i class="bi bi-box-seam text-muted" style="font-size:5rem;opacity:.25"></i>
                 </div>
+                <span v-if="shopDiscountPct > 0" class="badge bg-danger position-absolute top-0 start-0 m-2 px-2 py-1" style="font-size:.8rem">
+                  -{{ shopDiscountPct }}%
+                </span>
+                <span v-if="shopProduct.is_featured" class="badge bg-warning text-dark position-absolute top-0 end-0 m-2" style="font-size:.75rem">
+                  <i class="bi bi-star-fill me-1"></i>Destacado
+                </span>
               </div>
 
-              <!-- Trust Grid -->
-              <div class="trust-grid">
-                <div><i class="bi bi-shield-check text-success"></i><span>{{ getTrustMsg(0) }}</span></div>
-                <div><i class="bi bi-credit-card text-primary"></i><span>{{ getTrustMsg(1) }}</span></div>
-                <div><i class="bi bi-truck text-info"></i><span>{{ getTrustMsg(2) }}</span></div>
-                <div><i class="bi bi-headset text-warning"></i><span>{{ getTrustMsg(3) }}</span></div>
-              </div>
-
-              <!-- Availability Card -->
-              <div class="availability-card">
-                <span class="section-kicker">Disponibilidad</span>
-                <h2>{{ detail.availability?.status_label }}</h2>
-                <p>{{ detail.availability?.status_detail }}</p>
-                <RouterLink v-if="detail.hero?.cta_enabled" :to="`/${moduleType}/${detail.uuid}/solicitar`" class="availability-link">
-                  Consultar fechas exactas <i class="bi bi-arrow-right"></i>
-                </RouterLink>
-              </div>
-            </div>
-          </div>
-
-          <!-- RIGHT COLUMN -->
-          <div class="col-lg-7">
-            <!-- Badges + Actions -->
-            <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
-              <span v-if="detail.hero?.brand_name" class="badge bg-primary-subtle text-primary border border-primary-subtle">{{ detail.hero.brand_name }}</span>
-              <span v-if="detail.hero?.category_name" class="badge bg-light text-muted border">{{ detail.hero.category_name }}</span>
-              <span :class="getAvailBadge()">{{ detail.availability?.status_label }}</span>
-              <div class="ms-lg-auto d-flex gap-2">
-                <button type="button" class="icon-action-btn" @click="shareItem"><i class="bi bi-share"></i></button>
-                <button type="button" class="icon-action-btn" :class="{ active: isFavorite }" @click="toggleFavorite"><i :class="['bi', isFavorite ? 'bi-heart-fill' : 'bi-heart']"></i></button>
-              </div>
-            </div>
-
-            <!-- Title -->
-            <h1 class="equipment-title">{{ detail.hero?.name }}</h1>
-            <p v-if="detail.hero?.description" class="value-prop">{{ detail.hero.description }}</p>
-
-            <!-- Quick Specs -->
-            <div class="quick-specs">
-              <div>
-                <span>Marca</span>
-                <strong>{{ detail.hero?.brand_name || 'N/A' }}</strong>
-              </div>
-              <div>
-                <span>Categoria</span>
-                <strong>{{ detail.hero?.category_name || 'N/A' }}</strong>
-              </div>
-              <div>
-                <span>Variantes</span>
-                <strong>{{ variantsCount }}</strong>
-              </div>
-              <div>
-                <span>Stock total</span>
-                <strong>{{ detail.availability?.available_now || 0 }} unidad(es)</strong>
-              </div>
-            </div>
-
-            <!-- Configuracion / Package Panel -->
-            <div class="package-panel">
-              <div class="panel-head">
-                <div>
-                  <span class="section-kicker">Configuracion</span>
-                  <h2>{{ moduleType === 'renting' ? 'Valor del alquiler' : 'Valor' }}</h2>
-                </div>
-                <span class="from-price" v-if="moduleType === 'renting'">Desde {{ detail.pricing?.formatted_price_per_day }} / dia</span>
-                <span class="from-price" v-else>{{ detail.pricing?.formatted_promo_price }}</span>
-              </div>
-              <div class="selected-package">
-                <div>
-                  <h3>{{ packageLabel }}</h3>
-                  <p v-if="moduleType === 'renting'">{{ detail.pricing?.formatted_price_per_day }} / dia</p>
-                  <p v-else>{{ detail.pricing?.formatted_promo_price }}</p>
-                </div>
-                <RouterLink v-if="detail.hero?.cta_enabled" :to="`/${moduleType}/${detail.uuid}/solicitar`" class="reserve-btn">
-                  <i class="bi bi-calendar-check me-2"></i>{{ getCTALabel() }}
-                </RouterLink>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- SECTIONS BELOW (mirrors production: detail-sections flex column) -->
-        <div class="detail-sections">
-          <!-- OPINIONES -->
-          <section class="detail-section">
-            <div class="section-head">
-              <span class="section-kicker">Opiniones</span>
-              <h2>Reseñas de clientes</h2>
-            </div>
-            <div class="bv-reviews">
-              <div class="bv-reviews-summary">
-                <div class="bv-reviews-score">
-                  <strong>{{ reviewScoreDisplay }}</strong>
-                  <span>{{ detail.reviews?.total_count || 0 }} reseñas</span>
-                </div>
-              </div>
-
-              <div v-if="detail?.reviews?.items?.length" class="bv-reviews-list">
-                <div v-for="(review, i) in detail.reviews.items" :key="i" class="bv-review-item">
-                  <div class="bv-review-item-header">
-                    <strong>{{ review.user_name }}</strong>
-                    <span>⭐ {{ review.rating }}/5</span>
-                  </div>
-                  <p>{{ review.comment }}</p>
-                </div>
-              </div>
-
-              <div class="bv-review-form">
-                <p class="bv-review-form-title">Escribe tu reseña</p>
-                <div class="bv-review-stars-input">
-                  <button
-                    v-for="star in 5"
-                    :key="star"
-                    type="button"
-                    class="bv-star-btn"
-                    :class="{ active: reviewRating >= star }"
-                    @click="reviewRating = star">
-                    ⭐
-                  </button>
-                </div>
-                <textarea
-                  v-model="reviewText"
-                  class="bv-review-textarea"
-                  rows="3"
-                  placeholder="Cuentanos tu experiencia..."></textarea>
-                <button type="button" class="bv-review-submit" :disabled="isSubmittingReview" @click="submitReview">
-                  {{ isSubmittingReview ? 'Enviando...' : 'Publicar reseña' }}
+              <div v-if="shopAllImages.length > 1" class="d-flex gap-2 mt-2 flex-wrap">
+                <button
+                  v-for="(img, i) in shopAllImages"
+                  :key="i"
+                  class="thumb-btn border rounded-2 bg-white p-1"
+                  :class="{ 'thumb-active': shopActiveImageIndex === i }"
+                  @click="shopActiveImageIndex = i"
+                >
+                  <img :src="img" :alt="`Vista ${i + 1}`" class="thumb-img">
                 </button>
               </div>
 
-              <p v-if="!detail?.reviews?.items?.length" class="bv-review-empty">
-                Aun no hay reseñas para este {{ getModuleLabel().toLowerCase() }}.
-              </p>
-            </div>
-          </section>
+              <div class="trust-row mt-3 d-flex gap-2 flex-wrap">
+                <div class="trust-item"><i class="bi bi-truck text-success"></i><span>Envio disponible</span></div>
+                <div class="trust-item"><i class="bi bi-shield-check text-primary"></i><span>Compra segura</span></div>
+                <div class="trust-item"><i class="bi bi-arrow-repeat text-warning"></i><span>Garantia del producto</span></div>
+              </div>
 
-          <!-- INTEGRACIONES (Renting only, matches production) -->
-          <section v-if="moduleType === 'renting'" class="detail-section related-section">
-            <div class="section-head">
-              <span class="section-kicker">Integraciones</span>
-              <h2>Completa la solucion</h2>
+              <div class="mt-3 p-2 rounded-2 border text-center">
+                <p class="small text-muted mb-1 fw-semibold">Medios de pago aceptados</p>
+                <div class="d-flex justify-content-center align-items-center gap-2 flex-wrap">
+                  <span class="pay-chip"><i class="bi bi-credit-card-2-front me-1"></i>Tarjeta</span>
+                  <span class="pay-chip"><i class="bi bi-bank me-1"></i>PSE</span>
+                  <span class="pay-chip"><i class="bi bi-phone me-1"></i>Nequi</span>
+                  <span class="pay-chip"><i class="bi bi-cash-coin me-1"></i>Contra entrega</span>
+                </div>
+              </div>
             </div>
-            <div class="related-grid">
-              <RouterLink to="/tienda" class="related-card">
-                <i class="bi bi-box-seam"></i>
-                <span>Shop</span>
-                <strong>Accesorios, consumibles y repuestos compatibles</strong>
-              </RouterLink>
-              <RouterLink to="/servicios" class="related-card">
-                <i class="bi bi-tools"></i>
-                <span>Technical Services</span>
-                <strong>Instalacion, configuracion, monitoreo y soporte</strong>
-              </RouterLink>
-              <RouterLink to="/cotizar" class="related-card">
-                <i class="bi bi-file-earmark-text"></i>
-                <span>Proyecto</span>
-                <strong>Solucion temporal con alcance y SLA personalizado</strong>
+          </div>
+
+          <!-- Columna derecha: info + acciones -->
+          <div class="col-lg-7">
+            <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+              <span v-if="shopProduct.brand_name" class="badge bg-primary-subtle text-primary border border-primary-subtle">
+                {{ shopProduct.brand_name }}
+              </span>
+              <span v-if="shopProduct.category_name" class="badge bg-light text-muted border">
+                {{ shopProduct.category_name }}
+              </span>
+              <div v-if="shopProduct.review_count" class="d-flex align-items-center gap-1 ms-auto">
+                <div class="d-flex text-warning" style="font-size:.85rem">
+                  <i v-for="n in 5" :key="n" :class="['bi', n <= Math.round(shopProduct.avg_rating || 0) ? 'bi-star-fill' : 'bi-star']"></i>
+                </div>
+                <span class="text-muted small">({{ shopProduct.review_count }})</span>
+              </div>
+            </div>
+
+            <h1 class="h3 fw-bold lh-sm mb-2">{{ shopProduct.name }}</h1>
+            <p v-if="shopProduct.short_description" class="text-secondary mb-3" style="font-size:.95rem">
+              {{ shopProduct.short_description }}
+            </p>
+            <p v-if="shopSelectedVariant?.sku" class="text-muted small mb-3">
+              <i class="bi bi-upc me-1"></i>SKU: <code>{{ shopSelectedVariant.sku }}</code>
+            </p>
+
+            <hr class="my-3">
+
+            <div class="price-block mb-3">
+              <div v-if="shopDiscountPct > 0" class="d-flex align-items-center gap-2 mb-1">
+                <span class="text-muted text-decoration-line-through fs-5">{{ fmtCOP(shopOriginalPrice) }}</span>
+                <span class="badge bg-danger px-2 py-1">-{{ shopDiscountPct }}%</span>
+              </div>
+              <div class="d-flex align-items-end gap-2">
+                <span class="price-main">{{ fmtCOP(shopEffectivePrice) }}</span>
+                <span v-if="shopDiscountPct > 0" class="text-success fw-semibold small mb-1">
+                  Ahorras {{ fmtCOP(shopOriginalPrice - shopEffectivePrice) }}
+                </span>
+              </div>
+              <p class="text-muted small mt-1 mb-0"><i class="bi bi-info-circle me-1"></i>Precio incluye IVA</p>
+            </div>
+
+            <div class="mb-3">
+              <StockBadge v-if="shopSelectedVariant" :stock="shopSelectedVariant.stock ?? 0" />
+            </div>
+
+            <div v-if="shopVariants.length > 1" class="mb-4">
+              <p class="small fw-bold text-dark mb-2">Variante <span class="text-danger">*</span></p>
+              <div class="d-flex flex-wrap gap-2">
+                <button
+                  v-for="v in shopVariants"
+                  :key="v.uuid"
+                  :class="['variant-btn', shopSelectedVariant?.uuid === v.uuid ? 'variant-active' : '']"
+                  :disabled="!v.stock"
+                  @click="shopSelectedVariant = v"
+                >
+                  <span v-for="(val, key) in v.attributes" :key="key">{{ val }}</span>
+                  <span v-if="!v.stock" class="ms-1 text-danger small">(Agotado)</span>
+                </button>
+              </div>
+            </div>
+
+            <div v-if="shopVariantAttributes.length > 0" class="attr-chips mb-3 d-flex flex-wrap gap-2">
+              <span v-for="attr in shopVariantAttributes" :key="attr.key" class="attr-chip">
+                <span class="attr-key">{{ attr.key }}:</span> {{ attr.val }}
+              </span>
+            </div>
+
+            <div v-if="shopHasLogistics" class="logistics-box mb-4 p-3 rounded-3 border small">
+              <p class="fw-semibold mb-2 text-dark"><i class="bi bi-box me-1"></i>Dimensiones y peso</p>
+              <div class="d-flex flex-wrap gap-3 text-muted">
+                <span v-if="shopSelectedVariant.weight"><strong>Peso:</strong> {{ shopSelectedVariant.weight }} kg</span>
+                <span v-if="shopSelectedVariant.length"><strong>Largo:</strong> {{ shopSelectedVariant.length }} cm</span>
+                <span v-if="shopSelectedVariant.width"><strong>Ancho:</strong> {{ shopSelectedVariant.width }} cm</span>
+                <span v-if="shopSelectedVariant.height"><strong>Alto:</strong> {{ shopSelectedVariant.height }} cm</span>
+              </div>
+            </div>
+
+            <div class="d-flex align-items-center gap-2 mb-3">
+              <span class="small fw-bold text-dark">Cantidad:</span>
+              <div class="input-group qty-group">
+                <button class="btn btn-outline-secondary" @click="shopQty = Math.max(1, shopQty - 1)">
+                  <i class="bi bi-dash"></i>
+                </button>
+                <input v-model.number="shopQty" type="number" min="1" :max="shopSelectedVariant?.stock || 1" class="form-control text-center qty-input">
+                <button class="btn btn-outline-secondary" @click="shopQty = Math.min(shopSelectedVariant?.stock || 1, shopQty + 1)">
+                  <i class="bi bi-plus"></i>
+                </button>
+              </div>
+              <span v-if="shopSelectedVariant?.stock" class="text-muted small">({{ shopSelectedVariant.stock }} disponibles)</span>
+            </div>
+
+            <div class="d-flex flex-column gap-2 mb-4">
+              <div class="d-flex gap-2">
+                <button
+                  class="btn btn-primary btn-lg fw-bold flex-grow-1"
+                  @click="shopAddToCart"
+                  :disabled="shopAddingToCart || !shopSelectedVariant?.stock"
+                >
+                  <span v-if="shopAddingToCart" class="spinner-border spinner-border-sm me-2"></span>
+                  <i v-else class="bi bi-bag-plus me-2"></i>
+                  {{ !shopSelectedVariant?.stock ? 'Agotado' : 'Agregar al carrito' }}
+                </button>
+
+                <button
+                  class="btn btn-outline-danger btn-lg wishlist-btn"
+                  :class="{ 'wishlist-btn-active': shopIsWishlisted }"
+                  @click="shopToggleWishlist"
+                  :disabled="shopWishlistLoading || !shopSelectedVariant"
+                  :title="shopIsWishlisted ? 'Quitar de lista de deseos' : 'Agregar a lista de deseos'"
+                >
+                  <span v-if="shopWishlistLoading" class="spinner-border spinner-border-sm"></span>
+                  <i v-else :class="['bi', shopIsWishlisted ? 'bi-heart-fill' : 'bi-heart']"></i>
+                </button>
+              </div>
+
+              <button class="btn btn-success fw-bold" @click="shopBuyNow" :disabled="cartStore.isEmpty">
+                <i class="bi bi-lightning-charge-fill me-2"></i>
+                {{ cartStore.isEmpty ? 'Agrega al carrito primero' : 'Comprar ahora' }}
+              </button>
+
+              <RouterLink :to="`/cotizar?product=${shopProduct.uuid}`" class="btn btn-outline-secondary">
+                <i class="bi bi-file-earmark-text me-2"></i>Solicitar cotizacion
               </RouterLink>
             </div>
-          </section>
+          </div>
         </div>
-      </template>
+
+        <!-- Tabs: Descripción / Especificaciones / Video -->
+        <div class="mt-5">
+          <ul class="nav nav-tabs detail-tabs mb-0">
+            <li class="nav-item">
+              <button class="nav-link" :class="{ active: shopActiveTab === 'desc' }" @click="shopActiveTab = 'desc'">
+                <i class="bi bi-card-text me-1"></i>Descripcion
+              </button>
+            </li>
+            <li v-if="shopVariantAttributes.length > 0 || shopProduct.condition" class="nav-item">
+              <button class="nav-link" :class="{ active: shopActiveTab === 'specs' }" @click="shopActiveTab = 'specs'">
+                <i class="bi bi-list-columns me-1"></i>Especificaciones
+              </button>
+            </li>
+            <li v-if="shopProduct.video_url" class="nav-item">
+              <button class="nav-link" :class="{ active: shopActiveTab === 'video' }" @click="shopActiveTab = 'video'">
+                <i class="bi bi-play-circle me-1"></i>Video
+              </button>
+            </li>
+          </ul>
+
+          <div class="tab-content-box border border-top-0 rounded-bottom-3 p-4">
+            <div v-show="shopActiveTab === 'desc'">
+              <div v-if="shopProduct.description" class="product-description" style="white-space:pre-wrap">
+                {{ shopProduct.description }}
+              </div>
+              <p v-else class="text-muted fst-italic mb-0">Sin descripcion detallada.</p>
+            </div>
+
+            <div v-show="shopActiveTab === 'specs'">
+              <table class="table table-sm table-bordered specs-table mb-0">
+                <tbody>
+                  <tr v-if="shopProduct.condition">
+                    <th class="specs-key">Condicion</th>
+                    <td>{{ shopProduct.condition }}</td>
+                  </tr>
+                  <tr v-for="attr in shopVariantAttributes" :key="attr.key">
+                    <th class="specs-key">{{ attr.key }}</th>
+                    <td>{{ attr.val }}</td>
+                  </tr>
+                  <tr v-if="shopSelectedVariant?.sku">
+                    <th class="specs-key">SKU</th>
+                    <td><code>{{ shopSelectedVariant.sku }}</code></td>
+                  </tr>
+                  <tr v-if="shopSelectedVariant?.weight">
+                    <th class="specs-key">Peso</th>
+                    <td>{{ shopSelectedVariant.weight }} kg</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div v-show="shopActiveTab === 'video'">
+              <div v-if="shopEmbedUrl" class="ratio ratio-16x9 rounded-3 overflow-hidden">
+                <iframe
+                  :src="shopEmbedUrl"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                  allowfullscreen
+                  title="Video del producto"
+                ></iframe>
+              </div>
+              <a v-else :href="shopProduct.video_url" target="_blank" rel="noopener" class="btn btn-outline-primary btn-sm">
+                <i class="bi bi-play-circle me-1"></i>Ver video externo
+              </a>
+            </div>
+          </div>
+        </div>
+
+        <!-- Reseñas -->
+        <div class="mt-5">
+          <div class="d-flex align-items-center gap-3 mb-4">
+            <h5 class="fw-bold mb-0"><i class="bi bi-chat-square-text me-2 text-primary"></i>Resenas</h5>
+            <div v-if="shopProduct.review_count" class="d-flex align-items-center gap-1">
+              <div class="d-flex text-warning">
+                <i v-for="n in 5" :key="n" :class="['bi', n <= Math.round(shopProduct.avg_rating || 0) ? 'bi-star-fill' : 'bi-star']"></i>
+              </div>
+              <span class="text-muted small ms-1">
+                {{ (shopProduct.avg_rating || 0).toFixed(1) }} de 5 ({{ shopProduct.review_count }} resenas)
+              </span>
+            </div>
+            <span v-else class="text-muted small">Sin resenas aun — se el primero</span>
+          </div>
+
+          <div v-if="authStore.isAuthenticated && !shopMyReview" class="card border-primary border-opacity-25 mb-4 p-4">
+            <p class="fw-bold mb-3"><i class="bi bi-pencil me-1"></i>Escribe tu resena</p>
+            <div class="mb-3 d-flex gap-1">
+              <button
+                v-for="n in 5"
+                :key="n"
+                type="button"
+                :class="['btn btn-sm star-btn', shopReviewForm.rating >= n ? 'active' : '']"
+                @click="shopReviewForm.rating = n"
+              >
+                <i class="bi bi-star-fill"></i>
+              </button>
+            </div>
+            <textarea
+              v-model="shopReviewForm.comment"
+              class="form-control mb-3"
+              rows="3"
+              placeholder="Cuéntanos tu experiencia con este producto..."
+            ></textarea>
+            <button
+              class="btn btn-primary btn-sm"
+              :disabled="shopReviewLoading || !shopReviewForm.rating || !shopReviewForm.comment"
+              @click="shopSubmitReview"
+            >
+              <span v-if="shopReviewLoading" class="spinner-border spinner-border-sm me-1"></span>
+              <i v-else class="bi bi-send me-1"></i>
+              Publicar resena
+            </button>
+          </div>
+
+          <div v-if="shopReviewsLoading" class="text-center py-4">
+            <div class="spinner-border spinner-border-sm text-primary"></div>
+          </div>
+          <div v-else-if="shopReviews.length === 0" class="text-muted small text-center py-4">
+            Aun no hay resenas para este producto.
+          </div>
+          <div v-else class="d-flex flex-column gap-3">
+            <div v-for="r in shopReviews" :key="r.uuid" class="review-card border rounded-3 p-3">
+              <div class="d-flex align-items-start gap-3">
+                <div class="review-avatar text-white rounded-circle d-flex align-items-center justify-content-center fw-bold flex-shrink-0">
+                  {{ shopInitials(r.user_email) }}
+                </div>
+                <div class="flex-grow-1">
+                  <div class="d-flex align-items-center gap-2 flex-wrap mb-1">
+                    <span class="fw-semibold small">{{ shopMaskEmail(r.user_email) }}</span>
+                    <span v-if="r.is_verified_purchase" class="badge bg-success-subtle text-success border border-success-subtle" style="font-size:.68rem">
+                      <i class="bi bi-patch-check-fill me-1"></i>Compra verificada
+                    </span>
+                    <div class="d-flex text-warning ms-auto" style="font-size:.82rem">
+                      <i v-for="n in 5" :key="n" :class="['bi', n <= r.rating ? 'bi-star-fill' : 'bi-star']"></i>
+                    </div>
+                  </div>
+                  <div class="text-muted mb-2" style="font-size:.72rem">{{ shopFmtDate(r.created_at) }}</div>
+                  <p class="mb-0 small" style="white-space:pre-wrap">{{ r.comment }}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -780,8 +928,14 @@ import { useRoute, useRouter } from 'vue-router';
 import useApi from '@/composables/useApi';
 import { useToast } from '@/composables/useToast';
 import { useSeo } from '@/composables/useSeo';
+import { useErrorHandler } from '@/composables/useErrorHandler';
 import { servicesService } from '@/services/technical_services/servicesService';
+import { shopService } from '@/services/shop/shopService';
 import { formatCOP } from '@/utils/money';
+import { useCartStore } from '@/store/cart';
+import { useWishlistStore } from '@/store/wishlist';
+import { useAuthStore } from '@/store/auth';
+import StockBadge from '@/components/customer/ui/StockBadge.vue';
 
 // Renting — componentes reales reutilizados (ver plan structured-strolling-sparkle.md).
 // Above-fold: carga eager. Below-fold: lazy via defineAsyncComponent, igual que
@@ -834,10 +988,14 @@ const ServicePackageCard = defineAsyncComponent(() =>
 );
 
 const api = useApi();
-const { success, error: showError } = useToast();
+const { success, error: showError, info } = useToast();
+const { handleError } = useErrorHandler();
 const route = useRoute();
 const router = useRouter();
 const { setSeo } = useSeo();
+const cartStore = useCartStore();
+const wishlistStore = useWishlistStore();
+const authStore = useAuthStore();
 
 const loading = ref(true);
 const error = ref(null);
@@ -1010,10 +1168,188 @@ async function fetchServiceRichDetail(uuid) {
   }
 }
 
-// Usado solo por la rama Shop/Service (preservada sin cambios).
-const reviewRating = ref(0);
-const reviewText = ref('');
-const isSubmittingReview = ref(false);
+// Rama Shop restaurada: PDP de e-commerce autocontenida (no usa la familia
+// Base*/marketplace*, ver plan). El DTO unificado tampoco alcanza aqui --
+// se alimenta de shopService.detail()/.reviews() (endpoints publicos ya
+// existentes). A diferencia de Services, un fallo aqui SI debe propagarse
+// (no hay rama v-else generica a la que degradar) -- fetchDetail() ya
+// captura la excepcion y muestra el estado de error existente.
+const shopProduct = ref(null);
+const shopVariants = ref([]);
+const shopSelectedVariant = ref(null);
+const shopQty = ref(1);
+const shopAddingToCart = ref(false);
+const shopWishlistLoading = ref(false);
+const shopActiveImageIndex = ref(0);
+const shopActiveTab = ref('desc');
+const shopReviews = ref([]);
+const shopReviewsLoading = ref(false);
+const shopReviewLoading = ref(false);
+const shopReviewForm = ref({ rating: 0, comment: '' });
+const shopMyReview = ref(false);
+
+const shopAllImages = computed(() => {
+  if (shopProduct.value?.images?.length) {
+    return shopProduct.value.images
+      .slice()
+      .sort((a, b) => (b.is_primary ? 1 : 0) - (a.is_primary ? 1 : 0))
+      .map((i) => i.image || i.url || i);
+  }
+  return [];
+});
+
+const shopActiveImage = computed(() => shopAllImages.value[shopActiveImageIndex.value] || null);
+
+const shopOriginalPrice = computed(() => parseFloat(shopSelectedVariant.value?.price || 0));
+
+// El precio mostrado es el neto con impuestos (price_info.final_price_net,
+// ya calculado por el backend) -- evita la discrepancia entre lo que el
+// cliente ve y lo que paga en checkout. Se conserva el fallback anterior
+// por si price_info no viene en la respuesta.
+const shopEffectivePrice = computed(() => {
+  const info = shopSelectedVariant.value?.price_info;
+  if (info?.final_price_net != null) return parseFloat(info.final_price_net);
+  return parseFloat(
+    shopSelectedVariant.value?.discounted_price ||
+    shopSelectedVariant.value?.effective_price ||
+    shopSelectedVariant.value?.price || 0
+  );
+});
+
+const shopDiscountPct = computed(() => {
+  if (!shopSelectedVariant.value?.discounted_price) return 0;
+  if (shopOriginalPrice.value <= 0) return 0;
+  return Math.round((1 - shopEffectivePrice.value / shopOriginalPrice.value) * 100);
+});
+
+const shopVariantAttributes = computed(() => {
+  const attrs = shopSelectedVariant.value?.attributes;
+  if (!attrs || typeof attrs !== 'object') return [];
+  return Object.entries(attrs).map(([key, val]) => ({ key, val }));
+});
+
+const shopHasLogistics = computed(() =>
+  shopSelectedVariant.value &&
+  (shopSelectedVariant.value.weight || shopSelectedVariant.value.length ||
+   shopSelectedVariant.value.width || shopSelectedVariant.value.height)
+);
+
+const shopEmbedUrl = computed(() => {
+  const url = shopProduct.value?.video_url;
+  if (!url) return null;
+  const yt = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
+  if (yt) return `https://www.youtube.com/embed/${yt[1]}`;
+  const vi = url.match(/vimeo\.com\/(\d+)/);
+  if (vi) return `https://player.vimeo.com/video/${vi[1]}`;
+  return null;
+});
+
+const shopIsWishlisted = computed(() =>
+  !!shopSelectedVariant.value && wishlistStore.isInWishlist(shopSelectedVariant.value.uuid)
+);
+
+function shopInitials(email) {
+  return (email || '?').slice(0, 2).toUpperCase();
+}
+
+function shopMaskEmail(email) {
+  if (!email) return 'Anonimo';
+  const [user, domain] = email.split('@');
+  return `${user.slice(0, 2)}***@${domain}`;
+}
+
+function shopFmtDate(d) {
+  return d ? new Date(d).toLocaleDateString('es-CO', { year: 'numeric', month: 'short', day: 'numeric' }) : '';
+}
+
+async function fetchShopRichDetail(uuid) {
+  shopProduct.value = await shopService.detail(uuid);
+  shopVariants.value = shopProduct.value.variants || [];
+  shopSelectedVariant.value = shopVariants.value.find((v) => v.is_default) || shopVariants.value[0] || null;
+  shopActiveImageIndex.value = 0;
+  await fetchShopReviews(uuid);
+}
+
+async function fetchShopReviews(uuid) {
+  shopReviewsLoading.value = true;
+  try {
+    const data = await shopService.reviews(uuid);
+    shopReviews.value = data.results ?? data;
+    if (authStore.isAuthenticated) {
+      shopMyReview.value = shopReviews.value.some((r) => r.user_email === authStore.user?.email);
+    }
+  } catch {
+    shopReviews.value = [];
+  } finally {
+    shopReviewsLoading.value = false;
+  }
+}
+
+async function shopAddToCart() {
+  if (!authStore.isAuthenticated) {
+    info('Inicia sesion para agregar al carrito');
+    router.push('/login');
+    return;
+  }
+  if (!shopSelectedVariant.value) return;
+  shopAddingToCart.value = true;
+  try {
+    await cartStore.addItem(shopSelectedVariant.value.uuid, shopQty.value);
+    success(`"${shopProduct.value.name}" agregado al carrito`);
+  } catch {
+    showError('No se pudo agregar al carrito');
+  } finally {
+    shopAddingToCart.value = false;
+  }
+}
+
+async function shopToggleWishlist() {
+  if (!authStore.isAuthenticated) {
+    info('Inicia sesion para guardar en tu lista de deseos');
+    router.push('/login');
+    return;
+  }
+  if (!shopSelectedVariant.value) return;
+  shopWishlistLoading.value = true;
+  try {
+    const added = await wishlistStore.toggle(shopSelectedVariant.value.uuid);
+    success(added ? 'Agregado a tu lista de deseos' : 'Eliminado de tu lista de deseos');
+  } catch {
+    showError('No se pudo actualizar la lista de deseos');
+  } finally {
+    shopWishlistLoading.value = false;
+  }
+}
+
+function shopBuyNow() {
+  if (!authStore.isAuthenticated) {
+    info('Inicia sesion para continuar');
+    router.push('/login');
+    return;
+  }
+  if (cartStore.isEmpty) return;
+  router.push('/checkout');
+}
+
+async function shopSubmitReview() {
+  if (!shopReviewForm.value.rating || !shopReviewForm.value.comment.trim()) return;
+  shopReviewLoading.value = true;
+  try {
+    await shopService.addReview(shopProduct.value.uuid, {
+      rating: shopReviewForm.value.rating,
+      comment: shopReviewForm.value.comment.trim(),
+    });
+    success('Resena publicada');
+    shopReviewForm.value = { rating: 0, comment: '' };
+    await fetchShopReviews(shopProduct.value.uuid);
+    const data = await shopService.detail(shopProduct.value.uuid);
+    shopProduct.value = { ...shopProduct.value, avg_rating: data.avg_rating, review_count: data.review_count };
+  } catch (e) {
+    handleError(e, 'Error al publicar la resena');
+  } finally {
+    shopReviewLoading.value = false;
+  }
+}
 
 const moduleType = computed(() => {
   const path = route.path;
@@ -1021,22 +1357,6 @@ const moduleType = computed(() => {
   if (path.includes('tienda')) return 'shop';
   if (path.includes('servicios')) return 'service';
   return 'renting';
-});
-
-// Usado solo por la rama Shop/Service (preservada sin cambios).
-const reviewScoreDisplay = computed(() => {
-  const avg = detail.value?.reviews?.average_rating;
-  return avg ? avg.toFixed(1) : '—';
-});
-
-// Usado solo por la rama Shop/Service (preservada sin cambios).
-const variantsCount = computed(() => {
-  return detail.value?.pricing?.components?.length || 1;
-});
-
-// Usado solo por la rama Shop/Service (preservada sin cambios).
-const packageLabel = computed(() => {
-  return detail.value?.hero?.category_name || getModuleLabel();
 });
 
 // Usado solo por la rama Renting restaurada (calcado de RentalDetailView.vue).
@@ -1061,19 +1381,6 @@ function getModuleIcon() {
 
 function getBreadcrumbPath() {
   return { renting: '/alquiler', shop: '/tienda', service: '/servicios' }[moduleType.value];
-}
-
-function getTrustMsg(idx) {
-  const msgs = {
-    renting: ['Equipo certificado', 'Pago seguro', 'Logística opcional', 'Soporte postventa'],
-    shop: ['Productos certificados', 'Pago seguro', 'Envío rápido', 'Soporte postventa'],
-    service: ['Servicio profesional', 'Pago seguro', 'Garantía incluida', 'Soporte postventa'],
-  };
-  return msgs[moduleType.value]?.[idx];
-}
-
-function getCTALabel() {
-  return { renting: 'Reservar ahora', shop: 'Comprar ahora', service: 'Solicitar servicio' }[moduleType.value];
 }
 
 function getAvailBadge() {
@@ -1126,24 +1433,6 @@ async function shareItem() {
   }
 }
 
-async function submitReview() {
-  if (reviewRating.value === 0 || !reviewText.value.trim()) {
-    showError('Por favor completa la calificación y comentario');
-    return;
-  }
-  isSubmittingReview.value = true;
-  try {
-    // TODO: Implementar endpoint de POST review
-    success('Reseña enviada correctamente');
-    reviewRating.value = 0;
-    reviewText.value = '';
-  } catch {
-    showError('Error al enviar la reseña');
-  } finally {
-    isSubmittingReview.value = false;
-  }
-}
-
 async function fetchDetail() {
   loading.value = true;
   error.value = null;
@@ -1160,6 +1449,8 @@ async function fetchDetail() {
 
     if (moduleType.value === 'service') {
       await fetchServiceRichDetail(uuid);
+    } else if (moduleType.value === 'shop') {
+      await fetchShopRichDetail(uuid);
     }
 
     setSeo({
@@ -1928,8 +2219,173 @@ onMounted(() => fetchDetail());
 }
 
 /* ════════════════════════════════════════════════════════════════════════
-   SHOP — CSS sin cambios en este alcance.
+   SHOP — CSS restaurado del ProductDetailView.vue recuperado
+   (git show 674dff8~1), namespaced bajo .product-detail-block para no
+   colisionar con .rental-detail / .service-detail-block. Es su propio
+   lenguaje visual de e-commerce (acento azul #2563eb / rojo #dc2626 en
+   precio) -- no se fuerza a la paleta de Renting/Services.
    ════════════════════════════════════════════════════════════════════════ */
+.product-detail-block .gallery-sticky { position: sticky; top: 80px; }
+
+.product-detail-block .main-image-wrap {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.product-detail-block .main-image {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  transition: transform .3s ease;
+}
+
+.product-detail-block .main-image-wrap:hover .main-image { transform: scale(1.04); }
+
+.product-detail-block .thumb-btn {
+  cursor: pointer;
+  border-color: #e5e7eb !important;
+  transition: border-color .15s;
+}
+
+.product-detail-block .thumb-btn:hover { border-color: #93c5fd !important; }
+
+.product-detail-block .thumb-active {
+  border-color: #2563eb !important;
+  box-shadow: 0 0 0 2px rgba(37,99,235,.25);
+}
+
+.product-detail-block .thumb-img { width: 64px; height: 64px; object-fit: contain; display: block; }
+
+.product-detail-block .trust-row { border-top: 1px solid #f3f4f6; padding-top: 12px; }
+
+.product-detail-block .trust-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: .78rem;
+  color: #6b7280;
+}
+
+.product-detail-block .trust-item i { font-size: 1rem; }
+
+.product-detail-block .pay-chip {
+  font-size: .72rem;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 3px 8px;
+  color: #374151;
+}
+
+.product-detail-block .price-block {
+  background: #fafafa;
+  border-radius: 12px;
+  padding: 16px;
+  border: 1px solid #f0f0f0;
+}
+
+.product-detail-block .price-main { font-size: 2rem; font-weight: 800; color: #dc2626; line-height: 1; }
+
+.product-detail-block .variant-btn {
+  border: 1.5px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 6px 14px;
+  background: #fff;
+  color: #374151;
+  font-size: .85rem;
+  transition: all .15s;
+  cursor: pointer;
+}
+
+.product-detail-block .variant-btn:hover:not(:disabled) { border-color: #93c5fd; color: #2563eb; }
+
+.product-detail-block .variant-active {
+  border-color: #2563eb !important;
+  background: #eff6ff;
+  color: #2563eb;
+  font-weight: 600;
+}
+
+.product-detail-block .variant-btn:disabled { opacity: .5; cursor: not-allowed; }
+
+.product-detail-block .attr-chip {
+  font-size: .78rem;
+  background: #f3f4f6;
+  border-radius: 6px;
+  padding: 3px 10px;
+  color: #374151;
+}
+
+.product-detail-block .attr-key { font-weight: 600; color: #111827; }
+
+.product-detail-block .logistics-box { background: #f9fafb; }
+
+.product-detail-block .qty-group { width: 120px; }
+
+.product-detail-block .qty-input { max-width: 50px; }
+
+.product-detail-block .detail-tabs .nav-link {
+  color: #6b7280;
+  border-color: #dee2e6 #dee2e6 #fff;
+  font-size: .9rem;
+  padding: 10px 18px;
+}
+
+.product-detail-block .detail-tabs .nav-link.active {
+  color: #2563eb;
+  font-weight: 600;
+  border-bottom-color: #fff;
+}
+
+.product-detail-block .tab-content-box { background: #fff; min-height: 120px; }
+
+.product-detail-block .product-description { font-size: .92rem; line-height: 1.7; color: #374151; }
+
+.product-detail-block .specs-table { font-size: .88rem; }
+
+.product-detail-block .specs-key { width: 38%; background: #f9fafb; color: #374151; font-weight: 600; }
+
+.product-detail-block .btn-primary { background: #2563eb; border-color: #2563eb; }
+
+.product-detail-block .btn-primary:hover { background: #1d4ed8; border-color: #1d4ed8; }
+
+.product-detail-block .btn-success { background: #16a34a; border-color: #16a34a; }
+
+.product-detail-block .btn-success:hover { background: #15803d; border-color: #15803d; }
+
+.product-detail-block .wishlist-btn { flex-shrink: 0; }
+
+.product-detail-block .wishlist-btn-active {
+  background: #dc2626;
+  border-color: #dc2626;
+  color: #fff;
+}
+
+.product-detail-block .wishlist-btn-active:hover { background: #b91c1c; border-color: #b91c1c; color: #fff; }
+
+.product-detail-block .review-avatar {
+  width: 36px; height: 36px; min-width: 36px;
+  background: #2563eb;
+  font-size: .75rem;
+}
+
+.product-detail-block .review-card { background: #fff; transition: box-shadow .15s; }
+
+.product-detail-block .review-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,.07); }
+
+.product-detail-block .star-btn { color: #d1d5db; background: none; border: none; font-size: 1.2rem; padding: 2px 4px; }
+
+.product-detail-block .star-btn.active { color: #f59e0b; }
+
+.product-detail-block .star-btn:hover { color: #f59e0b; }
+
+@media (max-width: 992px) {
+  .product-detail-block .gallery-sticky { position: static; }
+}
 /* SECTION KICKER (shared, matches production .section-kicker) */
 .section-kicker {
   display: block;

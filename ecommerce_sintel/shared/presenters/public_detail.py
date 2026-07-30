@@ -89,7 +89,7 @@ class ShopPublicDetailPresenter(PublicDetailPresenterBase):
                 img_dto = ImageDTO(
                     url=img.image.url,
                     alt_text=img.alt_text or self.item.name,
-                    image_type=img.image_type or "GALERIA"
+                    image_type="GALERIA"
                 )
                 images.append(img_dto)
                 if img.is_primary:
