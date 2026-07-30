@@ -334,8 +334,266 @@
       </div>
 
       <!-- ══════════════════════════════════════════════════════════════════
-           SHOP / SERVICE — sin cambios en este alcance (ver plan). Se deja
-           intacto tal cual estaba antes de la restauración de Renting.
+           SERVICES — Presentation Layer restaurada (ver plan
+           structured-strolling-sparkle.md). El DTO unificado
+           (unified/detail/?module=service) es demasiado escueto para este
+           módulo (solo hero/gallery/pricing/reviews) — esta rama hace su
+           propio fetch a servicesService.detail()/.packages() (endpoints
+           públicos ya existentes, sin tocar backend) para recuperar la
+           estructura rica que producción ya sirve hoy. Vive bajo
+           `.service-detail-block` para no chocar con las clases de Shop.
+           ══════════════════════════════════════════════════════════════════ -->
+      <div v-else-if="moduleType === 'service' && serviceDetail" class="service-detail-block">
+        <div class="row g-4 g-lg-5">
+          <!-- Left Column: Gallery & Trust -->
+          <div class="col-lg-5">
+            <div class="gallery-sticky">
+              <BaseGallery
+                :images="serviceDetail.images || []"
+                :title="serviceDetail.name"
+                icon-class="bi-tools"
+                theme="services"
+              >
+                <template #badge>
+                  <span v-if="serviceDetail.is_featured" class="sv-gallery-badge">
+                    <i class="bi bi-star-fill me-1"></i>Destacado
+                  </span>
+                </template>
+              </BaseGallery>
+
+              <div class="trust-grid">
+                <div><i class="bi bi-shield-check text-success"></i><span>Garantia tecnica</span></div>
+                <div><i class="bi bi-credit-card text-primary"></i><span>Pago seguro</span></div>
+                <div><i class="bi bi-file-earmark-check text-info"></i><span>Entregables</span></div>
+                <div><i class="bi bi-headset text-warning"></i><span>Soporte postventa</span></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Right Column: Details & CTA -->
+          <div class="col-lg-7">
+            <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+              <TagBadge v-for="tag in serviceTags" :key="tag.code" :tag="tag" />
+              <span v-if="serviceDetail.category?.name" class="badge bg-primary-subtle text-primary border border-primary-subtle">
+                {{ serviceDetail.category.name }}
+              </span>
+              <span v-if="serviceDetail.level?.name" class="badge bg-light text-muted border">
+                Nivel {{ serviceDetail.level.name }}
+              </span>
+              <span class="badge bg-success-subtle text-success border border-success-subtle">
+                {{ serviceStatusLabel }}
+              </span>
+              <span class="text-muted small ms-lg-auto">
+                <i class="bi bi-upc me-1"></i>{{ serviceCommercialCode }}
+              </span>
+            </div>
+
+            <h1 class="service-title">{{ serviceDetail.name }}</h1>
+            <p class="value-prop">{{ serviceValueProposition }}</p>
+
+            <div class="quick-specs">
+              <div v-for="spec in serviceQuickSpecs" :key="spec.label">
+                <span>{{ spec.label }}</span>
+                <strong>{{ spec.value }}</strong>
+              </div>
+            </div>
+
+            <div class="package-panel">
+              <div class="panel-head">
+                <div>
+                  <span class="section-kicker">Solicitar servicio</span>
+                  <h2>Agenda tu servicio con Sintel</h2>
+                </div>
+                <span v-if="serviceMinPrice !== null" class="from-price">Desde {{ fmtCOP(serviceMinPrice) }}</span>
+              </div>
+              <div class="selected-package">
+                <div>
+                  <h3>Selecciona la opcion, direccion, fecha y paga en linea</h3>
+                  <p>El paso a paso completo (Servicio, Direccion, Fecha, Pago) se realiza en la siguiente pantalla.</p>
+                </div>
+                <RouterLink
+                  v-if="serviceHasActiveVariant"
+                  :to="{ name: 'service-request', params: { uuid: serviceDetail.uuid } }"
+                  class="buy-btn"
+                >
+                  <i class="bi bi-bag-check me-2"></i>Solicitar servicio
+                </RouterLink>
+                <div v-else class="unavailable">
+                  <i class="bi bi-clock me-1"></i>No disponible
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="detail-sections">
+          <section v-if="servicePackages.length" class="detail-section">
+            <div class="section-head">
+              <span class="section-kicker">Paquetes comerciales</span>
+              <h2>Paquetes disponibles</h2>
+            </div>
+            <div class="packages-grid">
+              <ServicePackageCard
+                v-for="pkg in servicePackages"
+                :key="pkg.uuid"
+                :pkg="pkg"
+                @contract="goToServicePackageRequest"
+              />
+            </div>
+          </section>
+
+          <section class="detail-section">
+            <div class="section-head">
+              <span class="section-kicker">Recursos tecnicos</span>
+              <h2>Herramientas, software, protocolos y compatibilidad</h2>
+            </div>
+            <ServiceFeatureList :groups="serviceResourceGroups" />
+          </section>
+
+          <section class="detail-section">
+            <div class="section-head">
+              <span class="section-kicker">Alcance operativo</span>
+              <h2>Incluye, no incluye y entregables</h2>
+            </div>
+            <div class="scope-grid">
+              <ServiceScopeList title="Incluye" icon="bi-check2-circle" icon-color-class="text-success" :items="serviceIncludes" />
+              <ServiceScopeList title="No incluye" icon="bi-x-circle" icon-color-class="text-danger" :items="serviceExcludes" />
+              <ServiceScopeList title="Entregables" icon="bi-file-earmark-check" icon-color-class="text-primary" :items="serviceDeliverables" />
+            </div>
+          </section>
+
+          <section class="detail-section">
+            <div class="section-head">
+              <span class="section-kicker">Ficha tecnica</span>
+              <h2>Especificaciones del servicio</h2>
+            </div>
+            <ServiceSpecificationTable :specs="serviceTechnicalSpecs" />
+          </section>
+
+          <section class="detail-section">
+            <div class="section-head">
+              <span class="section-kicker">Profesionales</span>
+              <h2>Tecnicos calificados para este servicio</h2>
+            </div>
+            <ServiceProfessionals :service-uuid="serviceDetail.uuid" />
+          </section>
+
+          <section class="detail-section">
+            <div class="section-head">
+              <span class="section-kicker">Oferta de valor</span>
+              <h2>Que problema resuelve</h2>
+            </div>
+            <div class="value-grid">
+              <article v-for="item in serviceValueCards" :key="item.title">
+                <i :class="['bi', item.icon]"></i>
+                <h3>{{ item.title }}</h3>
+                <p>{{ item.copy }}</p>
+              </article>
+            </div>
+          </section>
+
+          <section class="detail-section split">
+            <div>
+              <div class="section-head">
+                <span class="section-kicker">Descripcion comercial</span>
+                <h2>Solucion profesional lista para operar</h2>
+              </div>
+              <p class="commercial-description">{{ serviceCommercialDescription }}</p>
+            </div>
+            <div class="guarantee-card">
+              <i class="bi bi-patch-check"></i>
+              <span>Garantia</span>
+              <strong>{{ serviceWarrantyText }}</strong>
+              <p>Incluye trazabilidad, pruebas funcionales y soporte segun el paquete contratado.</p>
+            </div>
+          </section>
+
+          <section class="detail-section">
+            <div class="section-head">
+              <span class="section-kicker">Proceso</span>
+              <h2>Como se ejecuta el servicio</h2>
+            </div>
+            <div class="timeline">
+              <div v-for="step in serviceProcessSteps" :key="step" class="timeline-step">
+                <span>{{ step }}</span>
+              </div>
+            </div>
+          </section>
+
+          <section class="detail-section">
+            <div class="section-head">
+              <span class="section-kicker">Video</span>
+              <h2>Demostracion tecnica</h2>
+            </div>
+            <div class="video-placeholder">
+              <i class="bi bi-play-circle"></i>
+              <span>Video administrable pendiente</span>
+            </div>
+          </section>
+
+          <section v-if="serviceFaqs.length" class="detail-section">
+            <div class="section-head">
+              <span class="section-kicker">Preguntas frecuentes</span>
+              <h2>Resolvemos tus dudas</h2>
+            </div>
+            <BaseAccordion :items="serviceFaqs" accent-color="#d97706" />
+          </section>
+
+          <section class="detail-section">
+            <div class="section-head">
+              <span class="section-kicker">Confianza</span>
+              <h2>Caso de exito</h2>
+            </div>
+            <article class="case-card">
+              <i class="bi bi-building-check"></i>
+              <h3>{{ serviceSuccessCase.title }}</h3>
+              <p>{{ serviceSuccessCase.copy }}</p>
+              <span>{{ serviceSuccessCase.metric }}</span>
+            </article>
+          </section>
+
+          <section class="detail-section related-section">
+            <div class="section-head">
+              <span class="section-kicker">Cross selling</span>
+              <h2>Servicios y productos relacionados</h2>
+            </div>
+            <div class="related-grid">
+              <RouterLink to="/servicios" class="related-card">
+                <i class="bi bi-tools"></i>
+                <span>Servicios complementarios</span>
+                <strong>Mantenimiento, soporte y diagnostico</strong>
+              </RouterLink>
+              <RouterLink to="/tienda" class="related-card">
+                <i class="bi bi-box-seam"></i>
+                <span>Productos compatibles</span>
+                <strong>Camara, cableado, rack, UPS y accesorios</strong>
+              </RouterLink>
+              <RouterLink to="/alquiler" class="related-card">
+                <i class="bi bi-hdd-rack"></i>
+                <span>Equipos en renting</span>
+                <strong>Infraestructura disponible por demanda</strong>
+              </RouterLink>
+            </div>
+          </section>
+
+          <section class="detail-section">
+            <div class="section-head">
+              <span class="section-kicker">Opiniones</span>
+              <h2>Reseñas de clientes</h2>
+            </div>
+            <BaseReviews
+              base-path="services/services"
+              :entity-uuid="serviceDetail.uuid"
+              accent-color="#d97706"
+              item-label="este servicio"
+            />
+          </section>
+        </div>
+      </div>
+
+      <!-- ══════════════════════════════════════════════════════════════════
+           SHOP — sin cambios en este alcance (ver plan). Se deja intacto
+           tal cual estaba antes de las restauraciones de Renting/Services.
            ══════════════════════════════════════════════════════════════════ -->
       <template v-else>
         <!-- MAIN 2-COLUMN LAYOUT (mirrors production: col-lg-5 gallery/availability, col-lg-7 details) -->
@@ -518,10 +776,12 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue';
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import useApi from '@/composables/useApi';
 import { useToast } from '@/composables/useToast';
 import { useSeo } from '@/composables/useSeo';
+import { servicesService } from '@/services/technical_services/servicesService';
+import { formatCOP } from '@/utils/money';
 
 // Renting — componentes reales reutilizados (ver plan structured-strolling-sparkle.md).
 // Above-fold: carga eager. Below-fold: lazy via defineAsyncComponent, igual que
@@ -554,9 +814,29 @@ const BaseReviews = defineAsyncComponent(() =>
   import('@/components/base/BaseReviews.vue')
 );
 
+// Services — componentes reales reutilizados (ver plan structured-strolling-sparkle.md).
+// Existian en el repo sin una sola referencia (verificado con grep) desde que
+// 674dff8 redujo ServiceDetailView.vue a un stub. Below-fold: lazy.
+const ServiceFeatureList = defineAsyncComponent(() =>
+  import('@/components/services/detail/ServiceFeatureList.vue')
+);
+const ServiceScopeList = defineAsyncComponent(() =>
+  import('@/components/services/detail/ServiceScopeList.vue')
+);
+const ServiceSpecificationTable = defineAsyncComponent(() =>
+  import('@/components/services/detail/ServiceSpecificationTable.vue')
+);
+const ServiceProfessionals = defineAsyncComponent(() =>
+  import('@/components/services/detail/ServiceProfessionals.vue')
+);
+const ServicePackageCard = defineAsyncComponent(() =>
+  import('@/components/services/packages/ServicePackageCard.vue')
+);
+
 const api = useApi();
 const { success, error: showError } = useToast();
 const route = useRoute();
+const router = useRouter();
 const { setSeo } = useSeo();
 
 const loading = ref(true);
@@ -564,6 +844,171 @@ const error = ref(null);
 const detail = ref(null);
 const isFavorite = ref(false);
 const FAVORITES_KEY = 'sintel_favorites';
+
+// Rama Services restaurada: el DTO unificado no alcanza (ver plan), se
+// alimenta de un fetch propio a endpoints publicos ya existentes.
+const serviceDetail = ref(null);
+const servicePackages = ref([]);
+
+const SERVICE_TAG_META = {
+  OFERTA: { label: 'Oferta', color: 'danger' },
+  NUEVO: { label: 'Nuevo', color: 'info' },
+  MAS_SOLICITADO: { label: 'Mas solicitado', color: 'warning' },
+  PREMIUM: { label: 'Premium', color: 'primary' },
+  RECOMENDADO: { label: 'Recomendado', color: 'success' },
+  HOT: { label: 'Hot', color: 'danger' },
+  TOP_CALIFICADO: { label: 'Top calificado', color: 'warning' },
+  IDEAL_EMPRESAS: { label: 'Ideal para empresas', color: 'primary' },
+  CUPOS_LIMITADOS: { label: 'Cupos limitados', color: 'danger' },
+};
+
+// Contenido de respaldo (ya existia en el archivo recuperado) para las
+// listas que no tienen campo de modelo real detras -- documentado asi en
+// technical_services/CLAUDE.md, no se inventan modelos nuevos.
+const SERVICE_FALLBACK = {
+  features: ['Instalacion certificada', 'Configuracion remota', 'Optimizacion de red', 'Actualizacion de firmware', 'Capacitacion operativa', 'Garantia documentada'],
+  tools: ['Taladro', 'Multimetro', 'Crimpadora', 'Tester', 'Laptop', 'Escalera'],
+  software: ['SADP', 'iVMS', 'ConfigTool', 'Winbox', 'UniFi', 'Windows', 'Linux'],
+  protocols: ['ONVIF', 'RTSP', 'TCP', 'UDP', 'HTTP', 'HTTPS', 'Modbus', 'OSDP'],
+  compatibility: ['Hikvision', 'Dahua', 'Axis', 'Bosch', 'ZKTeco', 'Akuvox', 'Ubiquiti'],
+  accessories: ['Canaleta', 'Conectores', 'Patch Cord', 'RJ45', 'Gabinete', 'Fuente', 'Rack', 'UPS'],
+  includes: ['Levantamiento inicial', 'Configuracion del sistema', 'Pruebas funcionales', 'Capacitacion basica', 'Acta de entrega'],
+  excludes: ['Obra civil no especificada', 'Equipos o repuestos no incluidos', 'Licencias externas', 'Trabajos fuera de cobertura acordada'],
+  deliverables: ['Informe tecnico', 'Registro fotografico', 'Credenciales de administracion', 'Recomendaciones de mantenimiento', 'Certificado de garantia'],
+};
+
+const serviceTags = computed(() => {
+  const codes = serviceDetail.value?.marketing?.tags || [];
+  return codes.map((code) => ({ code, ...(SERVICE_TAG_META[code] || { label: code, color: 'primary' }) }));
+});
+
+const serviceMinPrice = computed(() => {
+  const variants = serviceDetail.value?.variants || [];
+  const prices = variants
+    .filter((v) => v.is_active !== false)
+    .map((v) => v.price_info?.total ?? v.calculated_price)
+    .filter((p) => p != null && parseFloat(p) > 0)
+    .map((p) => parseFloat(p));
+  return prices.length ? Math.min(...prices) : null;
+});
+
+const serviceHasActiveVariant = computed(() =>
+  serviceDetail.value?.variants?.some((v) => v.is_active !== false) ?? false
+);
+
+const serviceCommercialCode = computed(() => {
+  const variantSku = serviceDetail.value?.variants?.find((v) => v.sku)?.sku;
+  return variantSku || `SERV-${String(serviceDetail.value?.uuid || '').slice(0, 8)}`;
+});
+
+const serviceStatusLabel = computed(() =>
+  serviceDetail.value?.is_active === false ? 'No disponible' : 'Disponible'
+);
+
+// marketing.main_message es real (ServiceMarketing); si el admin no lo cargo
+// se conserva el mismo texto de respaldo que ya mostraba produccion.
+const serviceValueProposition = computed(() =>
+  serviceDetail.value?.marketing?.main_message ||
+  'Incluye diagnostico, configuracion, puesta en marcha, capacitacion y garantia para que la solucion quede operando con respaldo profesional.'
+);
+
+const serviceCommercialDescription = computed(() =>
+  serviceDetail.value?.description ||
+  'Servicio profesional orientado a resolver necesidades tecnicas en sitio, remoto o modalidad hibrida. El alcance contempla planeacion, ejecucion, pruebas, entrega documentada y soporte segun el paquete contratado.'
+);
+
+const serviceWarrantyText = computed(() => '30 dias sobre mano de obra');
+
+const serviceDefaultHoursLabel = computed(() => {
+  const first = serviceDetail.value?.variants?.find((v) => v.estimated_hours);
+  return first ? `${first.estimated_hours} horas` : '6 horas estimadas';
+});
+
+const serviceQuickSpecs = computed(() => [
+  { label: 'Duracion', value: serviceDefaultHoursLabel.value },
+  { label: 'Personal', value: '2 tecnicos' },
+  { label: 'Modalidad', value: 'En sitio, remoto o hibrido' },
+  { label: 'Cobertura', value: 'Nacional' },
+]);
+
+const serviceTechnicalSpecs = computed(() => [
+  { label: 'Categoria', value: serviceDetail.value?.category?.name || 'Servicio tecnico' },
+  { label: 'Subcategoria', value: serviceDetail.value?.category?.name || 'Implementacion' },
+  { label: 'Codigo', value: serviceCommercialCode.value },
+  { label: 'Nivel tecnico', value: serviceDetail.value?.level?.name || 'Senior' },
+  { label: 'Tipo de servicio', value: 'Instalacion, mantenimiento o configuracion' },
+  { label: 'Ciclo', value: 'Unico o recurrente' },
+  { label: 'Disponibilidad', value: 'Programada y emergencias 24/7' },
+  { label: 'Cobertura', value: 'Nacional' },
+]);
+
+// marketing.quick_benefits es real; el resto de grupos no tiene campo de
+// modelo detras (ver gap documentado en el plan), se conserva el respaldo.
+const serviceFeaturesList = computed(() => {
+  const benefits = serviceDetail.value?.marketing?.quick_benefits;
+  if (Array.isArray(benefits) && benefits.length) {
+    return benefits.map((b) => b.label).filter(Boolean);
+  }
+  return SERVICE_FALLBACK.features;
+});
+
+const serviceResourceGroups = computed(() => [
+  { title: 'Caracteristicas', icon: 'bi-stars', items: serviceFeaturesList.value },
+  { title: 'Herramientas', icon: 'bi-tools', items: SERVICE_FALLBACK.tools },
+  { title: 'Software', icon: 'bi-window-desktop', items: SERVICE_FALLBACK.software },
+  { title: 'Protocolos', icon: 'bi-diagram-3', items: SERVICE_FALLBACK.protocols },
+  { title: 'Compatibilidad', icon: 'bi-hdd-network', items: SERVICE_FALLBACK.compatibility },
+  { title: 'Accesorios', icon: 'bi-plug', items: SERVICE_FALLBACK.accessories },
+]);
+
+const serviceIncludes = computed(() => SERVICE_FALLBACK.includes);
+const serviceExcludes = computed(() => SERVICE_FALLBACK.excludes);
+const serviceDeliverables = computed(() => SERVICE_FALLBACK.deliverables);
+
+const serviceValueCards = computed(() => [
+  { icon: 'bi-bullseye', title: 'Problema', copy: 'Reduce fallas, tiempos muertos y riesgos operativos en infraestructura tecnica.' },
+  { icon: 'bi-box2-heart', title: 'Recibes', copy: 'Servicio ejecutado, probado, documentado y entregado con evidencia.' },
+  { icon: 'bi-award', title: 'Por que Sintel', copy: serviceDetail.value?.marketing?.trust_message || 'Equipo tecnico especializado, cobertura nacional, marcas compatibles y soporte postventa.' },
+  { icon: 'bi-graph-up-arrow', title: 'Beneficio', copy: serviceDetail.value?.marketing?.social_proof_message || 'Mayor continuidad, seguridad, trazabilidad y control del sistema instalado.' },
+]);
+
+const serviceProcessSteps = ['Solicitud', 'Pago', 'Programacion', 'Asignacion', 'Visita', 'Instalacion', 'Pruebas', 'Entrega', 'Garantia'];
+
+const serviceSuccessCase = {
+  title: 'Implementacion certificada en entorno empresarial',
+  copy: 'Normalizacion del sistema, pruebas de conectividad y entrega documentada para operacion continua.',
+  metric: 'Tiempo de respuesta reducido en 35%',
+};
+
+const serviceFaqs = computed(() => serviceDetail.value?.faqs || []);
+
+function fmtCOP(value) {
+  const number = parseFloat(value);
+  if (!Number.isFinite(number) || number <= 0) return 'A cotizar';
+  return formatCOP(number, { withSymbol: true });
+}
+
+function goToServicePackageRequest(pkg) {
+  router.push({
+    name: 'service-request',
+    params: { uuid: serviceDetail.value.uuid },
+    query: { package: pkg.uuid },
+  });
+}
+
+async function fetchServiceRichDetail(uuid) {
+  try {
+    const [detailData, packagesData] = await Promise.all([
+      servicesService.detail(uuid),
+      servicesService.packages(uuid).catch(() => []),
+    ]);
+    serviceDetail.value = detailData;
+    servicePackages.value = packagesData || [];
+  } catch {
+    serviceDetail.value = null;
+    servicePackages.value = [];
+  }
+}
 
 // Usado solo por la rama Shop/Service (preservada sin cambios).
 const reviewRating = ref(0);
@@ -712,6 +1157,10 @@ async function fetchDetail() {
     const res = await api.get(`unified/detail/${uuid}/?module=${moduleType.value}`);
     detail.value = res.data;
     isFavorite.value = loadFavorites().includes(detail.value.uuid);
+
+    if (moduleType.value === 'service') {
+      await fetchServiceRichDetail(uuid);
+    }
 
     setSeo({
       title: detail.value.hero?.name || 'Detalle',
@@ -1132,7 +1581,354 @@ onMounted(() => fetchDetail());
 }
 
 /* ════════════════════════════════════════════════════════════════════════
-   SHOP / SERVICE — CSS sin cambios en este alcance.
+   SERVICES — CSS restaurado del ServiceDetailView.vue recuperado
+   (git show 674dff8~1), namespaced bajo .service-detail-block para no
+   colisionar con las clases de incluye la rama Shop. Mismos valores que
+   producción sirve hoy (acento teal #0f766e, acento ámbar #d97706 para
+   FAQ/reseñas, radios 14-16px) — cero color inventado.
+   ════════════════════════════════════════════════════════════════════════ */
+.service-detail-block {
+  background: #f8fafc;
+}
+
+.service-detail-block .gallery-sticky { position: sticky; top: 88px; }
+
+.service-detail-block .sv-gallery-badge {
+  position: absolute; top: .8rem; right: .8rem;
+  background: #f59e0b; color: #0f172a;
+  border-radius: 999px; padding: .28rem .7rem;
+  font-size: .72rem; font-weight: 800;
+}
+
+.service-detail-block .trust-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: .55rem;
+  margin-top: .9rem;
+}
+
+.service-detail-block .trust-grid div {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: .65rem;
+  display: flex;
+  align-items: center;
+  gap: .45rem;
+  color: #475569;
+  font-size: .78rem;
+  font-weight: 700;
+}
+
+.service-detail-block .service-title {
+  color: #0f172a;
+  font-size: clamp(1.65rem, 3vw, 2.45rem);
+  font-weight: 900;
+  line-height: 1.08;
+  margin: 0 0 .75rem;
+}
+
+.service-detail-block .value-prop {
+  color: #475569;
+  font-size: 1rem;
+  line-height: 1.65;
+  margin-bottom: 1rem;
+}
+
+.service-detail-block .quick-specs {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: .65rem;
+  margin-bottom: 1rem;
+}
+
+.service-detail-block .quick-specs div,
+.service-detail-block .package-panel,
+.service-detail-block .detail-section {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+}
+
+.service-detail-block .quick-specs div { padding: .75rem; }
+
+.service-detail-block .quick-specs span,
+.service-detail-block .related-card span {
+  display: block;
+  color: #64748b;
+  font-size: .72rem;
+  font-weight: 700;
+}
+
+.service-detail-block .quick-specs strong {
+  display: block;
+  color: #0f172a;
+  font-size: .86rem;
+  margin-top: .18rem;
+}
+
+.service-detail-block .package-panel {
+  padding: 1rem;
+  box-shadow: 0 14px 30px rgba(15,23,42,.06);
+}
+
+.service-detail-block .panel-head,
+.service-detail-block .section-head {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: .9rem;
+}
+
+.service-detail-block .section-head { display: block; }
+
+.service-detail-block .section-kicker {
+  display: block;
+  color: #0f766e;
+  font-size: .72rem;
+  font-weight: 850;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  margin-bottom: .25rem;
+}
+
+.service-detail-block .panel-head h2,
+.service-detail-block .section-head h2 {
+  color: #0f172a;
+  font-size: 1.25rem;
+  font-weight: 850;
+  margin: 0;
+}
+
+.service-detail-block .from-price {
+  color: #0f766e;
+  font-weight: 850;
+  white-space: nowrap;
+}
+
+.service-detail-block .selected-package {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  border-top: 1px solid #e2e8f0;
+  margin-top: .9rem;
+  padding-top: .9rem;
+}
+
+.service-detail-block .selected-package h3 {
+  color: #0f172a;
+  font-size: 1rem;
+  font-weight: 850;
+  margin: 0 0 .2rem;
+}
+
+.service-detail-block .selected-package p {
+  color: #64748b;
+  font-size: .86rem;
+  margin: 0;
+}
+
+.service-detail-block .buy-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #0f766e;
+  color: #fff;
+  text-decoration: none;
+  border-radius: 999px;
+  padding: .75rem 1.15rem;
+  font-weight: 850;
+  white-space: nowrap;
+}
+
+.service-detail-block .buy-btn:hover { background: #115e59; color: #fff; }
+
+.service-detail-block .unavailable {
+  color: #64748b;
+  border: 1px solid #e2e8f0;
+  border-radius: 999px;
+  padding: .7rem 1rem;
+}
+
+.service-detail-block .detail-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin-top: 1.25rem;
+}
+
+.service-detail-block .detail-section { padding: 1.1rem; }
+
+.service-detail-block .detail-section.split,
+.service-detail-block .related-grid {
+  display: grid;
+  grid-template-columns: 1.3fr .8fr;
+  gap: 1rem;
+}
+
+.service-detail-block .value-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: .75rem;
+}
+
+.service-detail-block .scope-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: .75rem;
+}
+
+.service-detail-block .packages-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 1rem;
+}
+
+.service-detail-block .value-grid article,
+.service-detail-block .guarantee-card,
+.service-detail-block .case-card,
+.service-detail-block .related-card {
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  border-radius: 14px;
+  padding: .9rem;
+}
+
+.service-detail-block .value-grid i,
+.service-detail-block .guarantee-card i,
+.service-detail-block .case-card i,
+.service-detail-block .related-card i {
+  color: #0e7490;
+  font-size: 1.35rem;
+}
+
+.service-detail-block .value-grid h3,
+.service-detail-block .case-card h3 {
+  color: #0f172a;
+  font-size: .95rem;
+  font-weight: 850;
+  margin: .45rem 0 .3rem;
+}
+
+.service-detail-block .value-grid p,
+.service-detail-block .commercial-description,
+.service-detail-block .guarantee-card p,
+.service-detail-block .case-card p {
+  color: #64748b;
+  font-size: .88rem;
+  line-height: 1.65;
+  margin: 0;
+}
+
+.service-detail-block .commercial-description { font-size: .95rem; }
+
+.service-detail-block .guarantee-card {
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+}
+
+.service-detail-block .guarantee-card span {
+  display: block;
+  color: #166534;
+  font-weight: 800;
+  margin-top: .4rem;
+}
+
+.service-detail-block .guarantee-card strong {
+  display: block;
+  color: #0f172a;
+  font-size: 1.15rem;
+  margin: .1rem 0 .35rem;
+}
+
+.service-detail-block .timeline {
+  display: grid;
+  grid-template-columns: repeat(9, minmax(0, 1fr));
+  gap: .45rem;
+}
+
+.service-detail-block .timeline-step {
+  min-height: 48px;
+  background: #eff6ff;
+  border: 1px solid #dbeafe;
+  border-radius: 12px;
+  color: #1e40af;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  font-size: .73rem;
+  font-weight: 800;
+}
+
+.service-detail-block .video-placeholder {
+  min-height: 205px;
+  border-radius: 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: .45rem;
+  background: #0f172a;
+  color: #fff;
+}
+
+.service-detail-block .video-placeholder i { font-size: 2.2rem; }
+
+.service-detail-block .case-card span {
+  display: inline-flex;
+  margin-top: .8rem;
+  background: #ecfeff;
+  color: #0e7490;
+  border-radius: 999px;
+  padding: .35rem .7rem;
+  font-size: .75rem;
+  font-weight: 850;
+}
+
+.service-detail-block .related-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+
+.service-detail-block .related-card { color: inherit; text-decoration: none; }
+
+.service-detail-block .related-card strong {
+  display: block;
+  color: #0f172a;
+  margin-top: .3rem;
+}
+
+@media (max-width: 991px) {
+  .service-detail-block .gallery-sticky { position: static; }
+  .service-detail-block .quick-specs,
+  .service-detail-block .value-grid,
+  .service-detail-block .scope-grid,
+  .service-detail-block .timeline,
+  .service-detail-block .related-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .service-detail-block .detail-section.split { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 575px) {
+  .service-detail-block .quick-specs,
+  .service-detail-block .scope-grid,
+  .service-detail-block .value-grid,
+  .service-detail-block .timeline,
+  .service-detail-block .related-grid,
+  .service-detail-block .trust-grid {
+    grid-template-columns: 1fr;
+  }
+  .service-detail-block .selected-package,
+  .service-detail-block .panel-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .service-detail-block .buy-btn { width: 100%; }
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   SHOP — CSS sin cambios en este alcance.
    ════════════════════════════════════════════════════════════════════════ */
 /* SECTION KICKER (shared, matches production .section-kicker) */
 .section-kicker {
