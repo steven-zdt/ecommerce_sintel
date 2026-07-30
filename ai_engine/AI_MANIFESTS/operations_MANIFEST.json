@@ -1,6 +1,6 @@
 {
   "app": "operations",
-  "generated_at": "2026-07-19T14:55:36.656561+00:00",
+  "generated_at": "2026-07-30T01:51:09.037331+00:00",
   "api_prefix": "api/v1/operations",
   "purpose": "Operational scheduling, field operations tracking",
   "architecture": {

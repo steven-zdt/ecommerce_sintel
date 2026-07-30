@@ -409,12 +409,44 @@ async def refresh_knowledge_base(req: RefreshRequest):
     """
     Actualiza incrementalmente la base de conocimiento (Phase 11).
     Detecta cambios automaticamente o acepta lista de apps cambiadas.
+
+    [EXTENDIDO 2026-07-30, AUDITORIA/14_GRAPHIFY_KNOWLEDGE_GRAPH.md §16 "Graphify
+    Orchestrator"] `run_code_generation()` (graph.py) solo PROPONE codigo -- nunca lo
+    escribe a disco, eso requiere aprobacion humana (mismo patron de "confirmacion humana
+    para escrituras" que ya usa el resto del AI Core). Este endpoint, ya llamado
+    manualmente despues de aplicar un cambio, es por lo tanto el unico punto real donde
+    "cerrar el ciclo" tiene sentido -- no dentro del grafo de generacion, que corre ANTES
+    de que el archivo exista en disco. Ahora, ademas del refresco incremental que ya hacia
+    (KG/DependencyGraph/Memory -- Fases 10 y 12), corre gobernanza (`graph_validator.py`,
+    Fase 13 -- no existia antes de esa auditoria) y marca la documentacion de Nivel 2 de
+    las apps tocadas que conviene revisar (Fase 11 -- nunca la edita sola, solo la señala),
+    en la misma llamada.
     """
     result = update_changed_apps(
         app_names=req.apps,
         frontend=req.frontend,
         force_full=req.force_full,
     )
+
+    changed_apps = result.get("changed_apps", [])
+    if changed_apps:
+        try:
+            from graph_validator import run_all_validations
+            result["governance"] = run_all_validations()["summary"]
+        except Exception as exc:
+            logger.error("[refresh] Gobernanza fallo: %s", exc)
+            result["governance"] = {"error": str(exc)}
+
+        try:
+            from documentation_graph import build_documentation_index
+            result["docs_to_review"] = [
+                d["path"] for d in build_documentation_index()
+                if d["app"] in changed_apps and d["scope"] == "nivel2"
+            ]
+        except Exception as exc:
+            logger.error("[refresh] Listado de docs a revisar fallo: %s", exc)
+            result["docs_to_review"] = []
+
     return result
 
 

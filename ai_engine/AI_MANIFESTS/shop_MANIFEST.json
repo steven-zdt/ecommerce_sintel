@@ -1,6 +1,6 @@
 {
   "app": "shop",
-  "generated_at": "2026-07-19T14:55:36.865847+00:00",
+  "generated_at": "2026-07-30T01:51:09.386438+00:00",
   "api_prefix": "api/v1/shop",
   "purpose": "Product catalog management: products, variants, categories, brands, taxes, pricing rules",
   "architecture": {
@@ -194,7 +194,8 @@
         "actions": [
           "get_object",
           "reviews",
-          "review"
+          "review",
+          "full_detail"
         ]
       },
       {
@@ -431,6 +432,9 @@
     "tasks": [],
     "permissions": [],
     "file_map": {
+      "admin": [
+        "shop/admin.py"
+      ],
       "serializer": [
         "shop/api/serializers.py"
       ],
@@ -483,7 +487,8 @@
       "actions": [
         "get_object",
         "reviews",
-        "review"
+        "review",
+        "full_detail"
       ],
       "basename": "product",
       "http_methods": [
@@ -558,28 +563,11 @@
     }
   ],
   "frontend_consumers": {
-    "api/v1/shop/products": [
-      {
-        "type": "FrontendComponent",
-        "name": "ProductForm",
-        "file": "modules/shop/ProductForm.vue"
-      },
-      {
-        "type": "FrontendComponent",
-        "name": "ProductList",
-        "file": "modules/shop/ProductList.vue"
-      }
-    ],
     "api/v1/shop/variants": [
       {
         "type": "FrontendComponent",
         "name": "RentingForm",
         "file": "modules/renting/RentingForm.vue"
-      },
-      {
-        "type": "FrontendComponent",
-        "name": "ProductForm",
-        "file": "modules/shop/ProductForm.vue"
       }
     ],
     "api/v1/shop/categories": [
@@ -610,21 +598,6 @@
       },
       {
         "type": "FrontendComponent",
-        "name": "CategoryList",
-        "file": "modules/shop/CategoryList.vue"
-      },
-      {
-        "type": "FrontendComponent",
-        "name": "ProductForm",
-        "file": "modules/shop/ProductForm.vue"
-      },
-      {
-        "type": "FrontendComponent",
-        "name": "ProductList",
-        "file": "modules/shop/ProductList.vue"
-      },
-      {
-        "type": "FrontendComponent",
         "name": "TechnicianAssignmentBoard",
         "file": "modules/technical_services/TechnicianAssignmentBoard.vue"
       }
@@ -649,33 +622,6 @@
         "type": "FrontendComponent",
         "name": "RentingList",
         "file": "modules/renting/RentingList.vue"
-      },
-      {
-        "type": "FrontendComponent",
-        "name": "BrandList",
-        "file": "modules/shop/BrandList.vue"
-      },
-      {
-        "type": "FrontendComponent",
-        "name": "ProductForm",
-        "file": "modules/shop/ProductForm.vue"
-      }
-    ],
-    "api/v1/shop/taxes": [
-      {
-        "type": "FrontendComponent",
-        "name": "ProductForm",
-        "file": "modules/shop/ProductForm.vue"
-      },
-      {
-        "type": "FrontendComponent",
-        "name": "TaxForm",
-        "file": "modules/shop/TaxForm.vue"
-      },
-      {
-        "type": "FrontendComponent",
-        "name": "TaxList",
-        "file": "modules/shop/TaxList.vue"
       }
     ]
   },
@@ -692,49 +638,49 @@
   "blast_radius": {
     "Category": {
       "types_affected": [
+        "ViewSet",
         "Model",
-        "Serializer",
-        "ViewSet"
+        "Serializer"
       ],
       "total": 77
     },
     "Brand": {
       "types_affected": [
+        "ViewSet",
         "Model",
-        "Serializer",
-        "ViewSet"
+        "Serializer"
       ],
       "total": 77
     },
     "Product": {
       "types_affected": [
-        "Serializer",
+        "ViewSet",
         "Model",
-        "ViewSet"
+        "Serializer"
       ],
       "total": 84
     },
     "ProductVariant": {
       "types_affected": [
-        "Serializer",
+        "ViewSet",
         "Model",
-        "ViewSet"
+        "Serializer"
       ],
       "total": 83
     },
     "ProductImage": {
       "types_affected": [
-        "Serializer",
+        "ViewSet",
         "Model",
-        "ViewSet"
+        "Serializer"
       ],
       "total": 83
     },
     "ProductReview": {
       "types_affected": [
-        "Serializer",
+        "ViewSet",
         "Model",
-        "ViewSet"
+        "Serializer"
       ],
       "total": 83
     },
@@ -747,17 +693,17 @@
     },
     "ProductCostRule": {
       "types_affected": [
-        "Serializer",
+        "ViewSet",
         "Model",
-        "ViewSet"
+        "Serializer"
       ],
       "total": 84
     },
     "ProductCostAssignment": {
       "types_affected": [
-        "Serializer",
+        "ViewSet",
         "Model",
-        "ViewSet"
+        "Serializer"
       ],
       "total": 83
     }

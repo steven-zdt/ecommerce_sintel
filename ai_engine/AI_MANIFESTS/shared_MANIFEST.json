@@ -1,0 +1,94 @@
+{
+  "app": "shared",
+  "generated_at": "2026-07-30T01:51:09.346262+00:00",
+  "api_prefix": "api/v1/shared",
+  "purpose": "",
+  "architecture": {
+    "models": [],
+    "serializers": [],
+    "viewsets": [
+      {
+        "name": "UnifiedPublicDetailViewSet",
+        "file": "shared/api/views.py",
+        "bases": [
+          "viewsets.ViewSet"
+        ],
+        "actions": [
+          "retrieve"
+        ]
+      }
+    ],
+    "services": [],
+    "selectors": [],
+    "management_commands": [],
+    "consumers": [],
+    "tasks": [],
+    "permissions": [],
+    "file_map": {
+      "misc": [
+        "shared/__init__.py",
+        "shared/api/__init__.py",
+        "shared/dtos/__init__.py",
+        "shared/dtos/public_detail.py",
+        "shared/presenters/__init__.py",
+        "shared/presenters/public_detail.py",
+        "shared/serializers/__init__.py",
+        "shared/serializers/public_detail.py"
+      ],
+      "url": [
+        "shared/api/urls.py"
+      ],
+      "viewset": [
+        "shared/api/views.py"
+      ],
+      "app_config": [
+        "shared/apps.py"
+      ],
+      "test": [
+        "shared/tests/__init__.py",
+        "shared/tests/test_presenters.py"
+      ]
+    },
+    "migrations": 0
+  },
+  "endpoints": [],
+  "frontend_consumers": {},
+  "dependencies": {
+    "depends_on": [],
+    "depended_by": []
+  },
+  "blast_radius": {},
+  "service_contracts": {
+    "commands": [],
+    "selectors": []
+  },
+  "events": {
+    "produces": [],
+    "consumes": []
+  },
+  "constraints": [],
+  "known_issues": [],
+  "business_rules": [
+    {
+      "id": "CONFIRM_PAYMENT",
+      "rule": "Always call confirm_order_payment() from payment/shared/commands.py. Never duplicate inventory/notification logic.",
+      "why": "confirm_order_payment is idempotent and handles all post-payment side effects."
+    }
+  ],
+  "url_patterns": [
+    {
+      "type": "path",
+      "route": "unified/detail/<str:pk>/"
+    }
+  ],
+  "patterns": {
+    "command_class": "SharedCommands",
+    "selector_class": "SharedSelector",
+    "service_layer": true,
+    "soft_delete": true
+  },
+  "TODO": [],
+  "BUG": [],
+  "HOT_FIX": [],
+  "decisions": []
+}

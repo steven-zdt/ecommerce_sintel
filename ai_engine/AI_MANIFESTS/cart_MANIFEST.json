@@ -1,6 +1,6 @@
 {
   "app": "cart",
-  "generated_at": "2026-07-19T14:55:36.431962+00:00",
+  "generated_at": "2026-07-30T01:51:08.736668+00:00",
   "api_prefix": "api/v1/cart",
   "purpose": "Shopping cart: add/remove items, quantity updates, cart summary",
   "architecture": {
@@ -80,6 +80,7 @@
           "viewsets.ViewSet"
         ],
         "actions": [
+          "get_throttles",
           "get_cart",
           "list",
           "add_item",
@@ -141,6 +142,9 @@
     "tasks": [],
     "permissions": [],
     "file_map": {
+      "admin": [
+        "cart/admin.py"
+      ],
       "serializer": [
         "cart/api/serializers.py"
       ],
@@ -192,9 +196,9 @@
   "frontend_consumers": {
     "api/v1/cart/wishlist": [
       {
-        "type": "FrontendView",
-        "name": "CustomerWishlistView",
-        "file": "views/customer/account/CustomerWishlistView.vue"
+        "type": "PiniaStore",
+        "name": "wishlist",
+        "file": "store/wishlist.js"
       }
     ]
   },
@@ -208,16 +212,16 @@
   "blast_radius": {
     "Cart": {
       "types_affected": [
+        "Model",
         "ViewSet",
-        "Serializer",
-        "Model"
+        "Serializer"
       ],
       "total": 4
     },
     "CartItem": {
       "types_affected": [
-        "ViewSet",
         "Model",
+        "ViewSet",
         "Serializer"
       ],
       "total": 3

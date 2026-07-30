@@ -22,8 +22,17 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+def _resolve_base_dir(ai_engine_dir: Path) -> Path:
+    """Ver auditor.py::_resolve_base_dir() -- mismo fix, misma causa raiz (BASE_DIR
+    hardcodeado no coincide con el mountpoint real /workspace del contenedor sintel_ai)."""
+    env_path = os.environ.get("CODEBASE_PATH")
+    if env_path and Path(env_path).exists():
+        return Path(env_path)
+    return ai_engine_dir.parent / "ecommerce_sintel"
+
+
 AI_ENGINE_DIR = Path(__file__).resolve().parent
-BASE_DIR      = AI_ENGINE_DIR.parent / "ecommerce_sintel"
+BASE_DIR      = _resolve_base_dir(AI_ENGINE_DIR)
 MAP_PATH      = AI_ENGINE_DIR / "PROJECT_MAP.json"
 HASH_DB_PATH  = AI_ENGINE_DIR / ".file_hashes.json"
 

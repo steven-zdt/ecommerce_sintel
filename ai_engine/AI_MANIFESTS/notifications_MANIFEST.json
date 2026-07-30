@@ -1,6 +1,6 @@
 {
   "app": "notifications",
-  "generated_at": "2026-07-19T14:55:36.632917+00:00",
+  "generated_at": "2026-07-30T01:51:09.003311+00:00",
   "api_prefix": "api/v1/notifications",
   "purpose": "Centralized notification dispatch: WebSocket, Email, WhatsApp channels",
   "architecture": {
@@ -79,7 +79,8 @@
         "file": "notifications/services/commands.py",
         "role": "command",
         "methods": [
-          "dispatch_notification"
+          "dispatch_notification",
+          "dispatch_notification_once"
         ]
       },
       {
@@ -125,6 +126,7 @@
         "notifications/api/__init__.py",
         "notifications/api/whatsapp_webhook.py",
         "notifications/clients/__init__.py",
+        "notifications/clients/sms.py",
         "notifications/clients/whatsapp.py",
         "notifications/management/__init__.py",
         "notifications/management/commands/__init__.py",
@@ -165,7 +167,7 @@
         "notifications/tests.py"
       ]
     },
-    "migrations": 3
+    "migrations": 6
   },
   "endpoints": [
     {
@@ -199,11 +201,6 @@
   "frontend_consumers": {
     "api/v1/notifications/logs": [
       {
-        "type": "FrontendComponent",
-        "name": "NotificationsAdminView",
-        "file": "modules/notifications/NotificationsAdminView.vue"
-      },
-      {
         "type": "PiniaStore",
         "name": "notifications",
         "file": "store/notifications.js"
@@ -225,8 +222,8 @@
     },
     "UserNotificationPreference": {
       "types_affected": [
-        "Serializer",
-        "ViewSet"
+        "ViewSet",
+        "Serializer"
       ],
       "total": 2
     },

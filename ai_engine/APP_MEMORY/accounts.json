@@ -75,7 +75,7 @@
     "management_commands": [],
     "celery_tasks": [],
     "consumers": [],
-    "migrations": 12
+    "migrations": 13
   },
   "key_models": [
     "UserProfile",
@@ -103,5 +103,5 @@
   "BUG": [],
   "HOT_FIX": [],
   "decisions": [],
-  "generated_at": "2026-07-19T14:55:36.345244+00:00"
+  "generated_at": "2026-07-30T01:51:08.606711+00:00"
 }

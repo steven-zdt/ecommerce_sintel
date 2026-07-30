@@ -1,6 +1,6 @@
 {
   "app": "support",
-  "generated_at": "2026-07-19T14:55:36.891572+00:00",
+  "generated_at": "2026-07-30T01:51:09.424272+00:00",
   "api_prefix": "api/v1/support",
   "purpose": "Real-time support chat: ChatRoom, ChatMessage, SupportChatConsumer WebSocket",
   "architecture": {
@@ -66,6 +66,10 @@
     ],
     "serializers": [
       {
+        "name": "RateConversationInputSerializer",
+        "file": "support/api/serializers.py"
+      },
+      {
         "name": "ChatRoomContextSerializer",
         "file": "support/api/serializers.py"
       },
@@ -82,7 +86,18 @@
         "file": "support/api/serializers.py"
       }
     ],
-    "viewsets": [],
+    "viewsets": [
+      {
+        "name": "RateConversationView",
+        "file": "support/api/views.py",
+        "bases": [
+          "APIView"
+        ],
+        "actions": [
+          "post"
+        ]
+      }
+    ],
     "services": [
       {
         "name": "ChatCommands",
@@ -92,6 +107,7 @@
           "get_or_create_room",
           "save_message",
           "close_room",
+          "rate_conversation",
           "assign_admin",
           "mark_messages_read",
           "attach_context"
@@ -106,6 +122,14 @@
           "get_room_by_uuid",
           "get_room_history",
           "get_contexts_for_room"
+        ]
+      },
+      {
+        "name": "ChatAnalyticsSelector",
+        "file": "support/services/selectors.py",
+        "role": "selector",
+        "methods": [
+          "get_summary"
         ]
       }
     ],
@@ -123,6 +147,7 @@
           "async disconnect",
           "async receive",
           "async chat_message",
+          "async room_closed",
           "_ai_mode_active",
           "_ask_ai",
           "_save_ai_message_and_maybe_pause",
@@ -136,7 +161,12 @@
         ]
       }
     ],
-    "tasks": [],
+    "tasks": [
+      {
+        "name": "notify_unattended_escalated_tickets",
+        "file": "support/tasks.py"
+      }
+    ],
     "permissions": [],
     "file_map": {
       "misc": [
@@ -155,6 +185,12 @@
       "serializer": [
         "support/api/serializers.py"
       ],
+      "url": [
+        "support/api/urls.py"
+      ],
+      "viewset": [
+        "support/api/views.py"
+      ],
       "app_config": [
         "support/apps.py"
       ],
@@ -172,9 +208,15 @@
       ],
       "selector": [
         "support/services/selectors.py"
+      ],
+      "task": [
+        "support/tasks.py"
+      ],
+      "test": [
+        "support/tests.py"
       ]
     },
-    "migrations": 5
+    "migrations": 8
   },
   "endpoints": [],
   "frontend_consumers": {},
@@ -188,8 +230,8 @@
   "blast_radius": {
     "ChatRoom": {
       "types_affected": [
-        "Model",
-        "Serializer"
+        "Serializer",
+        "Model"
       ],
       "total": 5
     },
@@ -201,8 +243,8 @@
     },
     "ChatRoomContext": {
       "types_affected": [
-        "Serializer",
-        "Model"
+        "Model",
+        "Serializer"
       ],
       "total": 4
     }
@@ -212,7 +254,8 @@
       "ChatCommands"
     ],
     "selectors": [
-      "ChatSelector"
+      "ChatSelector",
+      "ChatAnalyticsSelector"
     ]
   },
   "events": {
@@ -227,7 +270,12 @@
   ],
   "known_issues": [],
   "business_rules": [],
-  "url_patterns": [],
+  "url_patterns": [
+    {
+      "type": "path",
+      "route": "chats/<str:room_uuid>/rate/"
+    }
+  ],
   "patterns": {
     "command_class": "SupportCommands",
     "selector_class": "SupportSelector",

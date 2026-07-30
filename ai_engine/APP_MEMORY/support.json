@@ -8,20 +8,27 @@
       "ChatMessage",
       "ChatRoomContext"
     ],
-    "viewsets": [],
+    "viewsets": [
+      "RateConversationView"
+    ],
     "serializers": [
+      "RateConversationInputSerializer",
       "ChatRoomContextSerializer",
       "ChatMessageSerializer",
       "ChatRoomListSerializer",
       "ChatRoomSerializer"
     ],
-    "url_patterns": [],
+    "url_patterns": [
+      ""
+    ],
     "management_commands": [],
-    "celery_tasks": [],
+    "celery_tasks": [
+      "notify_unattended_escalated_tickets"
+    ],
     "consumers": [
       "SupportChatConsumer"
     ],
-    "migrations": 5
+    "migrations": 8
   },
   "key_models": [
     "ChatRoom",
@@ -48,5 +55,5 @@
   "BUG": [],
   "HOT_FIX": [],
   "decisions": [],
-  "generated_at": "2026-07-19T14:55:36.345244+00:00"
+  "generated_at": "2026-07-30T01:51:08.606711+00:00"
 }

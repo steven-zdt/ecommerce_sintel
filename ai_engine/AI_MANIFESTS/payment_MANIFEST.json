@@ -1,6 +1,6 @@
 {
   "app": "payment",
-  "generated_at": "2026-07-19T14:55:36.740330+00:00",
+  "generated_at": "2026-07-30T01:51:09.159630+00:00",
   "api_prefix": "api/v1/payment",
   "purpose": "Multi-method payment: Wompi online, Nequi, COD (cash-on-delivery)",
   "architecture": {
@@ -106,6 +106,7 @@
           "viewsets.ViewSet"
         ],
         "actions": [
+          "get_throttles",
           "list",
           "create",
           "destroy",
@@ -119,6 +120,7 @@
           "GenericViewSet"
         ],
         "actions": [
+          "get_throttles",
           "initialize",
           "check_status"
         ]
@@ -130,6 +132,7 @@
           "viewsets.ViewSet"
         ],
         "actions": [
+          "get_throttles",
           "feature_flags",
           "initialize",
           "transaction_status",
@@ -217,6 +220,10 @@
       {
         "name": "reconcile_pending_wompi_transactions",
         "file": "payment/tasks.py"
+      },
+      {
+        "name": "notify_declined_payments_followup",
+        "file": "payment/tasks.py"
       }
     ],
     "permissions": [],
@@ -288,7 +295,7 @@
         "payment/tests.py"
       ]
     },
-    "migrations": 10
+    "migrations": 13
   },
   "endpoints": [],
   "frontend_consumers": {},
@@ -302,8 +309,8 @@
   "blast_radius": {
     "Transaction": {
       "types_affected": [
-        "Serializer",
-        "Model"
+        "Model",
+        "Serializer"
       ],
       "total": 3
     },
@@ -323,8 +330,8 @@
     },
     "NequiTransaction": {
       "types_affected": [
-        "Serializer",
-        "Model"
+        "Model",
+        "Serializer"
       ],
       "total": 3
     }

@@ -1,6 +1,6 @@
 {
   "app": "kyc",
-  "generated_at": "2026-07-19T14:55:36.579979+00:00",
+  "generated_at": "2026-07-30T01:51:08.917592+00:00",
   "api_prefix": "api/v1/auth",
   "purpose": "Identity verification (KYC) — required only for CUSTOMER-to-professional upgrade, not for base registration",
   "architecture": {
@@ -304,17 +304,17 @@
   "blast_radius": {
     "UserVerification": {
       "types_affected": [
-        "ViewSet",
+        "Model",
         "Serializer",
-        "Model"
+        "ViewSet"
       ],
       "total": 6
     },
     "VerificationDocument": {
       "types_affected": [
+        "Model",
         "ViewSet",
-        "Serializer",
-        "Model"
+        "Serializer"
       ],
       "total": 4
     },

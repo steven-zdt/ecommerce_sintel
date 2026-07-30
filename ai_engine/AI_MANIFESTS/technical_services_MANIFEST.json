@@ -1,6 +1,6 @@
 {
   "app": "technical_services",
-  "generated_at": "2026-07-19T14:55:36.919093+00:00",
+  "generated_at": "2026-07-30T01:51:09.466340+00:00",
   "api_prefix": "api/v1/services",
   "purpose": "Technician services: catalog, booking, service variants, cost rules",
   "architecture": {
@@ -727,7 +727,8 @@
           "quote_package",
           "reviews",
           "review",
-          "technicians"
+          "technicians",
+          "full_detail"
         ]
       },
       {
@@ -1146,7 +1147,8 @@
         "quote_package",
         "reviews",
         "review",
-        "technicians"
+        "technicians",
+        "full_detail"
       ],
       "basename": "technical-service",
       "http_methods": [
@@ -1274,21 +1276,6 @@
       },
       {
         "type": "FrontendComponent",
-        "name": "CategoryList",
-        "file": "modules/shop/CategoryList.vue"
-      },
-      {
-        "type": "FrontendComponent",
-        "name": "ProductForm",
-        "file": "modules/shop/ProductForm.vue"
-      },
-      {
-        "type": "FrontendComponent",
-        "name": "ProductList",
-        "file": "modules/shop/ProductList.vue"
-      },
-      {
-        "type": "FrontendComponent",
         "name": "TechnicianAssignmentBoard",
         "file": "modules/technical_services/TechnicianAssignmentBoard.vue"
       }
@@ -1298,11 +1285,6 @@
         "type": "FrontendComponent",
         "name": "RentingForm",
         "file": "modules/renting/RentingForm.vue"
-      },
-      {
-        "type": "FrontendComponent",
-        "name": "ProductForm",
-        "file": "modules/shop/ProductForm.vue"
       }
     ]
   },
@@ -1325,46 +1307,46 @@
     "ServiceCategory": {
       "types_affected": [
         "Model",
-        "Serializer",
-        "ViewSet"
+        "ViewSet",
+        "Serializer"
       ],
       "total": 106
     },
     "ServiceLevel": {
       "types_affected": [
         "Model",
-        "Serializer",
-        "ViewSet"
+        "ViewSet",
+        "Serializer"
       ],
       "total": 90
     },
     "ServiceConfiguration": {
       "types_affected": [
-        "Serializer",
-        "ViewSet"
+        "ViewSet",
+        "Serializer"
       ],
       "total": 2
     },
     "TechnicalService": {
       "types_affected": [
         "Model",
-        "Serializer",
-        "ViewSet"
+        "ViewSet",
+        "Serializer"
       ],
       "total": 95
     },
     "ServiceVariant": {
       "types_affected": [
         "Model",
-        "Serializer",
-        "ViewSet"
+        "ViewSet",
+        "Serializer"
       ],
       "total": 65
     },
     "ServiceMaterial": {
       "types_affected": [
-        "ViewSet",
-        "Serializer"
+        "Serializer",
+        "ViewSet"
       ],
       "total": 2
     },
@@ -1416,8 +1398,8 @@
     },
     "ServiceCostRule": {
       "types_affected": [
-        "Serializer",
-        "Model"
+        "Model",
+        "Serializer"
       ],
       "total": 2
     },
@@ -1429,16 +1411,16 @@
     },
     "ServiceOperation": {
       "types_affected": [
-        "Model",
         "Serializer",
+        "Model",
         "ViewSet"
       ],
       "total": 13
     },
     "ServiceOperationEvent": {
       "types_affected": [
-        "Model",
         "Serializer",
+        "Model",
         "ViewSet"
       ],
       "total": 12
@@ -1472,8 +1454,8 @@
     },
     "PackageAdditionalCost": {
       "types_affected": [
-        "Serializer",
-        "Model"
+        "Model",
+        "Serializer"
       ],
       "total": 3
     },

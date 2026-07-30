@@ -1,6 +1,6 @@
 {
   "app": "quotes",
-  "generated_at": "2026-07-19T14:55:36.770718+00:00",
+  "generated_at": "2026-07-30T01:51:09.199001+00:00",
   "api_prefix": "api/v1/quotes",
   "purpose": "Quotation requests for custom orders and services",
   "architecture": {
@@ -401,6 +401,7 @@
           "viewsets.ModelViewSet"
         ],
         "actions": [
+          "get_throttles",
           "create",
           "from_template",
           "send",
@@ -553,6 +554,11 @@
         ]
       },
       {
+        "name": "_resolve_answer_display",
+        "file": "quotes/services/pdf_service.py",
+        "role": "service"
+      },
+      {
         "name": "QuotationSelector",
         "file": "quotes/services/selectors.py",
         "role": "selector",
@@ -639,14 +645,20 @@
     "selectors": [],
     "management_commands": [],
     "consumers": [],
-    "tasks": [],
+    "tasks": [
+      {
+        "name": "notify_quotations_without_response",
+        "file": "quotes/tasks.py"
+      }
+    ],
     "permissions": [],
     "file_map": {
       "misc": [
         "quotes/__init__.py",
         "quotes/api/internal_ai.py",
         "quotes/migrations/__init__.py",
-        "quotes/services/__init__.py"
+        "quotes/services/__init__.py",
+        "quotes/services/labor_conditions_evaluator.py"
       ],
       "serializer": [
         "quotes/api/serializers.py"
@@ -675,9 +687,12 @@
       ],
       "task": [
         "quotes/tasks.py"
+      ],
+      "test": [
+        "quotes/tests.py"
       ]
     },
-    "migrations": 26
+    "migrations": 35
   },
   "endpoints": [
     {
@@ -685,6 +700,7 @@
       "app": "quotes",
       "viewset": "QuotationViewSet",
       "actions": [
+        "get_throttles",
         "create",
         "from_template",
         "send",
@@ -766,96 +782,96 @@
     "Quotation": {
       "types_affected": [
         "Serializer",
-        "Model",
-        "ViewSet"
+        "ViewSet",
+        "Model"
       ],
       "total": 16
     },
     "QuotationTimeline": {
       "types_affected": [
         "Serializer",
-        "Model",
-        "ViewSet"
+        "ViewSet",
+        "Model"
       ],
       "total": 15
     },
     "QuoteProduct": {
       "types_affected": [
-        "Serializer",
+        "ViewSet",
         "Model",
-        "ViewSet"
+        "Serializer"
       ],
       "total": 84
     },
     "QuoteProductVariant": {
       "types_affected": [
-        "Serializer",
+        "ViewSet",
         "Model",
-        "ViewSet"
+        "Serializer"
       ],
       "total": 84
     },
     "QuotationItem": {
       "types_affected": [
         "Serializer",
-        "Model",
-        "ViewSet"
+        "ViewSet",
+        "Model"
       ],
       "total": 15
     },
     "QuotationService": {
       "types_affected": [
         "Serializer",
-        "Model",
-        "ViewSet"
+        "ViewSet",
+        "Model"
       ],
       "total": 15
     },
     "QuotationMaterial": {
       "types_affected": [
         "Serializer",
-        "Model",
-        "ViewSet"
+        "ViewSet",
+        "Model"
       ],
       "total": 15
     },
     "QuotationRentalItem": {
       "types_affected": [
         "Serializer",
-        "Model",
-        "ViewSet"
+        "ViewSet",
+        "Model"
       ],
       "total": 15
     },
     "QuotationAttachment": {
       "types_affected": [
         "Serializer",
-        "Model",
-        "ViewSet"
+        "ViewSet",
+        "Model"
       ],
       "total": 15
     },
     "QuotationItemCostSnapshot": {
       "types_affected": [
         "Serializer",
-        "Model",
-        "ViewSet"
+        "ViewSet",
+        "Model"
       ],
       "total": 15
     },
     "QuoteTemplateCategory": {
       "types_affected": [
+        "ViewSet",
         "Model",
-        "Serializer",
-        "ViewSet"
+        "Serializer"
       ],
       "total": 95
     },
     "QuoteTemplateSubcategory": {
       "types_affected": [
+        "ViewSet",
         "Model",
-        "Serializer",
-        "ViewSet"
+        "Serializer"
       ],
       "total": 95
     },
@@ -877,11 +893,11 @@
     },
     "QuoteEquipmentType": {
       "types_affected": [
-        "Serializer",
         "Model",
+        "Serializer",
         "ViewSet"
       ],
-      "total": 128
+      "total": 136
     },
     "QuoteTemplateModule": {
       "types_affected": [
@@ -893,15 +909,15 @@
     },
     "QuoteQuestion": {
       "types_affected": [
-        "Model",
-        "Serializer"
+        "Serializer",
+        "Model"
       ],
       "total": 3
     },
     "QuoteQuestionOption": {
       "types_affected": [
-        "Model",
-        "Serializer"
+        "Serializer",
+        "Model"
       ],
       "total": 2
     }

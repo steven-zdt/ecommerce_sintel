@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-07-19T14:55:36.345244+00:00",
+  "generated_at": "2026-07-30T01:51:08.606711+00:00",
   "project": "Sintel E-Commerce REST v5",
   "stack": {
     "backend": "Django 5 + DRF + PostgreSQL + Redis + Celery + Channels",
@@ -144,7 +144,7 @@
     "model": "Always inherits SintelBaseModel, soft-delete via is_deleted",
     "notification": "transaction.on_commit(lambda: NotificationCommands.dispatch_notification(...))"
   },
-  "app_count": 20,
+  "app_count": 21,
   "apps": [
     "accounts",
     "cart",
@@ -162,6 +162,7 @@
     "quotes",
     "renting",
     "security",
+    "shared",
     "shop",
     "support",
     "technical_services",

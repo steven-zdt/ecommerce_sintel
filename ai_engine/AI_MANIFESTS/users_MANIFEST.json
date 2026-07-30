@@ -1,6 +1,6 @@
 {
   "app": "users",
-  "generated_at": "2026-07-19T14:55:36.947873+00:00",
+  "generated_at": "2026-07-30T01:51:09.519110+00:00",
   "api_prefix": "api/v1/users",
   "purpose": "Authentication only: JWT login, registration, password reset. No profile data.",
   "architecture": {
@@ -262,8 +262,8 @@
   "blast_radius": {
     "UserAuditLog": {
       "types_affected": [
-        "Serializer",
-        "ViewSet"
+        "ViewSet",
+        "Serializer"
       ],
       "total": 2
     }

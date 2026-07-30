@@ -1,6 +1,6 @@
 {
   "app": "accounts",
-  "generated_at": "2026-07-19T14:55:36.407691+00:00",
+  "generated_at": "2026-07-30T01:51:08.701327+00:00",
   "api_prefix": "api/v1/auth",
   "purpose": "User profiles: UserProfile (user_type), TechnicianProfile, customer dashboard",
   "architecture": {
@@ -407,6 +407,7 @@
           "authenticate_user",
           "_assert_kyc_approved",
           "logout",
+          "_blacklist_all_refresh_tokens",
           "change_password",
           "update_profile",
           "admin_update_user",
@@ -540,7 +541,7 @@
         "accounts/urls.py"
       ]
     },
-    "migrations": 12
+    "migrations": 13
   },
   "endpoints": [
     {
@@ -774,8 +775,8 @@
   "blast_radius": {
     "UserProfile": {
       "types_affected": [
-        "Model",
         "ViewSet",
+        "Model",
         "Serializer"
       ],
       "total": 40
@@ -789,8 +790,8 @@
     },
     "ContractorSkill": {
       "types_affected": [
-        "ViewSet",
-        "Serializer"
+        "Serializer",
+        "ViewSet"
       ],
       "total": 2
     },
@@ -803,8 +804,8 @@
     },
     "ProfessionalCourse": {
       "types_affected": [
-        "ViewSet",
-        "Serializer"
+        "Serializer",
+        "ViewSet"
       ],
       "total": 2
     },
@@ -824,17 +825,17 @@
     },
     "SuccessCase": {
       "types_affected": [
-        "Model",
         "Serializer",
-        "ViewSet"
+        "ViewSet",
+        "Model"
       ],
       "total": 4
     },
     "SuccessCaseImage": {
       "types_affected": [
-        "Model",
         "Serializer",
-        "ViewSet"
+        "ViewSet",
+        "Model"
       ],
       "total": 3
     },
@@ -846,8 +847,8 @@
     },
     "ProfessionalAvailability": {
       "types_affected": [
-        "Model",
         "Serializer",
+        "Model",
         "ViewSet"
       ],
       "total": 14

@@ -17,7 +17,26 @@ from typing import Any
 # CONFIG
 # ---------------------------------------------------------------------------
 
-BASE_DIR = Path(__file__).resolve().parent.parent / "ecommerce_sintel"
+def _resolve_base_dir() -> Path:
+    """
+    [CORREGIDO 2026-07-30, AUDITORIA/14_GRAPHIFY_KNOWLEDGE_GRAPH.md §16] Corriendo desde
+    el host, ecommerce_sintel/ es un directorio hermano real de ai_engine/ -- pero dentro
+    del contenedor sintel_ai (docker-compose.yml) el mismo codigo se monta en
+    /workspace (volumes: .:/workspace:ro), NO en /ecommerce_sintel -- confirmado
+    encontrando BASE_DIR.exists() == False en vivo dentro del contenedor real al probar
+    el endpoint /refresh extendido en esta misma auditoria. config.py ya resuelve esto
+    correctamente para el resto del AI Core via CODEBASE_PATH (env var, override real en
+    docker-compose.yml: "/workspace") -- este modulo no importaba config.py para no sumar
+    una dependencia (python-decouple) a un script que hoy solo usa stdlib; se lee el env
+    var directo en su lugar, con el mismo fallback de siempre para ejecucion desde host.
+    """
+    env_path = os.environ.get("CODEBASE_PATH")
+    if env_path and Path(env_path).exists():
+        return Path(env_path)
+    return Path(__file__).resolve().parent.parent / "ecommerce_sintel"
+
+
+BASE_DIR = _resolve_base_dir()
 FRONTEND_DIR = BASE_DIR / "frontend" / "src"
 OUTPUT_PATH = Path(__file__).resolve().parent / "PROJECT_MAP.json"
 
@@ -25,7 +44,7 @@ DJANGO_APPS = [
     "accounts", "cart", "core", "dashboard",
     "ecommerce", "inventory", "kyc", "marketing", "notifications",
     "operations", "organization", "orders", "payment", "quotes",
-    "renting", "security", "shipping", "shop", "support",
+    "renting", "security", "shared", "shop", "support",
     "technical_services", "users",
 ]
 
@@ -267,6 +286,37 @@ def is_permission_class(bases: list[str]) -> bool:
     return any("Permission" in b or "BasePermission" in b for b in bases)
 
 
+def extract_signal_registrations(tree: ast.Module) -> list[dict]:
+    """Fase 3: deteccion real de signals -- NO depende de que el archivo se
+    llame signals.py (limitacion conocida documentada en
+    AUDITORIA/14_GRAPHIFY_KNOWLEDGE_GRAPH.md §15.3, ej. el signal de
+    TechnicianProfile vive inline en accounts/models.py). Detecta:
+      1. @receiver(...) sobre una funcion, en cualquier archivo.
+      2. alguna_señal.connect(handler, ...) como llamada, en cualquier archivo.
+    """
+    found = []
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            for dec in node.decorator_list:
+                dec_func = dec.func if isinstance(dec, ast.Call) else dec
+                fname = None
+                if isinstance(dec_func, ast.Name):
+                    fname = dec_func.id
+                elif isinstance(dec_func, ast.Attribute):
+                    fname = dec_func.attr
+                if fname == "receiver":
+                    found.append({"name": node.name, "trigger": "receiver_decorator"})
+        elif isinstance(node, ast.Call):
+            func = node.func
+            if isinstance(func, ast.Attribute) and func.attr == "connect" and node.args:
+                first = node.args[0]
+                handler_name = (first.id if isinstance(first, ast.Name) else
+                                 first.attr if isinstance(first, ast.Attribute) else
+                                 "connect_call")
+                found.append({"name": handler_name, "trigger": "connect_call"})
+    return found
+
+
 def is_task_function(name: str, decorators) -> bool:
     for d in decorators:
         if isinstance(d, ast.Name) and d.id in ("shared_task", "task"):
@@ -332,6 +382,20 @@ def extract_vue_component_imports(content: str) -> list[str]:
     for m in pat.finditer(content):
         components.append(m.group(1))
     return list(set(components))
+
+
+def extract_vue_template_tags(content: str) -> list[str]:
+    """Fase 3/4 (AUDITORIA/14): tags de componente usados en el <template>,
+    PascalCase o kebab-case -- necesario porque este proyecto usa auto-import
+    de componentes (confirmado: BaseAccordion/BaseReviews se usan en
+    PublicDetailView.vue sin ningun 'import' explicito). Sin esto, todo
+    componente auto-importado aparece como "codigo muerto" por error."""
+    tags = set()
+    for m in re.finditer(r"<([A-Z][A-Za-z0-9]*)\b", content):
+        tags.add(m.group(1))
+    for m in re.finditer(r"<([a-z][a-z0-9]*(?:-[a-z0-9]+)+)\b", content):
+        tags.add("".join(part.capitalize() for part in m.group(1).split("-")))
+    return sorted(tags)
 
 
 def extract_vue_emits_props(content: str) -> dict:
@@ -431,6 +495,7 @@ class ProjectAuditor:
             "url_patterns": [],
             "migrations": [],
             "files": [],
+            "cross_app_imports": [],
         }
 
         for py_file in sorted(app_dir.rglob("*.py")):
@@ -456,6 +521,26 @@ class ProjectAuditor:
 
             classes = extract_classes(tree)
             file_entry["classes"] = [c["name"] for c in classes]
+
+            # Fase 3 (AUDITORIA/14_GRAPHIFY_KNOWLEDGE_GRAPH.md) -- IMPORTS real,
+            # no heuristica de nombre: cualquier import cuyo primer segmento sea
+            # otra app Django conocida es acoplamiento cross-app real, verificable.
+            for imp in extract_imports(tree):
+                target_app = imp.split(".")[0]
+                if target_app in DJANGO_APPS and target_app != app_name:
+                    app_data["cross_app_imports"].append({
+                        "target_app": target_app,
+                        "via_file": rel_fwd,
+                        "import": imp,
+                    })
+
+            # Signals: deteccion universal (cualquier archivo), no solo signals.py
+            for sig in extract_signal_registrations(tree):
+                if not any(s["name"] == sig["name"] and s["file"] == rel_fwd
+                           for s in app_data["signals"]):
+                    app_data["signals"].append({
+                        "name": sig["name"], "file": rel_fwd, "trigger": sig["trigger"],
+                    })
 
             # Top-level functions
             for node in ast.walk(tree):
@@ -557,10 +642,6 @@ class ProjectAuditor:
                             "type": "class",
                         })
 
-            elif role == "signal":
-                for fn in file_entry["functions"]:
-                    app_data["signals"].append({"name": fn["name"], "file": rel_fwd})
-
             elif role in ("service", "command", "selector", "pricing"):
                 for cls in classes:
                     app_data["services"].append({
@@ -624,6 +705,7 @@ class ProjectAuditor:
             pe = extract_vue_emits_props(content)
             entry["props"] = pe["props"]
             entry["emits"] = pe["emits"]
+            entry["template_tags"] = extract_vue_template_tags(content)
 
         if role == "store":
             store_info = extract_pinia_store(content)
@@ -854,6 +936,25 @@ class ProjectAuditor:
             print(f"  AI_MANIFESTS: {len(mfts)} files + MASTER_MANIFEST.json")
         except Exception as exc:
             print(f"  WARNING: AI Manifest error: {exc}")
+
+        # Fase 4 (AUDITORIA/14_GRAPHIFY_KNOWLEDGE_GRAPH.md) — Graph Validator
+        print("Running graph validations...")
+        try:
+            from graph_validator import run_all_validations, REPORT_PATH as _VREPORT
+            vresult = run_all_validations()
+            _VREPORT.write_text(json.dumps(vresult, indent=2, ensure_ascii=False), encoding="utf-8")
+            print(f"  {vresult['summary']}")
+        except Exception as exc:
+            print(f"  WARNING: Graph Validator error: {exc}")
+
+        # Fase 5 — Graph Visualizer (HTML estatico, sin infra nueva)
+        print("Building static graph visualization...")
+        try:
+            from graph_visualizer import build_html, OUT_PATH as _VIZPATH
+            _VIZPATH.write_text(build_html(), encoding="utf-8")
+            print(f"  {_VIZPATH.name}: {_VIZPATH.stat().st_size / 1024:.1f} KB")
+        except Exception as exc:
+            print(f"  WARNING: Graph Visualizer error: {exc}")
 
         # Phase 11 — Initialize file hash tracking
         print("Initializing incremental hash tracker...")

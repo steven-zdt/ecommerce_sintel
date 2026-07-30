@@ -10,6 +10,7 @@ from tools.registry import RegisteredTool, get_tool, invoke, list_tools, registe
 
 # El orden es alfabetico por dominio; agregar dominios nuevos aqui.
 import tools.core_tools        # noqa: F401  Fase 8: CoreHomeTool, CoreNavbarTool, CoreFooterTool, CoreBrandSliderTool, CoreBannerUpdateTool, CoreBannerCreateTool, CoreNavbarLinkUpdateTool, CoreNavbarLinkCreateTool, CoreBrandSliderUpdateTool
+import tools.graph_tools       # noqa: F401  Fase 9 (AUDITORIA/14_GRAPHIFY_KNOWLEDGE_GRAPH.md): GraphImpactAnalysisTool
 import tools.inventory_tools   # noqa: F401  StockCheckTool
 import tools.kyc_tools         # noqa: F401  KycStatusTool, RequestKycUpgradeTool
 import tools.marketing_tools   # noqa: F401  ActivePromosTool, MarketingDashboardTool, StaleStockAlertsTool, CampaignTargetsTool, PersonalRecommendationTool

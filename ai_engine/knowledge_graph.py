@@ -9,10 +9,16 @@ Node types:
   Signal | Consumer | Task | Permission | Endpoint | ManagementCommand |
   FrontendView | FrontendComponent | PiniaStore | Composable | Route
 
-Edge labels:
-  SERIALIZES | EXPOSES | REGISTERS_ON | EXTENDS | DEPENDS_ON |
-  CALLS | TRIGGERS | PRODUCES | CONSUMES_ENDPOINT | STORES |
-  NAVIGATES_TO | BELONGS_TO | USES_STORE | USES_COMPOSABLE
+Edge labels realmente implementados (verificado, no aspiracional -- ver
+AUDITORIA/14_GRAPHIFY_KNOWLEDGE_GRAPH.md §2.2/§15 sobre por que esto importa):
+  BELONGS_TO | EXPOSES | SERIALIZES | USES | CALLS | DEPENDS_ON |
+  CONSUMES_ENDPOINT | USES_STORE | DOCUMENTED_BY | IMPORTS | USES_COMPONENT
+
+Declarados en versiones previas de este docstring pero NUNCA implementados
+(se documentan aqui para no repetir el mismo gap que motivo la auditoria --
+si algun dia se implementan, mover a la lista de arriba, no antes):
+  REGISTERS_ON | EXTENDS | TRIGGERS | PRODUCES | STORES | NAVIGATES_TO |
+  USES_COMPOSABLE
 """
 import json
 import logging
@@ -172,6 +178,19 @@ class KnowledgeGraph:
         logger.info("[knowledge_graph] Saved %d nodes, %d edges to %s",
                     len(self.nodes), len(self.edges), path)
 
+    @classmethod
+    def from_dict(cls, data: dict) -> "KnowledgeGraph":
+        """Contraparte de to_dict()/save() -- deserializa el JSON persistido de vuelta a
+        objetos Node/Edge reales. Sin esto, `get_knowledge_graph()` no podia reutilizar el
+        grafo ya enriquecido (ver correccion en esa funcion, mas abajo)."""
+        kg = cls()
+        for n in data.get("nodes", []):
+            kg.add_node(Node(n["id"], n["type"], n["name"], app=n.get("app", ""),
+                              file=n.get("file", ""), meta=n.get("meta") or {}))
+        for e in data.get("edges", []):
+            kg.add_edge(e["source"], e["target"], e["label"], meta=e.get("meta") or {})
+        return kg
+
 
 # ---------------------------------------------------------------------------
 # Builder
@@ -189,6 +208,8 @@ class KnowledgeGraphBuilder:
         self._add_frontend_entities()
         self._infer_backend_edges()
         self._infer_frontend_edges()
+        self._infer_real_import_edges()
+        self._infer_component_usage_edges()
         return self.kg
 
     # ---- Apps ---------------------------------------------------------------
@@ -282,6 +303,15 @@ class KnowledgeGraphBuilder:
                 nid = self.kg.node_id(app_name, "Permission", p["name"])
                 self.kg.add_node(Node(nid, "Permission", p["name"], app=app_name,
                                       file=p.get("file", "")))
+                self.kg.add_edge(nid, app_nid, "BELONGS_TO")
+
+            # Signals — declarado en el docstring del modulo desde el origen de este
+            # archivo pero nunca poblado: auditor.py ya extrae app_data["signals"]
+            # (funciones en signals.py), este bucle simplemente faltaba.
+            for sig in app_data.get("signals", []):
+                nid = self.kg.node_id(app_name, "Signal", sig["name"])
+                self.kg.add_node(Node(nid, "Signal", sig["name"], app=app_name,
+                                      file=sig.get("file", "")))
                 self.kg.add_edge(nid, app_nid, "BELONGS_TO")
 
     # ---- Endpoints ----------------------------------------------------------
@@ -459,6 +489,61 @@ class KnowledgeGraphBuilder:
                     if store_ref.lower() in store_node.name.lower():
                         self.kg.add_edge(src_nid, store_node.id, "USES_STORE")
 
+    # ---- Fase 3 (AUDITORIA/14) real edges ------------------------------------
+
+    def _infer_real_import_edges(self):
+        """IMPORTS real (AST, no heuristica de nombre) a nivel de App -- App A
+        importa algo de App B en al menos un archivo real. Esta es la arista
+        que permite responder con precision "que se rompe si cambio la app X"
+        (el caso real que motivo la auditoria: renting -> marketing -> ecommerce),
+        y es la base de la deteccion de ciclos de Fase 4 (graph_validator.py)."""
+        pair_evidence: dict[tuple, list[str]] = {}
+        for app_name, app_data in self.pmap.get("apps", {}).items():
+            for imp in app_data.get("cross_app_imports", []):
+                key = (app_name, imp["target_app"])
+                pair_evidence.setdefault(key, [])
+                if len(pair_evidence[key]) < 5:
+                    pair_evidence[key].append(f"{imp['via_file']} -> {imp['import']}")
+
+        for (src_app, dst_app), examples in pair_evidence.items():
+            src_nid, dst_nid = f"app:{src_app}", f"app:{dst_app}"
+            if src_nid in self.kg.nodes and dst_nid in self.kg.nodes:
+                self.kg.add_edge(src_nid, dst_nid, "IMPORTS", meta={"examples": examples})
+
+    def _infer_component_usage_edges(self):
+        """USES_COMPONENT: FrontendView/FrontendComponent -> FrontendComponent.
+        Dos señales combinadas (una sola no basta -- ver AUDITORIA/14_...md §15
+        "materializacion", se verifico con evidencia real que BaseAccordion.vue/
+        BaseReviews.vue se usan en produccion pero NUNCA aparecen como
+        'import' explicito, porque el proyecto auto-importa componentes):
+          1. component_imports -- import X from '...vue' explicito.
+          2. template_tags -- el tag <X ...> aparece en el <template>, cubre
+             auto-import (unplugin-vue-components u equivalente).
+        Sin (2), el detector de "codigo muerto" del validador reportaria
+        decenas de falsos positivos concentrados justo en el Design System
+        compartido -- el peor lugar posible para un falso positivo."""
+        fe = self.pmap.get("frontend", {})
+        all_entries = (
+            [(v, "FrontendView") for v in fe.get("views", [])] +
+            [(c, "FrontendComponent") for c in fe.get("components", [])]
+        )
+        comp_by_name: dict[str, list] = {}
+        for comp_node in self.kg.nodes_of_type("FrontendComponent"):
+            comp_by_name.setdefault(comp_node.name, []).append(comp_node)
+
+        for entry, expected_type in all_entries:
+            fe_path = entry.get("path", "")
+            prefix = "View" if expected_type == "FrontendView" else "Component"
+            src_nid = f"frontend:{prefix}:{fe_path}"
+            if src_nid not in self.kg.nodes:
+                continue
+            referenced_names = set(entry.get("component_imports", [])) | \
+                set(entry.get("template_tags", []))
+            for name in referenced_names:
+                for target in comp_by_name.get(name, []):
+                    if target.id != src_nid:
+                        self.kg.add_edge(src_nid, target.id, "USES_COMPONENT")
+
 
 # ---------------------------------------------------------------------------
 # Convenience loader
@@ -468,12 +553,30 @@ _cached_kg: KnowledgeGraph | None = None
 
 
 def get_knowledge_graph(force_rebuild: bool = False) -> KnowledgeGraph:
+    """
+    [CORREGIDO 2026-07-30, AUDITORIA/14_GRAPHIFY_KNOWLEDGE_GRAPH.md §16 Fase 9/10] Antes de
+    esta correccion, esta funcion SIEMPRE reconstruia el grafo desde PROJECT_MAP.json vacio
+    de enriquecimiento -- nunca cargaba KNOWLEDGE_GRAPH.json, el archivo que
+    build_and_save_knowledge_graph() ya deja con los nodos Documentation/DockerService/
+    Agent/Tool (Fases 2/5/8). Resultado real medido: el agente en vivo (via
+    GraphImpactAnalysisTool, Fase 9) trabajaba sobre un grafo de 1.514 nodos cuando el
+    archivo persistido en disco ya tenia 1.660 -- 146 nodos invisibles para cualquier
+    Tool/consulta en produccion, sin que nada lo señalara. Ahora prefiere el archivo
+    persistido (mas completo) y solo reconstruye desde cero si ese archivo aun no existe
+    (primera corrida real, antes de que auditor.py haya corrido ni una vez).
+    """
     global _cached_kg
     if _cached_kg is not None and not force_rebuild:
         return _cached_kg
 
+    if KG_PATH.exists():
+        data = json.loads(KG_PATH.read_text(encoding="utf-8"))
+        kg = KnowledgeGraph.from_dict(data)
+        _cached_kg = kg
+        return kg
+
     if not MAP_PATH.exists():
-        logger.warning("[knowledge_graph] PROJECT_MAP.json not found")
+        logger.warning("[knowledge_graph] Ni KNOWLEDGE_GRAPH.json ni PROJECT_MAP.json existen")
         _cached_kg = KnowledgeGraph()
         return _cached_kg
 
@@ -490,6 +593,33 @@ def build_and_save_knowledge_graph() -> KnowledgeGraph:
     pmap = json.loads(MAP_PATH.read_text(encoding="utf-8"))
     builder = KnowledgeGraphBuilder(pmap)
     kg = builder.build()
+
+    # Fase 2 (AUDITORIA/14_GRAPHIFY_KNOWLEDGE_GRAPH.md) -- nodos Documentation +
+    # DOCUMENTED_BY. Defensivo: un error escaneando docs no debe tumbar el grafo
+    # estructural, que es el dato mas critico de los dos.
+    try:
+        from documentation_graph import enrich_with_documentation
+        doc_stats = enrich_with_documentation(kg)
+        logger.info("[knowledge_graph] Documentation: %s", doc_stats)
+    except Exception:
+        logger.exception("[knowledge_graph] Documentation enrichment failed, continuing without it")
+
+    # Fase 5 -- DockerService (solo lectura de docker-compose.yml, no toca infra)
+    try:
+        from docker_graph import enrich_with_docker
+        docker_stats = enrich_with_docker(kg)
+        logger.info("[knowledge_graph] Docker: %s", docker_stats)
+    except Exception:
+        logger.exception("[knowledge_graph] Docker enrichment failed, continuing without it")
+
+    # Fase 8 -- Agent/Tool (formaliza el inventario ya documentado en prosa)
+    try:
+        from agent_graph import enrich_with_agents
+        agent_stats = enrich_with_agents(kg)
+        logger.info("[knowledge_graph] Agents: %s", agent_stats)
+    except Exception:
+        logger.exception("[knowledge_graph] Agent enrichment failed, continuing without it")
+
     kg.save(KG_PATH)
     return kg
 

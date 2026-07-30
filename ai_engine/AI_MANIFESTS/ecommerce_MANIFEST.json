@@ -1,6 +1,6 @@
 {
   "app": "ecommerce",
-  "generated_at": "2026-07-19T14:55:36.511608+00:00",
+  "generated_at": "2026-07-30T01:51:08.845095+00:00",
   "api_prefix": "api/v1/ecommerce",
   "purpose": "",
   "architecture": {
@@ -76,6 +76,9 @@
         "ecommerce/settings/base.py",
         "ecommerce/settings/development.py",
         "ecommerce/settings/production.py"
+      ],
+      "test": [
+        "ecommerce/tests.py"
       ]
     },
     "migrations": 0
@@ -321,6 +324,10 @@
     },
     {
       "type": "path",
+      "route": "api/v1/support/"
+    },
+    {
+      "type": "path",
       "route": "api/v1/core/"
     },
     {
@@ -334,6 +341,10 @@
     {
       "type": "path",
       "route": "api/v1/organization/"
+    },
+    {
+      "type": "path",
+      "route": "api/v1/"
     },
     {
       "type": "path",

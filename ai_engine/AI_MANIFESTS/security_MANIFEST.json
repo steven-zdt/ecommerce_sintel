@@ -1,6 +1,6 @@
 {
   "app": "security",
-  "generated_at": "2026-07-19T14:55:36.836235+00:00",
+  "generated_at": "2026-07-30T01:51:09.302996+00:00",
   "api_prefix": "api/v1/security",
   "purpose": "Security event logging/audit trail across the platform (SecurityEvent) — not authentication itself",
   "architecture": {
@@ -33,6 +33,14 @@
         "actions": [
           "get"
         ]
+      },
+      {
+        "name": "SecurityEventViewSet",
+        "file": "security/api/views.py",
+        "bases": [
+          "viewsets.ReadOnlyModelViewSet"
+        ],
+        "actions": []
       }
     ],
     "services": [
@@ -94,9 +102,24 @@
         "security/tests.py"
       ]
     },
-    "migrations": 6
+    "migrations": 7
   },
-  "endpoints": [],
+  "endpoints": [
+    {
+      "endpoint": "api/v1/security/security/events",
+      "app": "security",
+      "viewset": "SecurityEventViewSet",
+      "actions": [],
+      "basename": "security-event",
+      "http_methods": [
+        "GET",
+        "POST",
+        "PUT",
+        "PATCH",
+        "DELETE"
+      ]
+    }
+  ],
   "frontend_consumers": {},
   "dependencies": {
     "depends_on": [],
@@ -105,9 +128,10 @@
   "blast_radius": {
     "SecurityEvent": {
       "types_affected": [
-        "Serializer"
+        "Serializer",
+        "ViewSet"
       ],
-      "total": 1
+      "total": 2
     }
   },
   "service_contracts": {
@@ -137,6 +161,12 @@
     }
   ],
   "url_patterns": [
+    {
+      "type": "router",
+      "prefix": "security/events",
+      "viewset": "SecurityEventViewSet",
+      "basename": "security-event"
+    },
     {
       "type": "path",
       "route": "security/health/"

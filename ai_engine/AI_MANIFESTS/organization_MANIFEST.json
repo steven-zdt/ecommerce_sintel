@@ -1,6 +1,6 @@
 {
   "app": "organization",
-  "generated_at": "2026-07-19T14:55:36.682240+00:00",
+  "generated_at": "2026-07-30T01:51:09.074288+00:00",
   "api_prefix": "api/v1/organization",
   "purpose": "Institutional company data: branding, contact info, social links, SEO and domain/email settings — SSoT since the 2026-07-12 migration out of core",
   "architecture": {
@@ -400,63 +400,58 @@
   "frontend_consumers": {
     "api/v1/organization/company": [
       {
-        "type": "FrontendComponent",
-        "name": "OrganizationView",
-        "file": "modules/organization/OrganizationView.vue"
+        "type": "PiniaStore",
+        "name": "organizationAdmin",
+        "file": "store/organizationAdmin.js"
       }
     ],
     "api/v1/organization/branding": [
       {
-        "type": "FrontendComponent",
-        "name": "OrganizationView",
-        "file": "modules/organization/OrganizationView.vue"
+        "type": "PiniaStore",
+        "name": "organizationAdmin",
+        "file": "store/organizationAdmin.js"
       }
     ],
     "api/v1/organization/contact": [
       {
-        "type": "FrontendComponent",
-        "name": "HomeConfigView",
-        "file": "modules/core/HomeConfigView.vue"
-      },
-      {
-        "type": "FrontendComponent",
-        "name": "OrganizationView",
-        "file": "modules/organization/OrganizationView.vue"
+        "type": "PiniaStore",
+        "name": "organizationAdmin",
+        "file": "store/organizationAdmin.js"
       }
     ],
     "api/v1/organization/social-links": [
       {
-        "type": "FrontendComponent",
-        "name": "OrganizationView",
-        "file": "modules/organization/OrganizationView.vue"
+        "type": "PiniaStore",
+        "name": "organizationAdmin",
+        "file": "store/organizationAdmin.js"
       }
     ],
     "api/v1/organization/email-settings": [
       {
-        "type": "FrontendComponent",
-        "name": "OrganizationView",
-        "file": "modules/organization/OrganizationView.vue"
+        "type": "PiniaStore",
+        "name": "organizationAdmin",
+        "file": "store/organizationAdmin.js"
       }
     ],
     "api/v1/organization/domain-settings": [
       {
-        "type": "FrontendComponent",
-        "name": "OrganizationView",
-        "file": "modules/organization/OrganizationView.vue"
+        "type": "PiniaStore",
+        "name": "organizationAdmin",
+        "file": "store/organizationAdmin.js"
       }
     ],
     "api/v1/organization/seo-settings": [
       {
-        "type": "FrontendComponent",
-        "name": "OrganizationView",
-        "file": "modules/organization/OrganizationView.vue"
+        "type": "PiniaStore",
+        "name": "organizationAdmin",
+        "file": "store/organizationAdmin.js"
       }
     ],
     "api/v1/organization/legal-entity": [
       {
-        "type": "FrontendComponent",
-        "name": "OrganizationView",
-        "file": "modules/organization/OrganizationView.vue"
+        "type": "PiniaStore",
+        "name": "organizationAdmin",
+        "file": "store/organizationAdmin.js"
       }
     ]
   },
@@ -474,30 +469,30 @@
     },
     "Branding": {
       "types_affected": [
+        "ViewSet",
         "Model",
-        "Serializer",
-        "ViewSet"
+        "Serializer"
       ],
       "total": 77
     },
     "ContactInfo": {
       "types_affected": [
-        "ViewSet",
-        "Serializer"
-      ],
-      "total": 2
-    },
-    "SocialLink": {
-      "types_affected": [
         "Serializer",
         "ViewSet"
       ],
       "total": 2
     },
-    "EmailSettings": {
+    "SocialLink": {
       "types_affected": [
         "ViewSet",
         "Serializer"
+      ],
+      "total": 2
+    },
+    "EmailSettings": {
+      "types_affected": [
+        "Serializer",
+        "ViewSet"
       ],
       "total": 2
     },
@@ -510,15 +505,15 @@
     },
     "SeoSettings": {
       "types_affected": [
-        "Serializer",
-        "ViewSet"
+        "ViewSet",
+        "Serializer"
       ],
       "total": 2
     },
     "LegalEntityInfo": {
       "types_affected": [
-        "ViewSet",
-        "Serializer"
+        "Serializer",
+        "ViewSet"
       ],
       "total": 2
     }

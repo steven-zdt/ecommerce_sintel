@@ -1,6 +1,6 @@
 {
   "app": "renting",
-  "generated_at": "2026-07-19T14:55:36.797482+00:00",
+  "generated_at": "2026-07-30T01:51:09.258424+00:00",
   "api_prefix": "api/v1/renting",
   "purpose": "Equipment rental: wizard flow, rental requests, rental periods, pricing",
   "architecture": {
@@ -233,6 +233,50 @@
         ]
       },
       {
+        "name": "RentalRequestLocation",
+        "file": "renting/models.py",
+        "fk_relations": [
+          {
+            "name": "rental_request",
+            "field_type": "OneToOneField",
+            "related_model": "RentalRequest"
+          }
+        ]
+      },
+      {
+        "name": "RentalRequestContact",
+        "file": "renting/models.py",
+        "fk_relations": [
+          {
+            "name": "rental_request",
+            "field_type": "OneToOneField",
+            "related_model": "RentalRequest"
+          }
+        ]
+      },
+      {
+        "name": "RentalRequestCosts",
+        "file": "renting/models.py",
+        "fk_relations": [
+          {
+            "name": "rental_request",
+            "field_type": "OneToOneField",
+            "related_model": "RentalRequest"
+          }
+        ]
+      },
+      {
+        "name": "RentalRequestPaymentInfo",
+        "file": "renting/models.py",
+        "fk_relations": [
+          {
+            "name": "rental_request",
+            "field_type": "OneToOneField",
+            "related_model": "RentalRequest"
+          }
+        ]
+      },
+      {
         "name": "RentalProjectAttachment",
         "file": "renting/models.py",
         "fk_relations": [
@@ -324,6 +368,28 @@
           {
             "name": "equipment",
             "field_type": "OneToOneField",
+            "related_model": "Equipment"
+          }
+        ]
+      },
+      {
+        "name": "EquipmentCommercialConfig",
+        "file": "renting/models.py",
+        "fk_relations": [
+          {
+            "name": "equipment",
+            "field_type": "OneToOneField",
+            "related_model": "Equipment"
+          }
+        ]
+      },
+      {
+        "name": "EquipmentCommercialOption",
+        "file": "renting/models.py",
+        "fk_relations": [
+          {
+            "name": "equipment",
+            "field_type": "ForeignKey",
             "related_model": "Equipment"
           }
         ]
@@ -540,6 +606,22 @@
         "file": "renting/api/serializers.py"
       },
       {
+        "name": "EquipmentCommercialConfigSerializer",
+        "file": "renting/api/serializers.py"
+      },
+      {
+        "name": "EquipmentCommercialConfigInputSerializer",
+        "file": "renting/api/serializers.py"
+      },
+      {
+        "name": "EquipmentCommercialOptionSerializer",
+        "file": "renting/api/serializers.py"
+      },
+      {
+        "name": "EquipmentCommercialOptionInputSerializer",
+        "file": "renting/api/serializers.py"
+      },
+      {
         "name": "EquipmentMarketingSerializer",
         "file": "renting/api/serializers.py"
       },
@@ -644,6 +726,122 @@
         "file": "renting/api/serializers.py"
       },
       {
+        "name": "ImageDTOSerializer",
+        "file": "renting/api/serializers.py"
+      },
+      {
+        "name": "TagDTOSerializer",
+        "file": "renting/api/serializers.py"
+      },
+      {
+        "name": "BenefitDTOSerializer",
+        "file": "renting/api/serializers.py"
+      },
+      {
+        "name": "FeatureDTOSerializer",
+        "file": "renting/api/serializers.py"
+      },
+      {
+        "name": "SpecDTOSerializer",
+        "file": "renting/api/serializers.py"
+      },
+      {
+        "name": "SpecGroupDTOSerializer",
+        "file": "renting/api/serializers.py"
+      },
+      {
+        "name": "RequirementDTOSerializer",
+        "file": "renting/api/serializers.py"
+      },
+      {
+        "name": "IncludedItemDTOSerializer",
+        "file": "renting/api/serializers.py"
+      },
+      {
+        "name": "ExcludedItemDTOSerializer",
+        "file": "renting/api/serializers.py"
+      },
+      {
+        "name": "ServiceDTOSerializer",
+        "file": "renting/api/serializers.py"
+      },
+      {
+        "name": "OptionalServiceDTOSerializer",
+        "file": "renting/api/serializers.py"
+      },
+      {
+        "name": "VideoDTOSerializer",
+        "file": "renting/api/serializers.py"
+      },
+      {
+        "name": "DocumentDTOSerializer",
+        "file": "renting/api/serializers.py"
+      },
+      {
+        "name": "FAQItemDTOSerializer",
+        "file": "renting/api/serializers.py"
+      },
+      {
+        "name": "ReviewDTOSerializer",
+        "file": "renting/api/serializers.py"
+      },
+      {
+        "name": "ReviewsSummaryDTOSerializer",
+        "file": "renting/api/serializers.py"
+      },
+      {
+        "name": "CommercialOptionDTOSerializer",
+        "file": "renting/api/serializers.py"
+      },
+      {
+        "name": "AvailabilityDTOSerializer",
+        "file": "renting/api/serializers.py"
+      },
+      {
+        "name": "LogisticsDTOSerializer",
+        "file": "renting/api/serializers.py"
+      },
+      {
+        "name": "EquipmentPreviewDTOSerializer",
+        "file": "renting/api/serializers.py"
+      },
+      {
+        "name": "SEODTOSerializer",
+        "file": "renting/api/serializers.py"
+      },
+      {
+        "name": "EquipmentPricingDTOSerializer",
+        "file": "renting/api/serializers.py"
+      },
+      {
+        "name": "EquipmentHeroDTOSerializer",
+        "file": "renting/api/serializers.py"
+      },
+      {
+        "name": "EquipmentMarketingDTOSerializer",
+        "file": "renting/api/serializers.py"
+      },
+      {
+        "name": "EquipmentTechnicalDTOSerializer",
+        "file": "renting/api/serializers.py"
+      },
+      {
+        "name": "EquipmentServicesDTOSerializer",
+        "file": "renting/api/serializers.py"
+      },
+      {
+        "name": "GalleryDTOSerializer",
+        "file": "renting/api/serializers.py"
+      },
+      {
+        "name": "EquipmentMediaDTOSerializer",
+        "file": "renting/api/serializers.py"
+      },
+      {
+        "name": "EquipmentPublicDetailDTOSerializer",
+        "file": "renting/api/serializers.py"
+      },
+      {
         "name": "Meta",
         "file": "renting/api/serializers.py"
       }
@@ -685,7 +883,8 @@
           "timeline",
           "register_document_download",
           "reviews",
-          "review"
+          "review",
+          "full_detail"
         ]
       },
       {
@@ -740,7 +939,6 @@
           "get_object",
           "attachments",
           "process_payment",
-          "initialize_payment",
           "cancel",
           "approve",
           "reject",
@@ -892,6 +1090,24 @@
         ]
       },
       {
+        "name": "EquipmentCommercialConfigCommands",
+        "file": "renting/services/commands.py",
+        "role": "command",
+        "methods": [
+          "upsert",
+          "delete"
+        ]
+      },
+      {
+        "name": "EquipmentCommercialOptionCommands",
+        "file": "renting/services/commands.py",
+        "role": "command",
+        "methods": [
+          "upsert",
+          "delete"
+        ]
+      },
+      {
         "name": "EquipmentMarketingCommands",
         "file": "renting/services/commands.py",
         "role": "command",
@@ -961,6 +1177,15 @@
         ]
       },
       {
+        "name": "EquipmentCommercialOptionSelector",
+        "file": "renting/services/selectors.py",
+        "role": "selector",
+        "methods": [
+          "list_for_equipment",
+          "get_by_uuid"
+        ]
+      },
+      {
         "name": "EquipmentBlockSelector",
         "file": "renting/services/selectors.py",
         "role": "selector",
@@ -1010,6 +1235,10 @@
       {
         "name": "expire_abandoned_pending_payment_requests",
         "file": "renting/tasks.py"
+      },
+      {
+        "name": "notify_rentals_expiring_soon",
+        "file": "renting/tasks.py"
       }
     ],
     "permissions": [],
@@ -1024,11 +1253,15 @@
         "renting/services/availability.py",
         "renting/services/catalog.py",
         "renting/services/display.py",
+        "renting/services/dtos.py",
         "renting/services/operations.py",
+        "renting/services/presenters.py",
         "renting/services/summary.py",
+        "renting/test_uuid_delete_verify.py",
         "renting/tests_availability.py",
         "renting/tests_catalog.py",
-        "renting/tests_endpoints.py"
+        "renting/tests_endpoints.py",
+        "renting/tests_presenters.py"
       ],
       "serializer": [
         "renting/api/operation_serializers.py",
@@ -1067,7 +1300,7 @@
         "renting/tests.py"
       ]
     },
-    "migrations": 28
+    "migrations": 36
   },
   "endpoints": [
     {
@@ -1082,7 +1315,8 @@
         "timeline",
         "register_document_download",
         "reviews",
-        "review"
+        "review",
+        "full_detail"
       ],
       "basename": "equipment-rental",
       "http_methods": [
@@ -1161,7 +1395,6 @@
         "get_object",
         "attachments",
         "process_payment",
-        "initialize_payment",
         "cancel",
         "approve",
         "reject",
@@ -1242,11 +1475,6 @@
         "type": "FrontendComponent",
         "name": "RentingForm",
         "file": "modules/renting/RentingForm.vue"
-      },
-      {
-        "type": "FrontendComponent",
-        "name": "ProductForm",
-        "file": "modules/shop/ProductForm.vue"
       }
     ],
     "api/v1/renting/categories": [
@@ -1277,21 +1505,6 @@
       },
       {
         "type": "FrontendComponent",
-        "name": "CategoryList",
-        "file": "modules/shop/CategoryList.vue"
-      },
-      {
-        "type": "FrontendComponent",
-        "name": "ProductForm",
-        "file": "modules/shop/ProductForm.vue"
-      },
-      {
-        "type": "FrontendComponent",
-        "name": "ProductList",
-        "file": "modules/shop/ProductList.vue"
-      },
-      {
-        "type": "FrontendComponent",
         "name": "TechnicianAssignmentBoard",
         "file": "modules/technical_services/TechnicianAssignmentBoard.vue"
       }
@@ -1316,16 +1529,6 @@
         "type": "FrontendComponent",
         "name": "RentingList",
         "file": "modules/renting/RentingList.vue"
-      },
-      {
-        "type": "FrontendComponent",
-        "name": "BrandList",
-        "file": "modules/shop/BrandList.vue"
-      },
-      {
-        "type": "FrontendComponent",
-        "name": "ProductForm",
-        "file": "modules/shop/ProductForm.vue"
       }
     ],
     "api/v1/renting/labor": [
@@ -1341,16 +1544,6 @@
       }
     ],
     "api/v1/renting/operations": [
-      {
-        "type": "FrontendComponent",
-        "name": "OperationBoard",
-        "file": "modules/operations/OperationBoard.vue"
-      },
-      {
-        "type": "FrontendComponent",
-        "name": "ShopOperationBoard",
-        "file": "modules/orders/ShopOperationBoard.vue"
-      },
       {
         "type": "FrontendComponent",
         "name": "RentalOperationBoard",
@@ -1379,51 +1572,51 @@
   "blast_radius": {
     "RentingCategory": {
       "types_affected": [
-        "Serializer",
+        "ViewSet",
         "Model",
-        "ViewSet"
+        "Serializer"
       ],
-      "total": 128
+      "total": 136
     },
     "RentingBrand": {
       "types_affected": [
         "Serializer",
-        "Model",
-        "ViewSet"
+        "ViewSet",
+        "Model"
       ],
-      "total": 128
+      "total": 136
     },
     "Equipment": {
       "types_affected": [
-        "Serializer",
         "Model",
+        "Serializer",
         "ViewSet"
       ],
-      "total": 119
+      "total": 127
     },
     "EquipmentVariant": {
       "types_affected": [
-        "Serializer",
         "Model",
+        "Serializer",
         "ViewSet"
       ],
-      "total": 118
+      "total": 126
     },
     "EquipmentImage": {
       "types_affected": [
-        "Serializer",
         "Model",
+        "Serializer",
         "ViewSet"
       ],
-      "total": 118
+      "total": 126
     },
     "EquipmentReview": {
       "types_affected": [
-        "Serializer",
         "Model",
+        "Serializer",
         "ViewSet"
       ],
-      "total": 118
+      "total": 126
     },
     "RentalIncludedItem": {
       "types_affected": [
@@ -1445,8 +1638,8 @@
     },
     "RentalSpecificationGroup": {
       "types_affected": [
-        "Serializer",
-        "Model"
+        "Model",
+        "Serializer"
       ],
       "total": 3
     },
@@ -1488,19 +1681,51 @@
     },
     "RentalLabor": {
       "types_affected": [
-        "Serializer",
         "Model",
+        "Serializer",
         "ViewSet"
       ],
-      "total": 93
+      "total": 101
     },
     "RentalRequest": {
       "types_affected": [
-        "Serializer",
         "Model",
+        "Serializer",
         "ViewSet"
       ],
-      "total": 113
+      "total": 121
+    },
+    "RentalRequestLocation": {
+      "types_affected": [
+        "Model",
+        "Serializer",
+        "ViewSet"
+      ],
+      "total": 121
+    },
+    "RentalRequestContact": {
+      "types_affected": [
+        "Model",
+        "Serializer",
+        "ViewSet"
+      ],
+      "total": 121
+    },
+    "RentalRequestCosts": {
+      "types_affected": [
+        "Model",
+        "Serializer",
+        "ViewSet"
+      ],
+      "total": 121
+    },
+    "RentalRequestPaymentInfo": {
+      "types_affected": [
+        "Model",
+        "Serializer",
+        "ViewSet"
+      ],
+      "total": 121
     },
     "RentalProjectAttachment": {
       "types_affected": [
@@ -1510,11 +1735,11 @@
     },
     "EquipmentReturnInspection": {
       "types_affected": [
-        "Serializer",
         "Model",
+        "Serializer",
         "ViewSet"
       ],
-      "total": 118
+      "total": 126
     },
     "RentalOperation": {
       "types_affected": [
@@ -1534,34 +1759,50 @@
     },
     "EquipmentLogisticsConfig": {
       "types_affected": [
-        "Serializer",
         "Model",
+        "Serializer",
         "ViewSet"
       ],
-      "total": 118
+      "total": 126
+    },
+    "EquipmentCommercialConfig": {
+      "types_affected": [
+        "Model",
+        "Serializer",
+        "ViewSet"
+      ],
+      "total": 126
+    },
+    "EquipmentCommercialOption": {
+      "types_affected": [
+        "Model",
+        "Serializer",
+        "ViewSet"
+      ],
+      "total": 126
     },
     "EquipmentMarketing": {
       "types_affected": [
-        "Serializer",
         "Model",
+        "Serializer",
         "ViewSet"
       ],
-      "total": 118
+      "total": 126
     },
     "RentalCostRule": {
       "types_affected": [
-        "Model",
-        "Serializer"
+        "Serializer",
+        "Model"
       ],
       "total": 2
     },
     "EquipmentBlock": {
       "types_affected": [
-        "Serializer",
         "Model",
+        "Serializer",
         "ViewSet"
       ],
-      "total": 118
+      "total": 126
     }
   },
   "service_contracts": {
@@ -1577,11 +1818,14 @@
       "RentalLaborCommands",
       "RentalRequestCommands",
       "EquipmentLogisticsConfigCommands",
+      "EquipmentCommercialConfigCommands",
+      "EquipmentCommercialOptionCommands",
       "EquipmentMarketingCommands"
     ],
     "selectors": [
       "RentingSelector",
       "EquipmentVariantSelector",
+      "EquipmentCommercialOptionSelector",
       "EquipmentBlockSelector",
       "EquipmentReturnInspectionSelector",
       "EquipmentReviewSelector",

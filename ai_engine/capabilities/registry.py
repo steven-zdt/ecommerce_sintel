@@ -201,6 +201,16 @@ _CAPABILITIES: dict[str, Capability] = {
             tool_name="CoreBrandSliderUpdateTool",
             apps=["core"],
         ),
+        # -- Fase 9, AUDITORIA/14_GRAPHIFY_KNOWLEDGE_GRAPH.md: Knowledge Graph -------------
+        Capability(
+            capability_id="analizar_impacto_arquitectura",
+            description_for_llm="Analizar que partes del sistema (apps, modelos, endpoints, "
+                                 "componentes frontend) se verian afectadas si se modifica una "
+                                 "entidad especifica del codigo -- usa el grafo de dependencias "
+                                 "real del proyecto, no una suposicion.",
+            tool_name="GraphImpactAnalysisTool",
+            apps=["ai_engine"],
+        ),
     ]
 }
 

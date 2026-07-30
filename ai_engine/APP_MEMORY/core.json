@@ -13,6 +13,8 @@
       "FooterLink",
       "NavbarLink",
       "BrandSliderItem",
+      "AboutUsConfig",
+      "AboutUsValue",
       "BrandSliderConfig"
     ],
     "viewsets": [
@@ -45,6 +47,11 @@
       "FooterCTAConfigInputSerializer",
       "BrandSliderItemSerializer",
       "BrandSliderItemInputSerializer",
+      "AboutUsValueSerializer",
+      "AboutUsValueInputSerializer",
+      "AboutUsValueReorderSerializer",
+      "AboutUsConfigSerializer",
+      "AboutUsConfigInputSerializer",
       "BrandSliderConfigSerializer",
       "BrandSliderConfigInputSerializer"
     ],
@@ -52,7 +59,7 @@
     "management_commands": [],
     "celery_tasks": [],
     "consumers": [],
-    "migrations": 25
+    "migrations": 26
   },
   "key_models": [
     "HomeBanner",
@@ -96,5 +103,5 @@
   "BUG": [],
   "HOT_FIX": [],
   "decisions": [],
-  "generated_at": "2026-07-19T14:55:36.345244+00:00"
+  "generated_at": "2026-07-30T01:51:08.606711+00:00"
 }

@@ -1,6 +1,6 @@
 {
   "app": "orders",
-  "generated_at": "2026-07-19T14:55:36.710544+00:00",
+  "generated_at": "2026-07-30T01:51:09.118230+00:00",
   "api_prefix": "api/v1/orders",
   "purpose": "Purchase order lifecycle: creation from cart, status tracking, shipping addresses",
   "architecture": {
@@ -318,7 +318,8 @@
         "methods": [
           "create",
           "update",
-          "set_as_default"
+          "set_as_default",
+          "delete"
         ]
       },
       {
@@ -380,7 +381,12 @@
     "selectors": [],
     "management_commands": [],
     "consumers": [],
-    "tasks": [],
+    "tasks": [
+      {
+        "name": "notify_frequent_customers_cross_sell",
+        "file": "orders/tasks.py"
+      }
+    ],
     "permissions": [],
     "file_map": {
       "misc": [
@@ -394,7 +400,8 @@
         "orders/services/fulfillment/assignment.py",
         "orders/services/fulfillment/events.py",
         "orders/services/fulfillment/timeline.py",
-        "orders/services/fulfillment/tracking.py"
+        "orders/services/fulfillment/tracking.py",
+        "orders/test_checkout_concurrency.py"
       ],
       "url": [
         "orders/api/dashboard_urls.py",
@@ -421,11 +428,14 @@
         "orders/services/fulfillment/selectors.py",
         "orders/services/selectors.py"
       ],
+      "task": [
+        "orders/tasks.py"
+      ],
       "test": [
         "orders/tests.py"
       ]
     },
-    "migrations": 15
+    "migrations": 17
   },
   "endpoints": [
     {
@@ -491,32 +501,7 @@
       ]
     }
   ],
-  "frontend_consumers": {
-    "api/v1/orders/orders": [
-      {
-        "type": "FrontendView",
-        "name": "CustomerOrdersView",
-        "file": "views/customer/account/CustomerOrdersView.vue"
-      },
-      {
-        "type": "FrontendComponent",
-        "name": "OrderList",
-        "file": "modules/orders/OrderList.vue"
-      }
-    ],
-    "api/v1/orders/addresses": [
-      {
-        "type": "FrontendView",
-        "name": "CustomerAddressView",
-        "file": "views/customer/account/CustomerAddressView.vue"
-      },
-      {
-        "type": "FrontendView",
-        "name": "CheckoutView",
-        "file": "views/customer/checkout/CheckoutView.vue"
-      }
-    ]
-  },
+  "frontend_consumers": {},
   "dependencies": {
     "depends_on": [
       "operations",

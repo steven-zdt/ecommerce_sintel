@@ -1,6 +1,6 @@
 {
   "app": "marketing",
-  "generated_at": "2026-07-19T14:55:36.607515+00:00",
+  "generated_at": "2026-07-30T01:51:08.954087+00:00",
   "api_prefix": "api/v1/marketing",
   "purpose": "Campaigns, flash offers, promotional pricing",
   "architecture": {
@@ -303,46 +303,12 @@
   "frontend_consumers": {
     "api/v1/marketing/campaigns": [
       {
-        "type": "FrontendComponent",
-        "name": "CampaignForm",
-        "file": "modules/marketing/CampaignForm.vue"
-      },
-      {
-        "type": "FrontendComponent",
-        "name": "MarketingView",
-        "file": "modules/marketing/MarketingView.vue"
-      },
-      {
         "type": "Composable",
         "name": "useFormValidation",
         "file": "composables/useFormValidation.js"
       }
     ],
-    "api/v1/marketing/offers": [
-      {
-        "type": "FrontendComponent",
-        "name": "MarketingView",
-        "file": "modules/marketing/MarketingView.vue"
-      }
-    ],
-    "api/v1/marketing/agent-runs": [
-      {
-        "type": "FrontendComponent",
-        "name": "MarketingView",
-        "file": "modules/marketing/MarketingView.vue"
-      }
-    ],
     "api/v1/marketing/dashboard": [
-      {
-        "type": "FrontendView",
-        "name": "DashboardView",
-        "file": "views/admin/DashboardView.vue"
-      },
-      {
-        "type": "FrontendComponent",
-        "name": "ShopOperationBoard",
-        "file": "modules/orders/ShopOperationBoard.vue"
-      },
       {
         "type": "FrontendComponent",
         "name": "RentalOperationBoard",
@@ -374,8 +340,8 @@
     "MarketingCampaign": {
       "types_affected": [
         "Serializer",
-        "ViewSet",
-        "Model"
+        "Model",
+        "ViewSet"
       ],
       "total": 7
     },
@@ -387,8 +353,8 @@
     },
     "AgentRun": {
       "types_affected": [
-        "ViewSet",
-        "Serializer"
+        "Serializer",
+        "ViewSet"
       ],
       "total": 2
     }

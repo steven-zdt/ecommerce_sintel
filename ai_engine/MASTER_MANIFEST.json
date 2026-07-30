@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-07-19T14:55:36.951743+00:00",
+  "generated_at": "2026-07-30T01:51:09.522086+00:00",
   "apps": [
     "accounts",
     "cart",
@@ -17,6 +17,7 @@
     "quotes",
     "renting",
     "security",
+    "shared",
     "shop",
     "support",
     "technical_services",
@@ -39,15 +40,16 @@
     "quotes": "C:\\Users\\Administrator\\Documents\\ecommerce_sintel_rest\\ai_engine\\AI_MANIFESTS\\quotes_MANIFEST.json",
     "renting": "C:\\Users\\Administrator\\Documents\\ecommerce_sintel_rest\\ai_engine\\AI_MANIFESTS\\renting_MANIFEST.json",
     "security": "C:\\Users\\Administrator\\Documents\\ecommerce_sintel_rest\\ai_engine\\AI_MANIFESTS\\security_MANIFEST.json",
+    "shared": "C:\\Users\\Administrator\\Documents\\ecommerce_sintel_rest\\ai_engine\\AI_MANIFESTS\\shared_MANIFEST.json",
     "shop": "C:\\Users\\Administrator\\Documents\\ecommerce_sintel_rest\\ai_engine\\AI_MANIFESTS\\shop_MANIFEST.json",
     "support": "C:\\Users\\Administrator\\Documents\\ecommerce_sintel_rest\\ai_engine\\AI_MANIFESTS\\support_MANIFEST.json",
     "technical_services": "C:\\Users\\Administrator\\Documents\\ecommerce_sintel_rest\\ai_engine\\AI_MANIFESTS\\technical_services_MANIFEST.json",
     "users": "C:\\Users\\Administrator\\Documents\\ecommerce_sintel_rest\\ai_engine\\AI_MANIFESTS\\users_MANIFEST.json"
   },
   "stats": {
-    "total_apps": 20,
-    "total_endpoints": 118,
-    "total_models": 166
+    "total_apps": 21,
+    "total_endpoints": 120,
+    "total_models": 174
   },
   "global_rules_count": 14
 }

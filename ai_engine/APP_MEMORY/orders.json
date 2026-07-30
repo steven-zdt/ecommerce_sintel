@@ -48,9 +48,11 @@
       "service-orders"
     ],
     "management_commands": [],
-    "celery_tasks": [],
+    "celery_tasks": [
+      "notify_frequent_customers_cross_sell"
+    ],
     "consumers": [],
-    "migrations": 15
+    "migrations": 17
   },
   "key_models": [
     "Order",
@@ -82,5 +84,5 @@
   "BUG": [],
   "HOT_FIX": [],
   "decisions": [],
-  "generated_at": "2026-07-19T14:55:36.345244+00:00"
+  "generated_at": "2026-07-30T01:51:08.606711+00:00"
 }

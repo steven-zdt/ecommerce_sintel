@@ -1,6 +1,6 @@
 {
   "app": "dashboard",
-  "generated_at": "2026-07-19T14:55:36.484663+00:00",
+  "generated_at": "2026-07-30T01:51:08.807888+00:00",
   "api_prefix": "api/v1/dashboard",
   "purpose": "BFF (Backend for Frontend) — orchestrates data for admin panel. No business logic.",
   "architecture": {
@@ -281,7 +281,10 @@
           "update_variant",
           "delete_variant",
           "logistics",
-          "marketing"
+          "marketing",
+          "commercial_config",
+          "commercial_options",
+          "delete_commercial_option"
         ]
       },
       {
@@ -726,6 +729,22 @@
         ]
       },
       {
+        "name": "AdminAboutUsViewSet",
+        "file": "dashboard/api/views.py",
+        "bases": [
+          "viewsets.ViewSet"
+        ],
+        "actions": [
+          "list",
+          "create_value",
+          "update_value",
+          "delete_value",
+          "reorder",
+          "get_config",
+          "update_config"
+        ]
+      },
+      {
         "name": "AdminSupportChatViewSet",
         "file": "dashboard/api/views.py",
         "bases": [
@@ -737,7 +756,8 @@
           "close_room",
           "assign",
           "attach_context",
-          "customer_360"
+          "customer_360",
+          "analytics"
         ]
       },
       {
@@ -925,7 +945,10 @@
         "update_variant",
         "delete_variant",
         "logistics",
-        "marketing"
+        "marketing",
+        "commercial_config",
+        "commercial_options",
+        "delete_commercial_option"
       ],
       "basename": "admin-equipment",
       "http_methods": [
@@ -1596,6 +1619,24 @@
       ]
     },
     {
+      "endpoint": "api/v1/dashboard/about-us",
+      "app": "dashboard",
+      "viewset": "AdminAboutUsViewSet",
+      "actions": [
+        "list",
+        "create_value",
+        "update_value",
+        "delete_value",
+        "reorder",
+        "get_config",
+        "update_config"
+      ],
+      "basename": "admin-about-us",
+      "http_methods": [
+        "GET"
+      ]
+    },
+    {
       "endpoint": "api/v1/dashboard/support/chats",
       "app": "dashboard",
       "viewset": "AdminSupportChatViewSet",
@@ -1605,7 +1646,8 @@
         "close_room",
         "assign",
         "attach_context",
-        "customer_360"
+        "customer_360",
+        "analytics"
       ],
       "basename": "admin-support-chats",
       "http_methods": [
@@ -1689,18 +1731,6 @@
     }
   ],
   "frontend_consumers": {
-    "api/v1/dashboard/products": [
-      {
-        "type": "FrontendComponent",
-        "name": "ProductForm",
-        "file": "modules/shop/ProductForm.vue"
-      },
-      {
-        "type": "FrontendComponent",
-        "name": "ProductList",
-        "file": "modules/shop/ProductList.vue"
-      }
-    ],
     "api/v1/dashboard/categories": [
       {
         "type": "FrontendView",
@@ -1729,21 +1759,6 @@
       },
       {
         "type": "FrontendComponent",
-        "name": "CategoryList",
-        "file": "modules/shop/CategoryList.vue"
-      },
-      {
-        "type": "FrontendComponent",
-        "name": "ProductForm",
-        "file": "modules/shop/ProductForm.vue"
-      },
-      {
-        "type": "FrontendComponent",
-        "name": "ProductList",
-        "file": "modules/shop/ProductList.vue"
-      },
-      {
-        "type": "FrontendComponent",
         "name": "TechnicianAssignmentBoard",
         "file": "modules/technical_services/TechnicianAssignmentBoard.vue"
       }
@@ -1768,45 +1783,6 @@
         "type": "FrontendComponent",
         "name": "RentingList",
         "file": "modules/renting/RentingList.vue"
-      },
-      {
-        "type": "FrontendComponent",
-        "name": "BrandList",
-        "file": "modules/shop/BrandList.vue"
-      },
-      {
-        "type": "FrontendComponent",
-        "name": "ProductForm",
-        "file": "modules/shop/ProductForm.vue"
-      }
-    ],
-    "api/v1/dashboard/taxes": [
-      {
-        "type": "FrontendComponent",
-        "name": "ProductForm",
-        "file": "modules/shop/ProductForm.vue"
-      },
-      {
-        "type": "FrontendComponent",
-        "name": "TaxForm",
-        "file": "modules/shop/TaxForm.vue"
-      },
-      {
-        "type": "FrontendComponent",
-        "name": "TaxList",
-        "file": "modules/shop/TaxList.vue"
-      }
-    ],
-    "api/v1/dashboard/orders": [
-      {
-        "type": "FrontendView",
-        "name": "CustomerOrdersView",
-        "file": "views/customer/account/CustomerOrdersView.vue"
-      },
-      {
-        "type": "FrontendComponent",
-        "name": "OrderList",
-        "file": "modules/orders/OrderList.vue"
       }
     ],
     "api/v1/dashboard/equipment": [
@@ -1886,13 +1862,6 @@
         "file": "modules/technical_services/ServiceFAQManager.vue"
       }
     ],
-    "api/v1/dashboard/shop-cost-rules": [
-      {
-        "type": "FrontendComponent",
-        "name": "ProductForm",
-        "file": "modules/shop/ProductForm.vue"
-      }
-    ],
     "api/v1/dashboard/rental-cost-rules": [
       {
         "type": "FrontendComponent",
@@ -1912,65 +1881,23 @@
         "file": "modules/technical_services/ServiceForm.vue"
       }
     ],
-    "api/v1/dashboard/home-cards": [
-      {
-        "type": "FrontendComponent",
-        "name": "HomeConfigView",
-        "file": "modules/core/HomeConfigView.vue"
-      }
-    ],
-    "api/v1/dashboard/home-card-groups": [
-      {
-        "type": "FrontendComponent",
-        "name": "HomeConfigView",
-        "file": "modules/core/HomeConfigView.vue"
-      }
-    ],
     "api/v1/dashboard/footer": [
+      {
+        "type": "FrontendView",
+        "name": "ContactoView",
+        "file": "views/customer/ContactoView.vue"
+      },
       {
         "type": "FrontendComponent",
         "name": "CustomerFooter",
         "file": "components/customer/CustomerFooter.vue"
-      },
-      {
-        "type": "FrontendComponent",
-        "name": "HomeConfigView",
-        "file": "modules/core/HomeConfigView.vue"
       }
     ],
-    "api/v1/dashboard/footer-groups": [
+    "api/v1/dashboard/about-us": [
       {
-        "type": "FrontendComponent",
-        "name": "HomeConfigView",
-        "file": "modules/core/HomeConfigView.vue"
-      }
-    ],
-    "api/v1/dashboard/site-brand": [
-      {
-        "type": "FrontendComponent",
-        "name": "HomeConfigView",
-        "file": "modules/core/HomeConfigView.vue"
-      }
-    ],
-    "api/v1/dashboard/navbar": [
-      {
-        "type": "FrontendComponent",
-        "name": "HomeConfigView",
-        "file": "modules/core/HomeConfigView.vue"
-      }
-    ],
-    "api/v1/dashboard/footer-cta": [
-      {
-        "type": "FrontendComponent",
-        "name": "HomeConfigView",
-        "file": "modules/core/HomeConfigView.vue"
-      }
-    ],
-    "api/v1/dashboard/brand-slider": [
-      {
-        "type": "FrontendComponent",
-        "name": "HomeConfigView",
-        "file": "modules/core/HomeConfigView.vue"
+        "type": "FrontendView",
+        "name": "AboutUsView",
+        "file": "views/customer/AboutUsView.vue"
       }
     ],
     "api/v1/dashboard/support/chats": [
@@ -1981,16 +1908,6 @@
       }
     ],
     "api/v1/dashboard/operations": [
-      {
-        "type": "FrontendComponent",
-        "name": "OperationBoard",
-        "file": "modules/operations/OperationBoard.vue"
-      },
-      {
-        "type": "FrontendComponent",
-        "name": "ShopOperationBoard",
-        "file": "modules/orders/ShopOperationBoard.vue"
-      },
       {
         "type": "FrontendComponent",
         "name": "RentalOperationBoard",
@@ -2005,39 +1922,8 @@
     "api/v1/dashboard/dispatchers": [
       {
         "type": "FrontendComponent",
-        "name": "DispatcherList",
-        "file": "modules/operations/DispatcherList.vue"
-      },
-      {
-        "type": "FrontendComponent",
-        "name": "ShopOperationBoard",
-        "file": "modules/orders/ShopOperationBoard.vue"
-      },
-      {
-        "type": "FrontendComponent",
         "name": "RentalOperationBoard",
         "file": "modules/renting/RentalOperationBoard.vue"
-      }
-    ],
-    "api/v1/dashboard/security-events": [
-      {
-        "type": "FrontendComponent",
-        "name": "SecurityDashboardView",
-        "file": "modules/security/SecurityDashboardView.vue"
-      }
-    ],
-    "api/v1/dashboard/notification-templates": [
-      {
-        "type": "FrontendComponent",
-        "name": "NotificationsAdminView",
-        "file": "modules/notifications/NotificationsAdminView.vue"
-      }
-    ],
-    "api/v1/dashboard/notification-logs": [
-      {
-        "type": "FrontendComponent",
-        "name": "NotificationsAdminView",
-        "file": "modules/notifications/NotificationsAdminView.vue"
       }
     ]
   },
@@ -2366,6 +2252,12 @@
       "prefix": "brand-slider",
       "viewset": "AdminBrandSliderViewSet",
       "basename": "admin-brand-slider"
+    },
+    {
+      "type": "router",
+      "prefix": "about-us",
+      "viewset": "AdminAboutUsViewSet",
+      "basename": "admin-about-us"
     },
     {
       "type": "router",

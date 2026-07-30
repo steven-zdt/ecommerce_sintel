@@ -1,6 +1,6 @@
 {
   "app": "core",
-  "generated_at": "2026-07-19T14:55:36.458767+00:00",
+  "generated_at": "2026-07-30T01:51:08.772239+00:00",
   "api_prefix": "api/v1/core",
   "purpose": "Public home feed, featured products/services, Home Config (banners/modules/cards/CTA/brand slider) and footer/navbar site customization",
   "architecture": {
@@ -53,6 +53,16 @@
       },
       {
         "name": "BrandSliderItem",
+        "file": "core/models.py",
+        "fk_relations": []
+      },
+      {
+        "name": "AboutUsConfig",
+        "file": "core/models.py",
+        "fk_relations": []
+      },
+      {
+        "name": "AboutUsValue",
         "file": "core/models.py",
         "fk_relations": []
       },
@@ -168,6 +178,26 @@
         "file": "core/api/serializers.py"
       },
       {
+        "name": "AboutUsValueSerializer",
+        "file": "core/api/serializers.py"
+      },
+      {
+        "name": "AboutUsValueInputSerializer",
+        "file": "core/api/serializers.py"
+      },
+      {
+        "name": "AboutUsValueReorderSerializer",
+        "file": "core/api/serializers.py"
+      },
+      {
+        "name": "AboutUsConfigSerializer",
+        "file": "core/api/serializers.py"
+      },
+      {
+        "name": "AboutUsConfigInputSerializer",
+        "file": "core/api/serializers.py"
+      },
+      {
         "name": "BrandSliderConfigSerializer",
         "file": "core/api/serializers.py"
       },
@@ -187,6 +217,7 @@
           "home_feed",
           "footer",
           "site_config",
+          "about_us",
           "enums"
         ]
       }
@@ -364,6 +395,30 @@
         ]
       },
       {
+        "name": "AboutUsSelector",
+        "file": "core/services/commands.py",
+        "role": "command",
+        "methods": [
+          "list_values_active",
+          "list_values_for_admin",
+          "get_value_by_uuid",
+          "get_config",
+          "get_or_create_config"
+        ]
+      },
+      {
+        "name": "AboutUsCommands",
+        "file": "core/services/commands.py",
+        "role": "command",
+        "methods": [
+          "create_value",
+          "update_value",
+          "delete_value",
+          "reorder_values",
+          "upsert_config"
+        ]
+      },
+      {
         "name": "HomeConfigSelector",
         "file": "core/services/selectors.py",
         "role": "selector",
@@ -420,7 +475,7 @@
         "core/urls.py"
       ]
     },
-    "migrations": 25
+    "migrations": 26
   },
   "endpoints": [],
   "frontend_consumers": {},
@@ -486,6 +541,18 @@
       ],
       "total": 76
     },
+    "AboutUsConfig": {
+      "types_affected": [
+        "Serializer"
+      ],
+      "total": 1
+    },
+    "AboutUsValue": {
+      "types_affected": [
+        "Serializer"
+      ],
+      "total": 1
+    },
     "BrandSliderConfig": {
       "types_affected": [
         "Model",
@@ -512,7 +579,9 @@
       "FooterCTASelector",
       "FooterCTACommands",
       "BrandSliderSelector",
-      "BrandSliderCommands"
+      "BrandSliderCommands",
+      "AboutUsSelector",
+      "AboutUsCommands"
     ],
     "selectors": [
       "HomeConfigSelector"
