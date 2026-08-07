@@ -247,16 +247,40 @@ async def chat(req: ChatRequest, token: str = Depends(get_validated_token)):
     if not _STATE.get("llm"):
         raise HTTPException(503, "Motor no inicializado. Esperar al lifespan startup.")
     payload = decode_django_jwt(token)
-    result = await run_action_chat(
-        message=req.message,
-        conversation_id=req.conversation_id,
-        token=token,
-        user_id=payload["user_id"],
-        llm=_STATE["llm"],
-        vectorstore=_STATE.get("vectorstore"),
-        all_docs=_STATE.get("all_docs", []),
-        confirm=req.confirm,
-    )
+    try:
+        result = await run_action_chat(
+            message=req.message,
+            conversation_id=req.conversation_id,
+            token=token,
+            user_id=payload["user_id"],
+            llm=_STATE["llm"],
+            vectorstore=_STATE.get("vectorstore"),
+            all_docs=_STATE.get("all_docs", []),
+            confirm=req.confirm,
+        )
+    except Exception:
+        # Certificacion del chat (2026-08-07): con un solo motor en
+        # LOCAL_MODEL_CHAIN (sin fallback configurado), una caida del motor
+        # (ej. httpx.ConnectError si el contenedor se detiene) no tenia
+        # ningun catch en este endpoint -- se propagaba como 500 crudo sin
+        # cuerpo util. ai_bridge.py (Django) ya trata cualquier status != 200
+        # como "motor no disponible" y degrada con gracia del lado del
+        # usuario (mensaje + Human Handoff implicito), pero el 500 crudo
+        # rompia la traza [AI_BRIDGE] con un cuerpo vacio en vez de un
+        # error explicito, y cualquier otro consumidor de /chat (debug
+        # manual, futuros clientes) se llevaba una excepcion sin contexto.
+        logger.exception("[chat] error no controlado en run_action_chat, conversation_id=%s", req.conversation_id)
+        return ChatResponse(
+            conversation_id=req.conversation_id or "",
+            intent="unknown",
+            agent=None,
+            tool_calls=[],
+            tool_results=[],
+            needs_confirmation=False,
+            confirmation=None,
+            response="En este momento nuestro asistente no esta disponible. Un agente humano revisara tu mensaje pronto.",
+            metrics={"engine_unavailable": True},
+        )
     return ChatResponse(**result)
 
 
