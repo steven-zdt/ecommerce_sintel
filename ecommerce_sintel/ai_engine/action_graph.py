@@ -25,7 +25,6 @@ import operator
 import re
 import time
 import uuid as uuid_lib
-from collections import defaultdict, deque
 from typing import Annotated, TypedDict
 
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -33,14 +32,15 @@ from langgraph.graph import END, StateGraph
 from langgraph.types import interrupt
 
 from config import CHECKPOINTER_REDIS_URL
+from cost_control import DAILY_TURN_LIMIT_PER_USER, check_and_increment_daily_turns
 from redis_checkpointer import RedisCheckpointSaver
 
 import tools as tool_registry
 from agents import AgentRegistry
-from auth import fetch_user_context
+from auth import fetch_company_display_name, fetch_user_context
 from capabilities import CapabilityRegistry
 from observability import TurnMetrics, metrics_from_config
-from retrievers import retrieve_context_for_task
+from retrievers import retrieve_knowledge_for_chat
 from tools import ToolContext
 
 logger = logging.getLogger("action_graph")
@@ -96,17 +96,11 @@ BUSINESS_INTENT_PATTERNS = {
     "personal_recommendation":re.compile(r"\b(que me recomiendas|que recomiendan|recomendacion|recomendación|suger|productos para mi|servicios para mi|para mi perfil|cross.?sell|up.?sell)\w*", re.I),
     "maintenance_check":      re.compile(r"\b(mantenimiento|bloqueo|bloqueado|fuera de servicio|equipo dani|equipo bloqueado|preventivo|correctivo)\b.{0,40}\b(equipo|camara|cámara|variante)\w*|\b(equipo|camara|cámara)\b.{0,40}\b(mantenimiento|bloqueo|bloqueado)\b", re.I),
     "core_content":           re.compile(r"\b(home|inicio|banner|navbar|menu de navegacion|footer|pie de pagina|marca|slider|slogan|boton del home|enlace del menu|configurar el sitio|editar el sitio)\w*", re.I),
-    # [AGREGADO 2026-08-04, Etapa 2 de AUDITORIA_KNOWLEDGE_GRAPH_SSOT_2026-08-04.md]
-    # Conecta GraphImpactAnalysisTool (tools/graph_tools.py, ya registrada desde
-    # AUDITORIA/14 Fase 9 pero deliberadamente sin intent -- ver comentario historico
-    # en agents/profiles/admin_agent.yaml) al router regex en vivo. Patron deliberadamente
-    # especifico (lenguaje de "impacto"/"que se rompe"/"que depende de" sobre una entidad
-    # de codigo) para minimizar falsos positivos contra trafico real de clientes -- no se
-    # puede probar contra trafico real antes de desplegar, asi que se prefirio angosto y
-    # ampliarlo despues con evidencia, no al reves. Requiere IsAdminUser (verificado ahora
-    # tambien para lecturas en node_select_and_execute_tools, no solo para escrituras --
-    # ver el fix de permisos aplicado junto con este intent).
-    "architecture_impact":   re.compile(r"\b(que se rompe|que rompe|que afecta|impacto)\b.{0,40}\b(cambio|cambia|cambiar|modifico|modifica|modificar)\b|\b(radio de impacto|analizar impacto|impacto arquitect)\w*|\b(que depende de|quien usa|quien consume)\b.{0,40}\b(modelo|endpoint|viewset|serializer|componente)\w*", re.I),
+    # "architecture_impact" (GraphImpactAnalysisTool) retirado 2026-08-10 (FASE 0,
+    # desacoplamiento ai_engine <-> project_knowledge_graph) -- era una capacidad de
+    # arquitectura/ingenieria expuesta al chat de soporte (agregada 2026-08-04), no algo
+    # que un cliente deba poder disparar via chat. ai_engine ya no debe importar
+    # project_knowledge_graph en absoluto.
 }
 
 # Capabilities que el Context Optimizer ofrece al LLM segun la intencion --
@@ -134,7 +128,6 @@ INTENT_CAPABILITIES = {
     "core_content":            ["ver_config_home", "ver_navbar", "ver_footer", "ver_brand_slider",
                                 "editar_banner", "crear_banner", "editar_navbar", "crear_navbar_link",
                                 "editar_brand_slider"],
-    "architecture_impact":     ["analizar_impacto_arquitectura"],
 }
 
 # Capability de fallback deterministico si el LLM no emite tool_calls para
@@ -260,13 +253,24 @@ async def node_optimize_context(state: SintelActionState, config: dict) -> dict:
 
 
 async def node_retrieve_knowledge(state: SintelActionState, config: dict) -> dict:
-    """Reusa retrievers.py tal cual para preguntas de politica/FAQ/documentacion."""
+    """Preguntas de politica/FAQ/documentacion -- solo conocimiento documental
+    (retrieve_knowledge_for_chat filtra a metadata.language == "markdown"),
+    nunca codigo fuente ni reglas internas de arquitectura backend. Ver
+    AI_SUPPORT_SCOPE.md seccion 6."""
     resources = (config.get("configurable") or {}).get("resources", {})
     vectorstore, all_docs = resources.get("vectorstore"), resources.get("all_docs")
     if vectorstore is None or not all_docs:
         return {"tool_results": [{"error": "Base de conocimiento no disponible.", "status_code": 503}]}
-    docs = retrieve_context_for_task(state["message"], vectorstore, all_docs)[:MAX_KNOWLEDGE_CHUNKS]
-    knowledge = "\n---\n".join(d.page_content[:800] for d in docs)[:MAX_CONTEXT_CHARS]
+    docs = retrieve_knowledge_for_chat(state["message"], vectorstore, all_docs)[:MAX_KNOWLEDGE_CHUNKS]
+    # Fase 17 (Knowledge Governance, 2026-08-08): marcador explicito cuando no hay
+    # nada -- antes un bloque vacio dejaba al LLM "rellenar" el hueco por su cuenta
+    # (hallazgo real: pregunta de horario de atencion respondida con datos inventados
+    # a partir de un chunk irrelevante). Un marcador inequivoco es mas dificil de
+    # ignorar que una seccion vacia.
+    knowledge = (
+        "\n---\n".join(d.page_content[:800] for d in docs)[:MAX_CONTEXT_CHARS]
+        if docs else "NINGUNO -- no se encontro informacion verificada sobre este tema."
+    )
     return {
         "optimized_context": f"{state.get('optimized_context', '')}\n\nConocimiento relevante:\n{knowledge}"[:MAX_CONTEXT_CHARS * 2],
         "tool_calls": [],
@@ -373,9 +377,11 @@ async def node_select_and_execute_tools(state: SintelActionState, config: dict) 
     if llm is not None:
         try:
             bound = llm.bind_tools(specs)
+            company_name = await fetch_company_display_name()
+            assistant_label = f"el asistente de {company_name}" if company_name else "un asistente de atencion al cliente"
             ai_msg = await bound.ainvoke([
                 SystemMessage(content=(
-                    "Eres el asistente de Sintel. Decide que capacidad usar para responder "
+                    f"Eres {assistant_label}. Decide que capacidad usar para responder "
                     "con datos reales del cliente. Si la pregunta requiere fechas o uuids que "
                     "no tienes, usa primero una capacidad de busqueda. Nunca inventes datos.\n"
                     + state.get("optimized_context", "")
@@ -442,12 +448,11 @@ async def node_select_and_execute_tools(state: SintelActionState, config: dict) 
         # metadata.permissions antes de ejecutar. Para Tools que proxean a Django
         # (tools/http_bridge.py) el endpoint interno vuelve a validar y es la
         # autoridad final -- gap solo de defensa en profundidad, ya documentado
-        # (F1, AUDITORIA/16). Pero GraphImpactAnalysisTool (tools/graph_tools.py)
-        # consulta el Knowledge Graph EN MEMORIA, sin HTTP, sin JWT, sin ningun
-        # endpoint de Django detras -- para ese caso especifico este era el UNICO
-        # gate posible, y estaba ausente. Se descubrio al conectar el intent de
-        # Etapa 2 (ver AUDITORIA_KNOWLEDGE_GRAPH_SSOT_2026-08-04.md, addendum) y
-        # se corrigio ANTES de hacer alcanzable la Tool desde `/chat`.
+        # (F1, AUDITORIA/16). Pero una Tool sin HTTP/JWT/endpoint de Django detras
+        # (ej. una que consulte algo en memoria del propio proceso) no tiene ese
+        # segundo gate -- este chequeo generico es el UNICO gate posible para ese
+        # caso, se mantiene por cualquier Tool futura con esa forma, aunque el caso
+        # original que lo motivo (GraphImpactAnalysisTool) se retiro 2026-08-10.
         if metadata is not None and "IsAdminUser" in metadata.permissions and not ctx.user.get("is_staff"):
             results.append({
                 "capability": tc["name"], "args": {},
@@ -503,28 +508,46 @@ async def node_select_and_execute_tools(state: SintelActionState, config: dict) 
 # Policy Layer (Componente 5) + confirmacion humana + audit (Fase 4)
 # ---------------------------------------------------------------------------
 
-# Rate limiter en memoria por (user_id, tool): la Policy Layer aplica el
-# ToolMetadata.rate_limit ("N/hour/user" | "N/day/user"). La autorizacion
-# real (permission classes) la aplica Django en el endpoint interno -- aqui
-# solo hay defensa temprana, nunca la unica.
+# Rate limiter por (user_id, tool), respaldado en Redis: la Policy Layer aplica el
+# ToolMetadata.rate_limit ("N/hour/user" | "N/day/user"). La autorizacion real
+# (permission classes) la aplica Django en el endpoint interno -- aqui solo hay
+# defensa temprana, nunca la unica.
+#
+# CERRADO (auditoria E2E AI Engine, 2026-08-17): antes esto era un deque en memoria
+# del proceso (_RATE_HITS) -- se reseteaba en cada restart y, si sintel_ai algun dia
+# corre en mas de una replica, cada una contaria aparte (limite inexacto). Mismo
+# Redis y mismo patron fail-open que cost_control.py (DB 2, CHECKPOINTER_REDIS_URL) --
+# INCR es atomico en Redis, evita la condicion de carrera de un get-then-set manual.
 _RATE_WINDOWS = {"hour": 3600, "day": 86400}
-_RATE_HITS: dict[tuple, deque] = defaultdict(deque)
 
 
-def _rate_limit_exceeded(user_id, tool_name: str, rate_limit: str) -> bool:
+def _tool_rate_key(user_id, tool_name: str, window_name: str) -> str:
+    return f"ai:tool_rate:{user_id}:{tool_name}:{window_name}"
+
+
+async def _rate_limit_exceeded(user_id, tool_name: str, rate_limit: str) -> bool:
     try:
         count_raw, window_name, _scope = rate_limit.split("/")
         limit, window = int(count_raw), _RATE_WINDOWS[window_name]
     except (ValueError, KeyError):
         return False
-    now = time.monotonic()
-    hits = _RATE_HITS[(user_id, tool_name)]
-    while hits and now - hits[0] > window:
-        hits.popleft()
-    if len(hits) >= limit:
-        return True
-    hits.append(now)
-    return False
+
+    import redis.asyncio as aredis
+    key = _tool_rate_key(user_id, tool_name, window_name)
+    # Cliente nuevo por llamada, a proposito -- mismo motivo que cost_control.py:
+    # redis.asyncio ata su pool al event loop activo en el primer comando, un
+    # singleton de modulo rompe entre loops distintos (tests, o cualquier reload).
+    client = aredis.Redis.from_url(CHECKPOINTER_REDIS_URL, decode_responses=True)
+    try:
+        current = await client.incr(key)
+        if current == 1:
+            await client.expire(key, window)
+        return current > limit
+    except Exception:
+        logger.exception("[policy] Redis no disponible para rate limit de %s, fail-open", tool_name)
+        return False
+    finally:
+        await client.aclose()
 
 
 def _pending_metadata(state: SintelActionState):
@@ -549,7 +572,7 @@ async def node_evaluate_policy(state: SintelActionState, config: dict) -> dict:
     if "IsAdminUser" in metadata.permissions and not user.get("is_staff"):
         return {"policy_decision": "deny",
                 "optimized_context": state.get("optimized_context", "") + "\nAviso: accion solo para administradores, denegada."}
-    if metadata.rate_limit and _rate_limit_exceeded(user.get("user_id"), metadata.name, metadata.rate_limit):
+    if metadata.rate_limit and await _rate_limit_exceeded(user.get("user_id"), metadata.name, metadata.rate_limit):
         logger.warning("[policy] rate limit %s para user=%s", metadata.name, user.get("user_id"))
         return {"policy_decision": "deny",
                 "optimized_context": state.get("optimized_context", "") + "\nAviso: limite de intentos alcanzado para esta accion, intentar mas tarde."}
@@ -671,12 +694,19 @@ async def node_generate_response(state: SintelActionState, config: dict) -> dict
         "La conversacion fue derivada a soporte en este turno -- reconoce la molestia "
         "del cliente antes de responder.\n" if state.get("handoff") else ""
     )
+    company_name = await fetch_company_display_name()
+    company_suffix = f" de {company_name}" if company_name else ""
     system = (
         persona + handoff_note +
-        "Eres el asistente de atencion al cliente de Sintel (Colombia). Responde en espanol, "
+        f"Eres el asistente de atencion al cliente{company_suffix}. Responde en espanol, "
         "breve y concreto. REGLAS: responde UNICAMENTE con los datos del bloque RESULTADOS "
         "(y el contexto); si no hay datos suficientes, dilo honestamente y ofrece escalar a "
-        "soporte; nunca inventes estados, fechas ni montos. Sobre acciones ejecutadas: "
+        "soporte; nunca inventes estados, fechas ni montos. Si el bloque 'Conocimiento "
+        "relevante' dice NINGUNO, NO tienes informacion verificada sobre ese tema -- dilo "
+        "explicitamente ('no tengo esa informacion especifica ahora mismo') y ofrece "
+        "escalar a soporte; jamas completes ese vacio con un dato plausible pero no "
+        "verificado (horarios, politicas, garantias, precios, plazos -- ninguno inventado). "
+        "Sobre acciones ejecutadas: "
         "action_executed=true significa que la accion SI se realizo con exito -- "
         "confirmasela al cliente con sus datos, NUNCA digas que no se realizo; "
         "action_executed=false significa que el cliente no confirmo y nada cambio. "
@@ -804,6 +834,25 @@ async def run_action_chat(message: str, conversation_id: str | None, token: str,
     como nueva peticion (la accion pendiente se descarta).
     """
     from langgraph.types import Command
+
+    # Gap 3 (Fase 23, Cost Control agregado, 2026-08-08): limite diario de turnos
+    # por usuario, respaldado en Redis -- ver cost_control.py para el hallazgo que
+    # lo motivo (antes no existia ningun limite agregado, solo por-Tool).
+    if not await check_and_increment_daily_turns(user_id):
+        return {
+            "conversation_id": conversation_id or "",
+            "intent": "unknown",
+            "agent": None,
+            "tool_calls": [],
+            "tool_results": [],
+            "needs_confirmation": False,
+            "confirmation": None,
+            "response": (
+                "Has alcanzado el limite de mensajes por hoy con nuestro asistente. "
+                "Un agente humano puede seguir ayudandote -- escribenos y te atendemos."
+            ),
+            "metrics": {"daily_limit_reached": True, "daily_limit": DAILY_TURN_LIMIT_PER_USER},
+        }
 
     conversation_id = conversation_id or uuid_lib.uuid4().hex[:12]
     graph = get_action_graph()

@@ -17,7 +17,8 @@ from notifications.clients.whatsapp import (
     WhatsAppClient, WhatsAppApiError, WhatsAppAuthError, WhatsAppConfigError
 )
 from notifications.tasks import (
-    send_ws_notification_task, send_email_notification_task, send_whatsapp_notification_task
+    send_ws_notification_task, send_email_notification_task, send_whatsapp_notification_task,
+    process_whatsapp_inbound_task,
 )
 
 User = get_user_model()
@@ -396,3 +397,402 @@ class WhatsAppInboundWebhookSignatureTestCase(TransactionTestCase):
             'POST', self.url, data=self.body, content_type='application/json', **headers
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+
+@override_settings(META_APP_SECRET='test-meta-app-secret')
+class WhatsAppInboundWebhookDedupeTestCase(TransactionTestCase):
+    """
+    Test de regresion para el hallazgo de la auditoria de 2026-07-31: Meta
+    reintrega el mismo webhook si no recibe 200 a tiempo -- sin dedupe por
+    message.id, un reintento disparaba process_whatsapp_inbound_task() de
+    nuevo (consulta a la IA + respuesta duplicada por WhatsApp).
+    """
+
+    def setUp(self):
+        self.client = APIClient()
+        self.url = reverse('whatsapp-inbound-webhook')
+
+    def _signed_post(self, body: bytes):
+        signature = 'sha256=' + hmac.new(b'test-meta-app-secret', body, hashlib.sha256).hexdigest()
+        return self.client.generic(
+            'POST', self.url, data=body, content_type='application/json',
+            HTTP_X_HUB_SIGNATURE_256=signature,
+        )
+
+    def _payload(self, message_id: str) -> bytes:
+        import json
+        return json.dumps({
+            'entry': [{'changes': [{'value': {'messages': [{
+                'id': message_id,
+                'type': 'text',
+                'from': '573001234567',
+                'text': {'body': 'hola'},
+            }]}}]}]
+        }).encode('utf-8')
+
+    @patch('notifications.tasks.process_whatsapp_inbound_task.delay')
+    def test_duplicate_message_id_is_processed_only_once(self, mock_delay):
+        body = self._payload(f'wamid.{uuid.uuid4()}')
+        response1 = self._signed_post(body)
+        response2 = self._signed_post(body)  # mismo body -> mismo message_id, simula el reintento de Meta
+        self.assertEqual(response1.status_code, status.HTTP_200_OK)
+        self.assertEqual(response2.status_code, status.HTTP_200_OK)
+        self.assertEqual(mock_delay.call_count, 1)
+
+    @patch('notifications.tasks.process_whatsapp_inbound_task.delay')
+    def test_different_message_ids_are_both_processed(self, mock_delay):
+        self._signed_post(self._payload(f'wamid.{uuid.uuid4()}'))
+        self._signed_post(self._payload(f'wamid.{uuid.uuid4()}'))
+        self.assertEqual(mock_delay.call_count, 2)
+
+    @patch('notifications.tasks.process_whatsapp_inbound_task.delay')
+    def test_message_without_id_is_still_processed(self, mock_delay):
+        # Robustez: si Meta alguna vez manda un mensaje sin "id" (no deberia
+        # pasar segun su documentacion), no debe bloquearse -- solo pierde la
+        # proteccion de dedupe para ESE mensaje puntual.
+        import json
+        body = json.dumps({
+            'entry': [{'changes': [{'value': {'messages': [{
+                'type': 'text', 'from': '573001234567', 'text': {'body': 'hola'},
+            }]}}]}]
+        }).encode('utf-8')
+        response = self._signed_post(body)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_delay.assert_called_once()
+
+
+class WhatsAppInboundVisibilityTestCase(TransactionTestCase):
+    """
+    M2 (AUDITORIA/19_AUDITORIA_COMMUNICATION_CENTER_CANALES.md, 2026-08-01): antes
+    process_whatsapp_inbound_task no dejaba ningun rastro en BD -- invisible para
+    /panel/soporte y Customer 360. Ahora persiste ambos lados (cliente + IA) en la
+    ChatRoom real del usuario, reusando ChatCommands.
+    """
+
+    def setUp(self):
+        from accounts.models import UserProfile
+        self.user = User.objects.create_user(email='wa.visibilidad@test.sintel', password='x')
+        UserProfile.objects.create(user=self.user, phone_number='3001234567')
+
+    @patch('notifications.clients.whatsapp.WhatsAppClient.send_text')
+    @patch('support.services.ai_bridge.ask_ai')
+    def test_mensaje_entrante_y_respuesta_ia_quedan_en_la_chatroom(self, mock_ask_ai, mock_send_text):
+        from support.models import ChatRoom, ChatMessage
+
+        mock_ask_ai.return_value = {
+            'response': 'Claro, con gusto te ayudo.',
+            'metrics': {'intent': 'unknown', 'duration_ms': 5},
+        }
+
+        process_whatsapp_inbound_task(wa_id='573001234567', text='hola, necesito ayuda')
+
+        room = ChatRoom.objects.get(user=self.user)
+        messages = list(ChatMessage.objects.filter(room=room).order_by('created_at'))
+        self.assertEqual(len(messages), 2)
+        self.assertEqual(messages[0].sender_id, self.user.id)
+        self.assertEqual(messages[0].message, 'hola, necesito ayuda')
+        self.assertTrue(messages[1].is_from_agent)  # bot IA, no el cliente
+        self.assertEqual(messages[1].message, 'Claro, con gusto te ayudo.')
+        self.assertEqual(messages[1].ai_metrics, {'intent': 'unknown', 'duration_ms': 5})
+        mock_send_text.assert_called_once_with('573001234567', 'Claro, con gusto te ayudo.')
+
+    @patch('notifications.clients.whatsapp.WhatsAppClient.send_text')
+    @patch('support.services.ai_bridge.ask_ai')
+    def test_sin_respuesta_ia_igual_persiste_el_mensaje_del_cliente(self, mock_ask_ai, mock_send_text):
+        # Motor caido/sin respuesta: el mensaje del cliente NO debe perderse solo porque
+        # la IA no respondio -- sigue siendo visible para un agente humano despues.
+        from support.models import ChatRoom, ChatMessage
+
+        mock_ask_ai.return_value = None
+
+        process_whatsapp_inbound_task(wa_id='573001234567', text='hola de nuevo')
+
+        room = ChatRoom.objects.get(user=self.user)
+        messages = list(ChatMessage.objects.filter(room=room))
+        self.assertEqual(len(messages), 1)
+        self.assertEqual(messages[0].message, 'hola de nuevo')
+        mock_send_text.assert_not_called()
+
+
+@override_settings(AI_SUPPORT_CHAT_ENABLED=True)
+class WhatsAppInboundHandoffGateTestCase(TransactionTestCase):
+    """
+    Auditoria E2E AI Engine (2026-08-17): antes process_whatsapp_inbound_task llamaba a
+    ask_ai() sin chequear is_ai_mode_active()/is_ai_rate_limited() de la sala -- un cliente
+    cuyo chat web ya habia escalado a un humano (ai_paused=True) seguia recibiendo
+    auto-respuestas de la IA si escribia por WhatsApp, sin que el agente se enterara. Ahora
+    este canal respeta el mismo gate que SupportChatConsumer._ai_mode_active/_ai_rate_limited.
+    """
+
+    def setUp(self):
+        from accounts.models import UserProfile
+        from support.services.commands import ChatCommands
+        self.user = User.objects.create_user(email='wa.handoff@test.sintel', password='x')
+        UserProfile.objects.create(user=self.user, phone_number='3009876543')
+        self.room = ChatCommands.get_or_create_room(self.user)
+
+    @patch('notifications.clients.whatsapp.WhatsAppClient.send_text')
+    @patch('support.services.ai_bridge.ask_ai')
+    def test_ai_paused_bloquea_auto_respuesta_pero_persiste_mensaje(self, mock_ask_ai, mock_send_text):
+        from support.models import ChatRoom, ChatMessage
+
+        self.room.ai_paused = True
+        self.room.save(update_fields=['ai_paused'])
+
+        process_whatsapp_inbound_task(wa_id='573009876543', text='sigo esperando ayuda')
+
+        mock_ask_ai.assert_not_called()
+        mock_send_text.assert_not_called()
+        room = ChatRoom.objects.get(user=self.user)
+        messages = list(ChatMessage.objects.filter(room=room))
+        self.assertEqual(len(messages), 1)
+        self.assertEqual(messages[0].message, 'sigo esperando ayuda')
+
+    @patch('notifications.clients.whatsapp.WhatsAppClient.send_text')
+    @patch('support.services.ai_bridge.ask_ai')
+    def test_admin_asignado_bloquea_auto_respuesta(self, mock_ask_ai, mock_send_text):
+        from support.models import ChatRoom, ChatMessage
+        admin = User.objects.create_user(
+            email='admin.wa.handoff@test.sintel', password='x', is_staff=True, is_superuser=True,
+        )
+        self.room.assigned_admin = admin
+        self.room.save(update_fields=['assigned_admin'])
+
+        process_whatsapp_inbound_task(wa_id='573009876543', text='hola de nuevo')
+
+        mock_ask_ai.assert_not_called()
+        room = ChatRoom.objects.get(user=self.user)
+        self.assertEqual(ChatMessage.objects.filter(room=room).count(), 1)
+
+    @patch('notifications.clients.whatsapp.WhatsAppClient.send_text')
+    @patch('support.services.ai_bridge.ask_ai')
+    @patch('support.services.ai_bridge.is_ai_rate_limited', return_value=True)
+    def test_rate_limit_de_ia_bloquea_auto_respuesta_por_whatsapp(self, mock_rate_limited, mock_ask_ai, mock_send_text):
+        from support.models import ChatRoom, ChatMessage
+
+        process_whatsapp_inbound_task(wa_id='573009876543', text='una pregunta mas')
+
+        mock_ask_ai.assert_not_called()
+        room = ChatRoom.objects.get(user=self.user)
+        self.assertEqual(ChatMessage.objects.filter(room=room).count(), 1)
+
+    @patch('notifications.clients.whatsapp.WhatsAppClient.send_text')
+    @patch('support.services.ai_bridge.ask_ai')
+    def test_sala_normal_si_llama_a_ask_ai(self, mock_ask_ai, mock_send_text):
+        # Control positivo: sin ai_paused/admin/rate-limit, el flujo normal sigue intacto.
+        from support.models import ChatRoom, ChatMessage
+        mock_ask_ai.return_value = {'response': 'Con gusto.', 'metrics': {'intent': 'unknown'}}
+
+        process_whatsapp_inbound_task(wa_id='573009876543', text='hola')
+
+        mock_ask_ai.assert_called_once()
+        room = ChatRoom.objects.get(user=self.user)
+        self.assertEqual(ChatMessage.objects.filter(room=room).count(), 2)
+
+
+class DispatchNotificationOnceTestCase(TransactionTestCase):
+    """
+    Fase 9 (AUDITORIA/24_AUDITORIA_NOTIFICATIONS_SUPPORT.md, 2026-08-01).
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user(email='dedupe_once@test.sintel', password='x')
+
+    def test_no_crea_marcador_de_dedupe_si_la_plantilla_no_existe(self):
+        sent = NotificationCommands.dispatch_notification_once(
+            user=self.user,
+            template_slug='slug_que_no_existe',
+            context={'room_uuid': 'abc'},
+            dedupe_key='chatroom:abc',
+        )
+        self.assertFalse(sent)
+        self.assertFalse(
+            NotificationLog.objects.filter(
+                template_slug='slug_que_no_existe', channel='', payload_context__dedupe_key='chatroom:abc',
+            ).exists()
+        )
+
+    def test_no_crea_marcador_de_dedupe_si_la_plantilla_esta_inactiva(self):
+        NotificationTemplate.objects.create(
+            slug='plantilla_inactiva', name='x', is_active=False,
+            ws_event_type='X', email_body='x', subject='x',
+        )
+        sent = NotificationCommands.dispatch_notification_once(
+            user=self.user,
+            template_slug='plantilla_inactiva',
+            context={},
+            dedupe_key='entidad:1',
+        )
+        self.assertFalse(sent)
+        self.assertFalse(
+            NotificationLog.objects.filter(
+                template_slug='plantilla_inactiva', channel='', payload_context__dedupe_key='entidad:1',
+            ).exists()
+        )
+
+    @patch('notifications.tasks.send_ws_notification_task.delay')
+    def test_reintenta_en_la_siguiente_corrida_si_la_plantilla_se_reactiva(self, mock_ws_delay):
+        # Primer intento: plantilla inactiva -- no debe quemar el dedupe.
+        template = NotificationTemplate.objects.create(
+            slug='reactivable', name='x', is_active=False,
+            ws_event_type='X', email_body='', subject='',
+        )
+        sent1 = NotificationCommands.dispatch_notification_once(
+            user=self.user, template_slug='reactivable', context={}, dedupe_key='entidad:2',
+        )
+        self.assertFalse(sent1)
+
+        # Se reactiva la plantilla -- la siguiente corrida del scanner SI debe notificar.
+        template.is_active = True
+        template.save(update_fields=['is_active'])
+        sent2 = NotificationCommands.dispatch_notification_once(
+            user=self.user, template_slug='reactivable', context={}, dedupe_key='entidad:2',
+        )
+        self.assertTrue(sent2)
+        mock_ws_delay.assert_called_once()
+
+    def test_marcador_de_dedupe_bloquea_reintento_una_vez_creado(self):
+        NotificationTemplate.objects.create(
+            slug='activa', name='x', is_active=True,
+            ws_event_type='', email_body='', subject='',
+        )
+        sent1 = NotificationCommands.dispatch_notification_once(
+            user=self.user, template_slug='activa', context={}, dedupe_key='entidad:3',
+        )
+        sent2 = NotificationCommands.dispatch_notification_once(
+            user=self.user, template_slug='activa', context={}, dedupe_key='entidad:3',
+        )
+        self.assertTrue(sent1)
+        self.assertFalse(sent2)
+
+
+class AiProactiveRoomMessageStaffVisibilityTestCase(TransactionTestCase):
+    """
+    Fase 9 (AUDITORIA/24_AUDITORIA_NOTIFICATIONS_SUPPORT.md, 2026-08-01): antes
+    ai_proactive_room_message_task (usada por notify_unattended_escalated_tickets, entre
+    otros) solo difundia al cliente -- un ticket escalado a un agente humano y sin
+    seguimiento nunca alertaba a NINGUN canal del staff. Ahora tambien llega a support_admins.
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user(email='staff_visibility@test.sintel', password='x')
+
+    @patch('channels.layers.get_channel_layer')
+    def test_difunde_tanto_al_cliente_como_a_support_admins(self, mock_get_layer):
+        from unittest.mock import AsyncMock
+        from notifications.tasks import ai_proactive_room_message_task
+
+        mock_layer = MagicMock()
+        mock_layer.group_send = AsyncMock()
+        mock_get_layer.return_value = mock_layer
+
+        ai_proactive_room_message_task(
+            user_id=self.user.id,
+            template_slug='ticket_soporte_sin_seguimiento',
+            context={'room_uuid': 'abc-123'},
+        )
+
+        groups_notified = {call.args[0] for call in mock_layer.group_send.call_args_list}
+        self.assertIn(f'chat_{self.user.uuid}', groups_notified)
+        self.assertIn('support_admins', groups_notified)
+
+
+class AiProactiveRoomMessageRespectsPreferencesTestCase(TransactionTestCase):
+    """
+    Repaso de backlog (AUDITORIA/24_AUDITORIA_NOTIFICATIONS_SUPPORT.md, 2026-08-03): a
+    diferencia de los demas canales de dispatch_notification, este mensaje se creaba/difundia
+    incondicionalmente, ignorando UserNotificationPreference.
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user(email='ai_proactive_prefs@test.sintel', password='x')
+
+    def test_no_crea_mensaje_si_el_usuario_desactivo_web_socket(self):
+        from support.models import ChatRoom, ChatMessage
+        from notifications.tasks import ai_proactive_room_message_task
+
+        UserNotificationPreference.objects.create(
+            user=self.user, channel=CHANNEL_WEB_SOCKET, is_enabled=False,
+        )
+        UserNotificationPreference.objects.create(
+            user=self.user, channel=CHANNEL_EMAIL, is_enabled=True,
+        )
+
+        ai_proactive_room_message_task(
+            user_id=self.user.id, template_slug='ticket_soporte_sin_seguimiento',
+            context={'room_uuid': 'abc-123'},
+        )
+
+        self.assertFalse(ChatRoom.objects.filter(user=self.user).exists())
+        self.assertEqual(ChatMessage.objects.count(), 0)
+
+    def test_crea_mensaje_si_no_hay_preferencias_registradas(self):
+        from support.models import ChatMessage
+        from notifications.tasks import ai_proactive_room_message_task
+
+        ai_proactive_room_message_task(
+            user_id=self.user.id, template_slug='ticket_soporte_sin_seguimiento',
+            context={'room_uuid': 'abc-123'},
+        )
+
+        self.assertEqual(ChatMessage.objects.count(), 1)
+
+    def test_crea_mensaje_si_web_socket_esta_explicitamente_habilitado(self):
+        from support.models import ChatMessage
+        from notifications.tasks import ai_proactive_room_message_task
+
+        UserNotificationPreference.objects.create(
+            user=self.user, channel=CHANNEL_WEB_SOCKET, is_enabled=True,
+        )
+
+        ai_proactive_room_message_task(
+            user_id=self.user.id, template_slug='ticket_soporte_sin_seguimiento',
+            context={'room_uuid': 'abc-123'},
+        )
+
+        self.assertEqual(ChatMessage.objects.count(), 1)
+
+
+class SendWhatsappAgentReplyTaskTestCase(TransactionTestCase):
+    """
+    Fase 16 (AUDITORIA/30_AUDITORIA_PRUEBAS_E2E.md, 2026-08-03): antes, cuando un ticket de
+    soporte escalaba a un humano y el agente respondia desde el panel, esa respuesta SOLO se
+    difundia por WebSocket -- un cliente que hablaba unicamente por WhatsApp nunca la recibia.
+    Este task es el bridge de vuelta hacia WhatsApp.
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user(email='agent_reply_wa@test.sintel', password='x')
+
+    @patch('notifications.clients.whatsapp.WhatsAppClient.send_text')
+    def test_reenvia_por_whatsapp_si_el_usuario_tiene_telefono_valido(self, mock_send_text):
+        from accounts.models import UserProfile
+        from notifications.tasks import send_whatsapp_agent_reply_task
+
+        UserProfile.objects.create(user=self.user, phone_number='3001234567')
+
+        send_whatsapp_agent_reply_task(user_id=self.user.id, text='Ya revisamos tu caso.')
+
+        mock_send_text.assert_called_once_with('573001234567', 'Ya revisamos tu caso.')
+
+    @patch('notifications.clients.whatsapp.WhatsAppClient.send_text')
+    def test_no_reenvia_si_el_usuario_no_tiene_telefono(self, mock_send_text):
+        from notifications.tasks import send_whatsapp_agent_reply_task
+
+        send_whatsapp_agent_reply_task(user_id=self.user.id, text='Ya revisamos tu caso.')
+
+        mock_send_text.assert_not_called()
+
+    @patch('notifications.clients.whatsapp.WhatsAppClient.send_text')
+    def test_fallo_de_meta_no_propaga_excepcion(self, mock_send_text):
+        # Ventana de 24h cerrada u otro rechazo de Meta -- no debe tumbar la tarea.
+        from accounts.models import UserProfile
+        from notifications.clients.whatsapp import WhatsAppApiError
+        from notifications.tasks import send_whatsapp_agent_reply_task
+
+        UserProfile.objects.create(user=self.user, phone_number='3001234567')
+        mock_send_text.side_effect = WhatsAppApiError('Meta API respondio 400: ventana cerrada')
+
+        send_whatsapp_agent_reply_task(user_id=self.user.id, text='Ya revisamos tu caso.')  # no debe lanzar
+
+        mock_send_text.assert_called_once()

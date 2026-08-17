@@ -276,7 +276,7 @@ def send_sms_notification_task(
 
 @shared_task(
     bind=True,
-    max_retries=1,
+    max_retries=3,
     default_retry_delay=30,
     name='notifications.process_whatsapp_inbound',
     queue='notifications',
@@ -288,10 +288,29 @@ def process_whatsapp_inbound_task(self, wa_id: str, text: str):
     El usuario se resuelve por los ultimos 10 digitos del telefono del
     UserProfile (celular colombiano); si no hay match, se ignora con log
     (no se responde a numeros desconocidos).
+
+    M2 (AUDITORIA/19_AUDITORIA_COMMUNICATION_CENTER_CANALES.md, 2026-08-01): antes esta
+    conversacion no dejaba NINGUN rastro en BD -- invisible para cualquier agente humano en
+    /panel/soporte y para Customer 360, a diferencia de todo lo demas en el proyecto (que se
+    audita via SecurityEvent/NotificationLog). Ahora se persiste ambos lados (mensaje del
+    cliente + respuesta de la IA) en la ChatRoom del usuario, reusando ChatCommands -- mismo
+    patron que ai_proactive_room_message_task ya usa en sentido inverso (notificacion -> sala).
+    Deliberadamente FUERA de alcance de este fix (evaluado y pospuesto en AUDITORIA/19 §2, no
+    es un olvido): unificar el conversation_id de IA con el canal web (sigue siendo
+    'wa-{user_id}', namespace separado de 'room-{uuid}').
+
+    CERRADO (auditoria E2E AI Engine, 2026-08-17): este canal SI respeta ahora
+    is_ai_mode_active/ai_paused y is_ai_rate_limited de la sala -- mismo criterio que
+    SupportChatConsumer._ai_mode_active/_ai_rate_limited (support/consumers.py). Antes, un
+    cliente cuyo chat web ya habia escalado a un humano (ai_paused=True) seguia recibiendo
+    auto-respuestas de la IA si escribia por WhatsApp, sin que el agente humano se enterara.
+    El mensaje del cliente se guarda y se difunde a /panel/soporte de todas formas -- solo se
+    omite la llamada a ask_ai() y la respuesta automatica.
     """
     from accounts.models import UserProfile
     from notifications.clients.whatsapp import WhatsAppClient, WhatsAppApiError
-    from support.services.ai_bridge import ask_ai
+    from support.services.ai_bridge import ask_ai, get_ai_bot_user, is_ai_mode_active, is_ai_rate_limited
+    from support.services.commands import ChatCommands
 
     digits = ''.join(c for c in wa_id if c.isdigit())[-10:]
     profile = (
@@ -305,17 +324,72 @@ def process_whatsapp_inbound_task(self, wa_id: str, text: str):
         logger.warning('[wa-inbound] numero sin usuario asociado: ...%s', digits[-4:])
         return
 
-    ai_response = ask_ai(profile.user, text, conversation_id=f'wa-{profile.user_id}')
+    room = ChatCommands.get_or_create_room(profile.user)
+    if self.request.retries == 0:
+        # Fase 9 (AUDITORIA/24_AUDITORIA_NOTIFICATIONS_SUPPORT.md, 2026-08-01): solo en el
+        # primer intento -- si ask_ai() falla mas abajo y la tarea reintenta, Celery
+        # re-ejecuta la funcion completa desde el inicio; sin este guard, el mensaje del
+        # cliente se duplicaria una vez por cada reintento.
+        ChatCommands.save_message(room, profile.user, text)
+        _broadcast_chat_message(room, profile.user, text, profile.user.email, is_admin=False)
+
+    room.refresh_from_db(fields=['status', 'ai_paused', 'assigned_admin'])
+    if not is_ai_mode_active(room):
+        logger.info('[wa-inbound] IA inactiva para room=%s (handoff activo) -- sin auto-respuesta', room.uuid)
+        return
+    if is_ai_rate_limited(room):
+        logger.warning('[wa-inbound] rate limit de IA alcanzado para room=%s -- sin auto-respuesta', room.uuid)
+        return
+
+    try:
+        ai_response = ask_ai(profile.user, text, conversation_id=f'wa-{profile.user_id}')
+    except Exception as exc:
+        # Antes: max_retries=1 sin autoretry_for ni self.retry() -- un fallo transitorio del
+        # AI Engine (timeout, red) perdia el mensaje del cliente de forma permanente y
+        # silenciosa (el webhook ya habia dedupe por message_id, no hay una segunda entrega).
+        logger.error(
+            '[wa-inbound] ask_ai fallo (intento %s/%s) user=%s: %s',
+            self.request.retries, self.max_retries, profile.user.email, exc,
+        )
+        raise self.retry(exc=exc)
+
     reply = (ai_response or {}).get('response') or ''
     if not reply.strip():
         logger.warning('[wa-inbound] AI sin respuesta para user=%s', profile.user.email)
         return
+
+    bot = get_ai_bot_user()
+    msg = ChatCommands.save_message(room, bot, reply, ai_metrics=(ai_response or {}).get('metrics'))
+    _broadcast_chat_message(room, profile.user, reply, bot.email, is_admin=True, created_at=msg.created_at)
 
     try:
         WhatsAppClient().send_text(wa_id, reply)
     except WhatsAppApiError as exc:
         # Config/token de Meta invalido: se registra, no se reintenta en loop.
         logger.error('[wa-inbound] no se pudo responder por WhatsApp: %s', exc)
+
+
+def _broadcast_chat_message(room, user, text: str, sender_email: str, *, is_admin: bool, created_at=None) -> None:
+    """group_send plano (mismo formato que SupportChatConsumer.chat_message) hacia el cliente y
+    hacia support_admins -- para que un agente con el dashboard/widget abierto vea en vivo un
+    mensaje que llego por WhatsApp, no solo al reabrir la sala despues."""
+    from asgiref.sync import async_to_sync
+    from channels.layers import get_channel_layer
+    from django.utils import timezone
+
+    layer = get_channel_layer()
+    if layer is None:
+        return
+    payload = {
+        'type': 'chat.message',
+        'message': text,
+        'sender_email': sender_email,
+        'is_admin': is_admin,
+        'room_uuid': str(room.uuid),
+        'created_at': (created_at or timezone.now()).isoformat(),
+    }
+    async_to_sync(layer.group_send)(f'chat_{str(user.uuid)}', payload)
+    async_to_sync(layer.group_send)('support_admins', payload)
 
 
 @shared_task(
@@ -332,9 +406,16 @@ def ai_proactive_room_message_task(self, user_id: int, template_slug: str, conte
     dispatch_notification, el asistente deja un mensaje proactivo en la sala
     del cliente (visible en el widget y en /panel/soporte). No inventa un bus
     nuevo: se dispara desde el MISMO dispatch usado por 11 apps.
+
+    Fase 9 (AUDITORIA/24_AUDITORIA_NOTIFICATIONS_SUPPORT.md, 2026-08-01): antes
+    solo difundia a chat_{user.uuid} -- un ticket escalado a un agente humano y
+    sin seguimiento (slug ticket_soporte_sin_seguimiento) nunca alertaba a
+    NINGUN canal del staff, solo tranquilizaba al cliente con el mensaje. Ahora
+    reusa _broadcast_chat_message (mismo helper que ya usa el canal de
+    WhatsApp entrante) para que support_admins tambien lo reciba en vivo -- el
+    dashboard (SupportDashboardView.vue) ya marca unread_count/last_message
+    para ese evento sin cambios adicionales.
     """
-    from asgiref.sync import async_to_sync
-    from channels.layers import get_channel_layer
     from django.contrib.auth import get_user_model
     from support.services.ai_bridge import get_ai_bot_user
     from support.services.commands import ChatCommands
@@ -343,6 +424,21 @@ def ai_proactive_room_message_task(self, user_id: int, template_slug: str, conte
     try:
         user = User.objects.get(pk=user_id)
     except User.DoesNotExist:
+        return
+
+    # Repaso de backlog (AUDITORIA/24_AUDITORIA_NOTIFICATIONS_SUPPORT.md, 2026-08-03): a
+    # diferencia de los demas canales de dispatch_notification (que si respetan
+    # UserNotificationPreference), este mensaje se creaba/difundia incondicionalmente. Mismo
+    # criterio "opt-out" que el resto: sin preferencias registradas se asume habilitado; con
+    # preferencias explicitas, solo se respeta si WEB_SOCKET esta entre las habilitadas -- para
+    # este canal en particular, "enviar" y "crear el mensaje en la sala" son la misma accion, asi
+    # que si esta desactivado no se crea nada (no solo se omite la difusion en vivo).
+    from notifications.models import UserNotificationPreference, CHANNEL_WEB_SOCKET
+    enabled_channels = list(
+        UserNotificationPreference.objects.filter(user=user, is_enabled=True).values_list('channel', flat=True)
+    )
+    if enabled_channels and CHANNEL_WEB_SOCKET not in enabled_channels:
+        logger.info('[ai-proactive] omitido -- user=%s desactivo el canal WEB_SOCKET', user.email)
         return
 
     parts = [f"Actualizacion de tu cuenta ({template_slug.replace('_', ' ')})."]
@@ -360,16 +456,56 @@ def ai_proactive_room_message_task(self, user_id: int, template_slug: str, conte
     bot = get_ai_bot_user()
     room = ChatCommands.get_or_create_room(user)
     msg = ChatCommands.save_message(room, bot, text)
-    # group_send plano (mismo formato que SupportChatConsumer.chat_message) --
-    # ws_notify envuelve en 'payload' y el handler del consumer no lo entiende.
-    layer = get_channel_layer()
-    if layer is not None:
-        async_to_sync(layer.group_send)(f'chat_{str(user.uuid)}', {
-            'type': 'chat.message',
-            'message': text,
-            'sender_email': bot.email,
-            'is_admin': True,
-            'room_uuid': str(room.uuid),
-            'created_at': msg.created_at.isoformat(),
-        })
+    try:
+        _broadcast_chat_message(room, user, text, bot.email, is_admin=True, created_at=msg.created_at)
+    except Exception:
+        # El mensaje ya quedo persistido (fuente de verdad); un fallo de WS es
+        # fire-and-forget, igual que ws_notify() en el resto del proyecto --
+        # no vale la pena reintentar toda la tarea (duplicaria save_message).
+        logger.exception('[ai-proactive] fallo al difundir mensaje en sala %s', room.uuid)
     logger.info('[ai-proactive] mensaje en sala %s por slug=%s', room.uuid, template_slug)
+
+
+@shared_task(
+    bind=True,
+    autoretry_for=(Exception,),
+    max_retries=2,
+    default_retry_delay=15,
+    name='notifications.send_whatsapp_agent_reply',
+    queue='notifications',
+    acks_late=True,
+)
+def send_whatsapp_agent_reply_task(self, user_id: int, text: str):
+    """
+    Fase 16 (AUDITORIA/30_AUDITORIA_PRUEBAS_E2E.md, 2026-08-03): antes, cuando un ticket
+    escalaba a un humano (ai_paused=True) y el agente respondia desde /panel/soporte, esa
+    respuesta SOLO se difundia por WebSocket (support/consumers.py) -- un cliente que hablaba
+    UNICAMENTE por WhatsApp (sin el widget web abierto, sin conexion WS activa) nunca la recibia
+    -- se quedaba esperando en WhatsApp una respuesta que solo existia en el dashboard.
+
+    Bridge minimo: si el usuario tiene un telefono colombiano valido (misma resolucion --
+    _resolve_phone -- que ya usa dispatch_notification para el canal WhatsApp transaccional), se
+    reenvia el texto del agente por el mismo canal freeform que ya usa
+    process_whatsapp_inbound_task para la respuesta de la IA. Sujeto a la ventana de servicio de
+    24h de Meta (si esta cerrada, la API rechaza el envio) -- se registra como fallo no
+    bloqueante, mismo criterio que el resto de WhatsAppApiError en el proyecto (no se reintenta
+    en loop infinito ante un error de la API, solo ante fallos transitorios de red).
+    """
+    from django.contrib.auth import get_user_model
+    from notifications.clients.whatsapp import WhatsAppClient, WhatsAppApiError
+    from notifications.services.commands import _resolve_phone
+
+    User = get_user_model()
+    try:
+        user = User.objects.get(pk=user_id)
+    except User.DoesNotExist:
+        return
+
+    phone = _resolve_phone(user)
+    if not phone:
+        return
+
+    try:
+        WhatsAppClient().send_text(f'57{phone}', text)
+    except WhatsAppApiError as exc:
+        logger.error('[agent-reply] no se pudo reenviar por WhatsApp a %s: %s', user.email, exc)

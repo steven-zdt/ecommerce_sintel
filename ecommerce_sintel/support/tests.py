@@ -14,23 +14,30 @@ atomica de un solo hilo). `CHANNEL_LAYERS` usa Redis real (no hace falta un
 Docker (`docker compose exec django pytest support/tests.py`), donde Redis ya
 esta arriba.
 
-`ai_bridge.ask_ai()` (el unico punto de contacto con el AI Engine real) se
-mockea siempre a nivel de `support.services.ai_bridge.requests.post` --mismo
-patron que `notifications/tests.py::test_whatsapp_client_...` usa para
-`requests.Session.post`-- para no depender de Ollama/latencia real. La
-ejecucion real de Tools, latencia y disponibilidad se valida aparte con
+`ai_bridge.ask_ai_async()` (el unico punto de contacto del consumer con el AI Engine
+real -- ver auditoria E2E 2026-08-17, `ask_ai_async` reemplazo a `ask_ai`/`requests.post`
+en este path especificamente para no bloquear el thread pool compartido de Channels) se
+mockea siempre a nivel de `httpx.AsyncClient` -- mismo borde HTTP que antes se mockeaba
+via `requests.post`, ver helper `_setup_ai_mock()`. WhatsApp (Celery, `notifications/
+tasks.py`) sigue usando el `ask_ai()` sincrono y se sigue mockeando via
+`support.services.ai_bridge.requests.post` (ver `notifications/tests.py`). La ejecucion
+real de Tools, latencia y disponibilidad se valida aparte con
 `ai_engine/e2e_http/e2e_support_ai_chat_test.ps1` contra el stack vivo.
 """
 import asyncio
 import json
-from unittest.mock import patch, MagicMock
+import time
+from unittest.mock import patch, MagicMock, AsyncMock
 
 import pytest
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.test import override_settings
+from django.urls import reverse
 from channels.db import database_sync_to_async
 from channels.routing import URLRouter
+from rest_framework.test import APIClient
+from rest_framework import status
 from rest_framework_simplejwt.tokens import AccessToken
 
 from support.channels_auth import JWTAuthMiddlewareStack
@@ -90,7 +97,20 @@ def _mock_response(payload: dict, status_code: int = 200) -> MagicMock:
     resp = MagicMock()
     resp.status_code = status_code
     resp.json.return_value = payload
+    resp.text = json.dumps(payload)
     return resp
+
+
+def _setup_ai_mock(mock_async_client_cls) -> AsyncMock:
+    """Configura el MagicMock que reemplaza httpx.AsyncClient (via @patch('httpx.AsyncClient'))
+    para que 'async with httpx.AsyncClient(...) as client' funcione, y devuelve el AsyncMock
+    de client.post a configurar con .return_value/.side_effect -- mismo rol que mock_post
+    tenia antes con requests.post (ver ask_ai_async en support/services/ai_bridge.py)."""
+    mock_client = mock_async_client_cls.return_value
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+    mock_client.post = AsyncMock()
+    return mock_client.post
 
 
 async def _connect_ws(user, extra_qs: str = ""):
@@ -126,6 +146,32 @@ async def test_inicio_conversacion_crea_sala_y_envia_historial():
     await comm2.disconnect()
 
 
+# ── 1b. Heartbeat ping/pong (repaso de backlog A2, AUDITORIA/18_AUDITORIA_PRODUCCION_
+# RESILIENCIA_WS.md, 2026-08-03) -- antes no habia ningun heartbeat de aplicacion.
+
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+async def test_ping_responde_pong_sin_afectar_flood_limit():
+    from support.services.commands import MESSAGE_FLOOD_LIMIT
+
+    user = await _create_user('cliente.ping@test.sintel')
+    comm = await _connect_ws(user)
+    await comm.receive_from(timeout=5)  # history
+
+    # Muchos mas pings que el limite de flood de mensajes -- el ping no debe consumirlo.
+    for _ in range(MESSAGE_FLOOD_LIMIT + 5):
+        await comm.send_to(text_data=json.dumps({'type': 'ping'}))
+        pong = json.loads(await comm.receive_from(timeout=5))
+        assert pong == {'type': 'pong'}
+
+    # El flood limit sigue intacto: un mensaje de chat normal todavia se acepta.
+    await comm.send_to(text_data=json.dumps({'message': 'sigo teniendo cupo'}))
+    echo = json.loads(await comm.receive_from(timeout=5))
+    assert echo['message'] == 'sigo teniendo cupo'
+
+    await comm.disconnect()
+
+
 # ── 2. Recuperacion de contexto del cliente ──────────────────────────────────
 
 @pytest.mark.asyncio
@@ -156,8 +202,9 @@ async def test_recuperacion_contexto_order_propia_y_ajena():
 
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
-@patch('support.services.ai_bridge.requests.post')
-async def test_respuesta_ia_persiste_texto_y_metrics(mock_post):
+@patch('httpx.AsyncClient')
+async def test_respuesta_ia_persiste_texto_y_metrics(mock_async_client_cls):
+    mock_post = _setup_ai_mock(mock_async_client_cls)
     user = await _create_user('cliente.ia@test.sintel')
     mock_post.return_value = _mock_response({
         'conversation_id': 'x', 'intent': 'unknown', 'agent': 'SupportAgent',
@@ -185,8 +232,9 @@ async def test_respuesta_ia_persiste_texto_y_metrics(mock_post):
 
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
-@patch('support.services.ai_bridge.requests.post')
-async def test_flujo_confirmacion_escritura_dos_turnos(mock_post):
+@patch('httpx.AsyncClient')
+async def test_flujo_confirmacion_escritura_dos_turnos(mock_async_client_cls):
+    mock_post = _setup_ai_mock(mock_async_client_cls)
     user = await _create_user('cliente.confirma@test.sintel')
     metrics_pending = {**MOCK_METRICS, 'needs_confirmation': True}
     metrics_done = {**MOCK_METRICS, 'needs_confirmation': False, 'write_executed': True}
@@ -232,8 +280,9 @@ async def test_flujo_confirmacion_escritura_dos_turnos(mock_post):
 
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
-@patch('support.services.ai_bridge.requests.post')
-async def test_human_handoff_pausa_sala_y_detiene_ia(mock_post):
+@patch('httpx.AsyncClient')
+async def test_human_handoff_pausa_sala_y_detiene_ia(mock_async_client_cls):
+    mock_post = _setup_ai_mock(mock_async_client_cls)
     user = await _create_user('cliente.handoff@test.sintel')
     mock_post.return_value = _mock_response({
         'conversation_id': 'x', 'intent': 'unknown', 'agent': 'SupportAgent',
@@ -265,6 +314,71 @@ async def test_human_handoff_pausa_sala_y_detiene_ia(mock_post):
         # de limpieza de channels.testing, no un bug de la app).
 
     assert mock_post.call_count == 1
+
+
+# ── 5b. Reactivacion de la IA tras cerrar el handoff (auditoria E2E AI Engine,
+# 2026-08-17 -- hallazgo: no existe ningun comando que ponga ai_paused=False sobre
+# la MISMA sala; se grep-eo support/api/ y support/services/commands.py completos
+# y la unica escritura de ai_paused es True. La reactivacion real ocurre porque
+# ChatCommands.get_or_create_room() solo reusa salas OPEN -- una vez que un admin
+# cierra el ticket (close_room, status=CLOSED), el siguiente mensaje del cliente
+# crea una sala NUEVA con ai_paused=False por default. Este test prueba ese
+# camino real, no un mecanismo de "reanudar" que no existe en el codigo.) ───────
+
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+@patch('httpx.AsyncClient')
+async def test_ia_se_reactiva_en_sala_nueva_tras_cerrar_el_ticket(mock_async_client_cls):
+    from support.services.commands import ChatCommands
+
+    mock_post = _setup_ai_mock(mock_async_client_cls)
+    user = await _create_user('cliente.reactivacion@test.sintel')
+    mock_post.return_value = _mock_response({
+        'conversation_id': 'x', 'intent': 'unknown', 'agent': 'SupportAgent',
+        'tool_calls': [], 'response': 'Te transfiero con un agente humano.',
+        'tool_results': [{'capability': 'abrir_ticket_soporte', 'result': {'ticket_id': 1}}],
+        'needs_confirmation': False, 'confirmation': None,
+        'metrics': {**MOCK_METRICS, 'handoff': 'SupportAgent->Human'},
+    })
+
+    with override_settings(AI_SUPPORT_CHAT_ENABLED=True):
+        comm = await _connect_ws(user)
+        await comm.receive_from(timeout=5)  # history
+        await comm.send_to(text_data=json.dumps({'message': 'quiero hablar con alguien'}))
+        await comm.receive_from(timeout=5)  # eco
+        await comm.receive_from(timeout=10)  # respuesta IA (escalando)
+
+        old_room = await _get_open_room(user)
+        old_room = await _refresh(old_room)
+        assert old_room.ai_paused is True
+        await comm.disconnect()
+
+        # El admin resuelve y cierra el ticket -- unico camino real de "reactivacion"
+        # que existe hoy en el codigo (ver nota arriba).
+        await database_sync_to_async(ChatCommands.close_room)(old_room)
+
+        # Nueva conexion del cliente: get_or_create_room ya no encuentra la sala
+        # anterior (CLOSED) y crea una sala OPEN nueva, ai_paused=False por default.
+        mock_post.return_value = _mock_response({
+            'conversation_id': 'y', 'intent': 'unknown', 'agent': 'SupportAgent',
+            'tool_calls': [], 'tool_results': [], 'needs_confirmation': False,
+            'confirmation': None, 'response': 'Hola de nuevo, en que te ayudo?',
+            'metrics': MOCK_METRICS,
+        })
+        comm2 = await _connect_ws(user)
+        await comm2.receive_from(timeout=5)  # history (sala nueva, vacia)
+
+        new_room = await _get_open_room(user)
+        assert new_room.uuid != old_room.uuid
+        assert new_room.ai_paused is False
+
+        await comm2.send_to(text_data=json.dumps({'message': 'hola de nuevo'}))
+        await comm2.receive_from(timeout=5)  # eco
+        ai_reply = json.loads(await comm2.receive_from(timeout=10))
+        assert ai_reply['message'] == 'Hola de nuevo, en que te ayudo?'
+        await comm2.disconnect()
+
+    assert mock_post.call_count == 2
 
 
 # ── 6. Persistencia del historial tras reconexion ────────────────────────────
@@ -329,12 +443,91 @@ async def test_sincronizacion_dashboard_admin_y_widget_cliente():
         await admin_comm.disconnect()
 
 
+# ── 7a. El admin ve la respuesta de la IA en vivo (cierra brecha residual de la
+# certificacion E2E 2026-08-13, Paso 18 "PARCIAL" -- la entrega real a
+# 'support_admins' con una segunda sesion admin conectada en simultaneo no habia
+# sido verificada, solo confirmada por lectura de codigo) ────────────────────────
+
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+@patch('httpx.AsyncClient')
+async def test_admin_ve_respuesta_de_ia_en_vivo(mock_async_client_cls):
+    mock_post = _setup_ai_mock(mock_async_client_cls)
+    mock_post.return_value = _mock_response({
+        'conversation_id': 'x', 'intent': 'unknown', 'agent': 'SupportAgent',
+        'tool_calls': [], 'tool_results': [], 'needs_confirmation': False,
+        'confirmation': None, 'response': 'Respuesta de la IA para el admin.',
+        'metrics': MOCK_METRICS,
+    })
+
+    client_user = await _create_user('cliente.admin_ve_ia@test.sintel')
+    admin_user = await _create_user('admin.ve_ia@test.sintel', is_staff=True, is_superuser=True)
+
+    with override_settings(AI_SUPPORT_CHAT_ENABLED=True):
+        client_comm = await _connect_ws(client_user)
+        await client_comm.receive_from(timeout=5)  # history
+        admin_comm = await _connect_ws(admin_user)
+
+        await client_comm.send_to(text_data=json.dumps({'message': 'hola, necesito ayuda'}))
+        await client_comm.receive_from(timeout=5)  # eco propio del cliente
+
+        # El admin ve primero el mensaje del cliente (group_send de la rama cliente)...
+        admin_event_1 = json.loads(await admin_comm.receive_from(timeout=5))
+        assert admin_event_1['message'] == 'hola, necesito ayuda'
+        assert admin_event_1['is_admin'] is False
+
+        # ...y luego, sin que el admin haya escrito nada, la respuesta de la IA en
+        # vivo -- _ai_reply() hace group_send a 'support_admins' ademas de
+        # chat_{user.uuid}, precisamente para esta supervision humana en tiempo real.
+        admin_event_2 = json.loads(await admin_comm.receive_from(timeout=10))
+        assert admin_event_2['message'] == 'Respuesta de la IA para el admin.'
+        assert admin_event_2['is_admin'] is True
+
+        await client_comm.disconnect()
+        await admin_comm.disconnect()
+
+
+# ── 7b. Respuesta de agente humano se reenvia por WhatsApp (Fase 16,
+# AUDITORIA/30_AUDITORIA_PRUEBAS_E2E.md, 2026-08-03) -- antes SOLO se difundia por WS; un
+# cliente que hablaba unicamente por WhatsApp (sin el widget abierto) nunca la recibia.
+
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+async def test_respuesta_de_admin_dispara_reenvio_por_whatsapp():
+    with override_settings(AI_SUPPORT_CHAT_ENABLED=False):
+        client_user = await _create_user('cliente.wa.bridge@test.sintel')
+        admin_user = await _create_user('admin.wa.bridge@test.sintel', is_staff=True, is_superuser=True)
+
+        client_comm = await _connect_ws(client_user)
+        await client_comm.receive_from(timeout=5)  # history
+        admin_comm = await _connect_ws(admin_user)
+
+        await client_comm.send_to(text_data=json.dumps({'message': 'hola, escribo por WhatsApp'}))
+        await client_comm.receive_from(timeout=5)  # eco propio del cliente
+        await admin_comm.receive_from(timeout=5)  # el admin ve el mensaje del cliente
+
+        room = await _get_open_room(client_user)
+
+        with patch('notifications.tasks.send_whatsapp_agent_reply_task.delay') as mock_delay:
+            await admin_comm.send_to(text_data=json.dumps({
+                'message': 'ya te ayudo con eso', 'room_uuid': str(room.uuid),
+            }))
+            await admin_comm.receive_from(timeout=5)  # eco propio del admin
+            await client_comm.receive_from(timeout=5)  # el cliente ve la respuesta por WS
+
+        mock_delay.assert_called_once_with(user_id=client_user.id, text='ya te ayudo con eso')
+
+        await client_comm.disconnect()
+        await admin_comm.disconnect()
+
+
 # ── 8. Concurrencia -- multiples chats simultaneos ───────────────────────────
 
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
-@patch('support.services.ai_bridge.requests.post')
-async def test_concurrencia_multiples_chats_simultaneos(mock_post):
+@patch('httpx.AsyncClient')
+async def test_concurrencia_multiples_chats_simultaneos(mock_async_client_cls):
+    mock_post = _setup_ai_mock(mock_async_client_cls)
     # N=5 (no 8/10): en este entorno Docker/Windows el I/O de Postgres bajo
     # carga concurrente es medible (ver TRUNCATE entre tests, varios segundos
     # reales) -- 5 conexiones simultaneas siguen demostrando enrutamiento
@@ -381,6 +574,61 @@ async def test_concurrencia_multiples_chats_simultaneos(mock_post):
 
     assert len(set(room_uuids)) == N  # cada sala es unica, sin cruces
     assert await _count_bot_messages() == N
+
+
+# ── 8b. La IA lenta no debe serializarse via el thread pool compartido de
+# sync_to_async (auditoria E2E AI Engine, 2026-08-17 -- ver ask_ai_async en
+# support/services/ai_bridge.py) ─────────────────────────────────────────────
+
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+async def test_ia_lenta_no_serializa_via_thread_pool_compartido():
+    """
+    Antes de este fix, ask_ai() (requests.post sincrono) corria envuelto en
+    @database_sync_to_async dentro del consumer -- eso ocupa un worker del thread
+    pool COMPARTIDO de asgiref/Channels durante TODA la duracion de la llamada HTTP
+    (hasta AI_CHAT_TIMEOUT_SECONDS=300s). Con mas turnos de IA concurrentes que el
+    tamano de ese pool, los turnos en exceso quedarian literalmente en cola (tiempo
+    total ~ N/pool_size * delay), no en paralelo real -- exactamente el "B2" que el
+    prompt maestro de esta auditoria senala como bloqueador. ask_ai_async()
+    (httpx.AsyncClient) espera en el event loop sin ocupar ningun thread del pool:
+    N turnos concurrentes deben completarse en ~delay, no ~N*delay.
+    """
+    N = 12  # mayor al tamano tipico del thread pool de sync_to_async en este proceso
+    DELAY_SECONDS = 0.5
+
+    async def _slow_ai_reply(user, message, conversation_id):
+        await asyncio.sleep(DELAY_SECONDS)
+        return {
+            'conversation_id': conversation_id, 'intent': 'unknown', 'agent': 'SupportAgent',
+            'tool_calls': [], 'tool_results': [], 'needs_confirmation': False,
+            'confirmation': None, 'response': 'Respuesta lenta de prueba.', 'metrics': MOCK_METRICS,
+        }
+
+    users = [await _create_user(f'lenta{i}@test.sintel') for i in range(N)]
+
+    async def _flow(user):
+        comm = await _connect_ws(user)
+        await comm.receive_from(timeout=15)  # history
+        await comm.send_to(text_data=json.dumps({'message': 'hola'}))
+        await comm.receive_from(timeout=15)  # eco
+        ai_event = json.loads(await comm.receive_from(timeout=15))
+        await comm.disconnect()
+        return ai_event
+
+    with patch('support.services.ai_bridge.ask_ai_async', side_effect=_slow_ai_reply):
+        with override_settings(AI_SUPPORT_CHAT_ENABLED=True):
+            start = time.monotonic()
+            results = await asyncio.gather(*[_flow(u) for u in users])
+            elapsed = time.monotonic() - start
+
+    assert all(r['message'] == 'Respuesta lenta de prueba.' for r in results)
+    # Si estuviera serializado por un thread pool compartido saturado, N*DELAY
+    # (12 * 0.5s = 6s) seria el piso realista bajo saturacion; en paralelo real
+    # debe rondar DELAY_SECONDS, con margen generoso para I/O real del entorno.
+    assert elapsed < N * DELAY_SECONDS * 0.5, (
+        f"parece serializado via thread pool: elapsed={elapsed:.2f}s para N={N} delay={DELAY_SECONDS}s"
+    )
 
 
 # ── 9. Analytics de conversaciones (Fase 9 AI Core -- Aprendizaje) ──────────
@@ -479,3 +727,402 @@ async def test_room_closed_avisa_al_cliente_por_ws():
     assert closed_event['type'] == 'room_closed'
     assert closed_event['room_uuid'] == str(room.uuid)
     await comm.disconnect()
+
+
+# ── 11b. Cliente no puede seguir escribiendo en una sala ya CLOSED (B2,
+# auditoria enterprise 2026-07-31) -- antes solo la rama admin de receive()
+# validaba status=OPEN.
+
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+async def test_cliente_no_puede_escribir_en_sala_cerrada():
+    from support.services.commands import ChatCommands
+
+    user = await _create_user('cliente.salacerrada@test.sintel')
+    comm = await _connect_ws(user)
+    await comm.receive_from(timeout=5)  # history
+
+    room = await _get_open_room(user)
+    await database_sync_to_async(ChatCommands.close_room)(room)
+    await comm.receive_from(timeout=5)  # aviso room_closed (ya probado en el test anterior)
+
+    await comm.send_to(text_data=json.dumps({'message': 'sigo escribiendo igual'}))
+    with pytest.raises(asyncio.TimeoutError):
+        await comm.receive_from(timeout=2)  # ni eco ni error -- el mensaje se ignora
+
+    messages = await database_sync_to_async(
+        lambda: list(ChatMessage.objects.filter(room=room, sender=user))
+    )()
+    assert len(messages) == 0
+
+
+# ── 12. CSAT -- endpoint REST real (E1, auditoria enterprise 2026-07-31) ────
+# A diferencia del test #10 (que llama ChatCommands.rate_conversation directo),
+# esto pasa por la vista/URL/permisos reales -- en particular el fix de
+# disclosure D-04 (auditoria previa: una sala ajena debia dar 404, no 400/200
+# despues de revelar que "existe"), que hasta ahora no tenia ningun test de
+# regresion protegiendolo.
+
+@pytest.mark.django_db
+def test_rate_conversation_endpoint_anonimo_rechazado():
+    client = APIClient()
+    room = ChatRoom.objects.create(
+        user=get_user_model().objects.create_user(email='csat.anon@test.sintel', password='x'),
+        status=ChatRoom.STATUS_CLOSED,
+    )
+    url = reverse('support-rate-conversation', kwargs={'room_uuid': str(room.uuid)})
+    response = client.post(url, {'rating': 5}, format='json')
+    assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+
+@pytest.mark.django_db
+def test_rate_conversation_endpoint_sala_ajena_da_404_sin_distincion():
+    # D-04: el lookup esta scoped a request.user desde el inicio -- una sala
+    # que SI existe pero es de otro usuario debe dar exactamente el mismo 404
+    # que una sala inexistente (sin filtrar si "existe" vs "no existe").
+    User = get_user_model()
+    owner = User.objects.create_user(email='csat.owner@test.sintel', password='x')
+    other = User.objects.create_user(email='csat.other@test.sintel', password='x')
+    room = ChatRoom.objects.create(user=owner, status=ChatRoom.STATUS_CLOSED)
+
+    client = APIClient()
+    client.force_authenticate(user=other)
+    url = reverse('support-rate-conversation', kwargs={'room_uuid': str(room.uuid)})
+    response = client.post(url, {'rating': 5}, format='json')
+
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+    room.refresh_from_db()
+    assert room.csat_rating is None  # el intento ajeno no debe haber calificado nada
+
+
+@pytest.mark.django_db
+def test_rate_conversation_endpoint_exito_y_validacion():
+    owner = get_user_model().objects.create_user(email='csat.exito@test.sintel', password='x')
+    room = ChatRoom.objects.create(user=owner, status=ChatRoom.STATUS_CLOSED)
+
+    client = APIClient()
+    client.force_authenticate(user=owner)
+    url = reverse('support-rate-conversation', kwargs={'room_uuid': str(room.uuid)})
+
+    # Rating invalido (fuera de 1-5): el serializer lo rechaza antes de llegar
+    # al service layer.
+    bad = client.post(url, {'rating': 9}, format='json')
+    assert bad.status_code == status.HTTP_400_BAD_REQUEST
+
+    ok = client.post(url, {'rating': 5, 'comment': 'Excelente atencion'}, format='json')
+    assert ok.status_code == status.HTTP_200_OK
+    assert ok.data['csat_rating'] == 5
+    room.refresh_from_db()
+    assert room.csat_rating == 5
+
+    # Ya calificada: el ValueError del service layer se traduce a 400 real por
+    # la vista, no a un 500.
+    again = client.post(url, {'rating': 1}, format='json')
+    assert again.status_code == status.HTTP_400_BAD_REQUEST
+
+
+# ── 13. Human Handoff interno -- AiOpenSupportTicketView (E2, auditoria
+# enterprise 2026-07-31). Sin cobertura previa en todo el repo (ni este
+# endpoint ni ningun otro bajo el namespace internal_ai).
+
+@pytest.mark.django_db
+def test_ai_open_support_ticket_requiere_message():
+    user = get_user_model().objects.create_user(email='handoff.sinmsg@test.sintel', password='x')
+    client = APIClient()
+    client.force_authenticate(user=user)
+    response = client.post(reverse('internal_ai:ai-support-ticket'), {}, format='json')
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+
+@pytest.mark.django_db
+def test_ai_open_support_ticket_crea_sala_pausa_ia_y_notifica():
+    from security.models import SecurityEvent
+
+    user = get_user_model().objects.create_user(email='handoff.exito@test.sintel', password='x')
+    client = APIClient()
+    client.force_authenticate(user=user)
+
+    response = client.post(
+        reverse('internal_ai:ai-support-ticket'),
+        {'message': 'Necesito hablar con un humano', 'history': [
+            {'user': 'hola', 'assistant': 'como puedo ayudarte'},
+        ]},
+        format='json',
+    )
+
+    assert response.status_code == status.HTTP_201_CREATED
+    room = ChatRoom.objects.get(user=user)
+    assert room.ai_paused is True  # Human Handoff: la IA deja de responder aca
+    assert response.data['ticket']['room_uuid'] == str(room.uuid)
+
+    messages = list(ChatMessage.objects.filter(room=room).order_by('created_at'))
+    # 1 mensaje de transcript (bot, por history) + 1 del usuario (el mensaje real).
+    assert len(messages) == 2
+    assert messages[0].sender.email == settings.AI_BOT_EMAIL
+    assert 'Transcripcion' in messages[0].message
+    assert messages[1].sender_id == user.id
+    assert messages[1].message == 'Necesito hablar con un humano'
+
+    assert SecurityEvent.objects.filter(
+        event_type=SecurityEvent.AI_ACTION_EXECUTED,
+        metadata__room_uuid=str(room.uuid),
+    ).exists()
+
+
+@pytest.mark.django_db
+def test_ai_open_support_ticket_adjunta_orden_propia_y_rechaza_ajena():
+    User = get_user_model()
+    owner = User.objects.create_user(email='handoff.owner@test.sintel', password='x')
+    other = User.objects.create_user(email='handoff.other@test.sintel', password='x')
+    own_order = Order.objects.create(user=owner, total_amount=50000)
+    other_order = Order.objects.create(user=other, total_amount=50000)
+
+    client = APIClient()
+    client.force_authenticate(user=owner)
+    url = reverse('internal_ai:ai-support-ticket')
+
+    ok = client.post(url, {'message': 'ayuda con mi pedido', 'order_uuid': str(own_order.uuid)}, format='json')
+    assert ok.status_code == status.HTTP_201_CREATED
+    assert ok.data['ticket']['attached_context'] == f'orden {own_order.uuid}'
+    room = ChatRoom.objects.get(user=owner)
+    assert ChatRoomContext.objects.filter(room=room, context_type=ChatRoomContext.CONTEXT_ORDER, order=own_order).exists()
+
+    # Orden de otro usuario: 404, sin importar que el pedido exista de verdad.
+    forbidden = client.post(url, {'message': 'ayuda', 'order_uuid': str(other_order.uuid)}, format='json')
+    assert forbidden.status_code == status.HTTP_404_NOT_FOUND
+
+
+# ── 14. Cron de tickets escalados sin seguimiento (E3, auditoria enterprise
+# 2026-07-31). Sin cobertura previa -- se mockea NotificationCommands.dispatch_notification
+# (el envio real por canal, ya cubierto en notifications/tests.py) para probar solo la
+# logica propia de esta tarea: seleccion de salas candidatas + dedupe.
+
+@pytest.mark.django_db
+@patch('notifications.services.commands.NotificationCommands.dispatch_notification')
+def test_notify_unattended_escalated_tickets_selecciona_y_deduplica(mock_dispatch):
+    from support.tasks import notify_unattended_escalated_tickets, _UNATTENDED_THRESHOLD_HOURS
+    from django.utils import timezone
+    from datetime import timedelta
+
+    User = get_user_model()
+    old_time = timezone.now() - timedelta(hours=_UNATTENDED_THRESHOLD_HOURS + 1)
+    recent_time = timezone.now() - timedelta(minutes=5)
+
+    def _room(email, *, ai_paused, status_, updated_at):
+        user = User.objects.create_user(email=email, password='x')
+        room = ChatRoom.objects.create(user=user, ai_paused=ai_paused, status=status_)
+        ChatRoom.objects.filter(pk=room.pk).update(updated_at=updated_at)  # auto_now bypass
+        return room
+
+    # Candidata real: OPEN, escalada (ai_paused=True), inactiva hace mas del umbral.
+    candidate = _room('cron.candidata@test.sintel', ai_paused=True, status_=ChatRoom.STATUS_OPEN, updated_at=old_time)
+    # NO candidata: escalada pero con actividad reciente (dentro del umbral).
+    _room('cron.reciente@test.sintel', ai_paused=True, status_=ChatRoom.STATUS_OPEN, updated_at=recent_time)
+    # NO candidata: inactiva hace rato pero nunca se escalo (ai_paused=False).
+    _room('cron.sinescalar@test.sintel', ai_paused=False, status_=ChatRoom.STATUS_OPEN, updated_at=old_time)
+    # NO candidata: escalada e inactiva, pero la sala ya esta CLOSED.
+    _room('cron.cerrada@test.sintel', ai_paused=True, status_=ChatRoom.STATUS_CLOSED, updated_at=old_time)
+
+    notify_unattended_escalated_tickets()
+
+    assert mock_dispatch.call_count == 1
+    called_user = mock_dispatch.call_args.args[0] if mock_dispatch.call_args.args else mock_dispatch.call_args.kwargs['user']
+    assert called_user.id == candidate.user_id
+
+    # Segunda corrida (misma condicion sigue cumpliendose): dedupe real via
+    # NotificationLog -- no debe volver a notificar la misma sala.
+    notify_unattended_escalated_tickets()
+    assert mock_dispatch.call_count == 1
+
+
+# ── 15. Multi-pestana/multi-dispositivo -- mensajes propios en vivo a las demas
+# conexiones (C2, AUDITORIA/18_AUDITORIA_PRODUCCION_RESILIENCIA_WS.md, 2026-08-01).
+# Antes el eco del propio mensaje era un self.send() unicast -- reproducible en
+# produccion sin ninguna dependencia de IA: si el mismo usuario/admin tenia el chat
+# abierto en 2 conexiones, la otra nunca se enteraba en vivo.
+
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+async def test_cliente_multi_pestana_recibe_su_propio_mensaje_en_ambas():
+    with override_settings(AI_SUPPORT_CHAT_ENABLED=False):
+        user = await _create_user('cliente.multipestana@test.sintel')
+        tab_a = await _connect_ws(user)
+        await tab_a.receive_from(timeout=5)  # history (crea la sala)
+        tab_b = await _connect_ws(user)
+        await tab_b.receive_from(timeout=5)  # history (misma sala OPEN reutilizada)
+
+        await tab_a.send_to(text_data=json.dumps({'message': 'hola desde tab A'}))
+
+        event_a = json.loads(await tab_a.receive_from(timeout=5))
+        event_b = json.loads(await tab_b.receive_from(timeout=5))
+        assert event_a['message'] == 'hola desde tab A'
+        assert event_b['message'] == 'hola desde tab A'  # antes: timeout, nunca llegaba
+
+        await tab_a.disconnect()
+        await tab_b.disconnect()
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+async def test_admin_multi_pestana_recibe_su_propia_respuesta_en_ambas():
+    with override_settings(AI_SUPPORT_CHAT_ENABLED=False):
+        client_user = await _create_user('cliente.admindup@test.sintel')
+        admin_user = await _create_user('admin.multipestana@test.sintel', is_staff=True, is_superuser=True)
+
+        client_comm = await _connect_ws(client_user)
+        await client_comm.receive_from(timeout=5)  # history
+        room = await _get_open_room(client_user)
+
+        admin_tab_a = await _connect_ws(admin_user)
+        admin_tab_b = await _connect_ws(admin_user)
+
+        await admin_tab_a.send_to(text_data=json.dumps({
+            'message': 'respuesta del admin', 'room_uuid': str(room.uuid),
+        }))
+
+        event_a = json.loads(await admin_tab_a.receive_from(timeout=5))
+        event_b = json.loads(await admin_tab_b.receive_from(timeout=5))
+        assert event_a['message'] == 'respuesta del admin'
+        assert event_b['message'] == 'respuesta del admin'  # antes: timeout, nunca llegaba
+
+        await client_comm.disconnect()
+        await admin_tab_a.disconnect()
+        await admin_tab_b.disconnect()
+
+
+# ── 16. Customer 360 -- cotizaciones (Fase 7, AUDITORIA/21_AUDITORIA_CUSTOMER360.md,
+# 2026-08-01). Antes Customer360Selector.build() no incluia cotizaciones en absoluto,
+# pese a que el brief de Customer 360 las pide explicitamente y
+# quotes.services.selectors.QuotationSelector.list_for_user ya existe con el mismo
+# patron que orders/rentals. Sincrono (sin WebSocket): el selector solo lee datos ya
+# persistidos.
+
+@pytest.mark.django_db
+def test_customer360_incluye_cotizaciones_del_cliente():
+    from datetime import date, timedelta
+    from decimal import Decimal
+    from quotes.models import Quotation
+    from support.services.customer360 import Customer360Selector
+
+    User = get_user_model()
+    owner = User.objects.create_user(email='cliente.c360@test.sintel', password='x')
+    other = User.objects.create_user(email='otro.c360@test.sintel', password='x')
+
+    own_quote = Quotation.objects.create(
+        user=owner, client_name='Cliente 360', client_email=owner.email,
+        valid_until=date.today() + timedelta(days=30), total_amount=Decimal('150000.00'),
+    )
+    Quotation.objects.create(
+        user=other, client_name='Otro cliente', client_email=other.email,
+        valid_until=date.today() + timedelta(days=30),
+    )
+
+    data = Customer360Selector.build(owner)
+
+    assert len(data['quotations']) == 1
+    assert data['quotations'][0]['uuid'] == str(own_quote.uuid)
+    assert data['quotations'][0]['status'] == Quotation.STATUS_DRAFT
+    assert data['quotations'][0]['total_amount'] == '150000.00'
+    assert any(e['type'] == 'quotation' and e['uuid'] == str(own_quote.uuid) for e in data['timeline'])
+
+
+# ── 16b. Customer 360 -- ordenes de operacion (Fase 14, AUDITORIA/28_AUDITORIA_OPERATIONS.md,
+# 2026-08-03). Mismo gap ya corregido en Fase 7 para cotizaciones --
+# operations.services.selectors.OperationSelector.list_for_user ya existia, Customer360
+# simplemente no lo usaba.
+
+@pytest.mark.django_db
+def test_customer360_incluye_ordenes_de_operacion_del_cliente():
+    from decimal import Decimal
+    from orders.models import Order
+    from operations.models import OperationTicket, OperationAssignment
+    from operations.services.commands import OperationCommands
+    from support.services.customer360 import Customer360Selector
+
+    User = get_user_model()
+    owner = User.objects.create_user(email='cliente.ops.c360@test.sintel', password='x')
+    other = User.objects.create_user(email='otro.ops.c360@test.sintel', password='x')
+    technician = User.objects.create_user(email='tecnico.ops.c360@test.sintel', password='x')
+
+    order = Order.objects.create(user=owner, status='paid', total_amount=Decimal('200.00'))
+    other_order = Order.objects.create(user=other, status='paid', total_amount=Decimal('150.00'))
+    ticket = OperationCommands.ensure_tickets_for_order(order)[0]
+    OperationCommands.ensure_tickets_for_order(other_order)
+    OperationAssignment.objects.create(
+        ticket=ticket, assignee=technician, role=OperationAssignment.ROLE_TECHNICIAN,
+        status=OperationAssignment.STATUS_ACTIVE,
+    )
+
+    data = Customer360Selector.build(owner)
+
+    assert len(data['operations']) == 1
+    assert data['operations'][0]['uuid'] == str(ticket.uuid)
+    assert data['operations'][0]['ticket_number'] == ticket.ticket_number
+    assert data['operations'][0]['technician'] == technician.email
+    assert any(e['type'] == 'operation' and e['uuid'] == str(ticket.uuid) for e in data['timeline'])
+
+
+# ── 17. Flood/tamano de mensaje por WS (Fase 11, AUDITORIA/23_AUDITORIA_SEGURIDAD.md,
+# 2026-08-01). Antes receive() no tenia NINGUN limite de frecuencia ni de tamano --
+# distinto del rate-limit de turnos de IA (Fase 1 C1), que solo protege las respuestas
+# del LLM, no la escritura cruda en BD ni el group_send a todos los admins.
+
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+async def test_mensaje_se_trunca_al_limite_maximo():
+    from support.services.commands import MAX_MESSAGE_LENGTH
+
+    with override_settings(AI_SUPPORT_CHAT_ENABLED=False):
+        user = await _create_user('cliente.mensajelargo@test.sintel')
+        comm = await _connect_ws(user)
+        await comm.receive_from(timeout=5)  # history
+
+        overlong = 'a' * (MAX_MESSAGE_LENGTH + 500)
+        await comm.send_to(text_data=json.dumps({'message': overlong}))
+        echo = json.loads(await comm.receive_from(timeout=5))
+        assert len(echo['message']) == MAX_MESSAGE_LENGTH
+
+        room = await _get_open_room(user)
+        saved = await database_sync_to_async(lambda: ChatMessage.objects.get(room=room))()
+        assert len(saved.message) == MAX_MESSAGE_LENGTH
+
+        await comm.disconnect()
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+async def test_flood_de_mensajes_se_limita_por_usuario():
+    from django.core.cache import cache
+    from support.services.commands import MESSAGE_FLOOD_LIMIT
+
+    with override_settings(AI_SUPPORT_CHAT_ENABLED=False):
+        user = await _create_user('cliente.flood@test.sintel')
+        # Redis (a diferencia de Postgres) no se resetea entre tests -- si Postgres reutiliza
+        # el mismo PK de un usuario de una corrida anterior (TransactionTestCase reinicia
+        # secuencias), la clave de flood podria arrancar con conteo residual. Limpieza
+        # explicita para que el test sea determinista sin importar el historial de corridas.
+        await database_sync_to_async(cache.delete)(f'support_msg_flood:{user.id}')
+        comm = await _connect_ws(user)
+        await comm.receive_from(timeout=5)  # history
+
+        # Bien por encima del limite. Se drena el eco de cada mensaje aceptado (igual que
+        # haria un cliente real) -- los descartados por flood no generan ningun eco, asi
+        # que a partir del mensaje MESSAGE_FLOOD_LIMIT+1 no hay nada que recibir.
+        accepted = 0
+        for i in range(MESSAGE_FLOOD_LIMIT + 5):
+            await comm.send_to(text_data=json.dumps({'message': f'mensaje {i}'}))
+            if i < MESSAGE_FLOOD_LIMIT:
+                echo = json.loads(await comm.receive_from(timeout=5))
+                assert echo['message'] == f'mensaje {i}'
+                accepted += 1
+        assert accepted == MESSAGE_FLOOD_LIMIT
+
+        # Confirma que los intentos de mas realmente no generaron ningun eco adicional.
+        with pytest.raises(asyncio.TimeoutError):
+            await comm.receive_from(timeout=2)
+
+        room = await _get_open_room(user)
+        count = await database_sync_to_async(
+            lambda: ChatMessage.objects.filter(room=room, sender=user).count()
+        )()
+        assert count == MESSAGE_FLOOD_LIMIT

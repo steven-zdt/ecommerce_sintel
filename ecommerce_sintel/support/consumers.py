@@ -1,8 +1,22 @@
 import asyncio
 import json
+import logging
+import time
 from urllib.parse import parse_qs
 from channels.generic.websocket import AsyncWebsocketConsumer
 from channels.db import database_sync_to_async
+from django.conf import settings
+
+logger = logging.getLogger(__name__)
+
+
+def _debug_preview(text: str) -> str:
+    """FASE 2: sufijo con el contenido (truncado) para las trazas [CHAT], solo si
+    SUPPORT_DEBUG_MODE=True -- por defecto los logs de produccion no llevan texto de
+    conversaciones, solo metadatos (longitud, latencia, status)."""
+    if not settings.SUPPORT_DEBUG_MODE or not text:
+        return ''
+    return ' text=%r' % text[:200]
 
 
 class SupportChatConsumer(AsyncWebsocketConsumer):
@@ -10,6 +24,12 @@ class SupportChatConsumer(AsyncWebsocketConsumer):
     async def connect(self):
         user = self.scope.get('user')
         if not user or not user.is_authenticated:
+            # FASE 2 (auditoria WS, 2026-08-07): antes un WSREJECT (code 4001) no dejaba
+            # ningun rastro del lado de Django -- el unico log posible era el de
+            # channels_auth (token rechazado) o ninguno si directamente faltaba el
+            # parametro 'token'. Distingue "conecto sin auth" de "el JWT era invalido"
+            # (ya cubierto en channels_auth.py).
+            logger.warning('[WS] connect rechazado: sin usuario autenticado en scope')
             await self.close(code=4001)
             return
 
@@ -19,6 +39,7 @@ class SupportChatConsumer(AsyncWebsocketConsumer):
             self.group_name = 'support_admins'
             await self.channel_layer.group_add(self.group_name, self.channel_name)
             await self.accept()
+            logger.info('[WS] connect admin user=%s group=%s', user.email, self.group_name)
         else:
             self.room = await self._get_or_create_room()
             self.group_name = f'chat_{str(user.uuid)}'
@@ -27,6 +48,10 @@ class SupportChatConsumer(AsyncWebsocketConsumer):
             await self._attach_context_from_query_string()
             history = await self._get_room_history()
             contexts = await self._get_room_contexts()
+            logger.info(
+                '[WS] connect client user=%s room=%s group=%s history=%d contexts=%d',
+                user.email, self.room.uuid, self.group_name, len(history), len(contexts),
+            )
             await self.send(text_data=json.dumps({
                 'type': 'history',
                 'room_uuid': str(self.room.uuid),
@@ -35,6 +60,14 @@ class SupportChatConsumer(AsyncWebsocketConsumer):
             }))
 
     async def disconnect(self, close_code):
+        # FASE 2: hasattr(self, 'group_name') es False solo si connect() rechazo la
+        # conexion antes de llegar a group_add (ya logueado arriba) -- de lo contrario
+        # siempre hay group_name, tanto para admin como para cliente.
+        user_email = getattr(getattr(self, 'user', None), 'email', 'desconocido')
+        logger.info(
+            '[WS] disconnect user=%s group=%s code=%s',
+            user_email, getattr(self, 'group_name', None), close_code,
+        )
         if hasattr(self, 'group_name'):
             await self.channel_layer.group_discard(self.group_name, self.channel_name)
 
@@ -42,23 +75,55 @@ class SupportChatConsumer(AsyncWebsocketConsumer):
         try:
             data = json.loads(text_data)
         except (json.JSONDecodeError, TypeError):
+            # FASE 3 (auditoria consumer, 2026-08-07): antes un frame no-JSON terminaba el
+            # metodo en silencio total -- indistinguible de "no se recibio nada". No se
+            # loguea text_data crudo (podria no ser JSON por diseno de terceros/bots, sin
+            # valor diagnostico en el 99% de los casos y evita volcar payloads arbitrarios).
+            logger.warning('[WS] receive: frame no-JSON descartado (len=%d)', len(text_data or ''))
             return
 
-        text = str(data.get('message', '')).strip()
+        # Repaso de backlog (AUDITORIA/18_AUDITORIA_PRODUCCION_RESILIENCIA_WS.md A2, 2026-08-03):
+        # antes no habia NINGUN heartbeat de aplicacion -- una conexion zombie (TCP vivo pero
+        # muerta de un lado, comun detras de proxies) podia quedar mostrando "en linea"
+        # indefinidamente sin que nadie lo notara. No consume el rate-limit de flood ni pasa por
+        # el resto de la logica de mensajes -- no es un mensaje de chat.
+        if data.get('type') == 'ping':
+            await self.send(text_data=json.dumps({'type': 'pong'}))
+            return
+
+        from support.services.commands import MAX_MESSAGE_LENGTH
+        text = str(data.get('message', '')).strip()[:MAX_MESSAGE_LENGTH]
         if not text:
             return
 
         user = self.user
 
+        # Fase 11 (AUDITORIA/23_AUDITORIA_SEGURIDAD.md, 2026-08-01): antes esto no tenia NINGUN
+        # limite de frecuencia -- distinto del rate-limit de turnos de IA (Fase 1 C1), que solo
+        # protege las respuestas del LLM. Aplica a ambas ramas (cliente Y admin) por igual, antes
+        # de cualquier escritura -- un mensaje descartado por flood ni se guarda ni se transmite.
+        if await self._message_flood_limited(user):
+            logger.warning('[WS] receive: flood-limited user=%s', user.email)
+            return
+
         if user.is_staff and user.is_superuser:
             room_uuid = data.get('room_uuid', '')
             if not room_uuid:
+                logger.warning('[WS] receive: admin user=%s sin room_uuid en el frame', user.email)
                 return
             result = await self._get_room_and_client_uuid(room_uuid)
             if result is None:
+                logger.warning(
+                    '[WS] receive: admin user=%s room=%s no existe o no esta OPEN',
+                    user.email, room_uuid,
+                )
                 return
             room, client_uuid = result
             msg = await self._save_message(room, user, text)
+            logger.info(
+                '[CHAT] room=%s user=%s message_len=%d is_admin=True status=sent%s',
+                room.uuid, user.email, len(text), _debug_preview(text),
+            )
             payload = {
                 'type': 'chat_message',
                 'message': text,
@@ -71,10 +136,39 @@ class SupportChatConsumer(AsyncWebsocketConsumer):
                 f'chat_{client_uuid}',
                 {'type': 'chat.message', **payload},
             )
-            await self.send(text_data=json.dumps(payload))
+            # C2 (AUDITORIA/18, 2026-08-01): antes era self.send() directo -- solo la conexion
+            # que envio el mensaje lo veia. Si el mismo admin tenia el dashboard abierto en 2
+            # pestanas/dispositivos, o habia otro admin viendo la misma sala, esas otras
+            # conexiones no se enteraban en vivo (solo al reseleccionar la sala). group_send a
+            # 'support_admins' hace que el propio remitente reciba su eco por el mismo camino
+            # que todos los demas admins conectados -- reproducible en produccion HOY, sin
+            # depender de que la IA este activa.
+            await self.channel_layer.group_send(
+                'support_admins',
+                {'type': 'chat.message', **payload},
+            )
+
+            # Fase 16 (AUDITORIA/30_AUDITORIA_PRUEBAS_E2E.md, 2026-08-03): antes la respuesta
+            # del agente humano SOLO se difundia por WS -- un cliente que hablaba unicamente
+            # por WhatsApp (sin el widget web abierto) nunca la recibia. Fire-and-forget: si el
+            # usuario no tiene telefono valido o la ventana de 24h de Meta ya cerro, la tarea lo
+            # resuelve/loggea sin bloquear ni afectar el WS (que ya entrego el mensaje).
+            await self._dispatch_whatsapp_agent_reply(room.user_id, text)
         else:
             room = self.room
+            if not await self._room_is_open(room):
+                # B2 (auditoria enterprise, 2026-07-31): self.room se capturo una sola
+                # vez en connect() y nunca se revalidaba -- a diferencia de la rama
+                # admin (_get_room_and_client_uuid ya filtra status=OPEN), el cliente
+                # podia seguir escribiendo en una sala ya CLOSED (mensaje sin ruta de
+                # reapertura ni respuesta, ni humana ni de IA).
+                logger.warning('[WS] receive: cliente user=%s room=%s ya no esta OPEN', user.email, room.uuid)
+                return
             msg = await self._save_message(room, user, text)
+            logger.info(
+                '[CHAT] room=%s user=%s message_len=%d is_admin=False status=sent%s',
+                room.uuid, user.email, len(text), _debug_preview(text),
+            )
             payload = {
                 'type': 'chat_message',
                 'message': text,
@@ -87,14 +181,33 @@ class SupportChatConsumer(AsyncWebsocketConsumer):
                 'support_admins',
                 {'type': 'chat.message', **payload},
             )
-            await self.send(text_data=json.dumps(payload))
+            # C2 (AUDITORIA/18, 2026-08-01): antes self.send() directo -- si el mismo cliente
+            # tenia el chat abierto en 2 pestanas/dispositivos (ambos unidos a chat_{user.uuid}
+            # en connect()), la otra pestana no se enteraba en vivo de un mensaje enviado desde
+            # esta. group_send al propio grupo del usuario hace que TODAS sus conexiones (incluida
+            # esta) reciban el eco por el mismo camino.
+            await self.channel_layer.group_send(
+                f'chat_{str(user.uuid)}',
+                {'type': 'chat.message', **payload},
+            )
 
             # Fase 7 AI Core: si la sala esta en modo AI, el Action Graph
             # responde. En tarea aparte para no bloquear el socket (el LLM
             # puede tardar); si el motor no responde, el chat sigue normal
             # (un humano vera el mensaje en el panel igual que siempre).
-            if await self._ai_mode_active(room):
+            # C1 (auditoria enterprise, 2026-07-31): el throttle de IA (D-03)
+            # solo se habia aplicado al endpoint interno secundario
+            # (AiOpenSupportTicketView) -- este WS es el punto de entrada real
+            # que dispara el costo por mensaje, y no tenia ningun limite.
+            ai_active = await self._ai_mode_active(room)
+            if ai_active and not await self._ai_rate_limited(room):
                 asyncio.create_task(self._ai_reply(room, text))
+            elif ai_active:
+                # FASE 3/4 (auditoria, 2026-08-07): antes el rate-limit de IA descartaba el
+                # turno en silencio total del lado de logs -- is_ai_rate_limited() ya loguea
+                # un warning en ai_bridge.py, pero no habia forma de correlacionarlo con la
+                # sala/mensaje concreto que lo disparo desde este lado.
+                logger.info('[CHAT] room=%s user=%s AI rate-limited status=skipped', room.uuid, user.email)
 
     async def chat_message(self, event):
         await self.send(text_data=json.dumps({
@@ -117,15 +230,41 @@ class SupportChatConsumer(AsyncWebsocketConsumer):
     # ── Fase 7 AI Core: modo AI del chat ─────────────────────────────────────
 
     @database_sync_to_async
+    def _room_is_open(self, room) -> bool:
+        room.refresh_from_db(fields=['status'])
+        return room.status == room.STATUS_OPEN
+
+    @database_sync_to_async
+    def _message_flood_limited(self, user) -> bool:
+        from support.services.commands import ChatCommands
+        return ChatCommands.is_message_flood_limited(user)
+
+    @database_sync_to_async
+    def _dispatch_whatsapp_agent_reply(self, user_id, text):
+        from notifications.tasks import send_whatsapp_agent_reply_task
+        send_whatsapp_agent_reply_task.delay(user_id=user_id, text=text)
+
+    @database_sync_to_async
     def _ai_mode_active(self, room):
         from support.services.ai_bridge import is_ai_mode_active
         room.refresh_from_db(fields=['status', 'ai_paused', 'assigned_admin'])
         return is_ai_mode_active(room)
 
     @database_sync_to_async
-    def _ask_ai(self, room, text):
-        from support.services.ai_bridge import ask_ai
-        return ask_ai(self.user, text, conversation_id=f'room-{room.uuid}')
+    def _ai_rate_limited(self, room) -> bool:
+        """Limite por sala sobre los turnos que realmente disparan al LLM (costo real por
+        mensaje) -- el mensaje del cliente ya se guardo y se muestra igual; esto solo
+        evita que el AI Engine responda mas de AI_CHAT_RATE_LIMIT veces por ventana."""
+        from support.services.ai_bridge import is_ai_rate_limited
+        return is_ai_rate_limited(room)
+
+    async def _ask_ai(self, room, text):
+        # No @database_sync_to_async: ask_ai_async() no toca el ORM (room.uuid ya esta
+        # cargado en memoria), y evita ocupar el thread pool compartido de
+        # sync_to_async con una llamada de red que puede tardar hasta
+        # AI_CHAT_TIMEOUT_SECONDS -- ver docstring de ask_ai_async en ai_bridge.py.
+        from support.services.ai_bridge import ask_ai_async
+        return await ask_ai_async(self.user, text, conversation_id=f'room-{room.uuid}')
 
     @database_sync_to_async
     def _save_ai_message_and_maybe_pause(self, room, ai_response):
@@ -142,15 +281,59 @@ class SupportChatConsumer(AsyncWebsocketConsumer):
             room.save(update_fields=['ai_paused', 'updated_at'])
         return msg, bot.email
 
+    @database_sync_to_async
+    def _save_ai_degraded_marker(self, room):
+        from support.services.ai_bridge import get_ai_bot_user
+        from support.services.commands import ChatCommands
+        bot = get_ai_bot_user()
+        msg = ChatCommands.save_message(
+            room, bot,
+            'En este momento nuestro asistente no está disponible. '
+            'Un agente humano revisará tu mensaje pronto.',
+            ai_metrics={'engine_unavailable': True},
+        )
+        return msg, bot.email
+
     async def _ai_reply(self, room, text):
+        # FASE 3/4/12 (auditoria, 2026-08-07): unico punto donde se puede medir de punta a
+        # punta REQUEST -> RESPONSE -> LATENCY -> TOOLS -> STATUS de un turno de IA. Antes
+        # solo existia logging en la rama de excepcion -- un turno lento o degradado (sin
+        # excepcion) no dejaba ningun rastro de tiempo ni de que herramientas se ejecutaron.
+        start = time.monotonic()
+        logger.info('[CHAT] room=%s AI request status=started', room.uuid)
         try:
             ai_response = await self._ask_ai(room, text)
+            latency_ms = int((time.monotonic() - start) * 1000)
             if not ai_response or not (ai_response.get('response') or '').strip():
-                return
-            msg, bot_email = await self._save_ai_message_and_maybe_pause(room, ai_response)
+                # C2 (auditoria enterprise, 2026-07-31): antes esto retornaba en
+                # silencio total -- una caida del AI Engine no dejaba ninguna senal,
+                # ni para el cliente (chat mudo) ni para las metricas del dashboard
+                # (ChatAnalyticsSelector solo agregaba turnos ya persistidos).
+                # Persistir un marcador degradado (ai_metrics.engine_unavailable)
+                # y avisar, igual que un turno de IA normal.
+                msg, bot_email = await self._save_ai_degraded_marker(room)
+                response_text = msg.message
+                logger.warning(
+                    '[CHAT] room=%s AI response=empty latency_ms=%d status=degraded',
+                    room.uuid, latency_ms,
+                )
+            else:
+                msg, bot_email = await self._save_ai_message_and_maybe_pause(room, ai_response)
+                response_text = ai_response['response']
+                metrics = ai_response.get('metrics') or {}
+                tool_calls = ai_response.get('tool_calls') or []
+                logger.info(
+                    '[CHAT] room=%s AI agent=%s intent=%s tools=%d tokens=%s latency_ms=%d status=ok%s',
+                    room.uuid, ai_response.get('agent'), ai_response.get('intent'),
+                    len(tool_calls), metrics.get('tokens', metrics.get('total_tokens', '?')),
+                    latency_ms, _debug_preview(response_text),
+                )
+                from support.services.ai_bridge import ai_response_opened_ticket
+                if ai_response_opened_ticket(ai_response):
+                    logger.info('[CHAT] room=%s AI handoff status=escalated', room.uuid)
             payload = {
                 'type': 'chat_message',
-                'message': ai_response['response'],
+                'message': response_text,
                 'sender_email': bot_email,
                 'is_admin': True,   # el widget lo muestra del lado del agente
                 'room_uuid': str(room.uuid),
@@ -166,8 +349,8 @@ class SupportChatConsumer(AsyncWebsocketConsumer):
                 {'type': 'chat.message', **payload},
             )
         except Exception:
-            import logging
-            logging.getLogger(__name__).exception('[support] error en respuesta AI')
+            latency_ms = int((time.monotonic() - start) * 1000)
+            logger.exception('[CHAT] room=%s AI error latency_ms=%d status=exception', room.uuid, latency_ms)
 
     @database_sync_to_async
     def _get_or_create_room(self):
@@ -176,18 +359,13 @@ class SupportChatConsumer(AsyncWebsocketConsumer):
 
     @database_sync_to_async
     def _get_room_history(self):
-        from django.conf import settings as dj_settings
         from support.services.selectors import ChatSelector
         msgs = ChatSelector.get_room_history(self.room)
         return [
             {
                 'message': m.message,
                 'sender_email': m.sender.email,
-                # El bot IA se muestra del lado del agente en el widget
-                'is_admin': bool(
-                    (m.sender.is_staff and m.sender.is_superuser)
-                    or m.sender.email == dj_settings.AI_BOT_EMAIL
-                ),
+                'is_admin': m.is_from_agent,
                 'created_at': m.created_at.isoformat(),
             }
             for m in msgs
@@ -242,12 +420,12 @@ class SupportChatConsumer(AsyncWebsocketConsumer):
 
     @database_sync_to_async
     def _get_room_contexts(self):
+        # D1 (auditoria enterprise, 2026-07-31): ChatRoomContext.target_uuid/.label son
+        # ahora la unica fuente de verdad, reusada por ChatRoomContextSerializer (payload
+        # REST equivalente).
         from support.services.selectors import ChatSelector
         contexts = ChatSelector.get_contexts_for_room(self.room)
-        result = []
-        for c in contexts:
-            if c.context_type == c.CONTEXT_ORDER and c.order:
-                result.append({'context_type': c.context_type, 'uuid': str(c.order.uuid), 'label': f'Pedido #{c.order.id}'})
-            elif c.context_type == c.CONTEXT_RENTAL and c.rental_request:
-                result.append({'context_type': c.context_type, 'uuid': str(c.rental_request.uuid), 'label': f'Alquiler #{c.rental_request.id}'})
-        return result
+        return [
+            {'context_type': c.context_type, 'uuid': c.target_uuid, 'label': c.label}
+            for c in contexts if c.target_uuid
+        ]
