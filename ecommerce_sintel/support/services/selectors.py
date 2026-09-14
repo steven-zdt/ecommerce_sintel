@@ -81,7 +81,12 @@ class ChatAnalyticsSelector:
             .values_list('ai_metrics', flat=True)
         )
 
-        total_ai_turns = len(ai_metrics_list)
+        # C2 (auditoria enterprise, 2026-07-31): ai_metrics ahora tambien incluye
+        # marcadores de degradacion (engine_unavailable=True, sin duration/tokens/intent
+        # reales -- ver consumers.py::_save_ai_degraded_marker) cuando el AI Engine no
+        # responde. Se cuentan aparte para no ensuciar los promedios/tasas de turnos
+        # reales con filas que no tienen esos datos.
+        total_ai_turns = engine_unavailable_count = 0
         duration_sum = tokens_in_sum = tokens_out_sum = 0
         fallback_count = handoff_count = 0
         intent_counter = Counter()
@@ -89,6 +94,10 @@ class ChatAnalyticsSelector:
         fallback_intent_counter = Counter()
 
         for metrics in ai_metrics_list:
+            if metrics.get('engine_unavailable'):
+                engine_unavailable_count += 1
+                continue
+            total_ai_turns += 1
             intent = metrics.get('intent') or 'unknown'
             intent_counter[intent] += 1
             duration_sum += metrics.get('duration_ms') or 0
@@ -102,6 +111,8 @@ class ChatAnalyticsSelector:
                 fallback_intent_counter[intent] += 1
             if metrics.get('handoff'):
                 handoff_count += 1
+
+        total_ai_attempts = total_ai_turns + engine_unavailable_count
 
         def _avg(total: int) -> float:
             return round(total / total_ai_turns, 1) if total_ai_turns else 0.0
@@ -120,6 +131,12 @@ class ChatAnalyticsSelector:
             'avg_tokens_out': _avg(tokens_out_sum),
             'fallback_rate': _rate(fallback_count),
             'handoff_rate': _rate(handoff_count),
+            # Motor de IA inalcanzable o con error (ask_ai() -> None) -- visibilidad que
+            # antes no existia (C2, auditoria enterprise 2026-07-31).
+            'engine_unavailable_count': engine_unavailable_count,
+            'engine_unavailable_rate': (
+                round(engine_unavailable_count / total_ai_attempts, 4) if total_ai_attempts else 0.0
+            ),
             'intent_breakdown': [
                 {'intent': intent, 'count': count}
                 for intent, count in intent_counter.most_common(10)

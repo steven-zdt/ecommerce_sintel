@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from support.models import ChatRoom, ChatMessage, ChatRoomContext
+from support.models import ChatRoom, ChatMessage
 
 
 class RateConversationInputSerializer(serializers.Serializer):
@@ -16,18 +16,12 @@ class ChatRoomContextSerializer(serializers.Serializer):
     label = serializers.SerializerMethodField()
 
     def get_uuid(self, obj):
-        if obj.context_type == ChatRoomContext.CONTEXT_ORDER and obj.order:
-            return str(obj.order.uuid)
-        if obj.context_type == ChatRoomContext.CONTEXT_RENTAL and obj.rental_request:
-            return str(obj.rental_request.uuid)
-        return None
+        # ChatRoomContext.target_uuid -- unica fuente de verdad, reusada por
+        # consumers.py::_get_room_contexts (payload WS equivalente).
+        return obj.target_uuid
 
     def get_label(self, obj):
-        if obj.context_type == ChatRoomContext.CONTEXT_ORDER and obj.order:
-            return f'Pedido #{obj.order.id}'
-        if obj.context_type == ChatRoomContext.CONTEXT_RENTAL and obj.rental_request:
-            return f'Alquiler #{obj.rental_request.id}'
-        return ''
+        return obj.label
 
 
 class ChatMessageSerializer(serializers.ModelSerializer):
@@ -39,7 +33,10 @@ class ChatMessageSerializer(serializers.ModelSerializer):
         fields = ['uuid', 'sender_email', 'is_admin', 'message', 'is_read', 'created_at', 'ai_metrics']
 
     def get_is_admin(self, obj):
-        return bool(obj.sender.is_staff and obj.sender.is_superuser)
+        # ChatMessage.is_from_agent -- unica fuente de verdad (incluye al bot IA, no solo
+        # staff+superuser). Antes esto se calculaba distinto aca que en consumers.py, y el
+        # historial REST del panel admin atribuia los mensajes de la IA al cliente.
+        return obj.is_from_agent
 
 
 class ChatRoomListSerializer(serializers.ModelSerializer):

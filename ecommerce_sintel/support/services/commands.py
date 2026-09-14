@@ -1,9 +1,32 @@
+from django.core.cache import cache
 from django.db import transaction
 from django.utils import timezone
 from support.models import ChatRoom, ChatMessage, ChatRoomContext
 
+# Fase 11 (AUDITORIA/23_AUDITORIA_SEGURIDAD.md, 2026-08-01): antes SupportChatConsumer.receive()
+# no tenia NINGUN limite de frecuencia ni de tamano por mensaje -- distinto del rate-limit de
+# turnos de IA (ai_bridge.is_ai_rate_limited, Fase 1 C1), que solo protege las respuestas del
+# LLM. Un cliente podia inundar la BD (un ChatMessage por frame WS, sin tope) y a TODOS los
+# admins conectados (cada mensaje hace group_send a 'support_admins') con mensajes ilimitados en
+# frecuencia y tamano. MAX_MESSAGE_LENGTH coincide con el limite ya establecido del lado de
+# ai_engine (ChatRequest.message, Fase 2 G1) por consistencia, no por casualidad.
+MAX_MESSAGE_LENGTH = 4000
+MESSAGE_FLOOD_LIMIT = 30
+MESSAGE_FLOOD_WINDOW_SECONDS = 60
+
 
 class ChatCommands:
+
+    @staticmethod
+    def is_message_flood_limited(user) -> bool:
+        """Ventana fija por usuario (no por sala/conexion -- un usuario puede tener varias
+        conexiones, ver C2 de AUDITORIA/18) sobre la frecuencia CRUDA de mensajes WS, sin
+        importar si disparan IA o no. cache.add es atomico, mismo patron que
+        ai_bridge.is_ai_rate_limited."""
+        key = f'support_msg_flood:{user.id}'
+        cache.add(key, 0, timeout=MESSAGE_FLOOD_WINDOW_SECONDS)
+        count = cache.incr(key)
+        return count > MESSAGE_FLOOD_LIMIT
 
     @staticmethod
     @transaction.atomic

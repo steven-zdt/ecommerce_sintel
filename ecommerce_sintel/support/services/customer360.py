@@ -9,9 +9,13 @@ Imports diferidos para evitar ciclos entre apps, mismo patron ya usado en el res
 
 
 def _shipment_status(order):
+    # C3 (auditoria enterprise, 2026-07-31): "except Exception" generico ocultaba
+    # cualquier error real (ej. un typo de atributo) devolviendo None en silencio --
+    # el unico fallo esperado es que la orden no tenga Shipment (reverse OneToOne).
+    from orders.models import Shipment
     try:
         return order.shipment.status
-    except Exception:
+    except Shipment.DoesNotExist:
         return None
 
 
@@ -69,6 +73,48 @@ def _conversation_events(conversations):
     return events
 
 
+def _quotation_events(quotations):
+    # Fase 7 (AUDITORIA/21_AUDITORIA_CUSTOMER360.md, 2026-08-01): el brief de Customer 360 pedia
+    # "cotizaciones" explicitamente -- antes Customer360Selector.build() no las incluia en
+    # absoluto, pese a que quotes.services.selectors.QuotationSelector.list_for_user ya existe
+    # con el mismo patron que orders/rentals.
+    events = []
+    for q in quotations:
+        events.append({
+            'type': 'quotation',
+            'label': f'Cotizacion #{q.id} solicitada',
+            'status': q.status,
+            'uuid': str(q.uuid),
+            'date': q.created_at,
+        })
+    return events
+
+
+def _operation_technician(ticket):
+    from operations.models import OperationAssignment
+    for a in ticket.assignments.all():
+        if a.role == OperationAssignment.ROLE_TECHNICIAN and a.status == OperationAssignment.STATUS_ACTIVE:
+            return a.assignee.email
+    return None
+
+
+def _operation_events(tickets):
+    # Fase 14 (AUDITORIA/28_AUDITORIA_OPERATIONS.md, 2026-08-03): mismo gap ya corregido en
+    # Fase 7 para quotations -- operations.services.selectors.OperationSelector.list_for_user ya
+    # existe (con prefetch de assignments/tracking_events), Customer360 simplemente no lo usaba.
+    # Un agente que atiende un chat sobre "donde esta mi tecnico" no veia nada de esto.
+    events = []
+    for t in tickets:
+        events.append({
+            'type': 'operation',
+            'label': f'{t.get_operation_type_display()} #{t.ticket_number}',
+            'status': t.get_effective_status(),
+            'uuid': str(t.uuid),
+            'date': t.created_at,
+        })
+    return events
+
+
 class Customer360Selector:
 
     @staticmethod
@@ -77,6 +123,8 @@ class Customer360Selector:
         from kyc.services.selectors import KycSelector
         from orders.services.selectors import OrderSelector, ShippingAddressSelector
         from renting.services.selectors import RentalRequestSelector
+        from quotes.services.selectors import QuotationSelector
+        from operations.services.selectors import OperationSelector
         from notifications.models import NotificationLog
         from support.models import ChatRoom
 
@@ -84,6 +132,8 @@ class Customer360Selector:
         verification = KycSelector.get_own_verification(user)
         orders = list(OrderSelector.list_for_user(user)[:20])
         rentals = list(RentalRequestSelector.list_for_user(user)[:20])
+        quotations = list(QuotationSelector.list_for_user(user)[:20])
+        operation_tickets = list(OperationSelector.list_for_user(user)[:20])
         addresses = list(ShippingAddressSelector.list_for_user(user))
         conversations = list(
             ChatRoom.objects.filter(user=user, is_deleted=False).order_by('-updated_at')[:10]
@@ -103,6 +153,8 @@ class Customer360Selector:
         })
         timeline += _order_events(orders)
         timeline += _rental_events(rentals)
+        timeline += _quotation_events(quotations)
+        timeline += _operation_events(operation_tickets)
         timeline += _kyc_events(verification)
         timeline += _conversation_events(conversations)
         timeline.sort(key=lambda e: e['date'], reverse=True)
@@ -138,6 +190,22 @@ class Customer360Selector:
             'rentals': [
                 {'uuid': str(r.uuid), 'id': r.id, 'status': r.status, 'created_at': r.created_at}
                 for r in rentals
+            ],
+            'quotations': [
+                {
+                    'uuid': str(q.uuid), 'id': q.id, 'status': q.status,
+                    'total_amount': str(q.total_amount), 'created_at': q.created_at,
+                }
+                for q in quotations
+            ],
+            'operations': [
+                {
+                    'uuid': str(t.uuid), 'ticket_number': t.ticket_number,
+                    'operation_type': t.operation_type, 'status': t.get_effective_status(),
+                    'priority': t.priority, 'scheduled_date': t.scheduled_date,
+                    'technician': _operation_technician(t), 'created_at': t.created_at,
+                }
+                for t in operation_tickets
             ],
             'addresses': [
                 {'uuid': str(a.uuid), 'full_name': a.full_name, 'city': a.city, 'is_default': a.is_default}

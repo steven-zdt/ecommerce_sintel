@@ -40,6 +40,14 @@ class ChatRoom(SintelBaseModel):
 
     class Meta:
         ordering = ['-updated_at']
+        indexes = [
+            # Repaso de backlog (AUDITORIA/24_AUDITORIA_NOTIFICATIONS_SUPPORT.md, 2026-08-03):
+            # notify_unattended_escalated_tickets (Fase 1) filtra por estas 4 columnas juntas en
+            # cada corrida horaria -- status/updated_at/is_deleted ya tenian db_index individual,
+            # pero ai_paused no tenia ninguno, y sin un indice compuesto Postgres solo puede
+            # combinarlos via bitmap AND en vez de un unico index scan.
+            models.Index(fields=['status', 'ai_paused', 'updated_at', 'is_deleted']),
+        ]
 
     def __str__(self):
         return f'ChatRoom({self.user_id}, {self.status})'
@@ -64,6 +72,23 @@ class ChatMessage(SintelBaseModel):
 
     def __str__(self):
         return f'ChatMessage({self.room_id}, {self.sender_id})'
+
+    @property
+    def is_from_agent(self) -> bool:
+        """True si el mensaje debe mostrarse del lado 'agente' (admin humano o bot IA).
+
+        Unica fuente de verdad -- antes esta regla vivia duplicada en
+        ChatMessageSerializer.get_is_admin (solo staff+superuser, sin el bot IA) y en
+        consumers.py::_get_room_history (staff+superuser O bot IA), asi que el historial
+        REST que consume el panel admin atribuia los mensajes de la IA al cliente (bubble
+        y remitente equivocados) mientras que el WebSocket los mostraba bien. El bot IA
+        (ai_bridge.get_ai_bot_user) es is_active=False con password inutilizable, nunca
+        is_staff/is_superuser, por eso necesita el chequeo explicito por email.
+        """
+        return bool(
+            (self.sender.is_staff and self.sender.is_superuser)
+            or self.sender.email == settings.AI_BOT_EMAIL
+        )
 
 
 class ChatRoomContext(SintelBaseModel):
@@ -115,3 +140,23 @@ class ChatRoomContext(SintelBaseModel):
 
     def __str__(self):
         return f'ChatRoomContext({self.room_id}, {self.context_type})'
+
+    # D1 (auditoria enterprise, 2026-07-31): unica fuente de verdad para "uuid/label de
+    # la entidad referenciada" -- antes esta rama context_type->{ORDER,RENTAL} vivia
+    # duplicada en consumers.py::_get_room_contexts (payload WS) y en
+    # ChatRoomContextSerializer (payload REST), con riesgo real de divergir.
+    @property
+    def target_uuid(self) -> str | None:
+        if self.context_type == self.CONTEXT_ORDER and self.order:
+            return str(self.order.uuid)
+        if self.context_type == self.CONTEXT_RENTAL and self.rental_request:
+            return str(self.rental_request.uuid)
+        return None
+
+    @property
+    def label(self) -> str:
+        if self.context_type == self.CONTEXT_ORDER and self.order:
+            return f'Pedido #{self.order.id}'
+        if self.context_type == self.CONTEXT_RENTAL and self.rental_request:
+            return f'Alquiler #{self.rental_request.id}'
+        return ''

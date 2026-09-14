@@ -1,6 +1,18 @@
 # ARQUITECTURA COMPLETA — APP support
 
-Ultima actualizacion: 2026-07-20
+Ultima actualizacion: 2026-07-31
+
+> **[CORREGIDO 2026-07-31, Auditoria Enterprise §15]** Este documento afirmaba (desde la version
+> 2026-07-03) que `support` **no tiene REST API propia** — quedo desactualizado desde que se
+> agrego el endpoint CSAT (`RateConversationView`, `api/views.py` + `api/urls.py`, ver §"REST
+> publica"). Ya estaba detectado y dejado pendiente en
+> `Documentacion/Arquitectura_general/IMPLEMENTATION_SUMMARY.md` desde 2026-07-23 sin corregirse.
+> Ademas: se documenta `support/tasks.py` (llama a `NotificationCommands` -- la seccion
+> "Notificaciones" decia lo contrario), la estructura real de directorios (faltaban
+> `api/views.py`, `api/urls.py`, `tasks.py`), los campos CSAT de `ChatRoom` y el modelo
+> `ChatRoomContext`, y `ChatAnalyticsSelector`. Tambien se documentan 8 correcciones reales
+> aplicadas el mismo dia (bot IA mal atribuido en REST, rate-limit de IA, visibilidad de caidas
+> del motor, validacion de estado en sala cerrada, duplicacion WS/REST) — ver "Cambios Recientes".
 
 > **[ACTUALIZADO 2026-07-20]** Este documento describia support como un chat WebSocket
 > "guardar mensaje + broadcast" sin ninguna integracion de IA. Eso quedo desactualizado desde
@@ -19,9 +31,10 @@ Ultima actualizacion: 2026-07-20
 ## Responsabilidad
 
 Chat de soporte en tiempo real entre clientes y administradores.
-Usa Django Channels (WebSocket) con autenticacion JWT via query param.
-No expone una REST API propia — la unica interfaz de cliente es el WebSocket; la gestion admin
-vive en el BFF de `dashboard` (`AdminSupportChatViewSet`).
+Usa Django Channels (WebSocket) con autenticacion JWT via query param — esa sigue siendo la
+**unica** interfaz para enviar/recibir mensajes en vivo. `support` expone una REST API propia
+pero minima (CSAT, ver mas abajo); la gestion admin de salas (listar, cerrar, asignar) sigue
+viviendo en el BFF de `dashboard` (`AdminSupportChatViewSet`), no aca.
 
 ---
 
@@ -29,19 +42,21 @@ vive en el BFF de `dashboard` (`AdminSupportChatViewSet`).
 
 ```
 support/
-├── models.py              # ChatRoom (+ai_paused), ChatMessage (+ai_metrics), ChatRoomContext
+├── models.py              # ChatRoom (+ai_paused, +CSAT), ChatMessage (+ai_metrics), ChatRoomContext
 ├── consumers.py           # SupportChatConsumer (WebSocket, unico consumer; invoca ai_bridge)
 ├── channels_auth.py       # JWTAuthMiddleware / JWTAuthMiddlewareStack para Channels
 ├── routing.py             # support_websocket_patterns — UNA sola ruta fija
+├── tasks.py               # notify_unattended_escalated_tickets (Celery Beat, Fase 11 Proactividad)
 ├── services/
 │   ├── commands.py        # ChatCommands
-│   ├── selectors.py       # ChatSelector
-│   ├── ai_bridge.py       # Puente Django -> AI Engine (POST /chat), Human Handoff
+│   ├── selectors.py       # ChatSelector, ChatAnalyticsSelector (Fase 9, KPIs del Dashboard)
+│   ├── ai_bridge.py       # Puente Django -> AI Engine (POST /chat), Human Handoff, rate-limit
 │   └── customer360.py     # Timeline unificado (Customer Experience Hub)
 ├── api/
 │   ├── serializers.py     # ChatRoomSerializer, ChatRoomListSerializer (consumidos por dashboard)
+│   ├── views.py           # RateConversationView — CSAT, unica REST publica del cliente
+│   ├── urls.py             # api/v1/support/chats/<uuid>/rate/
 │   └── internal_ai.py     # AiOpenSupportTicketView — endpoint interno para el AI Engine
-│                           # NO existe api/views.py ni api/urls.py publicos
 ├── admin.py
 ├── migrations/
 └── apps.py
@@ -63,6 +78,10 @@ class ChatRoom(SintelBaseModel):
     assigned_admin = ForeignKey(AUTH_USER_MODEL, null=True, blank=True,
                                 related_name='assigned_support_rooms')
     ai_paused      = BooleanField(default=False)  # True = IA escalo a un humano (Human Handoff)
+    # CSAT (migracion 0008): calificacion del cliente tras cerrar la sala.
+    csat_rating    = PositiveSmallIntegerField(null=True, blank=True)  # 1-5
+    csat_comment   = TextField(blank=True, default='')
+    csat_rated_at  = DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ['-updated_at']
@@ -71,8 +90,13 @@ class ChatRoom(SintelBaseModel):
 - Un usuario puede tener multiples salas historicas, pero solo una `OPEN` a la vez
   (`ChatCommands.get_or_create_room()` reutiliza la abierta si existe).
 - `assigned_admin`: se asigna cuando un admin abre la sala (`assign_admin`), no automaticamente.
-- `status=CLOSED`: sala cerrada. El consumer no valida el estado al recibir mensajes del cliente
-  (solo el admin valida `status=STATUS_OPEN` al enviar, ver `_get_room_and_client_uuid`).
+- `status=CLOSED`: sala cerrada. **[CORREGIDO 2026-07-31]** Antes el consumer NO validaba el
+  estado al recibir mensajes del cliente (solo el admin validaba `status=STATUS_OPEN` al enviar,
+  ver `_get_room_and_client_uuid`) — un cliente podia seguir escribiendo en una sala ya cerrada,
+  sin ruta de respuesta. Ahora la rama cliente de `receive()` tambien valida
+  `status=STATUS_OPEN` (`_room_is_open`) antes de guardar.
+- `csat_rating`/`csat_comment`/`csat_rated_at`: se setean una unica vez, solo sobre una sala ya
+  `CLOSED`, via `ChatCommands.rate_conversation()` — expuesto por `RateConversationView` (REST).
 
 ### ChatMessage
 
@@ -86,7 +110,51 @@ class ChatMessage(SintelBaseModel):
 
     class Meta:
         ordering = ['created_at']
+
+    @property
+    def is_from_agent(self) -> bool:
+        # True si staff+superuser O el sender es el bot IA (settings.AI_BOT_EMAIL).
+        ...
 ```
+
+**[CORREGIDO 2026-07-31]** `is_from_agent` es la unica fuente de verdad para "¿este mensaje va
+del lado agente?" en el widget/dashboard. Antes `ChatMessageSerializer.get_is_admin()` (payload
+REST, historial del dashboard) solo chequeaba `is_staff and is_superuser` -- el bot IA nunca
+cumple eso (se crea con `is_active=False`), asi que los mensajes de la IA se atribuian al
+**cliente** en el panel admin vía REST, mientras que por WebSocket (`consumers.py`) se marcaban
+bien como agente. Ambos puntos ahora reusan `is_from_agent`.
+
+### ChatRoomContext
+
+```python
+class ChatRoomContext(SintelBaseModel):
+    CONTEXT_ORDER = 'ORDER'
+    CONTEXT_RENTAL = 'RENTAL'
+
+    room           = ForeignKey(ChatRoom, related_name='contexts')
+    context_type   = CharField(choices=CONTEXT_CHOICES)
+    order          = ForeignKey('orders.Order', null=True, blank=True, on_delete=CASCADE)
+    rental_request = ForeignKey('renting.RentalRequest', null=True, blank=True, on_delete=CASCADE)
+    added_by       = ForeignKey(AUTH_USER_MODEL, null=True, blank=True, on_delete=SET_NULL)
+
+    class Meta:
+        constraints = [CheckConstraint(...)]  # exactamente un target (order XOR rental_request)
+
+    @property
+    def target_uuid(self) -> str | None: ...  # uuid de la entidad referenciada
+    @property
+    def label(self) -> str: ...               # "Pedido #123" / "Alquiler #45"
+```
+
+Vinculo opcional de una sala a una entidad de negocio (Customer Experience Hub, Fase 3) — FKs
+reales por tipo, NO GenericForeignKey (ese patron ya genero un bug real en `inventory`). Una sala
+puede tener varios contextos (una fila por cada uno). `CASCADE` (no `SET_NULL`) en `order`/
+`rental_request`: si la entidad se borra de verdad, la fila de contexto debe desaparecer con
+ella, o violaria la constraint de "exactamente un target". **[CORREGIDO 2026-07-31]**
+`target_uuid`/`label` son la unica fuente de verdad para "uuid/etiqueta legible" — antes esa
+misma rama `ORDER->Pedido #.../RENTAL->Alquiler #...` estaba duplicada, con codigo casi identico
+pero independiente, en `consumers.py::_get_room_contexts` (payload WS) y en
+`ChatRoomContextSerializer` (payload REST).
 
 ---
 
@@ -157,11 +225,37 @@ class JWTAuthMiddleware(BaseMiddleware):
 `ImportError` en el arranque de Channels porque Django no esta listo. Siempre import diferido
 dentro de la funcion/metodo.
 
+**[BUG REAL DE PRODUCCION, CORREGIDO 2026-07-31]** El WS solo se autentica UNA vez, al conectar.
+`ACCESS_TOKEN_LIFETIME` es 15 min, y el interceptor de Axios que refresca el token sola nunca
+corre para conexiones WebSocket — cualquier tab abierta mas de 15 min reutilizaba un access token
+vencido en cada reintento automatico (cada ~3s, para siempre), mostrando "Desconectado"
+permanente en `SupportChatWidget.vue`/`SupportDashboardView.vue`. Causa raiz confirmada en vivo
+en produccion via `ExpiredTokenError` (antes `_get_user_from_token` tragaba la excepcion en
+silencio -- ahora loguea con `logger.warning`, ver `channels_auth.py`). Fix: ambos widgets
+refrescan el access token proactivamente (`useAuth().refreshAccessToken()`) antes de cada intento
+de conexion; si el refresh TAMBIEN falla (refresh token vencido, sesion realmente muerta), se
+hace `logout()` + aviso al usuario en vez de reintentar en loop infinito con un token muerto.
+
 ---
 
-## Gestion administrativa — vive en `dashboard`, NO en `support`
+## REST publica del cliente — CSAT (`api/views.py`)
 
-No existe `/api/v1/support/...`. La gestion de salas para el panel admin (`/panel/soporte`) se
+**[CORREGIDO 2026-07-31]** A diferencia de lo que este documento afirmaba, `support` SI expone
+una REST publica minima -- solo para calificar una conversacion ya cerrada:
+
+| Endpoint | Metodo | Descripcion |
+|---|---|---|
+| `/api/v1/support/chats/<uuid>/rate/` | POST | CSAT: `{rating: 1-5, comment?}` sobre una sala `CLOSED` propia (`RateConversationView` -> `ChatCommands.rate_conversation`) |
+
+Permiso: `IsAuthenticated` + lookup scoped a `request.user` desde el inicio (una sala ajena da
+`404`, igual que una inexistente -- nunca se revela si "existe" antes de chequear ownership).
+Toda la DEMAS interaccion de cliente sigue siendo 100% WebSocket.
+
+---
+
+## Gestion administrativa de salas — vive en `dashboard`, NO en `support`
+
+La gestion de salas para el panel admin (`/panel/soporte`, listar/cerrar/asignar) se
 hace via `AdminSupportChatViewSet` en `dashboard/api/views.py`, que delega a
 `SupportAdminOrchestrator` (`dashboard/services/admin_orchestrators.py`), que a su vez llama a
 `ChatCommands`/`ChatSelector` de esta app.
@@ -189,6 +283,13 @@ class ChatSelector:
     get_active_rooms()          # status=OPEN, is_deleted=False, con user/assigned_admin/messages
     get_room_by_uuid(uuid)
     get_room_history(room)      # mensajes ordenados por created_at ascendente
+    get_contexts_for_room(room)
+
+class ChatAnalyticsSelector:    # Fase 9 AI Core (Aprendizaje) -- agrega ChatMessage.ai_metrics
+    get_summary(days=30) -> dict
+        # total_conversations, avg_csat, total_ai_turns, avg_duration_ms, avg_tokens_in/out,
+        # fallback_rate, handoff_rate, engine_unavailable_count/_rate (§C2, 2026-07-31),
+        # intent_breakdown, top_tools, frequent_issues -- consumido por SupportDashboardView.vue
 ```
 
 ### Panel admin (`/panel/soporte`)
@@ -225,16 +326,40 @@ is_ai_mode_active(room) -> bool
 
 get_ai_bot_user()          # usuario bot inactivo/sin password que firma los mensajes IA
 ai_response_opened_ticket(ai_response)  # True si el turno ejecuto la Tool "abrir_ticket_soporte"
+is_ai_rate_limited(room) -> bool  # [NUEVO 2026-07-31] ver "Rate limit de IA" mas abajo
 ```
 
 ### Flujo en `SupportChatConsumer.receive()`
 
 Tras guardar y reenviar el mensaje del cliente a `support_admins`, si `is_ai_mode_active(room)`
-es `True` se lanza `asyncio.create_task(self._ai_reply(room, text))` (no bloquea el socket).
-`_ai_reply` llama `ask_ai()`, guarda la respuesta del bot con
+**y no `is_ai_rate_limited(room)`** es `True` se lanza `asyncio.create_task(self._ai_reply(room,
+text))` (no bloquea el socket). `_ai_reply` llama `ask_ai()`, guarda la respuesta del bot con
 `ChatCommands.save_message(room, bot, ..., ai_metrics=ai_response.get('metrics'))`, y hace
 `group_send` tanto al cliente (`chat_{user.uuid}`) como a `support_admins` (supervision humana
 en vivo) — el bot se muestra del lado "agente" en el widget.
+
+### Rate limit de IA (`is_ai_rate_limited`, corregido 2026-07-31)
+
+**[GAP CERRADO]** El unico throttle de IA que existia (D-03, auditoria previa) era un
+`ScopedRateThrottle` en `AiOpenSupportTicketView` — un endpoint interno SECUNDARIO. El punto de
+entrada real que dispara `ask_ai()` (costo de LLM real) por cada mensaje de cliente es este WS,
+que no tenia ningun limite. Ahora `is_ai_rate_limited(room)` usa un contador atomico en cache
+(`cache.add`/`cache.incr`, ventana fija): **20 turnos de IA por sala cada 10 min**
+(`AI_CHAT_RATE_LIMIT`/`AI_CHAT_RATE_WINDOW_SECONDS` en `ai_bridge.py`). Al limite: el mensaje del
+cliente se guarda y muestra igual (el humano lo ve), solo se omite la respuesta de la IA para ese
+turno.
+
+### Visibilidad de caidas del AI Engine (corregido 2026-07-31)
+
+**[GAP CERRADO]** Antes, si `ask_ai()` devolvia `None` (motor inalcanzable o error), `_ai_reply`
+retornaba en silencio total: nada se persistia, el cliente no recibia ningun aviso, y
+`ChatAnalyticsSelector` (que solo agrega `ai_metrics` ya persistidos) no tenia forma de detectar
+la caida. Ahora se persiste un `ChatMessage` del bot con `ai_metrics={'engine_unavailable':
+True}` y un texto de degradacion ("Un agente humano revisara tu mensaje pronto"), enviado igual
+que un turno normal por WS. `ChatAnalyticsSelector.get_summary()` cuenta estos marcadores APARTE
+de `total_ai_turns` (no ensucian promedios/tasas de turnos reales) y expone
+`engine_unavailable_count`/`engine_unavailable_rate` — visible como KPI en
+`SupportDashboardView.vue`.
 
 ### Human Handoff (`ChatRoom.ai_paused`)
 
@@ -262,12 +387,29 @@ sala por REST. No existe un "confidence score" calculado por el motor.
 
 ---
 
-## Notificaciones
+## Notificaciones — `support/tasks.py` (Fase 11 AI Core, Proactividad)
 
-`support/services/commands.py` **no llama a `NotificationCommands.dispatch_notification()`
-directamente en el codigo actual** (no se encontro esa llamada en `ChatCommands`). Si se agrega
-notificacion push/email por mensaje nuevo, debe hacerse siguiendo el patron centralizado de la
-app `notifications` (`NotificationCommands.dispatch_notification()` dentro de
+**[CORREGIDO 2026-07-31]** `ChatCommands` en si mismo sigue sin llamar a
+`NotificationCommands.dispatch_notification()` (el guardado de mensajes no dispara
+notificaciones), pero `support/tasks.py::notify_unattended_escalated_tickets` **si** lo hace:
+
+```python
+@shared_task
+def notify_unattended_escalated_tickets() -> None:
+    # Cron horaria (Celery Beat, migracion 0007_seed_notify_stale_tickets_periodic_task).
+    # Busca ChatRoom: status=OPEN, ai_paused=True (escalada a humano), sin actividad hace
+    # mas de _UNATTENDED_THRESHOLD_HOURS (2h). Por cada una:
+    NotificationCommands.dispatch_notification_once(
+        user=room.user, template_slug='ticket_soporte_sin_seguimiento',
+        context={'room_uuid': str(room.uuid)}, dedupe_key=f'chatroom:{room.uuid}',
+    )
+    # dispatch_notification_once (variante para scanners periodicos): dedupe SINCRONO via
+    # NotificationLog antes de llamar a dispatch_notification() -- cada sala se notifica
+    # UNA sola vez, sin importar cuantas veces corra el scan mientras siga sin atenderse.
+```
+
+Si se agrega notificacion por mensaje nuevo (no por inactividad), debe seguir el mismo patron
+centralizado (`NotificationCommands.dispatch_notification()` dentro de
 `transaction.on_commit(...)`), no un `ws_notify` ad-hoc.
 
 ---
@@ -283,14 +425,45 @@ from rest_framework_simplejwt.authentication import JWTAuthentication  # al nive
 ```
 
 ```python
-# INCORRECTO — asumir que existe una REST API en /api/v1/support/
-# No existe. Toda interaccion de cliente es WebSocket; la gestion admin vive en
-# /api/v1/dashboard/support/chats/
+# INCORRECTO — asumir que support tiene una REST API completa de gestion de salas
+# ([CORREGIDO 2026-07-31] SI existe una REST publica, pero minima: solo CSAT
+# (/api/v1/support/chats/<uuid>/rate/). Listar/cerrar/asignar salas sigue viviendo
+# en /api/v1/dashboard/support/chats/, no aca.)
+```
+
+```python
+# INCORRECTO — reusar una clase con costo real (mensaje al LLM) sin rate-limit
+if is_ai_mode_active(room):
+    asyncio.create_task(self._ai_reply(room, text))  # sin limite -- ver "Rate limit de IA"
+
+# CORRECTO
+if is_ai_mode_active(room) and not is_ai_rate_limited(room):
+    asyncio.create_task(self._ai_reply(room, text))
 ```
 
 ---
 
 ## Cambios Recientes
+
+### 2026-07-31 — Auditoria Enterprise (AUDITORIA/15) — doc desincronizada + 8 correcciones reales
+- **Documentacion**: corregidos 5 puntos desincronizados con el codigo real (este documento
+  afirmaba que no existia REST API propia -- ya detectado y dejado pendiente en
+  `IMPLEMENTATION_SUMMARY.md` desde 2026-07-23 sin corregirse hasta ahora; faltaban
+  `tasks.py`/`api/views.py`/`api/urls.py` en la estructura; faltaban los campos CSAT de
+  `ChatRoom`, el modelo `ChatRoomContext` completo, y `ChatAnalyticsSelector`).
+- **Bug de produccion resuelto el mismo dia** (antes de esta auditoria): WS nunca refrescaba el
+  JWT antes de conectar -- "Desconectado" permanente tras 15 min. Ver seccion "Autenticacion".
+- **Correctitud**: `ChatMessage.is_from_agent` unifica la atribucion agente/cliente (antes el bot
+  IA se mostraba como cliente en el historial REST del dashboard, bien por WS -- inconsistencia
+  real). Cliente ya no puede seguir escribiendo en una sala `CLOSED` por WS (antes solo el admin
+  validaba estado).
+- **Seguridad/costo**: rate-limit real sobre el WS que dispara el LLM (antes solo protegido el
+  endpoint interno secundario). Caida del AI Engine ahora deja un mensaje real al cliente + KPI
+  visible en el dashboard (antes: silencio total, invisible en metricas).
+- **DRY**: `ChatRoomContext.target_uuid`/`.label` reemplazan la logica duplicada WS/REST.
+- **Tests**: 6 tests nuevos (CSAT REST end-to-end incl. el fix de disclosure D-04 que no tenia
+  regresion; Human Handoff interno, sin cobertura previa en todo el repo; cron de tickets sin
+  seguimiento; sala cerrada). Suite completa: 19/19 pasando.
 
 ### 2026-07-20 — Documentada integracion AI Engine (ya existia, Fases 7) + Fase 8 telemetria
 - Se agrego la seccion "Integracion con AI Engine" — el documento no mencionaba `ai_bridge.py`,
