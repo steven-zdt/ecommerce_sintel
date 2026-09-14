@@ -184,8 +184,40 @@ Documentado en `ai_editor/.AGENT/FASE61_12_SANDBOX.md`.
    pendiente confirmar antes de escribir cualquier codigo de ADK-01 que dependa de esto,
    dado que el stack de Sintel es 100% Ollama/LM Studio, nunca Gemini.
 
-## 6. Estado de este documento
+## 6. ADK-01 — POC aislado (completado)
 
-ADK-00 completo. Sin cambios de codigo. Pendiente instruccion explicita del usuario para
-iniciar ADK-01 (POC aislado, sin tocar `ai_engine` productivo) — el propio plan (seccion 24,
-"checkpoint obligatorio") exige no continuar automaticamente entre fases.
+Codigo en `adk_poc/` (repo root, fuera de `ecommerce_sintel/`, sin Dockerfile, sin entrada
+en `docker-compose*.yml`, venv propio no versionado) — ver `adk_poc/README.md` para el
+detalle completo. **5/5 tests pasando, contra un Ollama real (`llama3.1:8b`), sin mocks.**
+
+**Hallazgo real mas importante, no anticipado en la seccion 0 de este documento:** ADK
+2.9.0 trae activada por default una feature experimental (`JSON_SCHEMA_FOR_FUNC_DECL`) que
+**rompe el tool-calling nativo** cuando el modelo es `LiteLlm(model="ollama_chat/...")` — el
+LLM nunca dispara una llamada de funcion real, solo ecoa la declaracion de la tool como
+texto plano. Aislado (con una llamada `litellm.completion()` cruda) a la capa de ADK, no a
+Ollama ni a litellm. Fix confirmado: `override_feature_enabled(FeatureName.
+JSON_SCHEMA_FOR_FUNC_DECL, False)`, ejecutado ANTES de importar `google.adk.agents`/
+`google.adk.tools`/`google.adk.models.lite_llm` (verificado que llamarlo despues, aunque
+sea antes de construir el `Agent`, no tiene efecto). **Impacto: cualquier agente de Sintel
+que use `LiteLlm`+Ollama para tool-calling nativo necesita este override global al
+arrancar el proceso, o las tools nunca se invocan de verdad.** Esto es exactamente lo que
+ADK-01 existe para descubrir antes de comprometerse a la migracion — sin este POC, este bug
+se habria descubierto recien en ADK-10 (dual-run) o peor, en produccion.
+
+Otros hallazgos de API real: `FunctionTool` no tiene atributo publico `require_confirmation`
+(usar `_require_confirmation`/`check_require_confirmation()`); `InMemoryRunner` exige crear
+la sesion explicitamente (`await runner.session_service.create_session(...)`) antes de
+`run_async()`; `SequentialAgent`/`ParallelAgent`/`LoopAgent` confirmados funcionales HOY
+(solo warning), no eliminados todavia — refuerza el guardrail de la seccion 0, no lo cambia.
+
+**Pendiente, fuera de alcance de ADK-01:** el mismo fix no se probo contra LM Studio
+(proveedor real de produccion); la limitacion "Workflow no puede ser sub-agente de un
+LlmAgent" sigue sin probarse en la practica; el flujo completo de
+`ToolContext.requestConfirmation()` (pausa+resume real) no se ejecuto, solo se confirmo que
+la API existe.
+
+## 7. Estado de este documento
+
+ADK-00 + ADK-01 completos. Codigo del POC aislado, sin tocar `ai_engine`/Django/Docker.
+Pendiente instruccion explicita del usuario para iniciar ADK-02 (Adapter Layer) — el propio
+plan (seccion 24, "checkpoint obligatorio") exige no continuar automaticamente entre fases.
