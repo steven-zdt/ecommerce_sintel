@@ -18,7 +18,7 @@ import logging
 
 import httpx
 
-from config import DJANGO_INTERNAL_API_URL
+from config import DJANGO_INTERNAL_API_URL, internal_django_headers
 
 logger = logging.getLogger(__name__)
 
@@ -93,6 +93,7 @@ async def retrieve_knowledge_for_chat(query: str, apps: list[str] | None = None,
             resp = await client.post(
                 _KNOWLEDGE_RETRIEVE_URL,
                 json={"query": query, "app_names": apps, "k": k},
+                headers=internal_django_headers(),
             )
         if resp.status_code != 200:
             logger.warning("[retrievers] ai_knowledge/retrieve respondio %d, sin conocimiento para este turno", resp.status_code)

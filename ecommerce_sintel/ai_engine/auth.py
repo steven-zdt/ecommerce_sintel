@@ -25,7 +25,7 @@ import jwt
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from config import DJANGO_INTERNAL_API_URL, JWT_SECRET_KEY
+from config import DJANGO_INTERNAL_API_URL, JWT_SECRET_KEY, internal_django_headers
 
 logger = logging.getLogger("auth")
 
@@ -61,7 +61,7 @@ async def fetch_company_display_name() -> str:
     name = ""
     try:
         async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT_SECONDS) as client:
-            resp = await client.get(url)
+            resp = await client.get(url, headers=internal_django_headers())
         if resp.status_code == 200:
             name = (resp.json().get("brand") or {}).get("site_name") or ""
         else:
@@ -129,7 +129,7 @@ async def fetch_user_context(token: str) -> dict:
     url = f"{DJANGO_INTERNAL_API_URL}{_AI_CONTEXT_PATH}"
     try:
         async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT_SECONDS) as client:
-            resp = await client.get(url, headers={"Authorization": f"Bearer {token}"})
+            resp = await client.get(url, headers=internal_django_headers({"Authorization": f"Bearer {token}"}))
     except httpx.HTTPError as exc:
         logger.error("[auth] Django inalcanzable en %s: %s", url, exc)
         raise HTTPException(502, "No se pudo contactar a Django para resolver la identidad.")

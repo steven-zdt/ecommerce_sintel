@@ -6,14 +6,15 @@
 # puertos al host: cloudflared entra por la red interna a nginx, y nginx
 # proxea a django. Ver docs/deployment/ROADMAP_CLOUDFLARE_TUNNEL.md.
 #
-# Servicios (8, segun Fase 2 del roadmap + auditoria de puesta en produccion del
-# AI Engine, 2026-08-17): nginx, django, db, redis, celery_worker, celery_beat,
-# cloudflared, sintel_ai.
+# Servicios (9, segun Fase 2 del roadmap + auditoria de puesta en produccion del
+# AI Engine, 2026-08-17 + migracion ADK-11, 2026-09-14): nginx, django, db,
+# redis, celery_worker, celery_beat, cloudflared, sintel_ai (OLD, LangGraph),
+# sintel_ai_adk (NEW, Google ADK -- ver AUDITORIA/ADK_CUTOVER_PLAN.md).
 #
-# sintel_ai NUNCA se publica al host (sin "ports", ver ese servicio abajo) --
-# solo Django le habla, dentro de sintel-network. AI_SUPPORT_CHAT_ENABLED sigue
-# en false hasta activacion explicita posterior (fuera de alcance de este
-# cambio de infraestructura).
+# Ni sintel_ai ni sintel_ai_adk se publican al host (sin "ports", ver esos
+# servicios abajo) -- solo Django les habla, dentro de sintel-network.
+# AI_SUPPORT_CHAT_ENABLED sigue en false hasta activacion explicita posterior
+# (fuera de alcance de este cambio de infraestructura).
 #
 # NO incluye todavia (permanece privado, solo en docker-compose.yml de
 # desarrollo): sintel_ollama -- decision de proveedor LLM diferida a
@@ -283,6 +284,15 @@ services:
       # completo (conectividad, hallazgos, concurrencia medida).
       LOCAL_MODEL_CHAIN: "lmstudio|openai-compatible|http://host.docker.internal:1234/v1|qwen/qwen3.5-9b"
       DJANGO_INTERNAL_API_URL: "http://django:8000/api/v1"
+      # Bug real encontrado 2026-09-14 (migracion ADK-11, ver
+      # AUDITORIA/ADK_CUTOVER_PLAN.md): ALLOWED_HOSTS de produccion es
+      # estricto (solo los 4 dominios reales) -- una llamada interna con
+      # Host: django:8000 (el nombre de servicio Docker) la rechaza Django
+      # con DisallowedHost. Nunca se habia detectado porque
+      # AI_SUPPORT_CHAT_ENABLED=false desde siempre: ninguna Tool ni
+      # resolucion de identidad se habia ejecutado en produccion hasta hoy.
+      # Mismo valor que ya usa el healthcheck de sintel_prod_django abajo.
+      DJANGO_INTERNAL_HOST_HEADER: "api.sintel.net.co"
       # Checkpointer del Action Graph (DB 2 de Redis, separada de Channels/Cache
       # de Django) -- a diferencia de dev, Redis de produccion exige auth
       # (requirepass, ver servicio "redis" arriba); sin la password aqui, el
@@ -306,6 +316,74 @@ services:
     dns:
       - 1.1.1.1
       - 8.8.8.8
+    # Hallazgo real (2026-09-14, migracion ADK-11): host.docker.internal NO
+    # resuelve por defecto en la red "sintel-network" (confirmado en vivo:
+    # "Name or service not known" -- a diferencia de la red de
+    # docker-compose.yml/dev, donde si resuelve solo). extra_hosts con
+    # "host-gateway" es el mecanismo documentado y confiable de Docker
+    # Compose para garantizar esta resolucion sin depender del
+    # comportamiento automatico (variable entre versiones/backend de
+    # Docker Desktop). Sin esto, LOCAL_MODEL_CHAIN (LM Studio) es
+    # inalcanzable -- confirmado que esto afectaba tambien al sintel_ai
+    # viejo, nunca detectado por AI_SUPPORT_CHAT_ENABLED=false.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - sintel-network
+
+  # ADK-11 (Cutover, ver AUDITORIA/ADK_CUTOVER_PLAN.md seccion 4quinquies):
+  # servicio NUEVO, orquestacion via Google ADK -- desplegado JUNTO a
+  # sintel_ai (arriba), mismo patron ya usado y verificado en staging
+  # (docker-compose.yml). Reusa el MISMO codigo fuente (ai_engine_adk/), sin
+  # duplicar nada -- solo el bloque de servicio es nuevo. Igual que sintel_ai:
+  # SIN "ports" (nunca expuesto a Internet), env_file .env.production,
+  # tag propio de produccion. Incluye el fix del leak de razonamiento de
+  # Qwen3.5 (AUDITORIA/REASONING_LEAK_FIX_REPORT.md), ya verificado con
+  # trafico real en staging antes de llegar aqui. Activarlo con trafico real
+  # de Customers exige DOS pasos separados y explicitos (ninguno hecho por
+  # este bloque en si): (1) apuntar AI_ENGINE_URL aqui, (2) activar
+  # AI_SUPPORT_CHAT_ENABLED -- este ultimo sigue en false, decision ya
+  # tomada por el usuario 2026-09-14, no se toca en esta migracion.
+  sintel_ai_adk:
+    build:
+      context: .
+      dockerfile: ai_engine_adk/Dockerfile
+    image: ecommerce_sintel_ai_adk:prod
+    container_name: sintel_prod_ai_adk
+    restart: unless-stopped
+    logging: *default-logging
+    # Sin "ports": mismo criterio que sintel_ai -- nunca expuesto al host.
+    env_file: .env.production
+    environment:
+      # Mismo LOCAL_MODEL_CHAIN real que sintel_ai (LM Studio en el host
+      # Windows, unico proveedor productivo -- ver comentario de sintel_ai
+      # arriba).
+      LOCAL_MODEL_CHAIN: "lmstudio|openai-compatible|http://host.docker.internal:1234/v1|qwen/qwen3.5-9b"
+      DJANGO_INTERNAL_API_URL: "http://django:8000/api/v1"
+      # Mismo bug/fix real que sintel_ai (ver ese servicio arriba,
+      # 2026-09-14) -- ALLOWED_HOSTS estricto de produccion rechaza Host:
+      # django:8000 con DisallowedHost.
+      DJANGO_INTERNAL_HOST_HEADER: "api.sintel.net.co"
+      # Redis de produccion exige auth (requirepass) -- mismo patron que
+      # sintel_ai, sin esto cost_control.py (reusado tal cual) fallaria con
+      # NOAUTH en cada turno.
+      CHECKPOINTER_REDIS_URL: "redis://:${REDIS_PASSWORD}@redis:6379/2"
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8101/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
+    # Mismo hallazgo/fix que sintel_ai arriba -- host.docker.internal no
+    # resuelve solo en "sintel-network".
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks:
       - sintel-network
 

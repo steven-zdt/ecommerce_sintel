@@ -51,6 +51,44 @@ ANTHROPIC_API_KEY   = config("ANTHROPIC_API_KEY", default="")
 JWT_SECRET_KEY          = config("JWT_SECRET_KEY", default="")
 DJANGO_INTERNAL_API_URL = config("DJANGO_INTERNAL_API_URL", default="http://django:8000/api/v1")
 
+# 2 bugs reales encontrados en produccion (2026-09-14, migracion ADK-11, ver
+# AUDITORIA/ADK_CUTOVER_PLAN.md) -- ninguno detectado antes porque
+# AI_SUPPORT_CHAT_ENABLED esta en false en produccion desde siempre: ninguna
+# Tool ni resolucion de identidad se habia ejecutado ahi hasta hoy.
+#
+# 1. ALLOWED_HOSTS estricto (settings/base.py): una llamada interna con
+#    Host: django:8000 (nombre de servicio Docker) la rechaza Django con
+#    DisallowedHost -- el propio healthcheck de sintel_prod_django ya
+#    trabaja alrededor de esto con "-H Host: api.sintel.net.co".
+# 2. SECURE_SSL_REDIRECT=True + SECURE_PROXY_SSL_HEADER (settings/
+#    production.py): Django confia en X-Forwarded-Proto (que nginx agrega
+#    normalmente) para saber si la request original fue HTTPS. Una llamada
+#    interna que bypasea nginx (como esta, directo al servicio "django")
+#    nunca trae ese header -- Django la redirige con 301 a HTTPS, rompiendo
+#    la llamada (httpx no sigue redirects por defecto).
+#
+# Vacio por defecto (sin cambio de comportamiento en dev/staging, donde
+# ALLOWED_HOSTS/SECURE_SSL_REDIRECT ya son permisivos) -- se define
+# explicitamente en docker-compose.prod.yml para sintel_ai/sintel_ai_adk.
+DJANGO_INTERNAL_HOST_HEADER = config("DJANGO_INTERNAL_HOST_HEADER", default="")
+
+
+def internal_django_headers(extra: dict | None = None) -> dict:
+    """Headers para CUALQUIER llamada HTTP interna a Django
+    (DJANGO_INTERNAL_API_URL) -- unico punto que agrega los overrides que
+    produccion necesita para que Django trate la llamada como legitima
+    (ver DJANGO_INTERNAL_HOST_HEADER arriba). Vacio por defecto: en
+    dev/staging esto es un no-op, `extra` se devuelve tal cual."""
+    headers = dict(extra or {})
+    if DJANGO_INTERNAL_HOST_HEADER:
+        headers["Host"] = DJANGO_INTERNAL_HOST_HEADER
+        # Mismo valor que nginx.prod.conf agrega para trafico real -- sin
+        # esto, SECURE_SSL_REDIRECT redirige la llamada interna con 301
+        # (ver hallazgo 2 arriba). No debilita seguridad real: esta llamada
+        # nunca sale del network interno de Docker.
+        headers["X-Forwarded-Proto"] = "https"
+    return headers
+
 # Fase 2: habilita /api/v1/ai/tools/debug (SOLO dev — default cerrado; prod
 # nunca define esta variable, asi el endpoint responde 404 alli).
 AI_TOOLS_DEBUG          = config("AI_TOOLS_DEBUG", default=False, cast=bool)

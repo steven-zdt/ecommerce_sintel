@@ -14,7 +14,7 @@ import logging
 
 import httpx
 
-from config import DJANGO_INTERNAL_API_URL
+from config import DJANGO_INTERNAL_API_URL, internal_django_headers
 
 logger = logging.getLogger("tools.http_bridge")
 
@@ -58,7 +58,7 @@ async def django_internal_get(token: str, path: str, params: dict | None = None,
             resp = await client.get(
                 url,
                 params=params or {},
-                headers={"Authorization": f"Bearer {token}"},
+                headers=internal_django_headers({"Authorization": f"Bearer {token}"}),
             )
     except httpx.HTTPError as exc:
         logger.error("[bridge] Django inalcanzable en %s: %s", url, exc)
@@ -79,7 +79,7 @@ async def django_internal_post(token: str, path: str, body: dict | None = None,
             resp = await client.post(
                 url,
                 json=body or {},
-                headers={"Authorization": f"Bearer {token}"},
+                headers=internal_django_headers({"Authorization": f"Bearer {token}"}),
             )
     except httpx.HTTPError as exc:
         logger.error("[bridge] Django inalcanzable en %s: %s", url, exc)
