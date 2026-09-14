@@ -3,7 +3,7 @@ description: Inventario COMPLETO de componentes Vue existentes — layouts, UI g
 metadata:
   domain: components
   supersedes: FRONTEND_COMPONENT_REGISTRY.md (raiz seccion 3-5, ecommerce_sintel secciones 1-5, 12-13)
-  last_audited: "2026-07-18"
+  last_audited: "2026-08-04"
 ---
 
 # Cards & Components — Registro completo
@@ -23,7 +23,7 @@ Si necesitas algo que no existe, crea un componente nuevo y agregalo aqui.
 | `Sidebar` | `@/components/layout/Sidebar.vue` | — | 7 grupos colapsables (`shop`, `ops`, `quotes`, `ts`, `renting`, `mkt`, `fulfillment`) |
 | `Navbar` | `@/components/layout/Navbar.vue` | — | Barra superior glassmorphism, toggle sidebar mobile |
 | `ToastManager` | `@/components/layout/ToastManager.vue` | — | Montado dentro de `AppShell`. No usarlo directo en vistas — los toasts se disparan solo con `useToast()` |
-| `CustomerLayout` | `@/components/customer/CustomerLayout.vue` | — | Layout raiz del portal cliente: `CustomerNavbar` + `CustomerFooter` + `CartOffcanvas` + `SupportChatWidget`. Uso exclusivo como wrapper en el router — ver [[feedback_customer_routes_layout]] |
+| `CustomerLayout` | `@/components/customer/CustomerLayout.vue` | — | Layout raiz del portal cliente: `CustomerNavbar` + `CustomerFooter` + `CartOffcanvas` + `SupportChatWidget` + `CommunicationCenter`. Uso exclusivo como wrapper en el router — ver [[feedback_customer_routes_layout]] |
 | `CustomerNavbar` | `@/components/customer/CustomerNavbar.vue` | — | Navbar publica con carrito |
 | `CustomerFooter` | `@/components/customer/CustomerFooter.vue` | — | Footer publico |
 
@@ -49,7 +49,7 @@ ambos coexisten, `components/base/` es para piezas usadas fuera de `/mi-cuenta/*
 |---|---|---|---|
 | `BaseReviews` | `@/components/base/BaseReviews.vue` | `basePath` (`'renting/equipment'\|'services/services'`), `entityUuid`, `accentColor`, `itemLabel` | `EquipmentReviews.vue` + `ServiceReviews.vue` (eliminados) |
 | `BaseAccordion` | `@/components/base/BaseAccordion.vue` | `items[]` (acepta `{question,answer}`, `{uuid,question,answer}` o `{q,a}`), `accentColor` | `EquipmentFAQ.vue` + `ServiceFAQAccordion.vue` (eliminados) |
-| `BaseGallery` | `@/components/base/BaseGallery.vue` | `images[]` (string[] o `{image\|url,alt_text?}[]`), `title`, `iconClass`, `theme('renting'\|'services')`. Slot `#badge` con scope `{activeImage,activeIndex}` | `EquipmentGallery.vue` + `ServiceGallery.vue` (eliminados) |
+| `BaseGallery` | `@/components/base/BaseGallery.vue` | `images[]` (string[] o `{image\|url,alt_text?}[]`), `title`, `iconClass`, `theme('renting'\|'services'\|'shop')`, `thumbLayout('horizontal'\|'vertical', default horizontal)`, `zoom(Boolean, default false)`. Slot `#badge` con scope `{activeImage,activeIndex}` | `EquipmentGallery.vue` + `ServiceGallery.vue` (eliminados). `thumbLayout`/`zoom` agregados 2026-08-04 (rediseno PDP shop) — opt-in, default preserva el comportamiento original de Renting/Services sin tocar sus call sites |
 | `BaseHorizontalCard` | `@/components/base/BaseHorizontalCard.vue` | `image`, `imageFit`, `placeholderIcon/Bg/Color`, `title`, `description`, `accentColor/Shadow/Border`. Slots `#placeholder-icon`, `#image-badge`, `#tags`, `#badges`, `#price`, `#actions` | Cascaron de `EquipmentHorizontalCard.vue`/`ServiceHorizontalCard.vue`/`ProductHorizontalCard.vue` (los 3 siguen existiendo como wrappers delgados, no eliminados — mismo import path que ya usan `RentalCatalogView`/`ServicesCatalogView`/`ShopCatalogView`) |
 | `BaseBrandForm` | `@/components/base/BaseBrandForm.vue` | `item`, `mode`, `endpoint`, `hasLogo`, `hasActiveToggle`, `namePlaceholder` | Cascaron de `modules/shop/BrandForm.vue`/`modules/renting/RentingBrandForm.vue` (wrappers delgados, `hasLogo`/`hasActiveToggle` reflejan diferencia real de schema: `renting.RentingBrand` no tiene esos campos) |
 | `BaseCategoryForm` | `@/components/base/BaseCategoryForm.vue` | `item`, `mode`, `endpoint`, `hasImage`, `hasSeo`, `entityLabel`, `namePlaceholder` | Cascaron de `modules/shop/CategoryForm.vue`/`modules/renting/RentingCategoryForm.vue` (wrappers delgados, `hasImage`/`hasSeo` reflejan diferencia real de schema: `renting.RentingCategory` no tiene `image`/`meta_title`/`meta_description`) |
@@ -168,12 +168,47 @@ Verificado antes de borrar: 0 referencias en todo `frontend/src` para cada uno.
 | `FilterSidebar` | `@/components/customer/ui/FilterSidebar.vue` | Sidebar de filtros de catalogo |
 | `DateRangePicker` | `@/components/customer/ui/DateRangePicker.vue` | Selector de rango de fechas |
 | `DocumentUploader` | `@/components/customer/ui/DocumentUploader.vue` | Upload de documentos |
-| `SupportChatWidget` | `@/components/customer/ui/SupportChatWidget.vue` | Montado en `CustomerLayout`. No instanciar directo en vistas |
+| `SupportChatWidget` | `@/components/customer/ui/SupportChatWidget.vue` | Montado en `CustomerLayout`. No instanciar directo en vistas. **2026-07-31: sin boton flotante propio** (migrado al Centro de Comunicacion, ver §4.0.1) — se abre remotamente via `store/supportContext.js::requestOpen()`/`requestHelp()`, panel propio en `bottom:110px/right:24px` |
 | `TrackingTimeline` | `@/components/customer/ui/TrackingTimeline.vue` | Timeline de seguimiento de operacion |
 | `OperationReviewModal` | `@/components/customer/ui/OperationReviewModal.vue` | Modal de calificacion de operacion (unico modal real del proyecto, fuera del patron de offcanvas) |
 | `CartOffcanvas` | `@/components/customer/CartOffcanvas.vue` | Props: `modelValue(bool, required)`. Emits: `update:modelValue`. Usa `useCartStore` internamente — no recrear logica del carrito en otros componentes |
 | `AccountSidebar` | `@/components/customer/AccountSidebar.vue` | Sidebar de `/mi-cuenta/*` |
 | `ColombianAddressForm` | `@/components/customer/checkout/ColombianAddressForm.vue` | Form de direccion Colombia |
+
+### 4.0.1 Centro de Comunicacion — `@/components/customer/communication/` (2026-07-31)
+
+Widget flotante global de contacto (esquina inferior derecha), reemplaza un boton tradicional de
+WhatsApp por un panel con canales (WhatsApp habilitado, IA/llamada/mensaje preparados para el
+futuro sin tocar esta arquitectura). Montado UNA vez en `CustomerLayout.vue`, nunca instanciado
+directo en una vista. Logica desacoplada en `useCommunication()` (`src/composables/`, ver
+[vue_patterns.md](../architecture/vue_patterns.md)) — los componentes solo renderizan, no arman el
+mensaje/URL de WhatsApp ni llaman a la API de eventos por su cuenta.
+
+| Componente | Path | Props / Emits | Notas |
+|---|---|---|---|
+| `CommunicationCenter` | `.../communication/CommunicationCenter.vue` | — | Orquestador. `bottom:20px/right:20px` fijo (2026-07-31: ya no se apila con `SupportChatWidget`, que perdio su propio boton flotante — ver abajo) |
+| `FloatingButton` | `.../communication/FloatingButton.vue` | `isOpen(Bool)`. Emit `toggle` | Boton circular, gradiente azul Sintel (NO verde WhatsApp a proposito) |
+| `CommunicationPanel` | `.../communication/CommunicationPanel.vue` | `open(Bool)`, `whatsAppReady(Bool)`. Emits `close`, `whatsapp-click`, `support-click(channel, prefillText)` | Popover `role="dialog"`, Escape cierra, mueve el foco al primer item enfocable al abrir. Renderiza `WhatsAppButton` + 3 filas reales (Asistente IA/Solicitar llamada/Enviar mensaje, 2026-07-31: activadas, ya no placeholders) que abren el chat de soporte real via `support-click` |
+| `WhatsAppButton` | `.../communication/WhatsAppButton.vue` | `ready(Bool)`. Emit `click` | Fila de opcion WhatsApp especifica dentro del panel |
+
+Numero institucional: NUNCA hardcodeado — viene de `organization.ContactInfo.phone` (SSoT),
+expuesto ya publicamente via `core/footer/` (mismo endpoint que consume `CustomerFooter.vue`, con
+cache server-side). Mensaje inicial contextual: lee `document.title` (ya seteado de forma
+consistente por `useSeo()` en las vistas de detalle de producto/equipo/servicio) para el nombre del
+item, mas modulo de origen (deteccion por prefijo de ruta) y usuario autenticado si aplica. Eventos
+analiticos (`panel_open`/`channel_click`) via `POST organization/communication-events/` (endpoint
+publico, AllowAny, throttled `communication_event: 60/hour`) — ver
+`organization/.AGENT/docs/ARQUITECTURA_COMPLETA_ORGANIZATION.md`.
+
+**Migracion del chat de soporte (2026-07-31)**: `SupportChatWidget` (fila 4.0 arriba) perdio su
+propio boton flotante pill "Soporte" -- las 3 opciones "Asistente IA"/"Solicitar llamada"/"Enviar
+mensaje" de `CommunicationPanel` ahora abren ese MISMO chat real (WebSocket, `support` app) via
+`store/supportContext.js::requestOpen(prefillText)`, cada una con un texto inicial distinto segun
+la intencion (`useCommunication.js::openSupportChat(channel, prefillText)`, exige sesion iniciada
+-- si no hay, muestra un toast en vez de abrir un chat que fallaria sin WebSocket). El panel de
+`SupportChatWidget` (cuando se abre) vive en `bottom:110px/right:24px` (antes `bottom:24px`, el
+mismo lugar que ocupaba su boton eliminado) para no superponerse con el FAB del Centro de
+Comunicacion, que ahora es el UNICO boton flotante permanente del portal cliente.
 
 ### 4.0 Design System de "Mi Cuenta" — `@/components/customer/account/` (2026-07-17)
 
@@ -230,6 +265,36 @@ esta acoplado a `Equipment`/`EquipmentVariant`).
 | `ServiceReviews` | `@/components/services/detail/ServiceReviews.vue` | Props: `serviceUuid(required)`. Resenas reales via `GET/POST services/services/{uuid}/reviews\|review/` — mismo patron que `EquipmentReviews.vue`, gate de creacion exige `ServiceOperation.CLOSED` (no `RentalRequest.STATUS_FINISHED`, este dominio no tiene modelo "request" unico) |
 | `ServiceRequestSummary` | `@/components/customer/services/ServiceRequestSummary.vue` | Props: `serviceName`, `variant`, `pkg`, `priceInfo`, `scheduleLabel`. Sidebar de resumen persistente (pasos 2-3 del wizard), equivalente a `RentalCostsCard`+`AvailabilityPill` de Renting — reutiliza `ServicePriceBreakdown` (ya existia) para el desglose |
 
+### 4.3 `components/marketplace/` — badges/banners de detalle publico (agregado al registro 2026-08-04)
+
+Existian en el repo pero no estaban documentados aqui (nunca consumidos hasta el rediseno de la
+PDP de Shop, ver 4.4). Reusables por cualquier detalle publico via props — no leen stores/API por
+si mismos.
+
+| Componente | Path | Props | Notas |
+|---|---|---|---|
+| `DiscountBadge` | `@/components/marketplace/DiscountBadge.vue` | `discount(Number,0)`, `amount(String,'')` | Bloque promocional grande (gradiente rojo, animacion pulse) — solo se renderiza si `discount>0`. Por su estilo bold NO se uso en el rediseno Enterprise de la PDP de Shop (choca con "colores suaves/sombras minimas" del design system), preferir un pill discreto propio si el contexto pide look premium |
+| `UrgencyBanner` | `@/components/marketplace/UrgencyBanner.vue` | `status('available'\|'limited'\|'unavailable')`, `availableNow(Number)`, `totalStock(Number)`, `urgencyMessage(String)` | Se autooculta si `availableNow>5` y no hay `urgencyMessage` — no renderiza nada en stock normal, apropiado para reducir ruido visual. 3 variantes de color segun urgencia |
+| `TagBadge` | `@/components/marketplace/TagBadge.vue` | `tag({code,label,color},required)` | `color` in `danger\|info\|warning\|success\|primary\|secondary`. Icono auto-elegido por `tag.code` (OFERTA/NUEVO/POPULAR/PREMIUM/RECOMENDADO/HOT/TOP_VENTAS/IDEAL_EVENTOS/ULTIMAS_UNIDADES — codigos fuera de esa lista caen a un icono generico) |
+| `RatingDisplay` | `@/components/marketplace/RatingDisplay.vue` | `rating({average_rating,total_count,rating_breakdown},null)`, `showBreakdown(Boolean,true)` | Estrellas + promedio + conteo, breakdown opcional por estrella. Usado por `ShopDetailContent.vue` con `rating_breakdown:{}` (Shop no calcula el desglose por estrella) |
+
+### 4.4 Shop — detalle de producto (PDP), rediseno Enterprise 2026-08-04
+
+`ShopDetailContent.vue` (`views/customer/detail/`, rama `moduleType==='shop'` de
+`PublicDetailView.vue`) consume `shopService.detail(uuid)` → `GET shop/products/{uuid}/detail/`
+(mismo `ProductDetailSerializer` que la accion `retrieve`, ver `shop/.AGENT/docs/
+ARQUITECTURA_COMPLETA_SHOP.md` §13.2). El hero (galeria/badges/precio/CTA) fue rediseñado para
+igualar el lenguaje visual de `RentingDetailContent.vue` (`#0f172a`/`#64748b`/`#e2e8f0`/`#2563eb`,
+radios 16px/999px) reusando `BaseGallery` (theme `shop`, `thumb-layout="vertical"`, `zoom`),
+`TagBadge`, `RatingDisplay`, `UrgencyBanner`, `StarRating` (ver 4.3 y §2) — ninguno se usaba antes
+por Shop. 2 componentes nuevos, propios de este flujo (no genericos, no forzar reuso fuera de
+esta pagina):
+
+| Componente | Path | Props / Emits | Notas |
+|---|---|---|---|
+| `ProductPurchaseCard` | `@/components/shop/detail/ProductPurchaseCard.vue` | Props: `priceLabel`, `originalPriceLabel`, `discountPct`, `savingsLabel`, `stock`, `deliveryLabel`, `quantity`, `maxQuantity`, `addingToCart`, `wishlistLoading`, `isWishlisted`, `buyNowLabel`, `buyNowDisabled`, `productUuid`. Emits: `update:quantity`, `add-to-cart`, `buy-now`, `toggle-wishlist` | "Buy box" tipo Amazon: precio+descuento+ahorro, filas de disponibilidad/entrega/garantia con separadores (sin tablas), stepper de cantidad, CTA "Comprar ahora" dominante (pill solido, ancho completo) + "Agregar al carrito" secundario (outline) + wishlist icon-button. 100% presentacional — el padre (`ShopDetailContent.vue`) mantiene toda la logica de negocio (stores, auth, router) |
+| `ProductTabs` | `@/components/shop/detail/ProductTabs.vue` | Props: `tabs[]` (`{key,label,icon?}`), `modelValue(String,required)`, `ariaLabel`. Emit: `update:modelValue` | Segmented control pill (reemplaza `nav-tabs` de Bootstrap), scroll horizontal en mobile. Solo la barra — el contenido de cada tab lo sigue controlando el padre via `v-show`, mismo patron ya usado antes del rediseno |
+
 ## 5. Cards horizontales — vista lista de catalogo
 
 Las 3 vistas de catalogo (`ShopCatalogView`, `RentalCatalogView`, `ServicesCatalogView`) tienen
@@ -279,9 +344,16 @@ Mapa completo de rutas ↔ nombre de ruta: [../architecture/routing.md](../archi
 | `notifications` (2026-07-11) | `NotificationsAdminView` (tabs Plantillas/Logs) | `dashboard/notification-templates/`, `dashboard/notification-logs/` |
 | `payment` (2026-07-11) | `PaymentTransactionsAdminView` (tabs Wompi/Nequi/COD) | `dashboard/payment-transactions/`, `.../nequi/`, `.../cod/` |
 
-`ProductForm.vue` (`@/modules/shop/ProductForm.vue`) tiene 5 tabs: General (create+edit), SEO
-(create+edit), Variantes (solo edit), Costos (solo edit, `ProductCostRule` CRUD), Imagenes (solo
-edit, upload multipart + set-primary + delete). Endpoints de imagen/variante en
+`ProductForm.vue` (`@/modules/shop/ProductForm.vue`) tiene 15 tabs: los 5 originales — General
+(create+edit), SEO (create+edit), Variantes (solo edit), Costos (solo edit, `ProductCostRule`
+CRUD), Imagenes (solo edit, upload multipart + set-primary + delete) — mas 10 tabs del catalogo
+enriquecido agregadas 2026-08-03 (Incluye/No incluye/Caracteristicas/Especificaciones/
+Requisitos/Servicios incluidos/Servicios opcionales/Documentacion/Videos/FAQ, solo edit). 7 de
+esas 10 reusan `CatalogListManager` (`@/modules/renting/catalog/CatalogListManager.vue`,
+generalizado con prop `parent-key="product"`); las 3 restantes (Especificaciones/Documentacion/
+Videos) usan componentes propios en `@/modules/shop/catalog/` (`SpecificationsManager.vue`,
+`DocumentsManager.vue`, `VideosManager.vue`). Ver `shop/.AGENT/docs/ARQUITECTURA_COMPLETA_SHOP.md`
+§13.2 para el contrato REST completo. Endpoints de imagen/variante en
 [../architecture/frontend_architect.md](../architecture/frontend_architect.md).
 
 ## 8. Imports que NO existen — no inventar
