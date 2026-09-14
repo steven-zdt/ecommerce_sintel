@@ -2,10 +2,13 @@
 **Cambios de alto impacto y bajo riesgo — ejecutables en menos de 2 horas cada uno**  
 **Fecha:** 2026-07-16
 
-> ✅ **16/17 EJECUTADOS — sincronizado 2026-07-27.** QW-01 a QW-16 confirmados en
+> ✅ **17/17 EJECUTADOS — sincronizado 2026-07-30.** QW-01 a QW-16 confirmados en
 > `12_CHECKLIST_IMPLEMENTACION.md` (SPRINT 0-4) y `01_AUDITORIA_GENERAL.md`. **QW-17 (JWT
-> `ACCESS_TOKEN_LIFETIME` a 15 min) no aparece marcado `[x]` en ningún checklist posterior — sigue
-> abierto** (ver también `06_SEGURIDAD.md` SEC-M3, misma conclusión).
+> `ACCESS_TOKEN_LIFETIME` a 15 min) resuelto y desplegado a producción 2026-07-30** — valor previo
+> confirmado en `60` minutos antes de aplicar (no se asumió), cambiado a `15`, 81/81 tests de
+> `accounts` en verde, y confirmado en vivo en `sintel_prod_django` post-deploy
+> (`settings.SIMPLE_JWT['ACCESS_TOKEN_LIFETIME'] == 0:15:00`). Ver también `06_SEGURIDAD.md`
+> SEC-M3, misma conclusión.
 
 ---
 
@@ -184,7 +187,7 @@ validate_file(img_file, max_size_mb=5,
 ```
 
 ### QW-17 — Reducir `ACCESS_TOKEN_LIFETIME` a 15 minutos (5 min)
-**Estado (2026-07-27): 🔶 Sigue abierto** — no confirmado en ningún checklist posterior; verificar valor actual en `ecommerce/settings/base.py` antes de asumir.
+**Estado (2026-07-30): ✅ Resuelto y desplegado a producción.**
 **Archivo:** `ecommerce/settings/base.py`
 ```python
 'ACCESS_TOKEN_LIFETIME': timedelta(minutes=15),  # era 60

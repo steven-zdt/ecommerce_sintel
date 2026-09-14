@@ -121,33 +121,42 @@ Queries directas sobre `Order`, `User`, `Product`, `UserProfile`, `RentalRequest
 
 ## MEDIA PRIORIDAD
 
+> **Estado (2026-07-30): ✅ Los 7 items MEDIA (ARCH-M1 a M7) resueltos.** 4 ya estaban resueltos
+> por sesiones previas (M3, M4, M5, M6 — el doc nunca se sincronizó); los otros se corrigieron
+> esta sesión. Detalle completo en `project_sintel_auditoria_enterprise_remediation.md`. Verificado
+> con `manage.py check` limpio, `py_compile` en todos los archivos tocados, y suites de test en
+> verde en accounts/quotes/shop/technical_services/payment/operations/notifications/cart/kyc/orders
+> (12 apps). `accounts/api/views.py` confirmado en 0 sitios ORM directos (solo queda un
+> `.objects.none()` de stub para swagger, no una violación real).
+
 ### ARCH-M1 — ORM en ViewSets de lectura (get_queryset)
 Las siguientes apps usan ORM directo en `get_queryset()` en lugar de Selectors:
-- `accounts/api/views.py` (líneas 315, 428, 447, 464, 485, 506, 525, 550, 588, 593)
-- `quotes/api/views.py:49` — `Quotation.objects.filter(user=self.request.user, is_deleted=False)`
-- `shop/api/views.py:141, 159` — `ProductVariant.objects.get()` en retrieve actions
-- `technical_services/api/views.py:83, 131` — `ServiceVariant.objects.get()` en view actions
-- `payment/nequi/api/views.py:32` — `Order.objects.get()` en ViewSet
-- `renting/api/views.py:713-718` — fallback en `EquipmentBlockViewSet.get_queryset()`
+- `accounts/api/views.py` (líneas 315, 428, 447, 464, 485, 506, 525, 550, 588, 593) — ✅ Resuelto: `ContractorCVSelector`/`ContractorProfileSelector`/`AvailabilitySelector.list_all()` (nuevos)
+- `quotes/api/views.py:49` — `Quotation.objects.filter(user=self.request.user, is_deleted=False)` — ✅ Resuelto: `QuotationSelector.list_for_user()`/`.none()` (nuevo)
+- `shop/api/views.py:141, 159` — `ProductVariant.objects.get()` en retrieve actions — ✅ Resuelto: `ProductVariantSelector.get_by_uuid()` (ya existía)
+- `technical_services/api/views.py:83, 131` — `ServiceVariant.objects.get()` en view actions — ✅ Resuelto: `ServiceVariantSelector.get_by_uuid()` (ya existía)
+- `payment/nequi/api/views.py:32` — `Order.objects.get()` en ViewSet — ✅ Resuelto: `OrderSelector.get_by_uuid()` (ya existía)
+- `renting/api/views.py:713-718` — fallback en `EquipmentBlockViewSet.get_queryset()` — ✅ Resuelto: `EquipmentBlockSelector.list_all()` (nuevo)
 
 ### ARCH-M2 — `operations/api/views.py`: múltiples ORM directos en lógica de negocio
+✅ Resuelto — `OperationStaffSelector` (nuevo) + `DispatcherSelector.get_by_uuid()` (nuevo). 0 ORM directo restante.
 - Líneas 180, 201, 209, 222: queries directas a `TechnicianProfile`, `UserProfile`, `DispatcherProfile` en action `available_staff`
 - Líneas 316, 328, 337: `User.objects.get()` y `DispatcherProfile.objects.get()` en create/update/destroy
 
 ### ARCH-M3 — `notifications/api/views.py:80`: write directo en ViewSet
-`UserNotificationPreference.objects.update_or_create(...)` sin Commands wrapper, sin `@transaction.atomic`.
+**Estado: ✅ Ya resuelto por una sesión previa (2026-07-30, verificado no re-hecho)** — `NotificationPreferenceCommands.set_preference()` ya existe (`@staticmethod` + `@transaction.atomic`), el ViewSet ya lo llama.
 
 ### ARCH-M4 — `cart/api/views.py:176`: `WishlistItem.objects.get_or_create()` en ViewSet
-Write directo. No existe `CartCommands.add_to_wishlist()`.
+**Estado: ✅ Ya resuelto por una sesión previa** — implementado como `WishlistCommands.add_to_wishlist()` (clase dedicada en vez de `CartCommands` como sugería el doc original), ya conectado.
 
 ### ARCH-M5 — `payment/online/api/views.py:75, 118, 137`: `TransactionEvent.objects.create()` en views
-Tres instancias en helper `_sync_wompi_status`. Los eventos de transacción son escrituras que deben ir en Commands.
+**Estado: ✅ Ya resuelto por una sesión previa** — las 3 instancias en `_sync_wompi_status` ya pasan por `WompiCommands.record_sync_event()`.
 
 ### ARCH-M6 — `users/api/views.py:141`: `user.delete()` físico en ViewSet
-Intencional (GDPR erase), pero debe encapsularse en `UserCommands.erase_user()` para mantener el patrón.
+**Estado: ✅ Ya resuelto por una sesión previa, y de forma MEJOR que lo que pedía este doc** — `UserCommands.erase_user()` existe, pero en vez del DELETE físico que este hallazgo pedía encapsular, es un **soft-delete** (`is_deleted=True`). Motivo documentado en el propio código: un hard delete choca con `on_delete=PROTECT` dos saltos mas abajo en el grafo de borrado (`RentalOperation` protege `RentalRequest`) y causaba un `ProtectedError`/500 real en produccion/dev. El doc original pedía envolver el DELETE fisico, no eliminarlo — la sesión previa correctamente identificó que el propio DELETE fisico era el bug real y lo reemplazó, superando el alcance literal del hallazgo.
 
 ### ARCH-M7 — `quotes/api/views.py:155`: `QuotationAttachment.objects.create()` en ViewSet
-Debe ir en `QuotationCommands.add_attachment()`.
+✅ Resuelto — `QuotationCommands.add_attachment()`.
 
 ---
 

@@ -1,0 +1,1563 @@
+# PLAN MAESTRO DE SEPARACIÓN
+
+# PROJECT KNOWLEDGE GRAPH
+
+## Extracción del Grafo de Conocimiento del Proyecto desde `ecommerce_sintel/ai_engine`
+
+**Proyecto:** SINTEL E-Commerce
+**Origen actual:** `ecommerce_sintel/ai_engine`
+**Destino propuesto:** `ecommerce_sintel/project_knowledge_graph/`
+**Tipo:** Módulo independiente de inteligencia estructural del proyecto
+**Estado:** Plan de ejecución
+**Fecha:** 2026-08-08
+
+---
+
+# 1. OBJETIVO
+
+Separar completamente del `ai_engine` todos los componentes cuya responsabilidad sea:
+
+> analizar, representar, consultar, relacionar y calcular dependencias estructurales del proyecto SINTEL.
+
+El resultado será un módulo independiente:
+
+```text
+ecommerce_sintel/
+│
+├── ai_engine/
+│
+└── project_knowledge_graph/
+```
+
+El nuevo módulo será responsable exclusivamente del conocimiento estructural del proyecto.
+
+---
+
+# 2. DECISIÓN ARQUITECTÓNICA
+
+El `AI Engine` ya no será propietario del grafo del proyecto.
+
+La arquitectura queda:
+
+```text
+                    SINTEL PROJECT
+                         │
+             ┌───────────┴───────────┐
+             │                       │
+             ▼                       ▼
+   PROJECT KNOWLEDGE GRAPH       AI SUPPORT
+             │                       │
+             │                       │
+       ┌─────┴──────┐                │
+       │            │                │
+       ▼            ▼                ▼
+ PROJECT_MAP     KNOWLEDGE       LangGraph
+                  GRAPH           Support
+       │            │                │
+       └──────┬─────┘                │
+              ▼                      │
+      DEPENDENCY GRAPH               │
+              │                      │
+              ▼                      │
+       Impact / Blast Radius         │
+                                     │
+                              RAG / Tools /
+                              Conversation
+```
+
+Son dos responsabilidades diferentes.
+
+---
+
+# 3. RESPONSABILIDAD DEL NUEVO MÓDULO
+
+`project_knowledge_graph` será responsable de:
+
+```text
+PROJECT KNOWLEDGE GRAPH
+│
+├── Descubrimiento del proyecto
+├── Auditoría estructural
+├── PROJECT_MAP
+├── Knowledge Graph
+├── Dependency Graph
+├── Relaciones entre entidades
+├── Blast Radius
+├── Impact Analysis
+├── Consultas estructurales
+├── Reindexación
+├── Actualización incremental
+├── Versionado de snapshots
+└── Validación de consistencia
+```
+
+No será responsable de conversación.
+
+No será responsable de soporte.
+
+No será responsable de memoria conversacional.
+
+No será responsable de modelos LLM.
+
+No será responsable de ChromaDB/RAG conversacional.
+
+---
+
+# 4. ESTADO ACTUAL VALIDADO
+
+Según `FLIJO_COMPLETO_IA_ENGINE.md`, actualmente existen:
+
+```text
+ai_engine/
+│
+├── project_map.py
+├── knowledge_graph.py
+├── dependency_graph.py
+├── incremental_updater.py
+├── auditor.py
+│
+├── PROJECT_MAP.json
+├── KNOWLEDGE_GRAPH.json
+├── DEPENDENCY_GRAPH.json
+│
+├── GLOBAL_MEMORY.json
+├── APP_MEMORY/
+├── AI_MANIFESTS/
+└── .file_hashes.json
+```
+
+`project_map.py` consulta `PROJECT_MAP.json`.
+
+`knowledge_graph.py` genera `KNOWLEDGE_GRAPH.json`.
+
+`dependency_graph.py` genera el grafo de impacto a partir de `KNOWLEDGE_GRAPH.json`.
+
+`auditor.py` genera `PROJECT_MAP.json` y actualmente encadena la generación de los demás artefactos.
+
+---
+
+# 5. CLASIFICACIÓN DE COMPONENTES
+
+No todos los archivos relacionados deben moverse automáticamente.
+
+## 5.1 Mover al nuevo módulo
+
+### `project_map.py`
+
+Destino:
+
+```text
+project_knowledge_graph/project_map.py
+```
+
+Responsabilidad:
+
+```text
+consultar PROJECT_MAP
+```
+
+---
+
+### `knowledge_graph.py`
+
+Destino:
+
+```text
+project_knowledge_graph/knowledge_graph.py
+```
+
+Responsabilidad:
+
+```text
+PROJECT_MAP
+      ↓
+KNOWLEDGE_GRAPH
+```
+
+Este es uno de los componentes centrales del nuevo módulo.
+
+---
+
+### `dependency_graph.py`
+
+Destino:
+
+```text
+project_knowledge_graph/dependency_graph.py
+```
+
+Responsabilidad:
+
+```text
+KNOWLEDGE_GRAPH
+       ↓
+DEPENDENCY_GRAPH
+       ↓
+BLAST RADIUS
+```
+
+También debe pertenecer al nuevo módulo.
+
+---
+
+### `incremental_updater.py`
+
+Destino:
+
+```text
+project_knowledge_graph/incremental_updater.py
+```
+
+Porque su función es detectar cambios estructurales y actualizar el conocimiento del proyecto. La documentación lo define específicamente como mecanismo de re-auditoría incremental.
+
+---
+
+# 6. `auditor.py` NO DEBE MOVERSE DIRECTAMENTE
+
+Este es un punto importante.
+
+Actualmente:
+
+```text
+auditor.py
+```
+
+hace demasiado.
+
+La documentación indica que:
+
+```text
+auditor.py
+    ↓
+PROJECT_MAP
+    ↓
+KNOWLEDGE_GRAPH
+    ↓
+DEPENDENCY_GRAPH
+    ↓
+MEMORY
+    ↓
+MANIFESTS
+```
+
+Por tanto, no recomiendo simplemente copiar `auditor.py` al nuevo módulo.
+
+Primero debe dividirse.
+
+---
+
+# 7. NUEVA ARQUITECTURA DEL AUDITOR
+
+El auditor debe convertirse en un pipeline:
+
+```text
+Project Auditor
+      │
+      ▼
+Project Map Builder
+      │
+      ▼
+Knowledge Graph Builder
+      │
+      ▼
+Dependency Graph Builder
+      │
+      ▼
+Validation
+      │
+      ▼
+Snapshot
+```
+
+La generación de memoria y manifests debe dejar de formar parte obligatoria del pipeline del grafo.
+
+---
+
+# 8. NUEVA ESTRUCTURA PROPUESTA
+
+Crear:
+
+```text
+ecommerce_sintel/
+└── project_knowledge_graph/
+    │
+    ├── __init__.py
+    ├── config.py
+    ├── models.py
+    │
+    ├── scanner/
+    │   ├── __init__.py
+    │   ├── project_scanner.py
+    │   ├── python_scanner.py
+    │   ├── django_scanner.py
+    │   ├── frontend_scanner.py
+    │   └── documentation_scanner.py
+    │
+    ├── project_map/
+    │   ├── __init__.py
+    │   ├── builder.py
+    │   ├── loader.py
+    │   └── query.py
+    │
+    ├── knowledge_graph/
+    │   ├── __init__.py
+    │   ├── builder.py
+    │   ├── loader.py
+    │   ├── query.py
+    │   └── relations.py
+    │
+    ├── dependency_graph/
+    │   ├── __init__.py
+    │   ├── builder.py
+    │   ├── impact.py
+    │   ├── blast_radius.py
+    │   └── query.py
+    │
+    ├── incremental/
+    │   ├── __init__.py
+    │   ├── updater.py
+    │   └── hashing.py
+    │
+    ├── audit/
+    │   ├── __init__.py
+    │   ├── auditor.py
+    │   └── validator.py
+    │
+    ├── snapshots/
+    │   ├── __init__.py
+    │   ├── manager.py
+    │   └── metadata.py
+    │
+    ├── cli/
+    │   ├── __init__.py
+    │   └── main.py
+    │
+    ├── tests/
+    │
+    └── data/
+        ├── PROJECT_MAP.json
+        ├── KNOWLEDGE_GRAPH.json
+        └── DEPENDENCY_GRAPH.json
+```
+
+---
+
+# 9. RESPONSABILIDAD DE CADA CAPA
+
+## `scanner/`
+
+Descubre el proyecto.
+
+Debe detectar:
+
+```text
+Django apps
+models
+serializers
+viewsets
+commands
+selectors
+services
+URLs
+frontend
+Vue
+stores
+composables
+documentation
+```
+
+El mapa actual ya representa información de este tipo: 21 apps, 166 modelos, 131 ViewSets, 118 endpoints, 385 archivos frontend y 271 cross-references según el snapshot documentado.
+
+---
+
+# 10. PROJECT MAP
+
+El `PROJECT_MAP` será el primer nivel.
+
+```text
+SOURCE CODE
+     ↓
+SCANNER
+     ↓
+PROJECT_MAP
+```
+
+Debe responder:
+
+```text
+¿Qué existe en el proyecto?
+```
+
+No necesariamente:
+
+```text
+¿Cómo está relacionado?
+```
+
+---
+
+# 11. KNOWLEDGE GRAPH
+
+Segundo nivel:
+
+```text
+PROJECT_MAP
+      ↓
+KNOWLEDGE GRAPH
+```
+
+Debe representar entidades y relaciones.
+
+Ejemplo:
+
+```text
+Product
+  │
+  ├── serializer → ProductSerializer
+  │
+  ├── viewset → ProductViewSet
+  │
+  ├── endpoint → /api/v1/shop/products/
+  │
+  ├── frontend → ProductDetail.vue
+  │
+  └── store → useShopStore
+```
+
+El `KNOWLEDGE_GRAPH.json` actual ya se define como un grafo tipado de entidades de código.
+
+---
+
+# 12. DEPENDENCY GRAPH
+
+Tercer nivel:
+
+```text
+KNOWLEDGE_GRAPH
+       ↓
+DEPENDENCY_GRAPH
+```
+
+Debe responder:
+
+> ¿Qué se ve afectado si cambia esta entidad?
+
+Ejemplo:
+
+```text
+shop.Product
+      ↓
+ProductSerializer
+      ↓
+ProductViewSet
+      ↓
+API endpoint
+      ↓
+Pinia Store
+      ↓
+Vue component
+```
+
+El endpoint actual `/graph/impact/{entity_name}` ya expone precisamente este concepto de impacto transitivo.
+
+---
+
+# 13. GRAPH QUERY API
+
+El nuevo módulo debe tener una API Python clara.
+
+Ejemplo conceptual:
+
+```python
+graph.get_node("shop.Product")
+
+graph.neighbors("shop.Product")
+
+graph.dependencies("shop.Product")
+
+graph.dependents("shop.Product")
+
+graph.impact("shop.Product")
+
+graph.find_path(
+    "shop.Product",
+    "frontend_shop.ProductDetail"
+)
+```
+
+El objetivo es que los consumidores no tengan que leer directamente JSON.
+
+---
+
+# 14. NO USAR JSON COMO API INTERNA
+
+Actualmente varios componentes leen directamente:
+
+```text
+PROJECT_MAP.json
+KNOWLEDGE_GRAPH.json
+DEPENDENCY_GRAPH.json
+```
+
+Eso debe cambiar.
+
+El nuevo módulo debe encapsularlos:
+
+```text
+Consumer
+   ↓
+ProjectKnowledgeGraph
+   ↓
+Repository / Snapshot
+   ↓
+JSON
+```
+
+Así podremos cambiar posteriormente el almacenamiento sin romper consumidores.
+
+---
+
+# 15. SNAPSHOT VERSIONADO
+
+Este es un cambio importante que recomiendo incorporar durante la separación.
+
+Cada generación debe producir metadata:
+
+```json
+{
+  "project_version": "...",
+  "generated_at": "...",
+  "source_revision": "...",
+  "project_map_version": "...",
+  "knowledge_graph_version": "...",
+  "dependency_graph_version": "..."
+}
+```
+
+El sistema debe poder responder:
+
+```text
+¿De qué versión del proyecto proviene este grafo?
+```
+
+---
+
+# 16. VALIDACIÓN DE FRESCURA
+
+Actualmente existe un problema documentado:
+
+> `get_registry()` y `build_all_manifests()` consumen los JSON existentes sin comprobar si están actualizados.
+
+El nuevo módulo debe solucionar esto.
+
+Antes de servir un grafo:
+
+```text
+CURRENT SOURCE
+       ↓
+HASH / REVISION
+       ↓
+SNAPSHOT
+       ↓
+¿COINCIDE?
+```
+
+Resultado:
+
+```text
+FRESH
+STALE
+INVALID
+MISSING
+```
+
+---
+
+# 17. REGLA DE CONSISTENCIA
+
+No permitir:
+
+```text
+PROJECT_MAP versión 20
+KNOWLEDGE_GRAPH versión 18
+DEPENDENCY_GRAPH versión 17
+```
+
+El snapshot debe garantizar:
+
+```text
+PROJECT_MAP
+     ↓
+KG
+     ↓
+DG
+```
+
+todos pertenecientes a la misma generación.
+
+---
+
+# 18. ELIMINAR LA GENERACIÓN ENCADENADA OCULTA
+
+Actualmente `auditor.py` encadena múltiples artefactos.
+
+El nuevo diseño debe permitir:
+
+```bash
+project-graph scan
+```
+
+```bash
+project-graph build-map
+```
+
+```bash
+project-graph build-knowledge
+```
+
+```bash
+project-graph build-dependencies
+```
+
+```bash
+project-graph validate
+```
+
+```bash
+project-graph rebuild
+```
+
+Y un comando completo:
+
+```bash
+project-graph audit
+```
+
+que haga:
+
+```text
+scan
+ ↓
+map
+ ↓
+knowledge
+ ↓
+dependency
+ ↓
+validate
+ ↓
+snapshot
+```
+
+---
+
+# 19. SEPARAR MEMORIA Y MANIFESTS
+
+Actualmente:
+
+```text
+auditor
+ ↓
+GLOBAL_MEMORY
+ ↓
+APP_MEMORY
+ ↓
+AI_MANIFESTS
+```
+
+está acoplado al pipeline.
+
+No recomiendo meter:
+
+```text
+GLOBAL_MEMORY
+APP_MEMORY
+AI_MANIFESTS
+```
+
+dentro de `project_knowledge_graph`.
+
+Son artefactos derivados que pueden consumir el grafo.
+
+Arquitectura:
+
+```text
+PROJECT KNOWLEDGE GRAPH
+       │
+       ├── PROJECT_MAP
+       ├── KNOWLEDGE_GRAPH
+       └── DEPENDENCY_GRAPH
+              │
+              ├──────────────┐
+              ▼              ▼
+        AI Manifest       App Memory
+```
+
+---
+
+# 20. SEPARAR RAG DEL GRAFO
+
+También debe quedar fuera:
+
+```text
+loaders.py
+splitters.py
+embeddings_factory.py
+vectorstore_factory.py
+retrievers.py
+specialized_retrieval.py
+```
+
+porque pertenecen al sistema de conocimiento semántico/RAG, no al grafo estructural.
+
+La documentación actual los mantiene dentro de `ai_engine` junto con los grafos, pero conceptualmente son otra responsabilidad.
+
+---
+
+# 21. RELACIÓN CON AI SUPPORT
+
+El AI Support podrá consultar el grafo en el futuro si realmente lo necesita, pero no debe depender directamente de sus archivos.
+
+Correcto:
+
+```text
+AI Support
+    ↓
+Project Knowledge Graph API
+    ↓
+Graph Query
+```
+
+Incorrecto:
+
+```text
+AI Support
+    ↓
+open("KNOWLEDGE_GRAPH.json")
+```
+
+Para el soporte conversacional actual, esta integración debe permanecer **desactivada o no utilizada salvo necesidad explícita**.
+
+---
+
+# FASE 1 — INVENTARIO FÍSICO
+
+Antes de mover archivos:
+
+```text
+ecommerce_sintel/
+ai_engine/
+```
+
+buscar:
+
+```text
+knowledge_graph
+project_map
+dependency_graph
+auditor
+incremental_updater
+PROJECT_MAP
+KNOWLEDGE_GRAPH
+DEPENDENCY_GRAPH
+GraphImpactAnalysisTool
+analyze_impact
+graph/impact
+graph/node
+```
+
+Crear:
+
+```text
+PROJECT_KNOWLEDGE_GRAPH_INVENTORY.md
+```
+
+Debe registrar:
+
+```text
+archivo
+responsabilidad
+importadores
+dependencias
+outputs
+consumidores
+acción
+```
+
+---
+
+# FASE 2 — MAPA DE DEPENDENCIAS
+
+Determinar:
+
+```text
+¿Quién importa project_map?
+¿Quién importa knowledge_graph?
+¿Quién importa dependency_graph?
+¿Quién lee PROJECT_MAP.json?
+¿Quién lee KNOWLEDGE_GRAPH.json?
+¿Quién lee DEPENDENCY_GRAPH.json?
+¿Quién llama auditor.py?
+¿Quién utiliza incremental_updater?
+¿Quién utiliza GraphImpactAnalysisTool?
+```
+
+No mover ningún archivo antes de obtener esta matriz.
+
+---
+
+# FASE 3 — DEFINIR CONTRATO DEL NUEVO MÓDULO
+
+Crear:
+
+```text
+project_knowledge_graph/
+```
+
+y definir:
+
+```python
+ProjectKnowledgeGraph
+ProjectMap
+KnowledgeGraph
+DependencyGraph
+GraphSnapshot
+GraphValidator
+```
+
+---
+
+# FASE 4 — EXTRAER `PROJECT_MAP`
+
+Mover/refactorizar:
+
+```text
+project_map.py
+```
+
+hacia:
+
+```text
+project_knowledge_graph/project_map/
+```
+
+Mantener temporalmente un adapter de compatibilidad en `ai_engine` si existen consumidores.
+
+---
+
+# FASE 5 — EXTRAER KNOWLEDGE GRAPH
+
+Mover:
+
+```text
+knowledge_graph.py
+```
+
+hacia:
+
+```text
+project_knowledge_graph/knowledge_graph/
+```
+
+Convertirlo en builder independiente.
+
+Entrada:
+
+```text
+PROJECT_MAP
+```
+
+Salida:
+
+```text
+KNOWLEDGE_GRAPH
+```
+
+---
+
+# FASE 6 — EXTRAER DEPENDENCY GRAPH
+
+Mover:
+
+```text
+dependency_graph.py
+```
+
+hacia:
+
+```text
+project_knowledge_graph/dependency_graph/
+```
+
+Entrada:
+
+```text
+KNOWLEDGE_GRAPH
+```
+
+Salida:
+
+```text
+DEPENDENCY_GRAPH
+```
+
+---
+
+# FASE 7 — EXTRAER ACTUALIZACIÓN INCREMENTAL
+
+Mover:
+
+```text
+incremental_updater.py
+```
+
+y separar:
+
+```text
+file hashing
+change detection
+partial rebuild
+snapshot invalidation
+```
+
+---
+
+# FASE 8 — RECONSTRUIR AUDITOR
+
+Dividir el `auditor.py` actual.
+
+Crear:
+
+```text
+project_knowledge_graph/audit/auditor.py
+```
+
+con responsabilidad exclusivamente estructural.
+
+Debe generar:
+
+```text
+PROJECT_MAP
+KNOWLEDGE_GRAPH
+DEPENDENCY_GRAPH
+```
+
+No debe generar automáticamente memoria o manifests.
+
+---
+
+# FASE 9 — CREAR VALIDATOR
+
+Crear:
+
+```text
+project_knowledge_graph/audit/validator.py
+```
+
+Debe comprobar:
+
+```text
+PROJECT_MAP válido
+KG válido
+DG válido
+referencias válidas
+nodos existentes
+edges válidos
+sin referencias huérfanas
+versiones compatibles
+snapshot consistente
+```
+
+---
+
+# FASE 10 — CREAR SNAPSHOT MANAGER
+
+Crear:
+
+```text
+project_knowledge_graph/snapshots/
+```
+
+Responsabilidad:
+
+```text
+generation_id
+timestamp
+source_revision
+artifact versions
+hashes
+status
+```
+
+---
+
+# FASE 11 — CREAR CLI
+
+Implementar:
+
+```bash
+project-graph audit
+project-graph scan
+project-graph build-map
+project-graph build-knowledge
+project-graph build-dependencies
+project-graph validate
+project-graph status
+project-graph impact shop.Product
+project-graph node shop.Product
+```
+
+---
+
+# FASE 12 — MIGRAR CONSUMIDORES
+
+Los consumidores actuales deben cambiar de:
+
+```python
+load_json("KNOWLEDGE_GRAPH.json")
+```
+
+a:
+
+```python
+from project_knowledge_graph import ProjectKnowledgeGraph
+
+graph = ProjectKnowledgeGraph.load()
+```
+
+Prioridad:
+
+1. `GraphImpactAnalysisTool`.
+2. `project_map` consumers.
+3. `dependency_graph` consumers.
+4. `ai_manifest.py`.
+5. `memory_builder.py`.
+6. endpoints `/graph/*`.
+7. cualquier consumidor adicional descubierto en la auditoría.
+
+La documentación confirma que `/graph/node/{entity_name}` y `/graph/impact/{entity_name}` actualmente consumen estos artefactos.
+
+---
+
+# FASE 13 — COMPATIBILIDAD TEMPORAL
+
+Durante la migración:
+
+```text
+ai_engine
+   │
+   └── compatibility/
+         ├── project_map.py
+         ├── knowledge_graph.py
+         └── dependency_graph.py
+```
+
+Estos adapters deben delegar:
+
+```text
+ai_engine
+   ↓
+project_knowledge_graph
+```
+
+No duplicar implementación.
+
+---
+
+# FASE 14 — MIGRACIÓN DE ENDPOINTS
+
+Los endpoints:
+
+```text
+GET /graph/node/{entity}
+GET /graph/impact/{entity}
+```
+
+deben dejar de acceder directamente a los JSON.
+
+Deben llamar:
+
+```text
+Graph Query Service
+```
+
+Ejemplo:
+
+```text
+HTTP
+ ↓
+Graph Router
+ ↓
+ProjectKnowledgeGraph
+ ↓
+KnowledgeGraph / DependencyGraph
+```
+
+---
+
+# FASE 15 — PRUEBAS
+
+Crear:
+
+```text
+project_knowledge_graph/tests/
+```
+
+## Tests Project Map
+
+```text
+test_project_map_generation
+test_project_map_loading
+test_project_map_query
+```
+
+## Tests Knowledge Graph
+
+```text
+test_node_generation
+test_relationship_generation
+test_edge_integrity
+test_graph_query
+```
+
+## Tests Dependency Graph
+
+```text
+test_dependency_generation
+test_blast_radius
+test_transitive_impact
+```
+
+## Tests Snapshot
+
+```text
+test_version_consistency
+test_stale_detection
+test_invalid_snapshot
+```
+
+## Tests Incrementales
+
+```text
+test_changed_file
+test_changed_app
+test_incremental_rebuild
+```
+
+---
+
+# FASE 16 — PRUEBA DE EQUIVALENCIA
+
+Antes de eliminar la implementación antigua:
+
+```text
+OLD AI ENGINE
+      ↓
+PROJECT_MAP_old
+KG_old
+DG_old
+```
+
+comparar contra:
+
+```text
+NEW PROJECT KNOWLEDGE GRAPH
+      ↓
+PROJECT_MAP_new
+KG_new
+DG_new
+```
+
+Comparar:
+
+```text
+nodes
+edges
+entities
+relationships
+dependencies
+impact results
+```
+
+La salida debe ser equivalente salvo diferencias explicables por cambios de generación.
+
+---
+
+# FASE 17 — VALIDAR `GraphImpactAnalysisTool`
+
+La documentación confirma que esta Tool fue agregada posteriormente al snapshot inicial del AI Engine.
+
+Debe pasar a depender de:
+
+```text
+project_knowledge_graph
+```
+
+y no de:
+
+```text
+ai_engine/knowledge_graph.py
+ai_engine/dependency_graph.py
+```
+
+Flujo:
+
+```text
+GraphImpactAnalysisTool
+        ↓
+ProjectKnowledgeGraph
+        ↓
+DependencyGraph
+        ↓
+Impact Analysis
+```
+
+---
+
+# FASE 18 — DESACOPLAR AI ENGINE
+
+Una vez migrados todos los consumidores:
+
+```text
+ai_engine/
+```
+
+debe quedar sin:
+
+```text
+project_map.py
+knowledge_graph.py
+dependency_graph.py
+incremental_updater.py
+PROJECT_MAP.json
+KNOWLEDGE_GRAPH.json
+DEPENDENCY_GRAPH.json
+```
+
+siempre que la auditoría de dependencias confirme que no quedan consumidores legítimos.
+
+---
+
+# FASE 19 — NUEVA FUENTE DE VERDAD
+
+El nuevo SSOT estructural será:
+
+```text
+project_knowledge_graph/
+```
+
+Los JSON serán:
+
+```text
+GENERATED ARTIFACTS
+```
+
+No serán la arquitectura.
+
+No serán la lógica.
+
+No serán la API.
+
+---
+
+# FASE 20 — OPERACIÓN FINAL
+
+El flujo operativo será:
+
+```text
+Código SINTEL
+      ↓
+Project Scanner
+      ↓
+PROJECT MAP
+      ↓
+KNOWLEDGE GRAPH
+      ↓
+DEPENDENCY GRAPH
+      ↓
+VALIDATION
+      ↓
+SNAPSHOT
+      ↓
+Consumers
+```
+
+Y no:
+
+```text
+AI Engine
+      ↓
+auditor oculto
+      ↓
+JSON
+```
+
+---
+
+# 21. ESTRUCTURA FINAL
+
+El resultado esperado:
+
+```text
+ecommerce_sintel/
+│
+├── ai_engine/
+│   │
+│   ├── action_graph.py
+│   ├── agents/
+│   ├── capabilities/
+│   ├── tools/
+│   ├── gateway/
+│   ├── auth.py
+│   ├── memory/
+│   ├── retrievers.py
+│   └── ...
+│
+└── project_knowledge_graph/
+    │
+    ├── scanner/
+    ├── project_map/
+    ├── knowledge_graph/
+    ├── dependency_graph/
+    ├── incremental/
+    ├── audit/
+    ├── snapshots/
+    ├── cli/
+    ├── tests/
+    │
+    └── data/
+        ├── PROJECT_MAP.json
+        ├── KNOWLEDGE_GRAPH.json
+        └── DEPENDENCY_GRAPH.json
+```
+
+---
+
+# 22. REGLAS ARQUITECTÓNICAS
+
+## Regla 1
+
+`project_knowledge_graph` es independiente de `ai_engine`.
+
+## Regla 2
+
+El AI Support no genera ni administra el grafo.
+
+## Regla 3
+
+El grafo no depende de LangGraph.
+
+## Regla 4
+
+El grafo no depende de Redis conversacional.
+
+## Regla 5
+
+El grafo no depende de ChromaDB.
+
+## Regla 6
+
+El grafo no necesita un LLM para construir las relaciones estructurales básicas.
+
+## Regla 7
+
+`PROJECT_MAP` es la entrada estructural.
+
+## Regla 8
+
+`KNOWLEDGE_GRAPH` representa entidades y relaciones.
+
+## Regla 9
+
+`DEPENDENCY_GRAPH` representa impacto y dependencias.
+
+## Regla 10
+
+Todos los artefactos de una generación deben compartir versión.
+
+## Regla 11
+
+No permitir snapshots obsoletos sin advertencia explícita.
+
+## Regla 12
+
+Los consumidores deben utilizar APIs Python del módulo, no leer JSON directamente.
+
+## Regla 13
+
+La auditoría debe ejecutarse desde el contexto correcto del proyecto.
+
+La documentación actual registra un problema real: ejecutar `auditor.py` dentro del contenedor puede hacer que encuentre cero apps/modelos/endpoints porque su `BASE_DIR` está calculado para el árbol del host. Ese comportamiento debe corregirse durante la extracción para que falle explícitamente si el proyecto fuente no está disponible.
+
+---
+
+# 23. CRITERIO DE ÉXITO
+
+La separación será considerada terminada cuando:
+
+```text
+ecommerce_sintel/ai_engine
+```
+
+pueda arrancar sin cargar:
+
+```text
+PROJECT_MAP
+KNOWLEDGE_GRAPH
+DEPENDENCY_GRAPH
+```
+
+directamente desde su propio directorio.
+
+Y:
+
+```text
+project_knowledge_graph
+```
+
+pueda ejecutar:
+
+```bash
+project-graph audit
+```
+
+y producir:
+
+```text
+PROJECT_MAP
+KNOWLEDGE_GRAPH
+DEPENDENCY_GRAPH
+```
+
+de forma autónoma.
+
+Además:
+
+```text
+GraphImpactAnalysisTool
+```
+
+debe seguir funcionando utilizando exclusivamente el nuevo módulo.
+
+---
+
+# 24. ORDEN DE EJECUCIÓN
+
+La migración debe realizarse en este orden:
+
+```text
+FASE 1
+Inventario físico
+        ↓
+FASE 2
+Mapa de dependencias
+        ↓
+FASE 3
+Contrato del nuevo módulo
+        ↓
+FASE 4
+Extraer Project Map
+        ↓
+FASE 5
+Extraer Knowledge Graph
+        ↓
+FASE 6
+Extraer Dependency Graph
+        ↓
+FASE 7
+Extraer Incremental Updater
+        ↓
+FASE 8
+Dividir Auditor
+        ↓
+FASE 9
+Crear Validator
+        ↓
+FASE 10
+Crear Snapshot Manager
+        ↓
+FASE 11
+Crear CLI
+        ↓
+FASE 12
+Migrar consumidores
+        ↓
+FASE 13
+Adapters temporales
+        ↓
+FASE 14
+Migrar endpoints
+        ↓
+FASE 15
+Tests
+        ↓
+FASE 16
+Prueba de equivalencia
+        ↓
+FASE 17
+Migrar GraphImpactAnalysisTool
+        ↓
+FASE 18
+Desacoplar AI Engine
+        ↓
+FASE 19
+Validar SSOT
+        ↓
+FASE 20
+Eliminar compatibilidad antigua
+```
+
+---
+
+# 25. PRIMER PASO QUE DEBES EJECUTAR
+
+**No recomiendo comenzar moviendo archivos.**
+
+Primero hay que hacer una auditoría física del repositorio:
+
+```text
+ecommerce_sintel/
+ai_engine/
+```
+
+y producir:
+
+```text
+PROJECT_KNOWLEDGE_GRAPH_INVENTORY.md
+```
+
+con esta información para **cada archivo relacionado**:
+
+| Archivo                   | Responsabilidad  | Importado por | Lee         | Genera    | Consumidores | Destino                   |
+| ------------------------- | ---------------- | ------------- | ----------- | --------- | ------------ | ------------------------- |
+| `project_map.py`          | consulta mapa    | ...           | PROJECT_MAP | —         | ...          | `project_knowledge_graph` |
+| `knowledge_graph.py`      | genera KG        | ...           | PROJECT_MAP | KG        | ...          | `project_knowledge_graph` |
+| `dependency_graph.py`     | impacto          | ...           | KG          | DG        | ...          | `project_knowledge_graph` |
+| `incremental_updater.py`  | actualización    | ...           | hashes      | mapas     | ...          | `project_knowledge_graph` |
+| `auditor.py`              | pipeline         | ...           | source      | múltiples | ...          | dividir                   |
+| `GraphImpactAnalysisTool` | consulta impacto | ...           | DG          | —         | AI Support   | adaptar                   |
+
+**Ese inventario es obligatorio antes de la extracción**, porque la documentación confirma las responsabilidades generales, pero no proporciona el grafo completo de imports del checkout físico actual. Por tanto, no sería correcto afirmar todavía que esos son *todos* los archivos afectados.
+
+### Resultado arquitectónico buscado
+
+```text
+                 SINTEL PROJECT
+                       │
+                       ▼
+             PROJECT KNOWLEDGE GRAPH
+                       │
+          ┌────────────┼────────────┐
+          ▼            ▼            ▼
+    PROJECT_MAP   KNOWLEDGE_GRAPH  DEPENDENCY_GRAPH
+          │            │            │
+          └────────────┴────────────┘
+                       │
+                       ▼
+              GRAPH QUERY API
+                 │          │
+                 ▼          ▼
+          AI Support    Other Services
+```
+
+Así conseguimos algo mucho más limpio: **el conocimiento estructural del proyecto se convierte en un módulo independiente y reutilizable**, mientras `ai_engine` queda dedicado a sus responsabilidades de IA conversacional. El estado documentado ya justifica esta separación porque el grafo tiene builders, artefactos, consultas, impacto y consumidores propios suficientemente definidos.

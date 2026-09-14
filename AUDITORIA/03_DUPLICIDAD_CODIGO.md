@@ -41,7 +41,13 @@ La estructura es idéntica, solo el modelo de datos varía. No hay una clase bas
 `ProductImageSerializer` (shop), `EquipmentImageSerializer` (renting), y equivalentes en `technical_services` tienen exactamente la misma estructura: `uuid`, `image`, `alt_text`, `is_primary`, `order`. No hay un `BaseMediaSerializer` compartido.
 
 ### DUP-B4 — Lógica de validación de Stock duplicada
-**Estado:** ⚪ Sigue abierto.
+**Estado (2026-07-30): ✅ Resuelto** — nuevo `inventory.services.selectors.check_variant_or_service_availability()`
+centraliza el cálculo/comparación (antes duplicado entre `cart/services/commands.py::_check_availability()`
+y `orders/services/commands.py::_check_item_stock()`, confirmado que `InventorySelector.get_current_stock()`
+y `get_stock_for_variant()` son funcionalmente idénticos para una instancia de variante — el primero delega
+al segundo). Ambos callers delegan ahora al helper compartido; cada uno conserva su propio texto de mensaje
+de error exacto (orders sigue mostrando el SKU, cart sigue mostrando cantidades) — cero cambio de
+comportamiento observable. Verificado: `cart`+`orders` 20/20 tests en verde.
 
 `CartCommands._check_availability()` y `OrderCommands.create_from_cart()` ambas validan disponibilidad de stock. La validación real delega a `InventorySelector.get_current_stock()`, pero el código de validación (comparar con cantidad, generar mensaje de error) se repite.
 
@@ -60,7 +66,13 @@ Debería estar en un solo lugar, por ejemplo `ecommerce/internal_ai_utils.py`, e
 ## Frontend — Componentes Duplicados
 
 ### DUP-F1 — `EquipmentGallery` con dos implementaciones distintas
-**Estado:** ⚪ Sigue abierto.
+**Estado (2026-07-30): ✅ Resuelto arquitectónicamente** — ambas versiones descritas abajo ya no
+se usan: la app real usa `components/base/BaseGallery.vue` (parametrizable, con `theme` prop) en
+`RentingDetailContent.vue`/etc. desde el plan de restauración de presentation-layer (comentarios
+"structured-strolling-sparkle.md" en el código). Versión B ya no existe en el árbol. Versión A
+(`components/customer/renting/EquipmentGallery.vue`) seguía presente pero con **cero
+importadores** (código muerto) — se intentó eliminar pero el clasificador de seguridad de Claude
+Code bloqueó el `rm`; queda pendiente que el usuario la borre manualmente.
 
 | Versión A | `components/customer/renting/EquipmentGallery.vue` |
 | Versión B | `components/renting/detail/EquipmentGallery.vue` |

@@ -177,12 +177,12 @@ Segunda instancia de SEC-C2 fuera del serializer.
 ### SEC-M2 — `CORS_ALLOW_ALL_ORIGINS = True` en settings de desarrollo
 **Archivo:** `ecommerce/settings/development.py:5`  
 Si `DJANGO_SETTINGS_MODULE` se configura mal en producción, todos los orígenes quedan habilitados. Agregar `CORS_ALLOW_ALL_ORIGINS = False` explícito en `base.py`.
-**Estado: ⚪ Sin re-verificar en esta pasada** — no aparece en ninguna lista de items cerrados de `01_AUDITORIA_GENERAL.md` ni `12_CHECKLIST_IMPLEMENTACION.md`; verificar directamente en `base.py` antes de asumir.
+**Estado (2026-07-30): ✅ Resuelto** — confirmado que `base.py` no tenía el guard explícito (solo `CORS_ALLOWED_ORIGINS` desde env), agregado `CORS_ALLOW_ALL_ORIGINS = False`.
 
 ### SEC-M3 — JWT: `ACCESS_TOKEN_LIFETIME=60 minutos`
 **Archivo:** `ecommerce/settings/base.py`  
 Estándar para e-commerce de alto valor es 15 minutos. Un token robado es válido 60 minutos sin revocación posible. Reducir a 15-20 minutos.
-**Estado: ⚪ Sigue abierto** — `11_QUICK_WINS.md` QW-17 lo recomendaba pero no aparece marcado `[x]` en `12_CHECKLIST_IMPLEMENTACION.md`; probablemente sigue en 60 minutos.
+**Estado (2026-07-30): ✅ Resuelto y desplegado a producción** — `ACCESS_TOKEN_LIFETIME` confirmado en `60` minutos antes de aplicar el cambio (no se asumió), reducido a `15`, 81/81 tests de `accounts` en verde, y confirmado en vivo en `sintel_prod_django` post-deploy. Ver `11_QUICK_WINS.md` QW-17.
 
 ### SEC-M4 — Quotation `download_pdf` es `AllowAny`
 **Archivo:** `quotes/api/views.py:160`  
@@ -197,12 +197,32 @@ Meta Cloud API envía `X-Hub-Signature-256` HMAC en los POSTs. Sin verificación
 ### SEC-M6 — `UserDetailSerializer` expone `AdminVerificationDetailSerializer` a usuarios normales
 **Archivo:** `users/api/serializers.py:69-77`  
 `GET /api/v1/auth/profile/` devuelve la verificación KYC en formato admin-level. Verificar qué campos expone `AdminVerificationDetailSerializer` y crear un `CustomerVerificationSerializer` con solo los campos necesarios para el cliente.
-**Estado: ⚪ Sin re-verificar en esta pasada.**
+**Estado (2026-07-30): ✅ Resuelto — CONFIRMADO explotable, no solo teórico.** `AccountViewSet.profile()`
+(el propio `GET /auth/profile/`, `IsAuthenticated` generico) usa `UserDetailSerializer(request.user)`,
+cuyo `kyc_verification` llamaba siempre a `AdminVerificationDetailSerializer`, que incluye
+`timeline_events` → `VerificationEventSerializer.actor_email` — **cualquier cliente viendo su
+propio perfil veia el correo del admin/staff que reviso su KYC**. Fix: `get_kyc_verification()`
+ahora verifica `self.context['request'].user.is_staff and .is_superuser` — admin viendo a otro
+usuario (`UserViewSet`, 100% admin-gated) sigue recibiendo `AdminVerificationDetailSerializer`
+completo (se agrego `context={'request': request}` a los 4 call-sites de `UserViewSet` que le
+faltaba, para no perder esa funcionalidad legitima en `UserDetail.vue`); cualquier otro caso
+(incluido el self-service) recibe `UserVerificationSerializer` (la clase base, ya usada en el
+endpoint de verificacion propia `auth/verification/`, sin `timeline_events`/`actor_email`).
+Verificado: `accounts` 81/81 y `users` 26/26 tests reales en verde (1 error de discovery de
+unittest preexistente y no relacionado, ver nota de sesion).
 
 ### SEC-M7 — `AdminLoginView` con `authentication_classes = []` explícito
 **Archivo:** `users/api/admin_auth.py:67`  
 Sin clases de autenticación, los middlewares de throttling de DRF no pueden correlacionar por usuario — solo por IP. Esto debilita aún más la protección contra fuerza bruta.
-**Estado: ⚪ Sin re-verificar en esta pasada** — el rate-limit por IP (SEC-H1) ya está resuelto; este ítem específico (correlación por usuario) no aparece confirmado en ninguna auditoría posterior.
+**Estado (2026-07-30): confirmado, no se corrige — es inherente a un endpoint de login.** Verificado
+en el código: `authentication_classes = []` sigue presente. No es un descuido corregible con una
+linea: en un endpoint de login, por definicion el usuario aun NO esta autenticado en el momento del
+request, asi que no existe un `request.user` real contra el cual DRF pueda correlacionar throttling
+"por usuario" — cualquier login endpoint del ecosistema (incluido el de clientes) tiene esta misma
+propiedad estructural. La mitigacion real complementaria seria un lockout por email/username
+intentado (no por usuario autenticado), que es una salvaguarda DISTINTA a la que este hallazgo
+describe y no estaba en su alcance original — el rate-limit por IP (SEC-H1, 5/hora) ya cubre el
+vector de fuerza bruta practico. Se deja documentado como no-accionable tal como esta planteado.
 
 ---
 

@@ -209,25 +209,161 @@ Los `console.log` residuales (§1.4) se dejaron para una pasada de linting dedic
 
 ## 6. Plan priorizado
 
-> ✅ **Sincronizado 2026-07-27** contra `01_AUDITORIA_GENERAL.md` §6-7: **P1-1, P1-2 y P1-4 están
-> cerrados.** P1-3 es hoy el único ítem abierto de toda la punch list de deuda técnica del proyecto
-> — diferido a propósito a su propia sesión, decisión explícita del usuario.
+> ✅ **Sincronizado 2026-07-30** contra `01_AUDITORIA_GENERAL.md` §6-7: **P1-1, P1-2, P1-3 y P1-4
+> están cerrados — la punch list completa de deuda técnica del proyecto quedó en 4/4.** P1-3 se
+> cerró en su propia sesión dedicada (como estaba planeado), verificado de forma independiente
+> (lectura directa de `HomeConfigView.vue` antes/después, existencia y consumo real de los 8
+> subcomponentes de `home-builder/` y de `store/coreAdmin.js`, y `npm run build` limpio) — no solo
+> por el reporte del propio cambio.
 
 | # | Acción | Prioridad | Esfuerzo | Riesgo | Estado (2026-07-27) |
 |---|---|---|---|---|---|
 | P1-1 | Crear `utils/money.js` (`formatCOP`) y migrar los 63 sitios de moneda; unificar estilo (con/sin símbolo) por pantalla | Alta | Medio (amplio) | Bajo (visual, revisable) | ✅ Resuelto — 0 instanciaciones inline restantes, 62 archivos con `formatCOP`, 6/6 tests (doc 01 §7.4) |
 | P1-2 | Adoptar `useErrorHandler` en los ~61 catch de solo-toast | Alta | Medio | Bajo | ✅ Resuelto — 48 archivos adoptando el composable (13 migrados en la sesión de cierre), 2 exclusiones deliberadas y verificadas (doc 01 §7.5) |
-| P1-3 | Descomponer `HomeConfigView.vue` (2.629 LOC) por secciones | Alta | Alto | Medio | 🔶 **Sigue abierto** — diferido a propósito a su propia sesión dedicada (doc 01 §6 punto 5, §7.6, §7.21) |
+| P1-3 | Descomponer `HomeConfigView.vue` (2.629 LOC) por secciones | Alta | Alto | Medio | ✅ Resuelto 2026-07-30 — archivo original en 715 LOC, 8 subcomponentes por sección bajo `frontend/src/modules/core/home-builder/` + `cardGroupsUtil.js`, datos centralizados en `store/coreAdmin.js` (todas las acciones fetch/create/update/delete de los 11 recursos presentes y consumidas), `npm run build` limpio (doc 01 §7.22) |
 | P1-4 | Completar migración a stores Pinia de los módulos admin restantes (`shop`, `orders`, `operations`, …) | Alta | Alto (incremental) | Medio | ✅ Resuelto 100% — los 11 dominios de §4.1 migrados en 13 incrementos verificados en vivo, incluida la pieza más grande (`HomeConfigView.vue`/`ModuleBuilderModal.vue`, 43+2 llamadas API) (doc 01 §7.7-§7.21) |
-| P2-1 | Revisar los 28 `onMounted` async → `Promise.all` donde aplique | Media | Bajo/Medio | Bajo | ⚪ Sin re-verificar |
-| P2-2 | Descomponer forms/wizards restantes (>1.000 LOC) por tabs/pasos | Media | Alto | Medio | ⚪ Sin re-verificar |
-| P2-3 | Split del router por dominio | Media | Bajo | Bajo | ⚪ Sin re-verificar |
-| P2-4 | Colapsar capa `TrackingTimeline` si aporta | Baja | Bajo | Bajo | ⚪ Sin re-verificar |
+| P2-1 | Revisar los 28 `onMounted` async → `Promise.all` donde aplique | Media | Bajo/Medio | Bajo | ✅ Resuelto 2026-07-30 (ver nota) |
+| P2-2 | Descomponer forms/wizards restantes (>1.000 LOC) por tabs/pasos | Media | Alto | Medio | ✅ **Resuelto 2026-07-30 — 9/9 archivos** (ver nota) |
+| P2-3 | Split del router por dominio | Media | Bajo | Bajo | ✅ Resuelto 2026-07-30 (ver nota) |
+| P2-4 | Colapsar capa `TrackingTimeline` si aporta | Baja | Bajo | Bajo | ✅ **Evaluado 2026-07-30 — NO colapsar** (ver nota), decisión justificada |
 | P2-5 | Sidebar dirigido por datos/permisos (solo si entra RBAC de panel) | Baja | Medio | Medio | ⚪ Sin re-verificar |
-| P3-1 | Barrido de `console.*` residuales + regla de lint | Baja | Bajo | Nulo | ⚪ Sin re-verificar |
+| P3-1 | Barrido de `console.*` residuales + regla de lint | Baja | Bajo | Nulo | 🔶 **Parcial 2026-07-30** — barrido hecho (ver nota), regla de lint fuera de alcance (ver nota) |
+
+> **Nota P2-2 (2026-07-30, primer archivo):** `views/customer/detail/PublicDetailView.vue`
+> (2.091 LOC — componente compartido en vivo por 3 rutas de cliente: `tienda/:uuid`,
+> `alquiler/:uuid`, `servicios/:uuid`) descompuesto en un shell de 190 líneas +
+> `RentingDetailContent.vue` (813), `ServiceDetailContent.vue` (803), `ShopDetailContent.vue`
+> (732). Estrategia de fetch conservadora elegida a propósito (props ya resueltos por el padre,
+> no fetch propio por hijo) para no alterar la secuencia de carga percibida (un solo skeleton
+> hasta que todo esté listo). Verificado en las 3 rutas reales del navegador con UUIDs reales
+> (no solo build): 0 errores de consola, contenido completo renderizado, y estilos computados
+> extraídos en vivo (tipografía, colores, radios, grids) comparados 1:1 contra el original para
+> descartar regresión visual del corte de CSS scoped (se encontró y corrigió una regla `.badge`
+> que vivía en el scoped del padre y dejó de alcanzar a los hijos). Quedan 7 archivos de esta
+> nota: `RentalBookingWizard.vue` (1566, wizard de compra), `ServiceForm.vue` (1345),
+> `ContractorOnboardingWizard.vue` (1315), `RentingForm.vue` (1300), `ProductForm.vue` (1149),
+> `RentalCatalogView.vue` (1052), `ServicesCatalogView.vue` (1037).
+
+> **Nota P2-2 (2026-07-30, segundo archivo):** `modules/core/ModuleBuilderModal.vue` (1727/1845
+> LOC — modal admin de configuracion de un modulo de la home, NO es pagina de embudo de compra,
+> menor riesgo que el archivo anterior) descompuesto en shell de 779 lineas + 13 componentes de
+> pestaña bajo `modules/core/module-builder/` (uno por cada `activeTab`) + `_shared.css`
+> (primitivas de estilo comunes, importado con scope propio por hijo) + `constants.js`. `form` es
+> `reactive` pasado como prop y mutado en sitio por los hijos (nunca reasignado completo).
+> Verificacion exhaustiva sin login de admin disponible: diff vacio de los 63 campos de primer
+> nivel + 31 rutas anidadas de `form.*` y de los 68 `v-model` literales antes/despues, `npm run
+> build` limpio, y un spec temporal de vitest+@vue/test-utils (creado, corrido con 4/4 tests en
+> verde cubriendo render de las 13 secciones, escritura de v-model anidados, repoblacion al
+> editar, y bloqueo de guardado por validacion — despues eliminado, `git status` limpio).
+> **Hallazgo colateral (bug preexistente, NO corregido a proposito, preservado tal cual segun el
+> encargo de "descomponer sin cambiar comportamiento"):** en la pestaña Carrusel,
+> `getCarouselItems`/`setCarouselItems` comparan contra `'desktop'`/`'tablet'` pero reciben claves
+> reales `'columns'`/`'columns_tablet'`/`'columns_mobile'` — las 3 filas caen al `else` y leen/
+> escriben `items_mobile`, por lo que el admin no puede fijar columnas de desktop/tablet por
+> separado desde la UI. Documentado con comentario en el archivo y flageado como tarea aparte
+> (`task_ec1525a2` — verificado luego como duplicado de `task_e919cea5`, ya corregido en
+> `module-builder/CarouselTab.vue` con su propio `CAROUSEL_DEVICES`).
+
+> **Nota P2-2 (2026-07-30, archivos 3-9, punch list completa 9/9):** resumen breve — el detalle
+> completo de cada archivo (props exactas, decisiones de fetch-en-hijo vs fetch-en-padre, bugs
+> encontrados) vive en la memoria de la sesión (`project_sintel_auditoria_enterprise_remediation.md`).
+> - **3/9** `views/customer/renting/RentalBookingWizard.vue` (wizard de reserva real, el mismo
+>   archivo del bug crítico de congelamiento por `<Transition>`) → shell ~600 líneas +
+>   `booking-wizard/{EquipmentStep,ProjectStep,ScheduleStep,ConfirmStep}.vue` + `helpers.js`, todos
+>   leyendo `useBookingStore()` directo. Verificado con sesión real de navegador (JWT generado por
+>   Django shell) recorriendo los 4 pasos reales contra un equipo real.
+> - **4/9** `modules/technical_services/ServiceForm.vue` (1452 LOC) → shell ~230 líneas + 5 tabs
+>   bajo `service-form/`. Verificado con sesión admin real sobre un servicio con 2 variantes.
+> - **5/9** `views/customer/account/ContractorOnboardingWizard.vue` (1424 LOC) → shell ~430 líneas +
+>   `contractor-onboarding/{OnboardingHub,Step1Info,Step2Skills,Step3Training,Step4Portfolio}.vue`.
+>   Verificado con sesión de cliente real; en el proceso se encontró y flageó (no corregido, fuera
+>   de alcance) un bug real de backend preexistente: varios `ViewSet.perform_create()` de CV
+>   (academic-training, skills, experience, courses) no asignan el registro creado a
+>   `serializer.instance`, dejando cada item recién agregado sin `id` hasta recargar la página
+>   (`task_24a68d42`).
+> - **6/9** `modules/renting/RentingForm.vue` (1390 LOC) → shell ~400 líneas + 5 tabs bajo
+>   `equipment-form/`. Verificado con sesión admin real; como efecto colateral natural de la
+>   extracción (no una corrección deliberada) se resolvió un bug real donde `toggleCostRule`/
+>   `deleteCostRule` llamaban `fetchCostRules()` sin el `equipmentUuid` requerido, reemplazando
+>   silenciosamente la lista de reglas por un fetch sin filtrar de todo el catálogo.
+> - **7/9** `modules/shop/ProductForm.vue` (1254 LOC) → shell ~230 líneas + 5 tabs bajo
+>   `product-form/`. Verificado con sesión admin real sobre un producto con variante y 2 reglas de
+>   costo.
+> - **8/9** `views/customer/renting/RentalCatalogView.vue` (1120→985 LOC) → 2 componentes
+>   presentacionales (`rental-catalog/{RentalCatalogHero,RentalSolutionStrip}.vue`). Verificado en
+>   vivo contra `/alquiler` (página pública), cero errores de consola.
+> - **9/9** `views/customer/services/ServicesCatalogView.vue` (1101→822 LOC) → 2 componentes
+>   presentacionales (`services-catalog/{ServicesCatalogHero,ServicesMarketplaceStrip}.vue`).
+>   Verificado en vivo contra `/servicios`: cero errores de consola, y prueba funcional real del
+>   `v-model:search` recién introducido (se tipeó en el campo del hijo y la red confirmó
+>   `?search=camara` llegando a la API tras el debounce).
+>
+> **Los 9 archivos >1.000 LOC identificados originalmente están descompuestos y verificados —
+> P2-2 100% resuelto.**
+
+> **Nota P2-4 (2026-07-30):** verificada la cadena real de imports: `components/customer/services/
+> OperationTimeline.vue` → `components/customer/ui/TrackingTimeline.vue` →
+> `components/shared/StatusTimeline.vue`. No es indirección accidental — cada capa hace trabajo
+> real y distinto: `StatusTimeline` es el renderer puro (modo `steps`/`events`); `TrackingTimeline`
+> mantiene una tabla de ~40 líneas mapeando códigos de milestone (`CREATED`/`ASSIGNED`/
+> `SCHEDULED`/`EN_ROUTE`/etc.) a label/icono/color/fecha, y la **reutilizan 3 consumidores
+> distintos** (`modules/operations/OperationDetail.vue`, `views/customer/operations/
+> OperationTrackingView.vue`, y `OperationTimeline.vue`); `OperationTimeline.vue` traduce los
+> códigos específicos de `ServiceOperationEvent` al vocabulario genérico que `TrackingTimeline`
+> espera. Colapsar `TrackingTimeline` implicaría duplicar su tabla de mapeo en los 3 consumidores,
+> o contaminar el `StatusTimeline` genérico con vocabulario de operaciones — ambas opciones peores
+> que la estructura actual. **Conclusión: la capa está justificada, no se colapsa.** Confirma la
+> sospecha original del hallazgo de doc 13 §... ("el beneficio es marginal").
+
+> **Nota P2-1 (2026-07-30):** de los 29 archivos con `onMounted(async ...)`, 4 tenían llamadas
+> genuinamente independientes que se fusionaron en `Promise.all` (`KycAdminDetail.vue`,
+> `TechnicianAssignmentBoard.vue`, `TechnicianCalendarBoard.vue`, `CheckoutView.vue`); el resto
+> ya estaban optimizados, tenían un solo `await`, o se dejaron intactos por dependencia real
+> entre llamadas. Dos hallazgos de riesgo real evitados a proposito: `RentalConfirmationView.vue`
+> tiene un `router.replace` condicional entre los dos `await` que depende del resultado del
+> primero (fusionar dispararía la segunda llamada aunque el primer resultado redirija) y, mas
+> sutil, `panels/BlocksPanel.vue`/`QuoteTemplateForm.vue` tienen fetches en sí independientes pero
+> que comparten el mismo flag `store.loading` (leído por el spinner de la plantilla y por
+> componentes hermanos) — paralelizarlas haría que el spinner desaparezca en cuanto termine la
+> mas rapida mientras la otra sigue en curso, un cambio de comportamiento observable aunque los
+> datos en sí no tengan dependencia. `npm run build` limpio tras los 4 cambios.
+
+> **Nota P2-3 (2026-07-30):** `frontend/src/apps/admin/router.js` (371 líneas, 82 rutas en un solo
+> arreglo) dividido en 10 archivos bajo `frontend/src/apps/admin/routes/` (`auth`, `customer`,
+> `adminAuth`, `adminShop`, `adminOrders`, `adminUsers`, `adminServices`, `adminQuotes`,
+> `adminRenting`, `adminCore`, `adminOps`), cada uno exportando su tramo tal cual estaba (mismo
+> orden interno, mismos nombres/paths/meta) — `router.js` quedó en 182 líneas, solo compone los
+> arreglos con spread y conserva intacta la lógica de guards/host-isolation. Riesgo real
+> identificado antes de tocar nada: este es el mismo archivo del bug histórico FE-C1
+> (`ordenes/renting` vs `ordenes/:uuid`), así que el orden relativo DENTRO de cada dominio se
+> preservó exactamente y se documentó con un comentario en cada archivo con el patrón (
+> `adminOrders.routes.js`, `adminUsers.routes.js`, `adminRenting.routes.js` tienen pares
+> estático/dinámico del mismo nivel). Verificado en el navegador real (no solo build): `npm run
+> build` limpio, y `router.resolve()` ejecutado en vivo contra 25 paths representativos —
+> incluidos los 3 pares estático/dinámico de riesgo — confirmó que cada uno resuelve al `name`
+> correcto (`ordenes/renting` → `renting-operations`, no `order-detail`; `renta/solicitudes` →
+> `renting-requests`, no `equipment-detail`; `validaciones` → `kyc-admin-list` vs
+> `validaciones/:uuid` → `kyc-admin-detail`). `/tienda` cargado en vivo sin errores de consola,
+> 8 productos renderizados correctamente.
+
+> **Nota P3-1 (2026-07-30):** de los 15 archivos con `console.*`, se verificó cada uno — la
+> mayoría son `console.error`/`console.warn` deliberados en catch blocks o en el interceptor de
+> `useApi.js`/`useEnums.ts` (visibilidad de errores real, no ruido) y se dejaron intactos. El
+> único hallazgo genuinamente residual: `composables/useOffcanvas.js` tenía 5 `console.log('[UI]
+> ...')` de depuración disparándose en cada trigger (init/openCreate/openEdit/openDetail/close) de
+> un composable usado por prácticamente todo CRUD admin del panel — eliminados, `npm run build`
+> limpio. La "regla de lint" de este ítem no se implementó: el proyecto no tiene ESLint instalado
+> en absoluto (sin `.eslintrc`/`eslint.config.*`, sin dependencia en `package.json`), así que
+> agregar una regla real significa introducir toda la herramienta desde cero — un alcance mucho
+> mayor al "Bajo esfuerzo" estimado originalmente para este punto, y una decisión de tooling que
+> merece su propia conversación con el usuario en vez de asumirse dentro de un quick win.
 
 **Recomendación de secuencia (histórica):** P1-1 y P1-2 primero (alto ROI, bajo riesgo, base para lo demás),
 luego P1-3, luego P1-4 dominio por dominio. Cada ítem P1 merece su propia rama + verificación
 visual/`npm run build` antes de mezclarse. **Estado real de ejecución:** se completaron P1-1, P1-2 y
 P1-4 antes que P1-3 (orden inverso al recomendado aquí, decisión explícita del usuario en la sesión
-de 2026-07-27) — P1-3 sigue como el único pendiente.
+de 2026-07-27); P1-3 se cerró después, en su propia sesión dedicada (2026-07-30), tal como estaba
+planeado. **Los 4 ítems P1 de esta punch list están hoy 100% resueltos y verificados de forma
+independiente — no queda ninguna acción de mejora P1 por implementar.** Los ítems P2/P3 restantes
+en la tabla de arriba no forman parte de esta punch list (son hallazgos de menor prioridad, sin
+re-verificar desde 2026-07-23).

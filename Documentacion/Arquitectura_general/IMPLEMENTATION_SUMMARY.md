@@ -5,39 +5,212 @@
 > usarlo cuando la app exacta de una tarea no se conoce de antemano. Si SI se conoce la app,
 > ir directo a su fila en la tabla "DOCUMENTOS DE REFERENCIA POR MODULO" de `.AGENT.md`.
 
-Ultima revision: 2026-07-29 (v11 — no es una re-auditoria de las 19 apps (esa sigue siendo v10,
-2026-07-23): son 3 incidentes reales encontrados y corregidos en vivo durante una sesion de
-debugging (`docker compose up` fallando + `/alquiler` sin imagenes), documentados aqui con
-evidencia `archivo:linea` igual que las pasadas anteriores. (1) **CRITICO — Django no arrancaba**:
-`ecommerce_sintel_django` quedaba `unhealthy` en Docker (bloqueando por `depends_on:
-condition: service_healthy` a `celery_worker`, `celery_beat` y `nginx`) por
-`ImportError: cannot import name 'truncate_words' from 'django.utils.text'` en
-`renting/services/presenters.py:14` — funcion eliminada de Django hace mas de una decada, nunca
-valida en Django 5; rompia el import chain completo `ecommerce/urls.py` -> `internal_ai_urls` ->
-`marketing.api.internal_ai` -> `renting.services`, tumbando toda la app, no solo `renting`. Fix:
-`Truncator(texto).words(n, truncate=' ...')`. (2) **Mismatch de contrato frontend/backend**: las
-cards de catalogo de Renting (`EquipmentHorizontalCard.vue`) y las compartidas con Shop
-(`ItemCard.vue`) leian una propiedad plana `equipment.image`/`item.image` que el API nunca
-devuelve — el serializer real siempre expuso `images` (array via `EquipmentImageSerializer`/
-`ProductImageSerializer`, con `is_primary`) — resultado: 0 imagenes visibles en `/alquiler` pese a
-que el backend si las servia correctamente (no era problema de `MEDIA_URL`, CORS ni datos
-faltantes, las 3 hipotesis obvias). (3) **Bug de layout**: `BaseHorizontalCard.vue` (componente
-compartido Renting/Services/Shop, ver "Design System" en Frontend) dejaba que la altura intrinseca
-de cada `<img>` determinara la altura de toda la card — cadena de `height:100%` sin ningun
-ancestro con altura explicita en el DOM (`.row` -> `.col-auto` -> `.bhc-img-wrap`), asi que el
-porcentaje se resolvia como `auto` y una foto en orientacion retrato inflaba la card entera. Fix:
-altura fija (`140px`/`120px` mobile) en vez de `100%`. Detalle completo con `archivo:linea` en las
-secciones `renting` y "Design System" (Frontend) abajo.
+Ultima revision: 2026-08-12 (v16 — cierre completo de las 60 fases del plan "AI Change Proposal
+Engine" (FASE 24-60), construido estrictamente sobre el "AI Editor Runtime" ya cerrado en v15).
+`ai_editor/generation/` (24 submodulos) evoluciona el mecanismo de v15 (`PATCH SANDBOX`) en un
+motor real de PROPUESTA: LLM + contexto MINIMO del grafo (nunca el grafo completo) ->
+`PatchProposal` estructurada, validada capa por capa (sintaxis/scope/dependencias/contratos/
+tests/documentacion/arquitectura/seguridad) antes de llegar a revision humana. `ai_editor/agent/`
+(FASE 51-53, paquete nuevo) orquesta todo ese pipeline en una sola llamada
+(`run_autonomous_change_loop()`) — **REGLA FINAL DE SEGURIDAD garantizada de forma ESTRUCTURAL,
+no por convencion**: verificado por test AST que ese paquete nunca importa el modulo que sabe
+promover al workspace real, asi que el estado mas avanzado que puede alcanzar es
+`APPROVAL_REQUIRED`, nunca mas. Detalle completo fase por fase en
+`ai_editor/.AGENT/AI_CHANGE_PROPOSAL_ENGINE.md` y checkpoint consolidado en
+`ai_editor/.AGENT/AI_EDITOR_BASELINE.md`.
+(A) **Primera vez en todo el desarrollo de `ai_editor` que se corrio contra un LLM REAL**
+(FASE 51-53): Ollama local confirmado alcanzable en este entorno (`llama3.1:8b`, el default de
+`ai_editor/llm/` cuando no se configura otro proveedor) — corrigio una afirmacion previa (desde
+FASE 28) de que ningun LLM estaba disponible, nunca verificada hasta entonces. Hallazgo real, no
+un bug: el modelo local de 8B no siempre produce JSON estructurado valido en pocos intentos —
+`REJECTED` correcto y honesto (nunca se fabrico un patch), documentado como limitacion del
+modelo, no del pipeline.
+(B) **10 capas de validacion real antes de revision humana** (FASE 33-46), cada una con su gap
+encontrado y corregido en la propia verificacion: Reconciliation (FASE 34, scope real vs
+declarado) filtraba mal por severidad tras relajar un guardrail en FASE 38, corregido; Impact
+Recheck (FASE 35) aproximaba mal el "impacto predicho" sumando 3 buckets que excluian
+tests/docs/config, produciendo falsos BLOCK siempre — corregido capturando un baseline real via
+`calculate_impact()`; Code Quality (FASE 36) corre `bandit` REAL (verificado instalado y
+configurado, nunca asumido) contra los archivos que la propuesta toca, JS/Vue queda
+`NOT_CONFIGURED` honesto (sin eslint instalado); Architectural/Dependency/Contract/Test/
+Documentation-Awareness (FASE 37, 40-43) cruzan la propuesta contra reglas YA documentadas del
+repo, nunca una regla inventada.
+(C) **FASE 38 — unica relajacion de guardrail de seguridad de todo el plan, con confirmacion
+explicita en 2 pasos del usuario**: permite que una propuesta escriba tambien sobre pasos
+`REVIEW` (no-documentacion) y `RUN` del plan (antes solo `MODIFY`), habilitando cambios
+cross-stack reales (backend + frontend + tests en una sola propuesta) — `.md` sigue
+PERMANENTEMENTE excluido de escritura automatica, sin excepcion.
+(D) **FASE 49 "Security Hardening" — auditoria real (no fabricada) de FASE 24-46**: 1 gap
+genuino encontrado y corregido (`code_quality.py` sin el mismo boundary check anti-traversal que
+el Patch Engine real ya tenia, riesgo practico bajo por estar mitigado aguas arriba, corregido
+igual por defensa en profundidad). Limites verificados reales y activos:
+`MAX_OPERATIONS_PER_PROPOSAL=20`, `MAX_PATCH_CONTENT_BYTES=5MB`, `MAX_SANDBOX_FILES=500`,
+`DEFAULT_MAX_RETRIES=3`.
+(E) **FASE 54-55 — confirmado real contra el repositorio real**, la unica escritura real de todo
+el plan: comentario de 1 linea sobre `HomeCardGroupSelector.get_by_name`
+(`core/services/commands.py`), contenido construido a mano (no por el LLM, decision explicita
+del usuario para que la prueba fuera predecible) — `PROMOTE -> PROMOTED` (verificado leyendo el
+archivo real) seguido de `ROLLBACK -> ROLLED_BACK` (verificado con SHA-256 completo del archivo,
+identico byte a byte antes/despues, y `git diff` sin rastros). El archivo objetivo tenia trabajo
+real del usuario sin commitear en otras lineas — comunicado antes de proceder, confirmado, y
+quedo intacto.
+449/449 tests + esta verificacion manual contra el repo real. `ai_editor` sigue sin poder
+escribir sobre un checkout real salvo a traves de `promote_to_workspace()` (5 capas de guardrail,
+`SECURITY_MODEL.md`), y `ai_editor/agent/` sigue sin poder LLEGAR a esa funcion (garantizado por
+test AST, no por convencion).
 
-> **Nota sobre esta version:** alcance deliberadamente angosto (3 incidentes puntuales, no una
-> pasada completa) — **pendiente**: propagar estos 3 hallazgos a
-> `renting/.AGENT/docs/ARQUITECTURA_COMPLETA_RENTIG.md` y
-> `frontend/.AGENT/doc/ARQUITECTURA_COMPLETAFRONEND.md` (secciones "Cambios Recientes" propias,
-> per protocolo de sincronizacion — ver "Tareas pendientes" al final de este documento). Las
-> versiones v1-v10 de esta nota (auditoria completa de 19 apps, ultima 2026-07-23) se conservan
-> como registro historico en "Tareas pendientes > Completadas". Las secciones "Correcciones y
-> mejoras aplicadas" y "Cambios recientes" al final del documento son **registro historico** de
-> versiones previas (2026-06-19 en adelante) — se conservan como bitacora, no como estado actual.
+> **Nota (2026-08-17):** el historial v1-v16 de arriba trackea especificamente el thread
+> `ai_editor`/`project_knowledge_graph`. El thread paralelo del **AI Engine como Support Agent**
+> (chatbot conversacional del Customer, `ai_engine/` FastAPI) tiene su propia seccion nueva —
+> ver `### ai_engine` en "Apps y estado de implementacion" — y su propio historial de cierre en
+> "Tareas pendientes" → "Completadas (2026-08-17 — Auditoria E2E de cierre del AI Engine /
+> Support Agent)". Ambos threads son independientes (sin conexion directa entre `ai_editor` y
+> `ai_engine`, verificado por test AST) y `ai_editor` sigue **CONGELADO** — sin fases nuevas.
+
+<details>
+<summary>Historial de versiones anteriores (v1-v15) — click para expandir</summary>
+
+**v15 (2026-08-11 — cierre completo de las 24 fases (POST-GRAPH 0-23) del plan
+"Evolucion de AI Editor Runtime", construido estrictamente sobre el Site Knowledge Graph ya
+cerrado en v14). `ai_editor/` deja de ser un scaffold de solo lectura y gana un pipeline real
+READ -> RESOLVE -> PLAN -> PROPOSE -> PATCH SANDBOX -> VALIDATE -> HUMAN APPROVAL -> COMMIT, con
+escritura como la ULTIMA capa del sistema, nunca la primera, y solo detras de aprobacion humana
+explicita:**
+(A) **Frontera arquitectonica verificada por test**: `ai_editor -> graph_client -> graph_sdk ->
+project_knowledge_graph` es el UNICO camino permitido (POST-GRAPH 1, `graph_client` como reexport
+de solo lectura de `graph_sdk`, verificado con un test que camina el AST); `ai_editor` nunca
+importa `ai_engine` ni viceversa, tambien verificado por test automatizado.
+(B) **Cliente LLM independiente** (POST-GRAPH 2): submodulo `ai_editor/llm/` nuevo, sin depender
+de `ai_engine` ni de ningun otro modulo — proveedor intercambiable via `AI_EDITOR_LLM_PROVIDER`
+(Ollama local / OpenAI / Anthropic vía API key propia), `urllib` puro, la API key nunca se filtra
+ni siquiera en errores HTTP (verificado con un 401 simulado).
+(C) **Pipeline completo, cada capa con su gap real encontrado y corregido**: Change Resolver
+exige coincidencia EXACTA de entidad, nunca difusa (POST-GRAPH 3, bug real de fuzzy-match
+encontrado con "Equipment"); Change Plan + validacion contra disco real con resolucion de path
+dual backend/frontend (POST-GRAPH 4-5); Patch Engine que aplica un `new_content` YA DECIDIDO —
+deliberadamente SIN generacion automatica de codigo (POST-GRAPH 6); Sandbox aislado que copia
+solo los archivos que el plan toca, nunca el repo completo, con limite de archivos/tamano y lista
+de patrones sensibles excluidos (POST-GRAPH 7, endurecido en POST-GRAPH 18); Validacion Nivel 1
+de sintaxis real (POST-GRAPH 8); Graph Reconciliation honestamente `NOT_IMPLEMENTED` (nunca un
+`0` fingido) y deteccion de tests de impacto sin ejecutarlos (POST-GRAPH 9-10); Human Approval
+Gate como punto de parada obligatorio (POST-GRAPH 11); Commit Control — `promote_to_workspace()`/
+`rollback_promotion()` (POST-GRAPH 12); Audit con saneamiento real de secretos, bug de
+sanitizacion parcial encontrado y corregido (POST-GRAPH 13); Autonomous Change Loop documentado,
+NO orquestado automaticamente, mismo criterio de seguridad (POST-GRAPH 14); multi-step/DAG
+diferido por falta de caso real de uso (no fabricado como si existiera) + Rollback real
+(POST-GRAPH 15-16); Observabilidad con metricas honestas (POST-GRAPH 17).
+(D) **Hardening y gap de seguridad mas significativo del plan**: auditoria real contra la lista
+de riesgos del prompt maestro — symlinks verificados YA seguros (no era un gap), 3 gaps reales
+corregidos: limite de tamano de patch, limite de archivos en sandbox, patrones sensibles
+incompletos (POST-GRAPH 18). **POST-GRAPH 20**: `promote_to_workspace()` no verificaba en codigo
+que la validacion de sintaxis hubiera pasado antes de escribir — dependia solo de que un humano no
+aprobara por error un cambio con sintaxis rota. Corregido con un parametro `validation_report`
+que rechaza estructuralmente (`VALIDATION_FAILED`) sin importar la aprobacion humana.
+(E) **POST-GRAPH 21 — confirmado real contra el repositorio real** (no solo contra sandboxes de
+prueba): ejecucion delegada al usuario via un script autocontenido; el primer intento produjo un
+`SyntaxError` real por un bug del propio script de demo, y el guardrail de POST-GRAPH 20 lo
+bloqueo correctamente antes de escribir nada — la primera vez que ese guardrail se probo contra un
+error real, no un test. El segundo intento (corregido) completo el ciclo entero:
+`PROMOTE -> PROMOTED` (archivo real modificado, verificado) seguido de
+`ROLLBACK -> ROLLED_BACK` (archivo real restaurado, verificado), y una verificacion independiente
+posterior via `git diff` confirmo cero cambios netos en el repositorio. POST-GRAPH 22 (cobertura
+cross-stack) ya estaba cubierta por tests de integracion existentes; POST-GRAPH 23 (tabla de
+readiness de las 15 preguntas del prompt maestro) verificada con datos reales sobre
+`EquipmentViewSet.check_availability`.
+257/257 tests. `ai_editor` sigue sin poder escribir sobre un checkout real salvo a traves de
+`promote_to_workspace()`, con las 5 capas de guardrail descritas en `SECURITY_MODEL.md`.
+
+**v14 (2026-08-11 — cierre completo de las 22 fases (FASE 0-21) del rediseno arquitectonico
+"Site Knowledge Graph -> Change Intelligence -> AI Editor Runtime" para
+`project_knowledge_graph`):**
+(A) **FASES 3-9 — grafo estructural completo**: `Symbol` extendido a Vue/JS (Fase 3); Contract
+Graph frontend<->backend a nivel de simbolo individual, `CONSUMES_ENDPOINT`/`USES_STORE`/
+`USES_COMPOSABLE`/`SERIALIZES` (Fase 4); Data Flow Graph, `READS_FROM`/`WRITES_TO` de
+`Model.objects.verbo()` real (Fase 5); Execution Graph, `TRIGGERS`/`QUEUES` de signals y Celery
+tasks (Fase 6); Test Graph, `TESTS`/`VALIDATES` (Fase 7); Documentation Graph, `REFERENCES` desde
+texto libre (Fase 8); Configuration/Infrastructure Graph, Docker/nginx/env (Fase 9).
+(B) **FASES 10-13 — capa de consulta para asistir cambios**: `calculate_change_impact()` (Fase
+10, impacto directo/indirecto categorizado + riesgo), `resolve_change()` (Fase 11, envelope
+completo), `build_graph_context_packet()` (Fase 12, compresion miles->decenas de nodos para
+consumo LLM), `graph_sdk` (Fase 13, fachada estable de 13 operaciones).
+(C) **FASE 14 — `ai_editor/` (scaffold deliberado, NO funcional en ese momento)**: paquete nuevo
+`ecommerce_sintel/ai_editor/`; solo `graph_client/` (wrapper de solo lectura) tenia logica real —
+generar/aplicar parches de codigo automaticamente (`patch/`) se dejo deliberadamente sin
+implementar todavia. **Superado en v15**: el plan POST-GRAPH 0-23 completo ese trabajo.
+(D) **FASES 15-18 — deteccion, validacion y observabilidad**: deteccion de simbolos cambiados via
+`git diff` real (Fase 15); Change Validation Report — impacto + tests requeridos + consistencia de
+grafo/contratos sobre el diff actual (Fase 16); diseno documentado (no codigo) del Autonomous
+Change Loop, con el mismo criterio de seguridad de (C) (Fase 17); auditoria real de consultas via
+`graph_sdk`, nunca persiste datos de nodo sensibles (Fase 18).
+(E) **FASES 19-21 — consolidacion, limpieza y validacion final**: 5 defectos reales de
+documentacion corregidos en `ARQUITECTURA_COMPLETA_GRAFO.md` (Fase 19); 4 documentos vivos de
+`ai_engine/.AGENT/` con referencias desactualizadas a modulos retirados corregidas (Fase 20);
+rebuild completo real + suite de tests corrida dos veces, 0 regresiones (Fase 21).
+Grafo real final: 6932/10833 (2026-08-10, post Fase 2) -> **9575/20335** (nodos/aristas,
+verificado en Fase 21) — 21 apps Django, 150 endpoints, 1161 archivos, 6396 Symbol. **120/120
+tests pasan.** `project_knowledge_graph` sigue sin conocer ni importar `ai_engine`, verificado por
+test automatizado (Regla 0 del rediseno).
+
+**v13 (2026-08-10 — auditoria E2E del chatbot de soporte + FASES 0-2 del rediseno "Site
+Knowledge Graph"):**
+(A) **Causa raiz real de "el chatbot no responde"**: el contenedor `frontend` estaba `Exited(1)`
+desde 18 horas antes (`Error: EIO`, el mismo bug de bind-mount Docker Desktop/Windows +
+chokidar ya documentado, sin `restart` policy para autorecuperarse) — NO fue un bug de codigo
+(WebSocket/JWT/Channels/`ai_bridge`/AI Engine verificados funcionando correctamente en vivo tras
+reiniciar el contenedor). Corregido: `restart: unless-stopped` agregado al servicio `frontend`.
+(B) **FASE 0 — `ai_engine` desacoplado por completo de `project_knowledge_graph`**: nueva regla
+arquitectonica ("AI Engine no conoce ni importa project_knowledge_graph") — `GraphImpactAnalysisTool`
+eliminado (no degradado, incluida su conexion como intent de chat `architecture_impact`),
+`pkg_bootstrap.py` eliminado, `main.py`/`planner.py`/`graph.py`/`incremental_updater.py`
+degradados a stubs locales que ya no importan el grafo.
+(C) **FASE 1 — entidades `File`/`Symbol`**: la IA ya puede recibir "`Clase.metodo()` lineas N-M",
+no solo el nombre del archivo — arista `CONTAINS`.
+(D) **FASE 2 — "Contract Graph"**: entidades `WebSocketRoute`/`EnvVar` + aristas `IMPLEMENTED_BY`
+(`Endpoint->Symbol`, `WebSocketRoute->Consumer`) y `USES_ENV` (`File->EnvVar`).
+Grafo real: 1923/3291 (nodos/aristas, 2026-08-09) -> 6932/10833 (2026-08-10, post Fase 2).
+
+Ultima revision: 2026-08-10 (v12 — auditoria cruzada contra las AUDITORIA/29-33, repasos de
+backlog 31-32, plan de separacion del grafo de conocimiento y hallazgo de 2 modulos nuevos no
+listados: `sms_bridge` y `project_knowledge_graph`). Cambios reales documentados en esta version:
+(1) **`/api/v1/health/` ya no es falso positivo** (AUDITORIA/29, P1-CRITICO): `health_check` en
+`ecommerce/urls.py` devolvia `{"status":"ok"}` incondicionalmente sin verificar nada; ahora reusa
+`SecuritySelector.get_health_snapshot()` y devuelve 503 si `db` o `redis` fallan — Docker reinicia
+el contenedor correctamente. (2) **`celery_beat` gano su propio HEALTHCHECK** (AUDITORIA/31):
+antes no tenia ningun check, ahora usa `grep -a -l celery /proc/[0-9]*/cmdline` — mejora real
+sobre cero monitoreo para las 2 `PeriodicTask` que dependen de el. (3) **Indices de BD agregados**
+(AUDITORIA/31): `NotificationLog` (temple_slug + GIN sobre payload_context) y `ChatRoom` (status,
+ai_paused, updated_at, is_deleted compuesto) — tablas filtradas en cada corrida de los 4
+scanners proactivos sin ningun indice previo. (4) **Heartbeat WebSocket en soporte** (AUDITORIA/31):
+ping/pong de aplicacion cada 25s en `SupportChatWidget.vue`/`SupportDashboardView.vue` +
+`support/consumers.py`; sin esto, conexiones zombie podian quedar en "en linea" indefinidamente.
+(5) **Preferencias de mensajes proactivos de IA** (AUDITORIA/32):
+`ai_proactive_room_message_task` ahora respeta `UserNotificationPreference` (opt-out identico
+al resto de canales). (6) **Referencias a `OperationTicketSelector` corregidas** (AUDITORIA/32):
+clase inexistente referenciada en `operations/models.py`, `serializers.py` y doc de arquitectura;
+nombre real es `OperationSelector`. (7) **Backup automatizado corregido** (AUDITORIA/33): tarea
+Windows corria como `SYSTEM` sin acceso al daemon Docker; reinstalada como `Administrator` y
+verificada con restauracion completa (dump + media, snapshot preventivo, Django `healthy`
+post-restauracion). (8) **Reinicio autorizado de cuentas de produccion** (2026-08-04): borrado
+logico de 3 cuentas; 1 cuenta admin restaurada; contenedor permanecio `healthy`. (9) **Modulo
+`sms_bridge` detectado** (no listado en ninguna version anterior): puente HTTP<->modem GSM SIM5360
+(Movistar Colombia, COM5) corriendo en el HOST Windows, fuera de Docker — permite al contenedor
+Django enviar SMS sin poder abrir un puerto COM de Windows directamente; ver seccion nueva abajo.
+(10) **Modulo `project_knowledge_graph` detectado** (no listado en ninguna version anterior):
+separacion del grafo de conocimiento del `ai_engine` iniciada 2026-08-08; la estructura de
+directorios ya existe fisicamente (`scanner/`, `project_map/`, `knowledge_graph/`,
+`dependency_graph/`, `incremental/`, `audit/`, `snapshots/`, `cli/`); ver seccion nueva abajo.
+Las secciones v1-v11 se conservan como registro historico al final del documento.
+
+> **Nota sobre esta version (v12):** auditoria cruzada contra el estado real del proyecto a
+> 2026-08-10: AUDITORIA/29-33 (observabilidad, backup, produccion), repasos de backlog 31-32
+> (quick-wins, correcciones latentes), plan de separacion del grafo de conocimiento (2026-08-08),
+> y hallazgo de 2 modulos nunca documentados (`sms_bridge`, `project_knowledge_graph`). El
+> encabezado de version captura todos los cambios reales. Las versiones v1-v11 se conservan como
+> registro historico en "Tareas pendientes > Completadas". Las secciones "Correcciones y mejoras
+> aplicadas" y "Cambios recientes" al final del documento son **registro historico** de versiones
+> previas (2026-06-19 en adelante) — se conservan como bitacora, no como estado actual.
+
+</details>
 
 ---
 
@@ -47,29 +220,34 @@ Cada app de negocio mantiene su propio documento de arquitectura en `.AGENT/docs
 El AI Engine los carga automaticamente en cada sesion.
 Actualizar el documento de la app afectada despues de cada cambio estructural.
 
-| App | Documento de Arquitectura | Estado (2026-07-20) |
-|-----|--------------------------|--------|
-| `accounts` | [ARQUITECTURA_COMPLETA_ACCOUNTS.md](../../ecommerce_sintel/accounts/.AGENT/docs/ARQUITECTURA_COMPLETA_ACCOUNTS.md) | Sincronizado 2026-07-09 (SSoT de identidad endurecido: admin ya no crea perfiles especializados directamente) — probablemente afectado por el rediseno de Auth (2026-07-17, ver seccion dedicada), no releido |
-| `cart` | [ARQUITECTURA_COMPLETA_CART.md](../../ecommerce_sintel/cart/.AGENT/docs/ARQUITECTURA_COMPLETA_CART.md) | Sincronizado 2026-07-03, no releido en esta pasada |
-| `core` | [ARQUITECTURA_COMPLETA_CORE.md](../../ecommerce_sintel/core/.AGENT/docs/ARQUITECTURA_COMPLETA_CORE.md) | Sincronizado 2026-07-09 ("Constructor Visual" de Home + `FooterCTAConfig` + endpoint `enums/{name}/`, no documentados antes) |
-| `dashboard` | [ARQUITECTURA_COMPLETA_DASHBOARD.md](../../ecommerce_sintel/dashboard/.AGENT/docs/ARQUITECTURA_COMPLETA_DASHBOARD.md) | Creado 2026-07-03, no releido en esta pasada |
-| `ecommerce` (base) | [ARQUITECTURACOMPLETA_SETTING.md](../../ecommerce_sintel/ecommerce/.AGENT/docs/ARQUITECTURACOMPLETA_SETTING.md) | No releida en esta pasada |
-| `inventory` | [ARQUITECTURA_COMPLETA_INVENTORY.md](../../ecommerce_sintel/inventory/.AGENT/docs/ARQUITECTURA_COMPLETA_INVENTORY.md) | No releido en esta pasada |
-| `kyc` | [ARQUITECTURA_COMPLETA_KYC.md](../../ecommerce_sintel/kyc/.AGENT/docs/ARQUITECTURA_COMPLETA_KYC.md) | **App nueva, no listada en ninguna version anterior de este documento** — verificacion de identidad (2026-07-06), ver seccion dedicada abajo |
-| `marketing` | [ARQUITECTURA_COMPLETA_MARKETING.md](../../ecommerce_sintel/marketing/.AGENT/docs/ARQUITECTURA_COMPLETA_MARKETING.md) | No releido a fondo desde 2026-07-03 |
-| `notifications` | [ARQUITECTURA_COMPLETA_NOTIFICATIONS.md](../../ecommerce_sintel/notifications/.AGENT/docs/ARQUITECTURA_COMPLETA_NOTIFICATIONS.md) | Vigente — gano plantillas nuevas (`shop_*`, `service_payment_confirmed`) via las Operaciones post-pago, no releido a fondo |
-| `operations` | [ARQUITECTURA_COMPLETA_OPERATIONS.md](../../ecommerce_sintel/operations/.AGENT/docs/ARQUITECTURA_COMPLETA_OPERATIONS.md) | Vigente, no releido en esta pasada |
-| `organization` | [ARQUITECTURA_COMPLETA_ORGANIZATION.md](../../ecommerce_sintel/organization/.AGENT/docs/ARQUITECTURA_COMPLETA_ORGANIZATION.md) | **App nueva, no listada en ninguna version anterior de este documento** — creada 2026-07-12, SSoT de datos institucionales (antes repartidos entre `core` y `settings/base.py`), ver seccion dedicada abajo |
-| `security` | [ARQUITECTURA_COMPLETA_SECURITY.md](../../ecommerce_sintel/security/.AGENT/docs/ARQUITECTURA_COMPLETA_SECURITY.md) | **App nueva, no listada en ninguna version anterior de este documento** — creada ~2026-07-09, auditoria de seguridad (`SecurityEvent`), ver seccion dedicada abajo |
-| `orders` | [ARQUITECTURA_COMPLETA_ORDERS.md](../../ecommerce_sintel/orders/.AGENT/docs/ARQUITECTURA_COMPLETA_ORDERS.md) | Sincronizado 2026-07-09 — "Shop Operations" extiende `Shipment` con FSM de picking/packing/despacho/entrega + `assigned_dispatcher`, ver seccion dedicada abajo |
-| `payment` | [ARQUITECTURA_COMPLETA_PAYMENT.md](../../ecommerce_sintel/payment/.AGENT/docs/ARQUITECTURA_COMPLETA_PAYMENT.md) | Sincronizado 2026-07-13 — migracion a integracion API propia con Wompi (ADR-001, 10 fases completas), ver seccion dedicada abajo (la app **no se llama `wompi`**) |
-| `quotes` | [ARQUITECTURA_COMPLETA_QUOTES.md](../../ecommerce_sintel/quotes/.AGENT/docs/ARQUITECTURA_COMPLETA_QUOTES.md) | Vigente — sistema CPQ/cuestionarios, no un wizard simple (ver seccion) |
-| `renting` | [ARQUITECTURA_COMPLETA_RENTIG.md](../../ecommerce_sintel/renting/.AGENT/docs/ARQUITECTURA_COMPLETA_RENTIG.md) | Gano `RentalOperation` (FSM post-pago, `/api/v1/renting/operations/`) y un `AvailabilityEngine` de 2 fases (2026-07-07) — ver seccion dedicada abajo. **2026-07-29: incidente critico corregido** (`ImportError` tumbaba todo Django, ver seccion dedicada) — doc propio de la app aun sin actualizar con este fix, ver "Tareas pendientes" |
-| `shop` | [ARQUITECTURA_COMPLETA_SHOP.md](../../ecommerce_sintel/shop/.AGENT/docs/ARQUITECTURA_COMPLETA_SHOP.md) | No releido a fondo desde 2026-07-03 — la evolucion de fulfillment de productos fisicos vive en el doc de `orders` ("Shop Operations"), no aqui |
-| `support` | [ARQUITECTURA_COMPLETA_SUPPORT.md](../../ecommerce_sintel/support/.AGENT/docs/ARQUITECTURA_COMPLETA_SUPPORT.md) | Corregido 2026-07-03, no releido en esta pasada |
-| `technical_services` | [ARQUITECTURA_COMPLETA_SERVICES.md](../../ecommerce_sintel/technical_services/.AGENT/docs/ARQUITECTURA_COMPLETA_SERVICES.md) | Sincronizado 2026-07-09 — checkout en modal (nunca sale de la SPA) + `ServiceOperation` (FSM post-pago), ver seccion dedicada abajo |
-| `users` | [ARQUITECTURA_COMPLETA_USER.md](../../ecommerce_sintel/users/.AGENT/docs/ARQUITECTURA_COMPLETA_USER.md) | Sincronizado 2026-07-09 (`UserAdminCreateSerializer`/`UserAdminUpdateSerializer` ya no exponen `user_type`) |
-| Frontend | [ARQUITECTURA_COMPLETAFRONEND.md](../../ecommerce_sintel/frontend/.AGENT/doc/ARQUITECTURA_COMPLETAFRONEND.md) | No releido a fondo en esta pasada — ver seccion Frontend actualizada abajo. **2026-07-29: 2 bugs de cards de catalogo corregidos** (imagenes no cargaban + layout roto por imagen, ver "Design System" abajo) — doc propio aun sin actualizar con estos fixes, ver "Tareas pendientes" |
+| App | Documento de Arquitectura | Estado (2026-08-10) |
+|-----|--------------------------|-----------|
+| `accounts` | [ARQUITECTURA_COMPLETA_ACCOUNTS.md](../../ecommerce_sintel/accounts/.AGENT/docs/ARQUITECTURA_COMPLETA_ACCOUNTS.md) | Sincronizado 2026-07-09 — probablemente afectado por el rediseno de Auth (2026-07-17), no releido desde entonces |
+| `cart` | [ARQUITECTURA_COMPLETA_CART.md](../../ecommerce_sintel/cart/.AGENT/docs/ARQUITECTURA_COMPLETA_CART.md) | Sincronizado 2026-07-03, no releido desde entonces |
+| `core` | [ARQUITECTURA_COMPLETA_CORE.md](../../ecommerce_sintel/core/.AGENT/docs/ARQUITECTURA_COMPLETA_CORE.md) | Sincronizado 2026-07-09 — auditoria AUDITORIA/26 sin hallazgos (2026-08-02) |
+| `dashboard` | [ARQUITECTURA_COMPLETA_DASHBOARD.md](../../ecommerce_sintel/dashboard/.AGENT/docs/ARQUITECTURA_COMPLETA_DASHBOARD.md) | Creado 2026-07-03, no releido desde entonces |
+| `ecommerce` (base) | [ARQUITECTURACOMPLETA_SETTING.md](../../ecommerce_sintel/ecommerce/.AGENT/docs/ARQUITECTURACOMPLETA_SETTING.md) | No releida en ninguna pasada reciente |
+| `inventory` | [ARQUITECTURA_COMPLETA_INVENTORY.md](../../ecommerce_sintel/inventory/.AGENT/docs/ARQUITECTURA_COMPLETA_INVENTORY.md) | No releido en ninguna pasada reciente |
+| `kyc` | [ARQUITECTURA_COMPLETA_KYC.md](../../ecommerce_sintel/kyc/.AGENT/docs/ARQUITECTURA_COMPLETA_KYC.md) | **App nueva, no listada en versiones anteriores** — verificacion de identidad (2026-07-06) |
+| `marketing` | [ARQUITECTURA_COMPLETA_MARKETING.md](../../ecommerce_sintel/marketing/.AGENT/docs/ARQUITECTURA_COMPLETA_MARKETING.md) | AUDITORIA/27 (2026-08-02): ImportError P0 + P1 + P2 corregidos |
+| `notifications` | [ARQUITECTURA_COMPLETA_NOTIFICATIONS.md](../../ecommerce_sintel/notifications/.AGENT/docs/ARQUITECTURA_COMPLETA_NOTIFICATIONS.md) | Actualizado — gano indices BD (2026-08-03, AUDITORIA/31): `template_slug` + GIN sobre `payload_context` |
+| `operations` | [ARQUITECTURA_COMPLETA_OPERATIONS.md](../../ecommerce_sintel/operations/.AGENT/docs/ARQUITECTURA_COMPLETA_OPERATIONS.md) | AUDITORIA/28 (2026-08-03) — referencias a clase inexistente `OperationTicketSelector` corregidas (nombre real: `OperationSelector`) |
+| `organization` | [ARQUITECTURA_COMPLETA_ORGANIZATION.md](../../ecommerce_sintel/organization/.AGENT/docs/ARQUITECTURA_COMPLETA_ORGANIZATION.md) | **App nueva** — AUDITORIA/25 (2026-08-02). `organization/CLAUDE.md` dice "Fase 3 de 9" pero los 8 recursos estan operativos — sigue sin corregir |
+| `security` | [ARQUITECTURA_COMPLETA_SECURITY.md](../../ecommerce_sintel/security/.AGENT/docs/ARQUITECTURA_COMPLETA_SECURITY.md) | **App nueva** — AUDITORIA/23 (2026-08-02). AUDITORIA/29: `get_health_snapshot()` ahora reusado por `/api/v1/health/` |
+| `seo` | [ARQUITECTURA_COMPLETA_SEO.md](../../ecommerce_sintel/seo/.AGENT/docs/ARQUITECTURA_COMPLETA_SEO.md) | **App nueva** — creada 2026-07-31, metaetiquetas del `<head>` |
+| `orders` | [ARQUITECTURA_COMPLETA_ORDERS.md](../../ecommerce_sintel/orders/.AGENT/docs/ARQUITECTURA_COMPLETA_ORDERS.md) | Sincronizado 2026-07-09 — "Shop Operations" + FSM picking/packing/despacho/entrega |
+| `payment` | [ARQUITECTURA_COMPLETA_PAYMENT.md](../../ecommerce_sintel/payment/.AGENT/docs/ARQUITECTURA_COMPLETA_PAYMENT.md) | Sincronizado 2026-07-13 — migracion API Wompi (ADR-001, 10 fases) |
+| `quotes` | [ARQUITECTURA_COMPLETA_QUOTES.md](../../ecommerce_sintel/quotes/.AGENT/docs/ARQUITECTURA_COMPLETA_QUOTES.md) | Vigente — sistema CPQ/cuestionarios |
+| `renting` | [ARQUITECTURA_COMPLETA_RENTIG.md](../../ecommerce_sintel/renting/.AGENT/docs/ARQUITECTURA_COMPLETA_RENTIG.md) | **Pendiente propagar** los 3 incidentes de 2026-07-29 (ver "Tareas pendientes") |
+| `shop` | [ARQUITECTURA_COMPLETA_SHOP.md](../../ecommerce_sintel/shop/.AGENT/docs/ARQUITECTURA_COMPLETA_SHOP.md) | No releido en profundidad desde 2026-07-03 |
+| `sms_bridge` | *(sin doc propio aun)* | **Modulo nuevo detectado 2026-08-10** — puente HTTP<->modem GSM, corre en HOST Windows fuera de Docker; ver seccion dedicada abajo |
+| `support` | [ARQUITECTURA_COMPLETA_SUPPORT.md](../../ecommerce_sintel/support/.AGENT/docs/ARQUITECTURA_COMPLETA_SUPPORT.md) | Actualizado 2026-07-31 (AUDITORIA/15). 2026-08-03 (AUDITORIA/31): indices BD + heartbeat WS + CHANNEL_LAYERS con capacity/expiry explicitos |
+| `technical_services` | [ARQUITECTURA_COMPLETA_SERVICES.md](../../ecommerce_sintel/technical_services/.AGENT/docs/ARQUITECTURA_COMPLETA_SERVICES.md) | Sincronizado 2026-07-09 — checkout en modal + `ServiceOperation` (FSM post-pago) |
+| `users` | [ARQUITECTURA_COMPLETA_USER.md](../../ecommerce_sintel/users/.AGENT/docs/ARQUITECTURA_COMPLETA_USER.md) | Sincronizado 2026-07-09 |
+| `project_knowledge_graph` | [ARQUITECTURA_COMPLETA_GRAFO.md](../../ecommerce_sintel/project_knowledge_graph/.AGENT/ARQUITECTURA_COMPLETA_GRAFO.md) | **Modulo independiente, rediseno de 22 fases completo y verificado 2026-08-11** — separacion fisica de `ai_engine` cerrada (FASE 0); `ai_engine` no lo importa en absoluto, verificado por test; grafo estructural completo (Contract/Data Flow/Execution/Test/Documentation/Configuration Graph, FASES 1-9); capa de consulta para asistir cambios (`calculate_change_impact`/`resolve_change`/`graph_sdk`, FASES 10-13); deteccion/validacion/observabilidad de cambios (FASES 15-18); documentacion consolidada y limpia (FASES 19-20); 9575 nodos/20335 aristas reales, 120/120 tests; ver seccion dedicada abajo y `SITE_KNOWLEDGE_GRAPH_CIERRE_FINAL.md` para el reporte de cierre completo |
+| `ai_editor` | [AI_EDITOR_BASELINE.md](../../ecommerce_sintel/ai_editor/.AGENT/AI_EDITOR_BASELINE.md) | **Plan de 24 fases (POST-GRAPH 0-23) completo y verificado 2026-08-11** — de scaffold de solo lectura a pipeline funcional READ->RESOLVE->PLAN->PROPOSE->PATCH SANDBOX->VALIDATE->HUMAN APPROVAL->COMMIT; frontera `ai_editor -> graph_client -> graph_sdk -> project_knowledge_graph` verificada por test AST, nunca importa `ai_engine`; LLM propio intercambiable (Ollama/OpenAI/Anthropic) sin depender de otros modulos; sin generacion automatica de codigo (el `new_content` de un patch lo decide un humano); `promote_to_workspace()` con 5 capas de guardrail independientes, **confirmado PROMOTE+ROLLBACK reales contra el repositorio real** (POST-GRAPH 21, no solo contra sandboxes de prueba); 257/257 tests; ver `ai_editor/.AGENT/SECURITY_MODEL.md` para el modelo de seguridad completo |
+| Frontend | [ARQUITECTURA_COMPLETAFRONEND.md](../../ecommerce_sintel/frontend/.AGENT/doc/ARQUITECTURA_COMPLETAFRONEND.md) | **Pendiente propagar** 2 bugs de cards de 2026-07-29 (ver "Tareas pendientes") |
+
 
 ### Regla de actualizacion
 
@@ -444,7 +622,10 @@ acciones nuevas dentro de `OrderViewSet` bajo `/api/v1/orders/orders/` (`operati
 `orders` abajo).
 **El AI Engine (`ai_engine/`, FastAPI puerto 8100) es un servicio Docker separado, NO parte de
 este `urls.py`** — sus rutas (`/chat`, `/api/v1/ai/context`, `/generate`, etc.) viven en su
-propio proceso; solo los 2 endpoints `internal/ai*` de arriba son el lado Django del puente.
+propio proceso. **[CORREGIDO 2026-08-17]** el lado Django del puente son los `path()` de arriba
+(`ai-context/` + el `include()` de `internal_ai/`), pero ese `include()` expande a **31
+endpoints reales** (`ecommerce/internal_ai_urls.py`), no un par de rutas sueltas — ver seccion
+`ai_engine` mas abajo para el detalle completo del flujo.
 
 ---
 
@@ -1093,6 +1274,29 @@ Services: `SecurityCommands.log_event()`, `SecuritySelector.list_events()`/`.get
 
 ---
 
+### seo — Metaetiquetas del `<head>` — app nueva, no listada antes (2026-07-31)
+
+Reemplaza el antipatron de hardcodear codigos de verificacion (Meta Business Suite, Google
+Search Console...) directamente en `templates/spa_shell.html`. Modelo `SiteMetaTag`
+(proveedor/tipo/meta_name/meta_content/html_snippet/prioridad/entorno/pagina destino) + audit log
+append-only `SeoMetaTagAuditLog`. Renderizado 100% server-side: `templates/spa_shell.html` (unico
+punto donde Django construye el `<head>` en produccion, ver `ecommerce/urls.py` +
+`nginx-common.conf`) carga `{% render_meta_tags %}` (`seo/templatetags/seo_tags.py`), que lee un
+cache de 300s poblado por `MetaTagSelector` — nunca hay insercion via JavaScript.
+
+| Endpoint | Metodo | Permiso |
+|---|---|---|
+| `/api/v1/dashboard/seo/meta-tags/*` | GET/POST/PATCH/DELETE + `duplicate/`/`toggle/`/`reorder/`/`preview/`/`export/`/`import/`/`history/` | `ADMIN_PERMISSIONS` (`AdminSeoMetaTagViewSet`, BFF admin, panel `/panel/seo/meta-tags`) |
+
+Sanitizacion sin dependencias nuevas: `seo/services/sanitizer.py::sanitize_meta_html()` (stdlib
+`html.parser` + `format_html`), solo permite `<meta>` con atributos de una allowlist, rechaza
+scripts/atributos `on*`/URIs `javascript:`. Seed inicial (verificacion de Meta Business Suite)
+via data migration (`seo/migrations/0002_seed_meta_business_verification.py`), nunca hardcodeado.
+Services: `MetaTagSelector`, `MetaTagCommands` — ver seccion completa en
+`seo/.AGENT/docs/ARQUITECTURA_COMPLETA_SEO.md`.
+
+---
+
 ### core — Contenido publico (landing, home feed) — app nueva, no listada antes
 
 > **[MIGRADO 2026-07-12]** `core` ya NO es dueno de marca/contacto/redes sociales — se movieron a
@@ -1157,6 +1361,14 @@ notificaciones directamente (WebSocket, Email, WhatsApp via Meta Cloud API).
 Modelos: `NotificationTemplate`, `NotificationLog`. 8 `NotificationTemplate` sembradas en BD (ver
 memoria del proyecto).
 
+**[AGREGADO 2026-08-17]** `notifications/tasks.py::process_whatsapp_inbound_task` es tambien el
+canal WhatsApp del AI Core (Fase 7) — mensajes entrantes de WhatsApp (Meta Cloud API, webhook con
+dedupe por `message_id`) resuelven el usuario por telefono y llaman al MISMO
+`support.services.ai_bridge.ask_ai()` que usa el widget web, persistiendo ambos lados en la
+`ChatRoom` real del usuario (visible en `/panel/soporte`, no un canal aislado). Desde 2026-08-17
+respeta `is_ai_mode_active()`/`is_ai_rate_limited()` de la sala antes de auto-responder — ver
+seccion `ai_engine` mas abajo.
+
 ---
 
 ### operations — Fulfillment operativo post-pago — app nueva, no listada antes
@@ -1177,7 +1389,7 @@ desde `payment.shared.commands.confirm_order_payment()` y `CodCommands.confirm_o
 
 ---
 
-### support — Chat de soporte en tiempo real (WebSocket + 1 endpoint REST) — app nueva, doc propio desactualizado
+### support — Chat de soporte en tiempo real (WebSocket + 1 endpoint REST) — doc propio actualizado (ver AUDITORIA/15)
 
 > **[CORREGIDO 2026-07-03, luego 2026-07-23]** El doc
 > `support/.AGENT/docs/ARQUITECTURA_COMPLETA_SUPPORT.md` describia una REST API completa
@@ -1209,9 +1421,28 @@ Modelos: `ChatRoom` (`user`, `status` OPEN/CLOSED, `assigned_admin`, mas campos 
 UI: widget flotante para clientes (componente global, no una ruta) + consola admin
 `SupportDashboardView.vue` en `/panel/soporte` (dos columnas: lista de salas + chat activo).
 
-**Pendiente:** actualizar `support/.AGENT/docs/ARQUITECTURA_COMPLETA_SUPPORT.md` para incluir el
+> **[RESUELTO 2026-07-31, AUDITORIA/15_AUDITORIA_SUPPORT_OMNICANAL.md]** El pendiente de abajo
+> (actualizar el doc propio de `support` con el endpoint CSAT) ya se cerro, junto con 4
+> desincronizaciones mas del mismo doc y 8 correcciones reales de codigo (bot IA mal atribuido en
+> el historial REST, rate-limit de IA en el WS, visibilidad de caidas del AI Engine, validacion de
+> estado en sala cerrada, duplicacion WS/REST de labels de contexto) — ver ese documento para el
+> detalle completo.
+
+**Pendiente (resuelto 2026-07-31):** actualizar `support/.AGENT/docs/ARQUITECTURA_COMPLETA_SUPPORT.md` para incluir el
 endpoint CSAT y el AI Core en modo "atencion IA" antes del Human Handoff — no se hizo en esta
 pasada por estar fuera del archivo que se pidio auditar (ver "Tareas pendientes").
+
+**[AGREGADO 2026-08-17, gap real de este documento — nunca se habia documentado aqui pese a
+estar construido/probado desde 2026-07-16]** `SupportChatConsumer` no solo enruta
+cliente<->admin: si la sala esta en modo IA (`is_ai_mode_active(room)` — ver seccion `ai_engine`
+abajo), un mensaje de cliente dispara `_ai_reply()` (tarea async, no bloquea el socket), que
+llama a `ai_bridge.ask_ai_async()`. La respuesta se persiste como `ChatMessage` del bot
+(`AI_BOT_EMAIL`, `ai_metrics` JSON) y se difunde a AMBOS grupos (`chat_{user.uuid}` Y
+`support_admins`) para que el panel admin vea la conversacion de la IA en vivo. Human Handoff:
+si la IA ejecuta `abrir_ticket_soporte` con exito, `ChatRoom.ai_paused=True` y dejar de
+responder en esa sala — la reactivacion real ocurre en una sala NUEVA (no existe un "unpause"
+en la misma sala): `ChatCommands.get_or_create_room()` solo reusa salas `OPEN`, asi que tras
+`close_room()` el siguiente mensaje crea una sala con `ai_paused=False` por default.
 
 ---
 
@@ -1344,25 +1575,243 @@ del panel admin.
 
 ---
 
+### ai_engine — Motor de IA conversacional (Support Agent) — servicio Docker separado, seccion nueva 2026-08-17 (gap real: nunca tuvo su propia seccion pese a construirse desde 2026-07-16)
+
+Directorio: `ecommerce_sintel/ai_engine/` — proceso FastAPI independiente (imagen Docker propia
+`sintel_ai`, puerto 8100 interno, **NO** parte de `ecommerce/urls.py` ni del proceso
+Django/Gunicorn). **Sin bind-mount de codigo** — un cambio ahi requiere
+`docker compose build sintel_ai && docker compose up -d sintel_ai`; un `restart` simple no lo
+recoge (confirmado empiricamente 2026-08-17).
+
+**Responsabilidad unica: inteligencia conversacional del Customer via Support Chat.** `ai_editor`
+(generacion/propuesta de codigo, ver v14-v16 arriba) es un modulo distinto y congelado — sin
+conexion directa entre ambos (verificado por test AST). `ai_engine` tampoco importa
+`project_knowledge_graph` (desacoplado FASE 0, 2026-08-10, ver
+`ai_engine/.AGENT/AI_ENGINE_KG_DECOUPLING_FASE0.md`).
+
+**Flujo real**: `SupportChatWidget.vue` (o WhatsApp) → WebSocket `ws/support/chat/` / webhook
+Meta → `support/services/ai_bridge.py` (identidad JWT real del usuario, nunca generica) →
+`POST /chat` de `ai_engine` → `action_graph.py` (LangGraph): Intent → Agent Router (**9 Agent
+Profiles** en `agents/profiles/*.yaml`: Support/Account/Admin/Marketing/Order/Payment/Rental/
+Sales/Service, con escalamiento agente-a-agente hacia SupportAgent) → Customer Context
+(`AiCustomerContextView`, cache Redis 5 min, solo 4 intents que lo necesitan) → RAG
+(`retrieve_knowledge_for_chat`, filtra `visibility=="public"` — evita que el LLM fabrique
+respuestas con documentacion tecnica interna, hallazgo real corregido 2026-08-08) → Tools
+(**29 capabilities activas**, `capabilities/registry.py` + `tools/registry.py`; el LLM nunca ve
+una Tool directa) → Policy Layer (deny/confirm/allow segun `ToolMetadata`, `interrupt()` real de
+LangGraph para confirmacion humana, rate limit por-Tool en Redis) → respuesta — y vuelve por el
+mismo camino.
+
+**Puente con Django — `/api/v1/internal/ai/*`**: el include de `ecommerce/urls.py:70` expande a
+**31 endpoints reales** (`ecommerce/internal_ai_urls.py`, uno por capacidad de negocio: ordenes,
+alquileres, pagos, servicios, kyc, marketing, cotizaciones, core/CMS, etc.) — no "2 endpoints"
+como decia una version anterior de la seccion "Rutas API raiz" arriba. `nginx` nunca expone
+`sintel_ai` publicamente; `ai_engine` nunca toca el ORM directo, siempre pasa por estas vistas
+(que a su vez usan Selectors/Commands ya existentes de la app dueña).
+
+**Identidad y aislamiento**: `thread_id = f"{user_id}:{conversation_id}"` siempre deriva del JWT
+resuelto server-side (nunca del mensaje del cliente) — un Customer no puede colisionar con la
+conversacion de otro adivinando su `conversation_id`. `ChatRoom.ai_paused`/`assigned_admin`
+(Django) gatea el Human Handoff via `is_ai_mode_active()`; el estado de turno (checkpoint Redis,
+TTL 7 dias) lo posee `action_graph.py` — Django sigue siendo dueño de los datos de negocio.
+
+**Canales**: Web (WebSocket) y WhatsApp (Meta Cloud API, `notifications/tasks.py`) llaman al
+MISMO puente — motor channel-agnostic desde 2026-07-16. **[CERRADO 2026-08-17]** WhatsApp ahora
+respeta `is_ai_mode_active()`/`is_ai_rate_limited()` de la sala antes de auto-responder — antes
+un cliente cuyo chat web ya habia escalado a un humano seguia recibiendo respuestas automaticas
+de la IA si escribia por WhatsApp.
+
+**Concurrencia — [CERRADO 2026-08-17]**: el widget web ahora usa `ask_ai_async()`
+(`httpx.AsyncClient`, espera nativa del event loop) en vez de `ask_ai()` sincrono envuelto en
+`database_sync_to_async` — ya no ocupa el thread pool compartido de Django Channels durante la
+llamada al AI Engine (hasta 300s). Esto cierra el item "B2" que la tabla de Tareas Pendientes de
+este documento listaba como bloqueador antes de activar la IA ampliamente (ver abajo). WhatsApp
+sigue usando `ask_ai()` sincrono sin cambios (contexto Celery, sin event loop que proteger).
+
+**`AI_SUPPORT_CHAT_ENABLED`**: `True` en este entorno de desarrollo (confirmado en runtime,
+2026-08-17, `ecommerce/settings/base.py`, default `False`). Produccion **no corre `sintel_ai` en
+absoluto** — `docker-compose.prod.yml` excluye deliberadamente `sintel_ai`/`sintel_ollama`/
+`sintel_chromadb` — el flag no aplica hoy contra produccion real.
+
+Documentacion de detalle completo (no duplicada aqui): contrato tecnico —
+[`SUPPORT_AGENT_SPEC.md`](../../ecommerce_sintel/ai_engine/.AGENT/SUPPORT_AGENT_SPEC.md);
+checklist certificado con evidencia real, `APTA` —
+[`SUPPORT_AI_CERTIFICATION.md`](../../ecommerce_sintel/ai_engine/.AGENT/SUPPORT_AI_CERTIFICATION.md);
+23 capas E2E contra el stack vivo sin mocks —
+[`CERTIFICACION_E2E_CHAT_IA_2026-08-13.md`](../../ecommerce_sintel/ai_engine/.AGENT/CERTIFICACION_E2E_CHAT_IA_2026-08-13.md).
+
+---
+
+### sms_bridge — Puente HTTP↔Modem GSM (HOST Windows) — modulo nuevo, detectado 2026-08-10
+
+Archivo: `ecommerce_sintel/sms_bridge/bridge.py` — proceso Python que corre en el HOST Windows
+**fuera de Docker**, no es una app Django ni un contenedor.
+
+**Por que existe:** el contenedor Django (Linux, via Docker Desktop/WSL2) no puede abrir un puerto
+COM de Windows directamente. El bridge actua como proxy HTTP entre el contenedor y el modem fisico.
+
+**Modem:** SIM5360, SIM Movistar Colombia, puerto COM5, 115200 baudios.
+
+**Protocolo AT:** modo texto (`AT+CMGF=1`), solicita reporte de entrega (`AT+CSMP=49,167,0,0`),
+envio via `AT+CMGS`, termina con `Ctrl+Z`. Lock de threading: un solo SMS activo a la vez (el
+modem AT no puede procesar comandos en paralelo).
+
+| Endpoint | Metodo | Descripcion |
+|---|---|---|
+| `/status` | GET | Estado del modem: SIM (`AT+CPIN?`), senal (`AT+CSQ`), operador (`AT+COPS?`) |
+| `/sms/send` | POST | Envia un SMS. Body: `{"to": "+57...", "message": "..."}` |
+
+Auth: header `X-Bridge-Token` (debe coincidir con `SMS_BRIDGE_TOKEN` en `.env`). Si
+`SMS_BRIDGE_TOKEN` no esta configurado, el bridge acepta peticiones sin autenticacion (log warning).
+
+Variables de entorno:
+```env
+SMS_MODEM_PORT=COM5        # puerto serie del modem
+SMS_MODEM_BAUD=115200
+SMS_BRIDGE_HOST=0.0.0.0    # escuchar en todas las interfaces para host.docker.internal
+SMS_BRIDGE_PORT=8765
+SMS_BRIDGE_TOKEN=...       # debe coincidir con .env del backend
+```
+
+Cliente Django: `notifications/clients/sms.py`.
+URL del backend: `SMS_BRIDGE_URL` en `ecommerce/settings/base.py`.
+Iniciar: `python bridge.py` desde el host (requiere `pip install pyserial`).
+
+---
+
+### project_knowledge_graph — Site Knowledge Graph — modulo independiente (rediseno de 22 fases completo 2026-08-11)
+
+Directorio: `ecommerce_sintel/project_knowledge_graph/` — analisis estructural del codigo del
+proyecto (que existe, como esta relacionado, que se rompe si cambia, que tests correr, que
+documentacion es relevante). Doc de arquitectura propio completo:
+[`ARQUITECTURA_COMPLETA_GRAFO.md`](../../ecommerce_sintel/project_knowledge_graph/.AGENT/ARQUITECTURA_COMPLETA_GRAFO.md)
+(seccion 11 tiene el detalle fase por fase) y reporte de cierre ejecutivo:
+[`SITE_KNOWLEDGE_GRAPH_CIERRE_FINAL.md`](../../ecommerce_sintel/project_knowledge_graph/.AGENT/SITE_KNOWLEDGE_GRAPH_CIERRE_FINAL.md)
+— esta seccion es un resumen, esos dos documentos son la fuente de verdad detallada.
+
+**Historia real (varias sesiones, no una sola pasada):**
+1. **2026-08-08/09** — Extraccion fisica desde los archivos planos de `ai_engine/`
+   (`project_map.py`, `knowledge_graph.py`, `dependency_graph.py`, `auditor.py`, familia
+   "Graphify"). Los 9 archivos viejos se **borraron** de `ai_engine/`, no quedaron alias.
+2. **2026-08-10, FASE 0** — Regla arquitectonica mas estricta adoptada: **"AI Engine no conoce
+   ni importa `project_knowledge_graph`, y `project_knowledge_graph` no conoce ni depende de
+   `ai_engine`."** `GraphImpactAnalysisTool` (la Tool de chat que exponia "que se rompe si cambio
+   X" a un admin via conversacion) se **elimino por completo**, no se degrado, incluida su
+   conexion como intent real del chat (`architecture_impact`). `main.py`/`planner.py`/`graph.py`/
+   `incremental_updater.py` de `ai_engine` quedaron con stubs locales que ya no importan el
+   grafo. Matriz exacta: `ai_engine/.AGENT/AI_ENGINE_KG_DECOUPLING_FASE0.md`.
+3. **2026-08-10, FASES 1-2** — Nuevas entidades del grafo: `File`/`Symbol` (funcion/metodo Python
+   con rango de lineas exacto) y `WebSocketRoute`/`EnvVar` ("Contract Graph" inicial).
+4. **2026-08-10/11, FASES 3-21 — rediseno "Site Knowledge Graph -> Change Intelligence -> AI
+   Editor Runtime" completo (22 fases totales, FASE 0-21).** Grafo estructural extendido a todo el
+   dominio (frontend Vue/JS a nivel de simbolo, data flow de `Model.objects.verbo()` real,
+   execution paths de signals/Celery tasks, test coverage, documentacion referenciada, infra
+   Docker/nginx/env — FASES 3-9); capa de consulta para asistir cambios reales
+   (`calculate_change_impact`/`resolve_change`/`build_graph_context_packet`/`graph_sdk` — FASES
+   10-13); scaffold de un futuro AI Editor (`ecommerce_sintel/ai_editor/`, solo lectura, sin
+   capacidad de modificar codigo — FASE 14, decision de seguridad deliberada); deteccion de
+   cambios via git diff real, Change Validation Report, diseno documentado del Autonomous Change
+   Loop (sin codigo, misma decision de seguridad que Fase 14), y auditoria de consultas — FASES
+   15-18; consolidacion y limpieza documental — FASES 19-20; validacion global final (rebuild +
+   suite completa, 0 regresiones) — FASE 21. Detalle fase por fase, cada uno con bugs reales
+   encontrados y corregidos verificados contra el repo real (no fixtures): ver
+   `ARQUITECTURA_COMPLETA_GRAFO.md` seccion 11.
+
+**Decision arquitectonica (estado real a 2026-08-12, v16 -- actualizado desde el "SCAFFOLD, no
+funcional" de v14/2026-08-11, ver seccion "Ultima revision" arriba para el detalle completo):**
+```
+ai_engine          -> chatbot de soporte puro (WebSocket, RAG, Action Graph) -- NO conoce el grafo
+project_knowledge_graph -> Site Knowledge Graph (conocimiento estructural verificable del sitio),
+                     COMPLETO: grafo + capa de consulta + SDK + deteccion de cambios + validacion
+ai_editor/          -> AI Editor Runtime + AI Change Proposal Engine, FUNCIONAL de punta a punta
+                     (plan de 60 fases completo al 2026-08-12): LLM -> PatchProposal estructurada
+                     -> 10 capas de validacion real -> sandbox -> revision humana -> promote/
+                     rollback contra el repo real, confirmado funcionando (FASE 54-55). El unico
+                     limite que sigue siendo deliberado (no pendiente): ni `generation/` ni
+                     `agent/` pueden LLEGAR a escribir sobre el workspace real por si solos --
+                     promover exige siempre `decision`/`confirm` explicitos de un humano
+                     (`generation.promotion.review_and_promote()`), nunca automatico.
+```
+
+**Estructura real (fisica y de contenido, verificada 2026-08-11, no aspiracional):**
+```
+project_knowledge_graph/
+  __init__.py, config.py
+  scanner/          # python_scanner.py, django_scanner.py, frontend_scanner.py, project_scanner.py
+  project_map/      # builder.py, loader.py, query.py
+  knowledge_graph/  # builder.py, loader.py, query.py (18 funciones), relations.py,
+                     #   enrichers/ (documentation.py, docker.py, nginx.py, agents.py)
+  dependency_graph/ # builder.py, loader.py, blast_radius.py, impact.py, query.py
+  incremental/      # diff.py (deteccion de apps Y de simbolos individuales via git diff), hashing.py, updater.py
+  audit/            # auditor.py (pipeline explicito), validator.py (6 chequeos),
+                     #   change_validation.py (Change Validation Report), query_log.py (auditoria de consultas),
+                     #   visualizer.py
+  snapshots/        # manager.py (historial ligero de cada corrida, NO copia del grafo completo)
+  graph_sdk/        # fachada estable de 13 operaciones, instrumentada con logging de auditoria
+  cli/              # main.py -- `python -m project_knowledge_graph.cli <audit|impact|resolve-change|...>` (19 subcomandos)
+  data/             # PROJECT_MAP.json, KNOWLEDGE_GRAPH.json, DEPENDENCY_GRAPH.json, QUERY_AUDIT_LOG.jsonl (untracked, no gitignored)
+  tests/            # 120 tests, unit + integracion contra el repo real (no mockeado)
+
+ecommerce_sintel/ai_editor/  # (paquete SEPARADO, no dentro de project_knowledge_graph) -- 12
+  #                            submodulos, TODOS con logica real (ver "Ultima revision" v16 arriba)
+  graph_client/     # wrapper de solo lectura sobre graph_sdk -- la UNICA frontera hacia el grafo
+  llm/              # cliente LLM independiente (ollama/openai/anthropic), propio de ai_editor
+  intent/, resolver/, planner/  # ChangeIntent -> ChangeContext -> ChangePlan, contra el grafo real
+  repository/, patch/, validation/  # sandbox aislado, Patch Engine, validacion de sintaxis
+  approval/, audit/  # Human Approval Gate, Change Audit (log append-only sanitizado)
+  generation/       # 24 submodulos, FASE 24-50/56-59 -- AI Change Proposal Engine (LLM ->
+                     #   PatchProposal estructurada -> validacion -> sandbox -> promote/rollback)
+  agent/            # FASE 51-53 -- run_autonomous_change_loop(), orquesta todo lo anterior en
+                     #   una sola llamada, sin poder LLEGAR a promover (garantizado por test AST)
+```
+
+**Escala real (ultima corrida real, verificada en FASE 21, 2026-08-11):** 9575 nodos / 20335
+aristas — 21 apps Django, 150 endpoints, 1161 archivos, 6396 Symbol (857 marcados `is_test`), 432
+Serializer, 168 ViewSet, 167 Model, 19 Task, 68 EnvVar, 4 WebSocketRoute, 8 Port, 6 NginxRoute, 29
+Tool, 9 Agent. **120/120 tests pasan.**
+
+**Limitaciones reales conocidas, documentadas y sin resolver a proposito** (lista completa en
+`SITE_KNOWLEDGE_GRAPH_CIERRE_FINAL.md` seccion 4):
+1. `ai_engine/memory_builder.py`/`ai_manifest.py`/`specialized_retrieval.py` leen
+   `ai_engine/PROJECT_MAP.json` directo de disco (no importan este modulo) — desde FASE 0 nada
+   dentro de `ai_engine` regenera ya ese archivo, queda como foto estatica. Decision de
+   arquitectura pendiente (`AI_ENGINE_KG_DECOUPLING_FASE0.md` seccion 3).
+2. El REBUILD del grafo sigue siendo completo aunque la DETECCION de cambios ya es symbol-level
+   (Fase 15) — convertir el builder en incremental real es un cambio de arquitectura mayor.
+3. 8 endpoints reales sin arista `SERIALIZES` (gap de cobertura del enricher, no de esta fase).
+
+---
+
 ## Infraestructura Docker (verificado 2026-07-03 via `docker ps`)
 
-| Servicio | Imagen | Puerto externo |
-|----------|--------|----------------|
-| `ecommerce_sintel_django` | `ecommerce_sintel:runtime` (Daphne ASGI) | 8000 |
-| `ecommerce_sintel_celery_worker` | `ecommerce_sintel:runtime` | - |
-| `ecommerce_sintel_celery_beat` | `ecommerce_sintel:runtime` | - |
-| `ecommerce_sintel_db` | postgres:16-alpine | 5432 |
-| `ecommerce_sintel_redis` | redis:7.2-alpine | 6380 (mapeado, interno 6379) |
-| `ecommerce_sintel_nginx` | nginx:1.26-alpine | 80 |
-| `ecommerce_sintel_frontend` | node:24-bookworm-slim | 5173 |
-| `ecommerce_sintel_ai` | `ecommerce_sintel_ai:latest` (FastAPI, AI Engine) | 8100 |
-| `ecommerce_sintel_ollama` | ollama/ollama:latest | 11434 |
-| `ecommerce_sintel_chromadb` | chromadb/chroma:0.5.23 | 8200 |
+| Servicio | Imagen | Puerto externo | Healthcheck |
+|----------|--------|----------------|-------------|
+| `ecommerce_sintel_django` | `ecommerce_sintel:runtime` (Daphne ASGI) | 8000 | `GET /api/v1/health/` — ahora real: db+redis (503 si fallan) |
+| `ecommerce_sintel_celery_worker` | `ecommerce_sintel:runtime` | - | `celery -A ecommerce inspect ping` |
+| `ecommerce_sintel_celery_beat` | `ecommerce_sintel:runtime` | - | **`grep -a -l celery /proc/[0-9]*/cmdline`** (AUDITORIA/31 — antes sin healthcheck) |
+| `ecommerce_sintel_db` | postgres:16-alpine | 5432 | nativo postgres |
+| `ecommerce_sintel_redis` | redis:7.2-alpine | 6380 (mapeado, interno 6379) | nativo redis |
+| `ecommerce_sintel_nginx` | nginx:1.26-alpine | 80 | - |
+| `ecommerce_sintel_frontend` | node:24-bookworm-slim | 5173 | - |
+| `ecommerce_sintel_ai` | `ecommerce_sintel_ai:latest` (FastAPI, AI Engine) | 8100 | — solo en dev, no en `docker-compose.prod.yml` |
+| `ecommerce_sintel_ollama` | ollama/ollama:latest | 11434 | - |
+| `ecommerce_sintel_chromadb` | chromadb/chroma:0.5.23 | 8200 | - |
+
+**Componente fuera de Docker — `sms_bridge`** (`ecommerce_sintel/sms_bridge/bridge.py`): proceso
+Python corriendo en el HOST Windows, no en ningun contenedor. Abre el puerto COM5 (modem GSM
+SIM5360, SIM Movistar Colombia) y expone una API HTTP minima en `0.0.0.0:8765` que el contenedor
+Django puede alcanzar via `host.docker.internal:8765`. Autenticacion: header `X-Bridge-Token`
+(debe coincidir con `SMS_BRIDGE_TOKEN` en `.env`). Endpoints: `GET /status` (estado del modem) y
+`POST /sms/send` (`{"to": "+57...", "message": "..."}` — serializa el acceso AT con un lock, un
+solo SMS activo a la vez). Iniciar con `python bridge.py` desde el host; requiere `pyserial`.
+Cliente en Django: `notifications/clients/sms.py`. URL: `SMS_BRIDGE_URL` en
+`ecommerce/settings/base.py`.
 
 **Atencion:** esta maquina aloja tambien contenedores `crm_sintel-*` (proyecto distinto) que
 compiten por los puertos 80/5432. Verificar con `docker ps` antes de operar (exec/restart/stop).
 
-Healthcheck: `GET /api/v1/health/` -> `{"status": "ok"}`
+Healthcheck publico: `GET /api/v1/health/` -> `{"status": "ok", "db": true, "redis": true, "celery": true}`
+(503 si db o redis no estan disponibles desde Django — **CORREGIDO 2026-08-03**, AUDITORIA/29 P1).
 
 Archivos media: servidos en dev via `static(MEDIA_URL, document_root=MEDIA_ROOT)` en `urls.py`.
 `MEDIA_ROOT = BASE_DIR / 'media'`, `MEDIA_URL = '/media/'`
@@ -1521,20 +1970,285 @@ matrices de riesgo, dependencias y estrategia de rollback.
 
 ---
 
-## Tareas pendientes (actualizado 2026-07-29)
+## Tareas pendientes (actualizado 2026-08-10)
 
 | Prioridad | Tarea |
 |-----------|-------|
-| Media | Propagar los 3 incidentes del 2026-07-29 (ver nota de version y secciones `renting`/Frontend arriba) a los docs de Nivel 2 propios: `renting/.AGENT/docs/ARQUITECTURA_COMPLETA_RENTIG.md` ("Cambios Recientes") y `frontend/.AGENT/doc/ARQUITECTURA_COMPLETAFRONEND.md` — solo se actualizo `IMPLEMENTATION_SUMMARY.md` en esta pasada, per protocolo de sincronizacion (paso 2 del `09_DOCUMENT_SYNCHRONIZATION_PROTOCOL.md`) |
-| Media | Auditar si existe el mismo patron `.image`/`item.image` (propiedad plana inexistente) en otros consumidores de `images[]` no revisados en esta pasada — solo se verificaron los componentes de catalogo de Renting/Shop; `technical_services` y `quotes` no se revisaron |
-| Media | `support/.AGENT/docs/ARQUITECTURA_COMPLETA_SUPPORT.md` sigue sin actualizar para reflejar (a) el endpoint CSAT nuevo (`POST /api/v1/support/chats/<uuid>/rate/`, ver seccion `support`) y (b) que el AI Core (2026-07-16) ahora tambien atiende ese chat en "modo AI" antes del Human Handoff — ver `ai_engine/.AGENT/PLAN_DE_ACCION_AI_CORE.md` Fase 7 |
-| Media | `organization/CLAUDE.md` dice "Fase 3 de 9" pero los 8 recursos ya estan operativos (re-verificado 2026-07-23, sigue sin corregir) — corregir esa nota (ver seccion `organization`) |
-| Media | Documentar en el doc de frontend (`ARQUITECTURA_COMPLETAFRONEND.md`) el Design System `components/base/*` con el mismo nivel de detalle que ya tiene `ai_skills/frontend/components/cards.md` |
-| Baja | Confirmar si `core.CACHE`/signals cubren tambien `BrandSliderConfig`/`BrandSliderItem`/`FooterGroup`/`AboutUsConfig`/`AboutUsValue` (los 5 modelos sumados despues del conteo original de "9" — ver seccion `core`), no verificado en la pasada 2026-07-23 |
-| Baja | Rate limiting en login (proteccion brute force) — verificar si el rediseno de Auth 2026-07-17 ya lo cubre, no confirmado en ninguna pasada hasta ahora |
-| Baja | Implementar rol/perfil VENDOR completo (hoy reservado, sin flujo end-to-end claro) |
-| Baja | Agregar test parametrizado que confirme `IsAdminUser` en las ViewSets de `dashboard` (blindaje contra regresiones de permisos, sugerido en `ARQUITECTURA_COMPLETA_DASHBOARD.md`) |
-| Descartado por decision del usuario (2026-07-09) | Sistema de eventos de dominio, wizard de upgrade independiente por tipo profesional (se mantiene 1 solo wizard reutilizado), reorganizacion del dashboard de usuarios por tipo, libreria de 8 componentes Vue de identidad — sin consumidor concreto hoy, ver `accounts/.AGENT/docs/ARQUITECTURA_COMPLETA_ACCOUNTS.md` seccion "Auditoria y Correcciones [2026-07-09]" |
+| Media | Propagar los 3 incidentes del 2026-07-29 a los docs de Nivel 2: `renting/.AGENT/docs/ARQUITECTURA_COMPLETA_RENTIG.md` y `frontend/.AGENT/doc/ARQUITECTURA_COMPLETAFRONEND.md` (seccion "Cambios Recientes" propias, per protocolo de sincronizacion) — pendiente desde v11 |
+| Media | Auditar si existe el patron `.image`/`item.image` (propiedad plana inexistente) en consumidores de `images[]` de `technical_services` y `quotes` — solo se verificaron Renting/Shop en v11 |
+| Media | `organization/CLAUDE.md` dice "Fase 3 de 9" pero los 8 recursos estan operativos — corregir esa nota |
+| Media | Documentar en `frontend/.AGENT/doc/ARQUITECTURA_COMPLETAFRONEND.md` el Design System `components/base/*` al mismo nivel de detalle que `ai_skills/frontend/components/cards.md` |
+| Media | Crear doc de arquitectura para `sms_bridge` (detectado 2026-08-10, sin doc propio) — variables de entorno, protocolo AT, casos de fallo, integracion con `notifications` |
+| Media | Decidir como resolver la staleness de `ai_engine/PROJECT_MAP.json` (leido por `memory_builder.py`/`ai_manifest.py`/`specialized_retrieval.py`, ya no regenerado por nadie desde la FASE 0 de desacoplamiento de `project_knowledge_graph`, 2026-08-10) — ver `ai_engine/.AGENT/AI_ENGINE_KG_DECOUPLING_FASE0.md` seccion 3 para las 3 opciones evaluadas |
+| Media | Rotar credenciales expuestas en `notas.txt` (P1-03 de AUDITORIA/33) y verificar historial Git/backups donde pudo haber circulado el archivo |
+| Media | Replica de backups a destino fuera del host de produccion (P2-01 de AUDITORIA/33 — backups hoy en `C:\Users\Administrator\sintel_backups`, mismo host que los datos) |
+| Baja | Confirmar si `core.CACHE`/signals cubren `BrandSliderConfig`/`BrandSliderItem`/`FooterGroup`/`AboutUsConfig`/`AboutUsValue` (5 modelos sumados despues del conteo original de "9") |
+| Baja | Rate limiting en login (brute force) — verificar si el rediseno de Auth 2026-07-17 ya lo cubre |
+| Baja | Implementar rol/perfil VENDOR completo (hoy reservado, sin flujo end-to-end) |
+| Baja | Agregar test parametrizado que confirme `IsAdminUser` en ViewSets de `dashboard` |
+| ~~Pendiente — requiere alcance mayor~~ **RESUELTO 2026-08-17** | ~~B2 de Fase 4: `ask_ai()` bloquea el thread pool compartido de `sync_to_async`~~ — nueva `ask_ai_async()` (`httpx.AsyncClient`) en `SupportChatConsumer`, ya no ocupa el pool compartido. Ver seccion `ai_engine` arriba y `ai_engine/.AGENT/SUPPORT_AI_CERTIFICATION.md` |
+| Pendiente — requiere alcance mayor | Paginacion de historial de sala de soporte (A4 de Fase 4) — feature nueva backend+frontend |
+| Pendiente — requiere alcance mayor | Historial de cambios (`changed_by`) para `EmailSettings`/`ContactInfo` en `organization` (Fase 10) — requiere modelo de auditoria nuevo |
+| Descartado (2026-07-09) | Sistema de eventos de dominio, wizard de upgrade independiente por tipo, reorganizacion de dashboard de usuarios por tipo, libreria de 8 componentes Vue de identidad — sin consumidor concreto, ver `accounts/.AGENT/docs/ARQUITECTURA_COMPLETA_ACCOUNTS.md` |
+
+### Completadas (2026-08-17 — Auditoria E2E de cierre del AI Engine / Support Agent)
+
+**Gap real de este documento, cerrado hoy**: el thread completo de trabajo del AI Engine como
+Support Agent (separacion Support/Engineering, RAG governance, cost control, 9 Agent Profiles,
+certificacion E2E contra el stack vivo, auditoria white-label) se ejecuto en varias sesiones
+entre 2026-08-08 y 2026-08-14 sin que `IMPLEMENTATION_SUMMARY.md` lo reflejara — este documento
+solo trackeaba el thread paralelo de `ai_editor`/`project_knowledge_graph` (v13-v16 arriba). Se
+agrego la seccion `### ai_engine` (ver "Apps y estado de implementacion") validada contra el
+codigo real, y se cerraron los gaps puntuales que las certificaciones previas (2026-08-08,
+2026-08-13) habian dejado abiertos:
+
+- WhatsApp ahora respeta `ai_paused`/`is_ai_mode_active` de la sala antes de auto-responder
+  (`notifications/tasks.py`) — antes seguia respondiendo aunque el chat web ya hubiera escalado
+  a un humano.
+- `ask_ai_async()` (`httpx.AsyncClient`) reemplaza el uso de `ask_ai()` envuelto en
+  `database_sync_to_async` dentro de `SupportChatConsumer` — cierra el B2 de la tabla de Tareas
+  Pendientes (ver arriba), verificado con test real: 12 turnos de IA de 0.5s concurrentes
+  terminan en ~0.5s, no ~6s.
+- Rate limit por-Tool migrado de memoria del proceso a Redis (`action_graph.py`), mismo patron
+  que `cost_control.py` — preciso aunque `sintel_ai` corra en mas de una replica.
+- Nuevos tests de regresion: entrega real a `support_admins` con una sesion admin simultanea
+  (brecha abierta desde la certificacion 2026-08-13), y reactivacion de la IA en una sala nueva
+  tras cerrar un ticket (nunca antes probado).
+
+Verificado: `docker compose exec sintel_ai pytest tests -v` → 134 passed, 16 skipped (subio de
+117 el 2026-08-08); `docker compose exec django pytest support/tests.py notifications/tests.py -v`
+→ 67 passed (subio de 60). Commit `59aea7f` en `fix/audit-p0-remediation`. Detalle completo,
+con tabla de correcciones archivo-por-archivo: `ai_engine/.AGENT/SUPPORT_AI_CERTIFICATION.md`
+("Historial de correcciones (2026-08-17)").
+
+**No incluido en este cierre** (fuera del alcance pedido — "cerrar gaps conocidos", no
+re-auditoria completa): pruebas E2E multi-Customer con navegador real simultaneo,
+carga/concurrencia contra Ollama real bajo `AI_SUPPORT_CHAT_ENABLED=True` en un entorno
+productivo (produccion hoy no corre `sintel_ai`), y el gap ya documentado de WhatsApp con
+`conversation_id` en namespace separado del canal web (`wa-{user_id}` vs `room-{uuid}` —
+deliberadamente pospuesto, ver `AUDITORIA/19_AUDITORIA_COMMUNICATION_CENTER_CANALES.md`).
+
+### En progreso (2026-08-14 — Migracion a autoridad unica de tecnico)
+- **Regla oficial adoptada**: `technical_services.ServiceOperation.technician`
+  es la unica fuente de verdad (SOURCE OF TRUTH) para "que tecnico esta
+  asignado a un servicio". `orders.OrderServiceDetail.technician` queda
+  declarado LEGACY/COMPATIBILITY -- no debe aceptar cambios independientes.
+- **FASE 0 (auditoria, completa)**: 3 vias de escritura activas encontradas
+  al campo legacy -- 2 endpoints de `orders/service-orders/` (usados por
+  `TechnicianAssignmentBoard.vue`) + **el Django Admin nativo** (`/admin/`),
+  esta ultima sin pasar por ningun Command (sin validar disponibilidad, sin
+  liberar al tecnico anterior, sin timeline, sin notificacion).
+- **FASE 1 (completa)**: cerrado el hallazgo mas riesgoso -- `technician` ahora
+  es `readonly` en `OrderServiceDetailAdmin` (Django Admin nativo ya no
+  puede escribirlo).
+- **FASE 2-4 (completa)**: `ServiceOperationCommands.assign_technician()`/
+  `unassign_technician()` es ahora el unico lugar que decide una asignacion real
+  (precondicion de fecha relajada -- decision explicita del usuario via
+  `AskUserQuestion` para no romper el flujo existente del panel legacy de Orders,
+  que nunca exigio planeacion previa -- y `TechnicianProfile.is_available` ahora
+  tambien se sincroniza desde aqui, segundo hallazgo real encontrado durante esta
+  fase). `orders/service-orders/assign-technician|auto-assign|unassign-technician`
+  ya no deciden nada por su cuenta -- delegan integramente y solo escriben
+  `OrderServiceDetail.technician` como snapshot de compatibilidad. Serializers de
+  ambos paneles (`OrderServiceDetailSerializer`, `ServiceAssignmentQueueSerializer`)
+  actualizados para leer la fuente real primero. Regresion completa verificada:
+  `technical_services` + `orders` + `dashboard`, 271 tests, OK. Detalle completo en
+  `technical_services/.AGENT/docs/ARQUITECTURA_COMPLETA_SERVICES.md` §23.
+- **FASE 6-9 (completa)**: `ServiceTechnicianReconciliationSelector` (lectura
+  sancionada + auditoria de divergencia) corrido contra la base de datos real --
+  **0 conflictos reales** entre los 2 sistemas. 8 divergencias encontradas, todas
+  benignas y explicadas (3 asignaciones nuevas esperadas, 5 ordenes historicas
+  `pending` de antes de que `ServiceOperation` existiera). Reporte completo en
+  `technical_services/.AGENT/TECHNICIAN_ASSIGNMENT_RECONCILIATION_REPORT.md`. 2
+  lectores adicionales del snapshot legacy cerrados (notificacion de pago
+  confirmado al cliente, columna del admin nativo).
+- **Decision FASE 10-13 (explicita del usuario)**: `TechnicianAssignmentBoard.vue`
+  (panel legacy de Orders) se deja tal cual -- ya delega correctamente desde
+  FASE 4, quitarle los botones de asignar solo reduciria capacidad de los admins
+  sin cerrar ningun riesgo tecnico adicional. Migracion de autoridad de escritura
+  (lo que importaba) cerrada.
+- **Pendiente, sin decision tomada**: auditoria permanente automatizada, apagar
+  escritura legacy del campo, deprecar formalmente. Ver
+  `technical_services/.AGENT/TECHNICIAN_ASSIGNMENT_MIGRATION_FASE0_2026-08-14.md`
+  para el plan completo de 22 fases y el estado exacto de cada una.
+
+### Completadas (2026-08-14 — Fachada Administrativa Unificada de Technical Services)
+- **`/panel/servicios/solicitudes`** (nuevo): primera vista admin que muestra la
+  solicitud de servicio ANTES de convertirse en operacion -- no existia equivalente
+  (a diferencia de Renting, que ya tenia `/panel/renta/solicitudes`).
+- **Fachada, no dominio nuevo**: `orders.Order` sigue siendo el dueno de la
+  solicitud comercial, `technical_services.ServiceOperation` sigue siendo el dueno
+  del estado operativo. `dashboard.ServiceAdminRequestSelector`/
+  `ServiceAdminRequestOrchestrator` (`dashboard/services/admin_orchestrators.py`)
+  combinan ambos para lectura; toda escritura delega a `ServiceOperationCommands`
+  ya existente. **No se creo ningun modelo `ServiceRequest`.**
+- **Hallazgo de auditoria (no un bug introducido, preexistente)**: coexisten HOY
+  dos sistemas de asignacion de tecnico sin sincronizar
+  (`ServiceOperation.technician` vs. `OrderServiceDetail.technician` legacy,
+  usados por dos paneles admin distintos ya existentes). La fachada trata al
+  primero como fuente de verdad para escritura y expone el segundo solo como
+  lectura con flag `diverges`.
+- Endpoint `dashboard/technical-services/requests/` (list/detail +
+  plan/assign/schedule/notify/cancel) — sin `/approve/`: el backend de servicios
+  no tiene gate de aprobacion tipo `pending_validation` (a diferencia de Renting).
+- Frontend: `ServiceRequestsPanel.vue` + `ServiceRequestActionsPanel.vue` +
+  store `technicalServicesAdmin/requests.js`, mismo patron UX que
+  `RentingRequestList.vue`. KPIs extienden aditivamente
+  `ServiceOperationSelector.dashboard_metrics()` (ya existente) -- sin modelo de
+  estadisticas nuevo.
+- 5 tests nuevos (`dashboard/tests.py::ServiceAdminRequestFacadeTestCase`) +
+  regresion completa `dashboard` 57/57 PASS + verificacion manual en navegador
+  real (cadena planificar->asignar->notificar, cruzada con `/panel/ordenes/{uuid}`
+  y sin regresion en `/panel/renta/solicitudes`).
+- Detalle completo: `technical_services/.AGENT/docs/ARQUITECTURA_COMPLETA_SERVICES.md`
+  §22, `technical_services/.AGENT/SERVICES_ADMIN_FACADE_BASELINE.md` (auditoria),
+  `SERVICES_ADMIN_FACADE_MATRIX_2026-08-14.md`,
+  `SERVICES_ADMIN_FACADE_FASE2_5_2026-08-14.md`,
+  `SERVICES_ADMIN_FACADE_FASE6_14_2026-08-14.md`.
+- **No cubierto en este incremento**: `ServiceSelector.get_by_uuid()` (usado por
+  el detalle publico de servicios, modulo distinto) no filtra `is_active` --
+  hallazgo de una auditoria previa el mismo dia (FASE 7 del rediseno de
+  ServiceForm), reportado pero no corregido por requerir separar el selector
+  publico del admin.
+
+### Completadas (2026-08-10 — v12, auditoria cruzada AUDITORIA/29-33 + backlog 31-32)
+- **`/api/v1/health/` devolvia 200 incondicionalmente** (AUDITORIA/29 P1-CRITICO): `health_check`
+  en `ecommerce/urls.py` nunca verificaba nada; `SecuritySelector.get_health_snapshot()` existia
+  y era correcto pero solo estaba expuesto detras de auth admin. Corregido: `health_check` ahora
+  reusa ese selector y devuelve 503 si db o redis no son alcanzables desde Django especificamente
+  (distinto al healthcheck del contenedor de Postgres/Redis, que solo verifica que el proceso
+  este vivo). 4 tests nuevos.
+- **Formato de logs** (AUDITORIA/29 P2): `{module}` -> `{name}` en `LOGGING` de settings — 9 apps
+  distintas tenian `tasks.py`/`views.py` indistinguibles en los logs crudos de produccion.
+- **`celery_beat` sin ningun HEALTHCHECK** (AUDITORIA/31): agregado `grep -a -l celery /proc/...`
+  — `celery beat` no responde a `inspect ping` (solo para workers), se lee `/proc` con `grep`.
+- **Indices de BD** (AUDITORIA/31): `NotificationLog` gano `Index(template_slug)` +
+  `GinIndex(payload_context)` (4 scanners proactivos filtraban sin indice en tabla que solo crece);
+  `ChatRoom` gano indice compuesto `(status, ai_paused, updated_at, is_deleted)`.
+- **Heartbeat WS** (AUDITORIA/31): ping/pong de aplicacion cada 25s en
+  `SupportChatWidget.vue`/`SupportDashboardView.vue` + `support/consumers.py`; cierre y reconnect
+  automatico si no llega `pong` en 10s. 1 test nuevo.
+- **Mensajes proactivos de IA respetan preferencias** (AUDITORIA/32):
+  `ai_proactive_room_message_task` ahora verifica `UserNotificationPreference` antes de crear
+  el mensaje en la sala (opt-out, mismo criterio que el resto de `dispatch_notification`). 3 tests
+  nuevos.
+- **`OperationTicketSelector` -> `OperationSelector`** (AUDITORIA/32): nombre de clase inexistente
+  corregido en `operations/models.py`, `operations/api/serializers.py` y doc de arquitectura.
+- **`CHANNEL_LAYERS` con `capacity`/`expiry` explicitos** (AUDITORIA/32): defaults de
+  `channels_redis` eran silenciosos; declarado `capacity=1000`/`expiry=60` explicitamente.
+- **Backup automatizado corregido** (AUDITORIA/33 P1-01): tarea Windows Scheduler corria como
+  `SYSTEM` (sin acceso al named pipe de Docker Desktop); reinstalada como `Administrator`.
+  `backup.sh` ahora valida el dump con `pg_restore --list` y el media con `tar -tzf` antes de
+  publicar; `restore.sh` crea snapshot preventivo previo a sobrescribir datos. Verificado
+  end-to-end: dump + media generados, restauracion completa, Django `healthy` post-restauracion.
+- **Reinicio autorizado de cuentas de produccion** (2026-08-04): borrado logico de 3 cuentas;
+  1 cuenta admin restaurada manualmente; contenedor `sintel_prod_django` permanecio `healthy`.
+- **2 modulos nuevos documentados**: `sms_bridge` y `project_knowledge_graph` (nunca aparecian
+  en ninguna version anterior de este documento pese a existir en el codigo; ver secciones
+  dedicadas arriba y en la tabla de apps).
+
+### Completadas (2026-08-10 — v13, auditoria E2E del chatbot + rediseno "Site Knowledge Graph" FASE 0-2)
+- **CRITICO — chatbot de soporte sin responder, causa raiz real encontrada por auditoria E2E
+  en vivo (no asumida).** El contenedor `frontend` llevaba 18h en `Exited(1)` por
+  `Error: EIO: i/o error, stat '/app'` (inestabilidad conocida de bind-mount de Docker Desktop
+  en Windows + chokidar, ya mitigada parcialmente con `CHOKIDAR_USEPOLLING=true` en una sesion
+  anterior) sin ninguna politica de `restart` que lo recuperara. Se verifico primero, con
+  evidencia real (logs `[WS]`/`[CHAT]`/`[AI_BRIDGE]` de Django, no solo lectura de codigo), que
+  toda la cadena backend (WebSocket, JWT, `SupportChatConsumer`, `ai_bridge.py`) funcionaba
+  correctamente — el problema era exclusivamente que el frontend nunca llegaba a servir la SPA.
+  Corregido agregando `restart: unless-stopped` al servicio `frontend` en `docker-compose.yml` y
+  recreando el contenedor; verificado `healthy` con `docker inspect`.
+- **FASE 0 — desacoplamiento total de `ai_engine` respecto a `project_knowledge_graph`.** Nueva
+  regla arquitectonica: "AI Engine no conoce ni importa `project_knowledge_graph`" (y viceversa),
+  como preparacion para que `project_knowledge_graph` evolucione en un "Site Knowledge Graph"
+  independiente, consumido en el futuro por un "AI Editor Runtime" separado del chatbot. Se
+  elimino `ai_engine/tools/graph_tools.py` (`GraphImpactAnalysisTool`) y `ai_engine/
+  pkg_bootstrap.py` por completo; se retiraron todos los imports de `project_knowledge_graph`
+  en `main.py`, `planner.py`, `graph.py`, `incremental_updater.py` (reemplazados por stubs
+  locales que degradan sin romper, no por shims que simulen el modulo ausente); se retiro
+  la capacidad `analizar_impacto_arquitectura` y el intent `architecture_impact` de
+  `capabilities/registry.py`, `action_graph.py` y `agents/profiles/admin_agent.yaml`. Nuevo
+  test `test_pkg_decoupling.py` que hace AST-walk de todo `ai_engine/` y falla si algun archivo
+  vuelve a importar `project_knowledge_graph`. Detalle completo (matriz de imports, que
+  funcionalidad se perdio y donde debe reubicarse) en `ai_engine/.AGENT/
+  AI_ENGINE_KG_DECOUPLING_FASE0.md`. Limitacion documentada, no oculta: `memory_builder.py`/
+  `ai_manifest.py`/`specialized_retrieval.py` siguen leyendo `ai_engine/PROJECT_MAP.json`, que
+  ya nadie regenera — ver tarea pendiente arriba.
+- **FASE 1 — nodos `File` y `Symbol` en el Knowledge Graph.** El grafo estructural de
+  `project_knowledge_graph` ahora modela archivos individuales y sus funciones/metodos como
+  nodos propios (con rango exacto de lineas via `ast.end_lineno`), enlazados por una nueva
+  arista `CONTAINS` (File->Symbol y Clase->su propio metodo), en vez de solo saber que una
+  clase "existe" en algun archivo. Objetivo explicito: que una IA futura pueda recibir
+  `Clase.metodo() lineas N-M` en vez de solo el nombre del archivo.
+- **FASE 2 — "Contract Graph" (WebSocketRoute, EnvVar, `IMPLEMENTED_BY`, `USES_ENV`).** Cada
+  `Endpoint` ahora enlaza `IMPLEMENTED_BY` al `Symbol` (metodo de vista) real que lo implementa;
+  cada ruta WebSocket de Channels (`routing.py`, `path()`/`re_path()` con `.as_asgi()`) se
+  modela como nodo `WebSocketRoute` enlazado `IMPLEMENTED_BY` a su `Consumer`; cada variable de
+  entorno leida via `config()`/`env()` (patron real del proyecto, `python-decouple`) se modela
+  como nodo `EnvVar` enlazado `USES_ENV` desde el `File` que la lee. 2 bugs reales del propio
+  scanner encontrados y corregidos contra el repo real (no fixtures sinteticos): el scanner de
+  rutas WebSocket solo reconocia `path()` y perdia `operations/routing.py` (usa `re_path()`);
+  y agregaba una entrada aunque el segundo argumento no fuera literalmente `.as_asgi()`. Grafo
+  resultante: 6932 nodos / 10833 aristas. 40/40 tests pasando (7 nuevos de esta fase). Detalle
+  completo en `project_knowledge_graph/.AGENT/ARQUITECTURA_COMPLETA_GRAFO.md`.
+
+### Completadas (2026-08-11 — v14, cierre completo del rediseno "Site Knowledge Graph -> Change Intelligence -> AI Editor Runtime", FASES 3-21)
+
+Detalle fase por fase (bugs reales encontrados y corregidos en cada una, cifras de grafo
+antes/despues, tests) en `project_knowledge_graph/.AGENT/ARQUITECTURA_COMPLETA_GRAFO.md` seccion
+11 y en el reporte de cierre `project_knowledge_graph/.AGENT/SITE_KNOWLEDGE_GRAPH_CIERRE_FINAL.md`.
+Resumen por bloque:
+
+- **FASES 3-9 — grafo estructural completo.** `Symbol` extendido a Vue/JS con extraccion
+  heuristica regex (Fase 3); Contract Graph frontend<->backend a nivel de simbolo individual —
+  corrigio 2 bugs reales preexistentes que nunca se habian notado: `USES_STORE` tenia 0 aristas
+  en TODO el grafo (matching por substring sin relacion textual garantizada) y la capa de "custom
+  API wrapper" del frontend (69 llamadas reales) era invisible (Fase 4); Data Flow Graph —
+  `READS_FROM`/`WRITES_TO` de `Model.objects.verbo()` real, atribuido por `qualified_name` para
+  no confundir metodos homonimos entre clases (Fase 5); Execution Graph — `TRIGGERS`/`QUEUES` de
+  signals y Celery tasks, corrigio un bug preexistente donde `@shared_task(bind=True, ...)` (el
+  patron dominante real de `notifications/tasks.py`) nunca se detectaba como tarea (Fase 6); Test
+  Graph — `TESTS`/`VALIDATES`, deteccion real de que tests cubren que codigo (Fase 7);
+  Documentation Graph — `REFERENCES` desde texto libre con scoring de relevancia (Fase 8);
+  Configuration/Infrastructure Graph — Docker/nginx/env, corrigio un bug real en el parser de
+  nginx que matcheaba "location" como substring de "geolocation=()" en un header CSP real (Fase 9).
+- **FASES 10-13 — capa de consulta para asistir cambios reales.** `calculate_change_impact()`
+  (impacto directo/indirecto categorizado + riesgo heuristico, distinguiendo aristas
+  estructurales de funcionales — sin esto, cambiar un metodo de un ViewSet inflaba el impacto de
+  42 a 797 nodos "afectados" solo por contener su propia clase); `resolve_change()` (envelope
+  completo: archivos/simbolos/contratos/tests/docs/riesgo/orden recomendado); `build_graph_
+  context_packet()` (comprime miles de nodos a decenas relevantes para un LLM — verificado real:
+  9575 -> 20 para un cambio tipico); `graph_sdk` (fachada estable de 13 operaciones, sin
+  reimplementar logica).
+- **FASE 14 — `ai_editor/` (decision de seguridad deliberada, NO funcional mas alla de lectura).**
+  Paquete nuevo `ecommerce_sintel/ai_editor/` con 7 submodulos; solo `graph_client/` (wrapper de
+  solo lectura sobre `graph_sdk`) tiene codigo real. Generar y aplicar modificaciones automaticas
+  a archivos de codigo (`patch/`) se dejo **deliberadamente sin implementar** — es una accion
+  dificil de revertir con blast radius sobre todo el repositorio, requiere una decision humana
+  explicita y separada, no es consecuencia implicita de este rediseno.
+- **FASES 15-18 — deteccion, validacion y observabilidad de cambios.** Deteccion symbol-level de
+  cambios via `git diff -U0` real (Fase 15, corrigio un bug real de codificacion: `subprocess.run`
+  sin `encoding="utf-8"` explicito crasheaba en Windows contra comentarios en español); Change
+  Validation Report — compone deteccion + impacto + validador en un reporte real de que cambio,
+  que se rompe, que tests correr (sin auto-ejecutarlos, ya que muchos requieren Docker/DB no
+  disponibles desde el host) y consistencia de grafo/contratos (Fase 16); diseno documentado
+  (sin codigo ejecutable) del Autonomous Change Loop, mismo criterio de seguridad que Fase 14 —
+  un loop que aplique patches automaticamente escala el mismo riesgo, no lo separa (Fase 17);
+  auditoria real de consultas via `graph_sdk` (operacion/args/resumen del resultado/version del
+  grafo), nunca persiste `meta` de nodo ni ningun dato potencialmente sensible (Fase 18).
+- **FASES 19-21 — consolidacion, limpieza y validacion final.** 5 defectos reales de
+  documentacion encontrados y corregidos en `ARQUITECTURA_COMPLETA_GRAFO.md` (funciones de
+  scanner desactualizadas, afirmacion falsa de que pytest no corre en el host, referencia a un
+  archivo ya borrado — Fase 19); busqueda en TODO el repo de referencias a los 9 modulos de
+  `ai_engine` retirados — 0 bugs de codigo real, pero 4 documentos VIVOS en `ai_engine/.AGENT/`
+  (la referencia que `CLAUDE.md` manda leer antes de tocar `ai_engine`) presentaban comandos y
+  excepciones ya retiradas como si siguieran vigentes, corregidos con banners de retiro
+  explicitos (Fase 20); rebuild completo real (~2 min, 9575 nodos/20335 aristas, identico a lo
+  documentado en cada fase, sin drift) + suite de 120 tests corrida dos veces, 0 regresiones
+  (Fase 21).
+- **Regla 1 del plan verificada, no asumida**: `project_knowledge_graph` sigue sin importar
+  `ai_engine` en ninguna direccion durante las 19 fases de codigo — confirmado por test
+  automatizado (`test_ai_engine_does_not_import_this_module`), no solo por convencion.
 
 ### Completadas (2026-07-29 — 3 incidentes reales encontrados y corregidos en vivo, no una pasada programada)
 - **CRITICO — Django no arrancaba en Docker.** `renting/services/presenters.py:14` importaba

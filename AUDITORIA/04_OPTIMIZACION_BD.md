@@ -120,14 +120,17 @@ class Meta:
 
 ### DB-M1 — Índices faltantes en campos de filtro frecuente
 
-| Modelo | Campo | Razón |
-|---|---|---|
-| `renting.EquipmentVariant` | `is_active` | Usado en `variants__is_active=True` JOIN en catálogo público |
-| `operations.OperationAssignment` | `status` | `status='ACTIVE'` filtrado directamente en vistas de operaciones |
-| `renting.RentalRequest` | `payment_status` | Reconciliación de pagos |
-| `users.EmailVerificationCode` | `(email, is_used)` | OTP validation: `(email=X, is_used=False)` — solo index en `email` |
-| `technical_services.ServiceVariant` | `is_active` | Filtrado en catálogo y serializer |
-| `kyc.VerificationDocument` | `scan_status` | Pipeline AML sin index |
+**Estado (2026-07-30): ✅ Resuelto — solo 2 de los 6 estaban realmente faltantes**, verificado
+directamente contra los modelos y `pg_indexes` antes de tocar nada:
+
+| Modelo | Campo | Razón | Estado real 2026-07-30 |
+|---|---|---|---|
+| `renting.EquipmentVariant` | `is_active` | Usado en `variants__is_active=True` JOIN en catálogo público | Ya tenía `db_index=True` |
+| `operations.OperationAssignment` | `status` | `status='ACTIVE'` filtrado directamente en vistas de operaciones | Ya tenía `db_index=True` |
+| `renting.RentalRequestPaymentInfo.payment_status` (movido desde `RentalRequest` en el split DB-H1, 2026-07-27) | `payment_status` | Reconciliación de pagos | ✅ Agregado (migración `renting/0037`), confirmado en vivo en Postgres |
+| `users.EmailVerificationCode` | `(email, is_used)` | OTP validation | **No se toca** — ya existe un índice compuesto `(email, purpose, is_used)` que cubre las 3 columnas que *toda* query real usa (`users/services/commands.py` líneas 81/131/163/183); un índice adicional `(email, is_used)` sería peso muerto redundante |
+| `technical_services.ServiceVariant` | `is_active` | Filtrado en catálogo y serializer | Ya tenía `db_index=True` |
+| `kyc.VerificationDocument` | `scan_status` | Pipeline AML sin index | ✅ Agregado (migración `kyc/0007`), confirmado en vivo en Postgres |
 
 ### DB-M2 — `FooterGroupSerializer.get_links_count` N+1
 **Archivo:** `core/api/serializers.py:440`  
@@ -188,7 +191,7 @@ Intencional, pero impide queries analíticas sobre respuestas individuales. Si s
 | Alta | Fix N+1 en `ShipmentOrderSummarySerializer` | orders | ✅ Resuelto |
 | Alta | Fix N+1 en `UserProfile.total_services_completed` (annotation) | accounts | ✅ Resuelto |
 | Alta | Split `RentalRequest` (50 campos) | renting | ✅ Resuelto 2026-07-27 |
-| Media | 6 índices faltantes (tabla DB-M1) | varios | ⚪ Sin re-verificar |
+| Media | 6 índices faltantes (tabla DB-M1) | varios | ✅ Resuelto 2026-07-30 — 2 realmente faltaban, agregados; 4 ya existían |
 | Media | Fix N+1 en `FooterGroupSerializer` y `FlashOfferCardSerializer` | core | ✅ Resuelto (SPRINT 2, checklist 12) |
 | Media | Constraint unicidad de documento en `UserProfile` | accounts | ✅ Resuelto |
 | Baja | Squash de migraciones en 4 apps | varios | ⚪ Sigue abierto |

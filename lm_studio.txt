@@ -1,0 +1,1534 @@
+# AUDITORÍA ENTERPRISE — CHATBOT SINTEL
+
+## Diagnóstico E2E Backend → WebSocket → Vite/Vue → AI Engine → Respuesta
+
+## OBJETIVO
+
+Realiza una auditoría técnica COMPLETA del chatbot de SINTEL actualmente activo.
+
+### SÍNTOMAS ACTUALES
+
+El chatbot:
+
+* aparece activo en el frontend;
+* aparentemente carga el widget;
+* no inicia correctamente la conversación;
+* no genera respuestas de IA;
+* existe sospecha de un problema en Vite/frontend;
+* debe determinarse si el fallo realmente está en frontend, WebSocket, autenticación, Django Channels, `support`, `ai_bridge`, AI Engine, configuración Docker/Nginx o en una combinación de capas.
+
+### REGLA PRINCIPAL
+
+NO ASUMAS que Vite es la causa.
+
+Debes demostrar mediante evidencia dónde se rompe el flujo.
+
+NO realices modificaciones importantes hasta haber identificado la causa raíz.
+
+---
+
+# 1. ARQUITECTURA CANÓNICA QUE DEBES RESPETAR
+
+Utiliza como referencia prioritaria:
+
+* `IMPLEMENTATION_SUMMARY.md`
+* `ARQUITECTURA_COMPLETA_SUPPORT.md`
+* `FLIJO_COMPLETO_IA_ENGINE.md`
+* arquitectura general del proyecto
+* documentación actual del frontend
+
+La arquitectura esperada es:
+
+```text
+Vue 3 + Vite
+       │
+       │ WebSocket
+       ▼
+ws/support/chat/
+       │
+       ▼
+Nginx
+       │
+       ▼
+Django ASGI / Daphne
+       │
+       ▼
+Channels Routing
+       │
+       ▼
+JWTAuthMiddleware
+       │
+       ▼
+SupportChatConsumer
+       │
+       ├── ChatCommands
+       ├── ChatRoom
+       ├── ChatMessage
+       │
+       ▼
+is_ai_mode_active()
+       │
+       ▼
+ai_bridge.py
+       │
+       │ POST /chat
+       │ JWT efímero
+       ▼
+AI Engine :8100
+       │
+       ├── Authentication
+       ├── RAG
+       ├── Action Graph
+       ├── Agent Profile
+       ├── Capabilities
+       ├── Tools
+       ├── Policy Layer
+       ├── LLM
+       └── fallback
+       │
+       ▼
+AI response
+       │
+       ▼
+SupportChatConsumer
+       │
+       ▼
+Channels Group
+       │
+       ▼
+WebSocket
+       │
+       ▼
+Vue chatbot
+```
+
+La ruta WebSocket canónica es:
+
+```text
+ws/support/chat/
+```
+
+NO inventes:
+
+```text
+ws/support/<room_uuid>/
+```
+
+NO sustituyas el WebSocket por una REST API para resolver el problema.
+
+La interacción conversacional del cliente sigue siendo WebSocket.
+
+---
+
+# 2. FASE 0 — CONGELAR EL ESTADO Y HACER INVENTARIO
+
+Antes de modificar código:
+
+1. identifica branch/commit actual;
+2. identifica si hay cambios locales;
+3. identifica entorno:
+
+   * development
+   * staging
+   * production;
+4. identifica URLs reales:
+
+   * frontend
+   * API
+   * WebSocket
+   * AI Engine;
+5. identifica configuración Docker;
+6. identifica variables `.env`;
+7. identifica configuración Vite;
+8. identifica configuración Nginx;
+9. identifica versión de Node;
+10. identifica versión de Vite;
+11. identifica versión de Vue.
+
+NO cambies dependencias.
+
+NO actualices Vite.
+
+NO reinstales paquetes.
+
+NO cambies arquitectura.
+
+Primero documenta el estado.
+
+---
+
+# 3. FASE 1 — RECONSTRUIR EL FLUJO REAL DEL CHAT
+
+Busca y documenta el código real de:
+
+```text
+frontend/
+frontend/src/modules/support/
+frontend/src/components/
+frontend/src/composables/
+frontend/src/services/
+frontend/src/store/
+frontend/src/apps/admin/
+```
+
+Localiza específicamente:
+
+```text
+SupportChatWidget.vue
+SupportDashboardView.vue
+useAuth()
+refreshAccessToken()
+WebSocket
+ws/support/chat/
+```
+
+Determina:
+
+* quién monta el widget;
+* cuándo se monta;
+* bajo qué condición se monta;
+* si requiere usuario autenticado;
+* de dónde obtiene el JWT;
+* cómo construye la URL WebSocket;
+* cómo determina `ws://` vs `wss://`;
+* cómo obtiene host;
+* si usa `window.location`;
+* si usa `import.meta.env`;
+* si usa variables `VITE_*`;
+* si utiliza una URL hardcodeada;
+* cómo maneja reconexión;
+* cómo maneja `onopen`;
+* cómo maneja `onmessage`;
+* cómo maneja `onerror`;
+* cómo maneja `onclose`;
+* si refresca JWT antes de conectar;
+* si vuelve a conectar con token nuevo;
+* si existe loop infinito de reconexión;
+* si el socket se cierra inmediatamente.
+
+Entrega un diagrama REAL basado en el código.
+
+---
+
+# 4. FASE 2 — AUDITORÍA VITE / FRONTEND
+
+Audita específicamente:
+
+```text
+vite.config.*
+package.json
+.env
+.env.local
+.env.development
+.env.production
+.env.example
+Dockerfile frontend
+docker-compose*
+nginx*
+```
+
+Busca:
+
+```text
+VITE_API_URL
+VITE_WS_URL
+VITE_BACKEND_URL
+VITE_API_BASE_URL
+VITE_APP_*
+import.meta.env
+window.location
+location.protocol
+location.host
+location.hostname
+```
+
+Determina si las variables realmente están disponibles durante BUILD.
+
+IMPORTANTE:
+
+Vite expone al navegador solamente variables con prefijo:
+
+```text
+VITE_
+```
+
+Verifica que el código no dependa de variables que Vite elimina del bundle.
+
+Comprueba además si:
+
+```text
+.env
+```
+
+se está leyendo en:
+
+```text
+npm run dev
+```
+
+y si la misma configuración funciona en:
+
+```text
+npm run build
+```
+
+---
+
+# 5. FASE 3 — AUDITORÍA DE LA URL DEL WEBSOCKET
+
+Este punto es CRÍTICO.
+
+La aplicación debe terminar conectándose a algo equivalente a:
+
+```text
+ws://HOST/ws/support/chat/?token=JWT
+```
+
+o:
+
+```text
+wss://HOST/ws/support/chat/?token=JWT
+```
+
+dependiendo de HTTPS.
+
+Verifica:
+
+### Caso HTTP
+
+```text
+http://...
+→ ws://...
+```
+
+### Caso HTTPS
+
+```text
+https://...
+→ wss://...
+```
+
+Comprueba:
+
+* hostname;
+* puerto;
+* path;
+* trailing slash;
+* query parameter;
+* token;
+* encoding del token;
+* reverse proxy.
+
+Detecta especialmente:
+
+```text
+/api/ws/support/chat/
+api/ws/support/chat/
+ws/support/chat
+ws/support/<uuid>/
+socket/support/chat/
+```
+
+si aparecen en frontend.
+
+Cualquier URL diferente a la arquitectura real debe reportarse.
+
+---
+
+# 6. FASE 4 — AUDITORÍA JWT
+
+El WebSocket utiliza:
+
+```text
+?token=<JWT>
+```
+
+Audita:
+
+```text
+useAuth()
+auth store
+access token
+refresh token
+refreshAccessToken()
+logout()
+localStorage
+sessionStorage
+cookies
+```
+
+Comprueba:
+
+1. ¿Existe access token?
+2. ¿Es JWT válido?
+3. ¿Está expirado?
+4. ¿El frontend obtiene el token correcto?
+5. ¿El WebSocket recibe el token correcto?
+6. ¿Se refresca antes de conectar?
+7. ¿Se utiliza el token nuevo después del refresh?
+8. ¿El refresh reemplaza correctamente el access token?
+9. ¿Existe una carrera entre login y montaje del widget?
+10. ¿El widget intenta conectar antes de que `useAuth()` termine de inicializar?
+
+IMPORTANTE:
+
+Ya existe un antecedente de producción donde el WebSocket reutilizaba un access token expirado porque Axios refrescaba tokens pero WebSocket no.
+
+Verifica que esa corrección siga realmente implementada en:
+
+```text
+SupportChatWidget.vue
+SupportDashboardView.vue
+useAuth()
+channels_auth.py
+```
+
+No asumas que porque está documentado funciona actualmente.
+
+---
+
+# 7. FASE 5 — DEVTOOLS DEL NAVEGADOR
+
+Reproduce el problema utilizando navegador real.
+
+Abre:
+
+```text
+F12
+```
+
+y analiza:
+
+### Console
+
+Buscar:
+
+```text
+WebSocket
+Vite
+CORS
+Mixed Content
+401
+403
+404
+500
+token
+JWT
+refresh
+undefined
+import.meta.env
+```
+
+### Network → WS
+
+Localiza:
+
+```text
+ws/support/chat/
+```
+
+Documenta:
+
+```text
+Request URL
+Status
+Handshake
+Messages
+Frames
+Close code
+Close reason
+```
+
+Determina exactamente cuál de estos casos ocurre:
+
+### Caso A
+
+```text
+WebSocket nunca se intenta
+```
+
+→ probablemente frontend/Vue/Vite.
+
+### Caso B
+
+```text
+WebSocket se intenta pero URL incorrecta
+```
+
+→ frontend/configuración Vite.
+
+### Caso C
+
+```text
+WebSocket devuelve 404
+```
+
+→ routing/Nginx/ASGI.
+
+### Caso D
+
+```text
+WebSocket devuelve 4001
+```
+
+→ JWT/authentication.
+
+### Caso E
+
+```text
+WebSocket conecta pero no recibe history
+```
+
+→ consumer/backend.
+
+### Caso F
+
+```text
+WebSocket conecta
+mensaje sale
+pero no vuelve respuesta
+```
+
+→ `SupportChatConsumer` / AI bridge / AI Engine.
+
+### Caso G
+
+```text
+AI Engine responde pero frontend no muestra
+```
+
+→ protocolo WebSocket/frontend.
+
+---
+
+# 8. FASE 6 — AUDITORÍA DJANGO ASGI / CHANNELS
+
+Verifica:
+
+```text
+ecommerce/asgi.py
+ecommerce/routing.py
+support/routing.py
+support/channels_auth.py
+support/consumers.py
+```
+
+Confirma:
+
+```text
+ws/support/chat/
+```
+
+está realmente registrado.
+
+Comprueba:
+
+```text
+ProtocolTypeRouter
+AuthMiddlewareStack
+JWTAuthMiddlewareStack
+URLRouter
+```
+
+y el orden de middleware.
+
+No permitas una configuración que haga que Django HTTP funcione pero WebSocket falle.
+
+Verifica Daphne/ASGI.
+
+---
+
+# 9. FASE 7 — AUDITORÍA SUPPORT CONSUMER
+
+Analiza línea por línea:
+
+```text
+support/consumers.py
+```
+
+Especialmente:
+
+```text
+connect()
+receive()
+disconnect()
+_ai_reply()
+```
+
+Comprueba:
+
+### Al conectar cliente
+
+Debe:
+
+```text
+autenticar usuario
+↓
+get_or_create_room()
+↓
+obtener ChatRoom OPEN
+↓
+unirse a chat_<user.uuid>
+↓
+enviar history
+```
+
+Comprueba que realmente sucede.
+
+### Al enviar mensaje
+
+Payload esperado:
+
+```json
+{
+  "message": "texto"
+}
+```
+
+Comprueba:
+
+```text
+parse JSON
+↓
+validación
+↓
+room OPEN
+↓
+save_message
+↓
+broadcast admins
+↓
+is_ai_mode_active
+↓
+rate limit
+↓
+asyncio.create_task(_ai_reply)
+```
+
+Determina en qué nodo se detiene.
+
+---
+
+# 10. FASE 8 — AUDITORÍA is_ai_mode_active()
+
+Verifica exactamente:
+
+```text
+AI_SUPPORT_CHAT_ENABLED
+room.status == OPEN
+room.ai_paused == False
+room.assigned_admin is None
+```
+
+Comprueba cada condición en runtime.
+
+MUY IMPORTANTE:
+
+No basta con verificar:
+
+```text
+AI_SUPPORT_CHAT_ENABLED=True
+```
+
+Debes demostrar el valor real de:
+
+```text
+room.status
+room.ai_paused
+room.assigned_admin
+```
+
+para una conversación real.
+
+Si cualquiera bloquea IA, documenta cuál.
+
+---
+
+# 11. FASE 9 — AUDITORÍA AI BRIDGE
+
+Audita:
+
+```text
+support/services/ai_bridge.py
+```
+
+Comprueba:
+
+```text
+ask_ai()
+is_ai_mode_active()
+get_ai_bot_user()
+ai_response_opened_ticket()
+is_ai_rate_limited()
+```
+
+Verifica:
+
+```text
+AI_ENGINE_URL
+```
+
+URL efectiva.
+
+Debe realizar:
+
+```text
+POST {AI_ENGINE_URL}/chat
+```
+
+con:
+
+```text
+JWT efímero
+```
+
+Comprueba:
+
+* método HTTP;
+* URL;
+* headers;
+* Authorization;
+* payload;
+* conversation_id;
+* timeout;
+* manejo de status;
+* excepción;
+* respuesta JSON.
+
+No ocultes errores con:
+
+```python
+except Exception:
+    return None
+```
+
+sin logging suficiente.
+
+Si el bridge degrada silenciosamente, corrígelo para producir diagnóstico observable sin exponer secretos al usuario.
+
+---
+
+# 12. FASE 10 — AUDITORÍA AI ENGINE
+
+Audita el microservicio:
+
+```text
+ai_engine/
+```
+
+Comprueba:
+
+```text
+POST /chat
+```
+
+desde Django.
+
+Verifica:
+
+1. proceso FastAPI;
+2. puerto 8100;
+3. health;
+4. autenticación JWT;
+5. recepción del token Django;
+6. validación del usuario;
+7. contexto;
+8. RAG;
+9. Action Graph;
+10. Agent Profile;
+11. Capabilities;
+12. Tools;
+13. Policy Layer;
+14. LLM;
+15. fallback;
+16. respuesta final.
+
+Determina si:
+
+```text
+Django → AI Engine
+```
+
+funciona independientemente del frontend.
+
+Si es posible, realiza una prueba controlada desde backend/Docker.
+
+---
+
+# 13. FASE 11 — AISLAR FRONTEND DE BACKEND
+
+Esta fase es OBLIGATORIA.
+
+Realiza dos pruebas independientes.
+
+## TEST A — Backend
+
+Sin navegador:
+
+```text
+Django
+→ ai_bridge
+→ AI Engine
+→ /chat
+→ respuesta
+```
+
+Si funciona:
+
+```text
+AI Engine = OK
+Django bridge = OK
+```
+
+## TEST B — WebSocket
+
+Con cliente WebSocket controlado:
+
+```text
+JWT
+→ ws/support/chat/
+→ enviar {"message":"Hola"}
+→ recibir respuesta
+```
+
+Si funciona:
+
+```text
+Backend WebSocket = OK
+```
+
+Entonces el problema está probablemente en:
+
+```text
+Vue / Vite / frontend
+```
+
+No modificar backend si estas pruebas lo descartan.
+
+---
+
+# 14. FASE 12 — PROBAR EL FRONTEND CONTRA EL BACKEND REAL
+
+Una vez demostrado que backend funciona:
+
+verifica:
+
+```text
+Widget
+→ token
+→ URL WS
+→ handshake
+→ send
+→ receive
+→ render
+```
+
+Usa logs temporales estructurados.
+
+Ejemplo:
+
+```text
+[CHAT] auth ready
+[CHAT] token available
+[CHAT] websocket url resolved
+[CHAT] connecting
+[CHAT] connected
+[CHAT] sending message
+[CHAT] message received
+[CHAT] rendering message
+```
+
+NO imprimir:
+
+```text
+JWT completo
+refresh token
+secretos
+API keys
+```
+
+Si necesitas mostrar token:
+
+```text
+token_present=true
+token_exp=...
+token_length=...
+```
+
+---
+
+# 15. FASE 13 — AUDITORÍA DEL PROTOCOLO DE MENSAJES
+
+El backend utiliza eventos como:
+
+```json
+{
+  "type": "chat_message",
+  "message": "texto",
+  "sender_email": "...",
+  "is_admin": true,
+  "room_uuid": "...",
+  "created_at": "..."
+}
+```
+
+Y durante conexión puede enviar:
+
+```json
+{
+  "type": "history",
+  "room_uuid": "...",
+  "messages": [...]
+}
+```
+
+Comprueba que frontend soporte realmente:
+
+```text
+history
+chat_message
+error
+```
+
+No asumir nombres distintos:
+
+```text
+content
+text
+data.message
+payload
+body
+```
+
+si el backend realmente envía:
+
+```text
+message
+```
+
+Audita el mapping completo.
+
+---
+
+# 16. FASE 14 — AUDITORÍA DEL RENDERIZADO VUE
+
+Revisa:
+
+```text
+SupportChatWidget.vue
+```
+
+y cualquier componente relacionado.
+
+Comprueba:
+
+* estado `messages`;
+* estado `connected`;
+* estado `connecting`;
+* estado `error`;
+* watchers;
+* lifecycle;
+* `onMounted`;
+* `onBeforeUnmount`;
+* reactive/ref;
+* actualización del array;
+* scroll;
+* envío;
+* botón;
+* disabled;
+* reconexión.
+
+Busca especialmente errores como:
+
+```javascript
+messages.value.push(...)
+```
+
+vs:
+
+```javascript
+messages.push(...)
+```
+
+o cualquier pérdida de reactividad.
+
+Comprueba que el mensaje recibido realmente entra al estado que utiliza el template.
+
+---
+
+# 17. FASE 15 — AUDITORÍA DE INICIALIZACIÓN DEL WIDGET
+
+El widget es global.
+
+Determina:
+
+* dónde se monta;
+* si aparece solo autenticado;
+* si espera `auth.initialized`;
+* si monta antes del router;
+* si monta antes de Pinia;
+* si desmonta/recrea por navegación;
+* si abre múltiples sockets;
+* si se destruye accidentalmente;
+* si hay múltiples instancias.
+
+Debe existir una única conexión por contexto de usuario.
+
+Detecta:
+
+```text
+WebSocket #1
+WebSocket #2
+WebSocket #3
+...
+```
+
+si existe.
+
+---
+
+# 18. FASE 16 — AUDITORÍA NGINX / PRODUCCIÓN
+
+Comprueba:
+
+```text
+location /ws/
+proxy_http_version 1.1
+Upgrade
+Connection "upgrade"
+proxy_pass
+```
+
+Debe soportar WebSocket correctamente.
+
+Comprueba:
+
+```text
+HTTP → HTTPS
+HTTPS → WSS
+```
+
+y posibles errores:
+
+```text
+Mixed Content
+502
+404
+400
+403
+```
+
+Verifica también si Nginx está enviando:
+
+```text
+/ws/support/chat/
+```
+
+al Daphne correcto.
+
+---
+
+# 19. FASE 17 — AUDITORÍA CORS / CSRF / ORIGINS
+
+Aunque WebSocket no usa CORS de la misma manera que REST, revisa:
+
+```text
+ALLOWED_HOSTS
+CSRF_TRUSTED_ORIGINS
+CORS_ALLOWED_ORIGINS
+CORS_ALLOW_CREDENTIALS
+```
+
+y cualquier validación de Origin/host implementada.
+
+No agregues:
+
+```text
+CORS_ALLOW_ALL_ORIGINS=True
+```
+
+como solución.
+
+---
+
+# 20. FASE 18 — AUDITORÍA DE CONFIGURACIÓN
+
+Comparar:
+
+```text
+Frontend
+Backend
+Docker
+Nginx
+AI Engine
+```
+
+para:
+
+```text
+hostnames
+ports
+protocols
+URLs
+environment variables
+JWT
+AI_ENGINE_URL
+AI_SUPPORT_CHAT_ENABLED
+```
+
+Busca configuraciones contradictorias.
+
+Ejemplo:
+
+```text
+VITE_API_URL=http://localhost:8000
+```
+
+cuando el navegador real necesita:
+
+```text
+https://api.sintel.net.co
+```
+
+o:
+
+```text
+VITE_WS_URL=ws://localhost:8000
+```
+
+cuando está en producción HTTPS.
+
+---
+
+# 21. FASE 19 — PRUEBAS AUTOMATIZADAS
+
+Crear o reparar tests únicamente después de conocer la causa.
+
+Debe existir cobertura para:
+
+### Backend
+
+```text
+JWT WebSocket
+connect cliente
+history
+send message
+room creation
+AI mode
+AI bridge
+AI response
+AI engine unavailable
+closed room
+ai_paused
+rate limit
+```
+
+### Frontend
+
+Tests para:
+
+```text
+WebSocket URL
+JWT
+connection
+reconnection
+message parsing
+history
+AI message rendering
+error state
+token refresh
+```
+
+### E2E
+
+Escenario obligatorio:
+
+```text
+login
+↓
+abrir chatbot
+↓
+WebSocket CONNECTED
+↓
+history recibido
+↓
+escribir "Hola"
+↓
+send
+↓
+backend recibe
+↓
+AI Engine recibe
+↓
+AI Engine responde
+↓
+backend guarda respuesta
+↓
+WebSocket entrega respuesta
+↓
+frontend renderiza respuesta
+```
+
+---
+
+# 22. FASE 20 — MATRIZ DE DIAGNÓSTICO
+
+Genera una tabla como:
+
+| Capa          | Estado | Evidencia | Error | Causa raíz |
+| ------------- | ------ | --------- | ----- | ---------- |
+| Vue           |        |           |       |            |
+| Vite          |        |           |       |            |
+| Auth          |        |           |       |            |
+| JWT           |        |           |       |            |
+| WebSocket URL |        |           |       |            |
+| Nginx         |        |           |       |            |
+| ASGI          |        |           |       |            |
+| Channels      |        |           |       |            |
+| Consumer      |        |           |       |            |
+| ChatRoom      |        |           |       |            |
+| AI mode       |        |           |       |            |
+| ai_bridge     |        |           |       |            |
+| AI Engine     |        |           |       |            |
+| RAG           |        |           |       |            |
+| LLM           |        |           |       |            |
+| Response WS   |        |           |       |            |
+| Vue rendering |        |           |       |            |
+
+Cada fila debe tener evidencia real.
+
+NO escribir:
+
+```text
+"parece correcto"
+```
+
+sin evidencia.
+
+---
+
+# 23. FASE 21 — DETERMINAR LA CAUSA RAÍZ
+
+Clasifica el fallo como uno de:
+
+```text
+FRONTEND
+VITE
+AUTH
+JWT
+WEBSOCKET_URL
+NGINX
+ASGI
+CHANNELS
+SUPPORT
+AI_BRIDGE
+AI_ENGINE
+RAG
+LLM
+PROTOCOLO
+CONFIGURATION
+MULTIPLE
+```
+
+Si existen varias causas, separar:
+
+```text
+CAUSA RAÍZ PRINCIPAL
+CAUSAS SECUNDARIAS
+```
+
+No modificar código hasta completar esta clasificación.
+
+---
+
+# 24. FASE 22 — CORRECCIÓN
+
+Una vez demostrada la causa:
+
+corrige únicamente lo necesario.
+
+Prioridad:
+
+```text
+1. corregir causa raíz;
+2. eliminar causa secundaria;
+3. agregar observabilidad;
+4. agregar regresión;
+5. validar producción/dev;
+6. actualizar documentación.
+```
+
+NO:
+
+* reescribir todo el chatbot;
+* cambiar de WebSocket a REST;
+* crear otro endpoint paralelo;
+* cambiar arquitectura;
+* introducir otra librería WebSocket;
+* actualizar Vite sin necesidad;
+* cambiar Vue;
+* eliminar JWT;
+* desactivar seguridad;
+* exponer directamente AI Engine al navegador.
+
+Mantener:
+
+```text
+Vue/Vite
+↓
+WebSocket
+↓
+Django Channels
+↓
+SupportChatConsumer
+↓
+ai_bridge
+↓
+AI Engine
+```
+
+---
+
+# 25. FASE 23 — HARDENING
+
+Después de corregir:
+
+verifica:
+
+### Reconexión
+
+Debe recuperarse ante:
+
+```text
+network interruption
+token expiration
+backend restart
+AI Engine restart
+```
+
+### Token
+
+Nunca:
+
+```text
+loop infinito con JWT expirado
+```
+
+### AI Engine
+
+Si está caído:
+
+```text
+frontend no debe quedar congelado
+```
+
+Debe existir un estado visible de degradación.
+
+### Observabilidad
+
+Debe ser posible determinar:
+
+```text
+WS disconnected
+JWT expired
+AI engine unavailable
+AI timeout
+AI response received
+frontend rendering error
+```
+
+sin inspeccionar manualmente toda la aplicación.
+
+---
+
+# 26. FASE 24 — VALIDACIÓN FINAL
+
+Ejecuta:
+
+```text
+backend tests
+frontend tests
+lint
+build
+docker compose config
+docker compose build
+docker compose up
+```
+
+Después realizar prueba real:
+
+```text
+LOGIN
+→ CHAT
+→ CONNECT
+→ HISTORY
+→ SEND
+→ AI
+→ RESPONSE
+→ RENDER
+```
+
+Probar además:
+
+```text
+recarga de página
+logout/login
+token refresh
+15+ minutos de sesión
+navegación SPA
+cierre/apertura del widget
+dos pestañas
+backend restart
+AI Engine restart
+```
+
+---
+
+# 27. ENTREGABLE FINAL OBLIGATORIO
+
+Al finalizar entrega:
+
+## A. Diagnóstico ejecutivo
+
+```text
+Estado:
+Causa raíz:
+Impacto:
+```
+
+## B. Evidencia
+
+Indicar:
+
+```text
+archivo
+línea
+configuración
+log
+request
+response
+WebSocket frame
+status code
+```
+
+## C. Flujo roto
+
+Mostrar:
+
+```text
+Frontend
+  ↓ OK
+WebSocket
+  ↓ ERROR
+Django
+```
+
+o el flujo real encontrado.
+
+## D. Correcciones aplicadas
+
+Por archivo:
+
+```text
+archivo
+cambio
+motivo
+riesgo
+```
+
+## E. Tests realizados
+
+Separar:
+
+```text
+Backend
+Frontend
+WebSocket
+AI Engine
+E2E
+Production-like
+```
+
+## F. Resultado final
+
+Debe terminar en:
+
+```text
+LOGIN
+  ↓
+CHAT ABIERTO
+  ↓
+WS CONNECTED
+  ↓
+HISTORY
+  ↓
+USER MESSAGE
+  ↓
+Django
+  ↓
+AI ENGINE
+  ↓
+AI RESPONSE
+  ↓
+WS
+  ↓
+VUE
+  ↓
+MENSAJE VISIBLE
+```
+
+## G. Estado de documentación
+
+Si se modifica arquitectura o comportamiento, actualizar:
+
+```text
+support/.AGENT/docs/ARQUITECTURA_COMPLETA_SUPPORT.md
+frontend/.AGENT/doc/ARQUITECTURA_COMPLETAFRONEND.md
+ai_engine/.AGENT/FLIJO_COMPLETO_IA_ENGINE.md
+```
+
+siguiendo la regla:
+
+```markdown
+## Cambios Recientes
+
+### [fecha] Titulo
+- Que cambio
+- Por que
+- Archivos afectados
+- Contrato afectado
+- Tests
+```
+
+---
+
+# REGLA FINAL
+
+NO cierres la tarea diciendo:
+
+> "El problema era Vite"
+
+hasta demostrarlo.
+
+Primero demuestra:
+
+```text
+¿el WebSocket se abre?
+¿el JWT es válido?
+¿Django recibe?
+¿SupportChatConsumer recibe?
+¿ChatRoom existe?
+¿AI mode está activo?
+¿ai_bridge llama al AI Engine?
+¿AI Engine responde?
+¿Django recibe la respuesta?
+¿WebSocket la transmite?
+¿Vue la recibe?
+¿Vue la renderiza?
+```
+
+El objetivo no es solamente "hacer que el chatbot responda".
+
+El objetivo es dejar un **chatbot E2E verificable, observable, resistente a expiración de JWT, reconexión y fallos del AI Engine, con pruebas de regresión y documentación sincronizada**.
+
+No introducir soluciones paralelas ni degradar la arquitectura existente.

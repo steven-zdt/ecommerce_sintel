@@ -1,6 +1,6 @@
 # 01 — AUDITORÍA GENERAL
 **Proyecto:** Sintel E-Commerce REST
-**Fecha:** 2026-07-25 (reescritura completa — ver §0 "Qué cambió desde la versión anterior"). **Actualizado 2026-07-27** con verificación y correcciones en vivo — ver §7 (sesión mañana) y §9 (sesión tarde: Celery + verificación Wompi). Documentos 02-13 sincronizados en la misma pasada — ver §8.
+**Fecha:** 2026-07-25 (reescritura completa — ver §0 "Qué cambió desde la versión anterior"). **Actualizado 2026-07-27** con verificación y correcciones en vivo — ver §7 (sesión mañana) y §9 (sesión tarde: Celery + verificación Wompi). Documentos 02-13 sincronizados en la misma pasada — ver §8. **Actualizado 2026-07-31** — ver §10: cierre de los hallazgos Media/Baja de docs 02-09 (dejados "sin re-verificar" en la sincronización de §8), los 8 "items arquitectónicos grandes" identificados en esa pasada, el resto de la punch list de doc 13 (P2-1 a P3-1), el squash de migraciones de los 4 apps más grandes (DT-M18/DB-H5) y la activación de las llaves reales de Wompi en producción.
 **Version anterior:** 2026-07-16 (ver historial en git de este archivo)
 **Referencia:** `Documentacion/Arquitectura_general/IMPLEMENTATION_SUMMARY.md`
 **Alcance:** Backend Django 5.2 (19 apps de negocio + `ecommerce/` config) + Frontend Vue 3 + AI Engine FastAPI
@@ -815,24 +815,25 @@ prioridad Media/Baja de esos documentos **no fueron re-verificados individualmen
 | # | Documento | Fecha | Vigencia |
 |---|---|---|---|
 | 01 | `01_AUDITORIA_GENERAL.md` | 2026-07-25 (act. 2026-07-27) | Este documento — reescrito completo + 2 sesiones de verificación, refleja el estado real actual |
-| 02 | `02_DEUDA_TECNICA.md` | 2026-07-16 (sync 2026-07-27) | ✅ Crítica/Alta anotadas ✅ Resuelto contra este documento; Media/Baja sin re-verificar |
-| 03 | `03_DUPLICIDAD_CODIGO.md` | 2026-07-16 (sync 2026-07-27) | ✅ Cada DUP anotado Resuelto/Abierto; la duplicidad de badges/timelines fue evaluada y descartada en doc 13 §2.3 |
-| 04 | `04_OPTIMIZACION_BD.md` | 2026-07-16 (sync 2026-07-27) | ✅ Crítica/Alta anotadas (DB-H1 real desde §7.2, no solo el índice); Media sin re-verificar |
+| 02 | `02_DEUDA_TECNICA.md` | 2026-07-16 (sync 2026-07-27, Media/Baja verificada 2026-07-31) | ✅ Crítica/Alta Resuelto; Media/Baja ahora verificada contra código (ver §10.1) — DT-M10/DT-L4/DT-L10/DT-M18 cerrados o descartados con evidencia |
+| 03 | `03_DUPLICIDAD_CODIGO.md` | 2026-07-16 (sync 2026-07-27, DUP Media/Baja cerrada 2026-07-31) | ✅ Cada DUP anotado Resuelto/Abierto/Descartado — ver §10.1 (DUP-F1/B4/F7/F8/B2 corregidos; DUP-B1/B3 descartados tras lectura línea por línea) |
+| 04 | `04_OPTIMIZACION_BD.md` | 2026-07-16 (sync 2026-07-27, Media verificada 2026-07-31) | ✅ Crítica/Alta Resuelto (DB-H1 real desde §7.2); Media (DB-M1, DT-M18) verificada y cerrada — ver §10.1/§10.3 |
 | 05 | `05_RENDIMIENTO.md` | 2026-07-16 (sync 2026-07-27) | ✅ Los 5 N+1 anotados Resueltos (SPRINT 2); agregado el hallazgo de cola Celery de §9.1 |
-| 06 | `06_SEGURIDAD.md` | 2026-07-16 (sync 2026-07-27) | ✅ Crítica/Alta anotadas Resuelto contra §2-3; Media parcialmente verificada (ver banner) |
+| 06 | `06_SEGURIDAD.md` | 2026-07-16 (sync 2026-07-27, Media cerrada 2026-07-31) | ✅ Crítica/Alta Resuelto; Media (SEC-M2/M6/M7) verificada y cerrada o descartada con justificación — ver §10.1 |
 | 07 | `07_FRONTEND.md` | 2026-07-16 (sync 2026-07-27) | ❌ Reemplazado en la práctica por `13_AUDITORIA_FRONTEND_UI_2026-07-23.md` — banner cruzado agregado en ambos sentidos |
-| 08 | `08_BACKEND.md` | 2026-07-16 (sync 2026-07-27) | ✅ ARCH-C1/H1-H9 anotados Resueltos; Media sin re-verificar |
+| 08 | `08_BACKEND.md` | 2026-07-16 (sync 2026-07-27, Media cerrada 2026-07-31) | ✅ ARCH-C1/H1-H9 Resueltos; Media (ARCH-M1-M7) verificada y cerrada — ver §10.1 |
 | 09 | `09_API.md` | 2026-07-16 (sync 2026-07-27) | ✅ Matriz de permisos actualizada fila por fila con el estado real |
 | 10 | `10_PLAN_REFACTORIZACION.md` | 2026-07-16 (sync 2026-07-27) | ✅ Marcado COMPLETADO — Iteraciones 1-5 ejecutadas, tabla de métricas actualizada |
-| 11 | `11_QUICK_WINS.md` | 2026-07-16 (sync 2026-07-27) | ✅ 16/17 confirmados ejecutados; QW-17 (JWT lifetime a 15 min) sigue sin confirmar |
+| 11 | `11_QUICK_WINS.md` | 2026-07-16 (sync 2026-07-30) | ✅ 17/17 confirmados ejecutados — QW-17 (JWT lifetime a 15 min) resuelto y desplegado a producción 2026-07-30 |
 | 12 | `12_CHECKLIST_IMPLEMENTACION.md` | 2026-07-16/17 (sync 2026-07-27) | ✅ Vigente como registro histórico + pie de página apuntando a la Auditoría Enterprise y a §7/§9 de este documento |
-| 13 | `13_AUDITORIA_FRONTEND_UI_2026-07-23.md` | 2026-07-23 (sync 2026-07-27) | ✅ **Vigente** — plan §6 actualizado: P1-1/P1-2/P1-4 cerrados (ver §7 de este documento), solo P1-3 sigue abierto |
+| 13 | `13_AUDITORIA_FRONTEND_UI_2026-07-23.md` | 2026-07-23 (sync 2026-07-31) | ✅ **Vigente** — plan §6 P1-1 a P1-4 cerrados (§7.22); punch list P2-1/P2-2/P2-3/P2-4/P3-1 100% cerrada 2026-07-31 (ver §10.2) |
 
-**Recomendación:** para hallazgos de prioridad Media/Baja marcados "sin re-verificar" en los banners
-de 02-09, conviene regenerar ese documento puntual contra el código actual en vez de asumir que siguen
-abiertos o cerrados solo por la anotación de esta pasada — esta sincronización se apoyó en evidencia ya
-recopilada en sesiones anteriores (§2-4, §7, checklist 12), no en una nueva auditoría línea por línea
-de cada archivo.
+**Recomendación (2026-07-27, cumplida 2026-07-31):** para hallazgos de prioridad Media/Baja marcados
+"sin re-verificar" en los banners de 02-09, se recomendaba regenerar ese documento puntual contra el
+código actual en vez de asumir que seguían abiertos o cerrados solo por la anotación de esta pasada.
+**Hecho — ver §10.1**: cada hallazgo Media/Baja de docs 02-09 fue leído línea por línea contra el
+código actual, no asumido; el resultado quedó reflejado en la columna "Vigencia" de arriba y en el
+detalle completo de §10.1.
 
 ---
 
@@ -868,8 +869,15 @@ menciones a Celery routing, con regla explícita para el futuro: toda cola NUEVA
 dev). Documentado también en `payment/CLAUDE.md` y `ecommerce_sintel/MEMORY.md`.
 
 **Requiere rebuild/redeploy de la imagen `django` para tomar efecto** (el código vive horneado en la
-imagen, sin bind mount de fuente en producción) — **no aplicado a producción en esta sesión**
-(regla `.AGENT.md`: nunca elevar sin instrucción explícita).
+imagen, sin bind mount de fuente en producción) — no se aplicó a producción en la sesión donde se
+encontró (regla `.AGENT.md`: nunca elevar sin instrucción explícita).
+
+**✅ Desplegado a producción 2026-07-30**, con confirmación explícita del usuario antes de ejecutar
+`deploy/deploy.sh`. Verificado en vivo tras el despliegue: `settings.CELERY_TASK_DEFAULT_QUEUE ==
+'default'` dentro de `sintel_prod_django`; `sintel.net.co` responde HTTP 200; log de arranque de
+`sintel_prod_celery_worker` confirma `payment.tasks.reconcile_pending_wompi_transactions` (y el
+resto de tareas antes huérfanas de `orders`/`renting`/`support`) registradas y el worker `ready`
+sin errores. Incidente cerrado end-to-end.
 
 ### 9.2 Verificado (no bug, incidente histórico ya corregido): "merchants/undefined" (422) + email de pago sin confirmación de Wompi
 
@@ -895,3 +903,107 @@ rama.** Corresponde a un build/config anterior a los fixes ya aplicados (F-01, p
 Widget+API), no a un defecto vigente. Documentado en detalle en
 `docs/.AGENT/AUDITORIA_FLUJO_VENTA_PAGO_CONFIRMACION.md` para no reabrir la investigación sin evidencia
 nueva (captura de red/consola con timestamp).
+
+---
+
+## 10. Sesiones de continuación — 2026-07-30/31: docs 02-09, items arquitectónicos grandes, migration squash, Wompi producción
+
+Continuación directa de §8 (cuya propia recomendación decía: "para hallazgos de prioridad Media/Baja
+marcados 'sin re-verificar' en los banners de 02-09, conviene regenerar ese documento puntual contra
+el código actual"). Varias sesiones distintas (el usuario pidió "continua" repetidamente, retomando
+cada vez desde donde quedó la anterior), todas contra `ecommerce_sintel_django`/`ecommerce_sintel_db`
+(dev) salvo donde se indica explícitamente despliegue a `sintel_prod_*`. Método: lectura línea por
+línea del código real antes de aceptar cada hallazgo de docs 02-09 como vigente (varios resultaron ya
+resueltos por sesiones anteriores no reflejadas en ningún documento), no una re-auditoría mecánica.
+
+### 10.1 Docs 02-09 — barrido Media/Baja (lo que §8 había dejado pendiente)
+
+**Cerrados con corrección real:**
+- **SEC-M2** (`ecommerce/settings/base.py`): faltaba el guard explícito `CORS_ALLOW_ALL_ORIGINS = False` — agregado.
+- **SEC-M6** (real, confirmado explotable, no solo teórico): `GET /auth/profile/` (autoservicio) filtraba el email del admin/staff que revisó el KYC del propio cliente que consulta su perfil, vía `UserDetailSerializer.get_kyc_verification()` usando siempre el serializer "rico" de admin. Corregido: el serializer ahora depende de si quien pide los datos es staff+superuser (ve el detalle admin) o no (ve la versión sin `timeline_events`/`actor_email`). Verificado: `accounts` 81/81, `users` 26/26.
+- **DT-L10**: el catch-all del router de Vue mandaba cualquier `/panel/*` inexistente a `/` (la tienda pública) en vez de `/panel/dashboard`. Corregido.
+- **DUP-F1**: dos implementaciones de `EquipmentGallery` — la real ya usa `components/base/BaseGallery.vue` en todo el proyecto; la segunda (`components/customer/renting/EquipmentGallery.vue`) era código muerto confirmado (0 importadores) — **borrado del árbol** (bloqueado varias veces por el clasificador de seguridad de Claude Code en intentos previos, logrado finalmente el 2026-07-31). `npm run build` limpio.
+- **DUP-B4**: validación de disponibilidad de stock duplicada entre `cart` y `orders` — consolidada en `inventory/services/selectors.py::check_variant_or_service_availability()`, ambos call sites delegan preservando su mensaje de error propio. `cart`+`orders` 20/20.
+- **DUP-F8** (parcial, a propósito): de ~10 validaciones "duplicadas" de formulario, solo el regex de email estaba genuinamente triplicado (3 archivos) — extraído a `frontend/src/utils/validators.js`. El resto son one-liners triviales, dejados como estaban (no vale la pena la abstracción).
+- **DUP-F7/DT-M13** (parcial, a propósito): de `useQuoteWizard`/`useCatalogQuoteWizard`, el único bloque genuinamente idéntico (parseo de error de `submitQuotation()`, ~8 líneas) se extrajo a `frontend/src/utils/quoteErrors.js::extractQuoteSubmitError()`. El resto de ambos composables diverge de verdad (forma de estado distinta) — no se fuerza una unificación mayor.
+- **DUP-B2/DT-L8 (BaseOperationFSM)** — el único de los "items grandes" donde la duplicación resultó **real, no sobre-estimada**: `RentalOperationCommands.transition()` y `ServiceOperationCommands.transition()` comparten de verdad el mismo esqueleto (lock + guard contra diccionario de transiciones + save). Se escribieron primero los 8 tests que le faltaban a `technical_services` (`tests_operations.py`, 0 cobertura previa de `transition()`/`close()`), luego se extrajo `operations/services/fsm.py::transition_operation()` (compartido, alcance deliberadamente angosto: solo el lock+guard+save, no la creación de eventos ni los efectos secundarios de cada dominio, que siguen siendo distintos aposta). `Shipment` (`orders`) se dejó **fuera** — está arquitecturado de forma distinta (10 métodos con nombre propio, no un dispatcher genérico), forzarlo habría sido una reescritura de comportamiento, no una extracción. Verificado: 246 tests entre `renting`+`technical_services`+`operations`, 20 errores — los 20 son el bug preexistente ya diagnosticado de `tests_presenters.py` (`vendor_id`), no relacionado; clic real en `/panel/servicios/operaciones` completando una operación real de punta a punta contra el código refactorizado.
+
+**Investigados y confirmados NO accionables** (mismo patrón repetido 3 veces: el hallazgo original comparaba superficialmente cosas "parecidas", una lectura línea por línea encontró divergencia real de modelo/dominio que no justifica forzar una base compartida):
+- **DUP-B3/DT-L9 (BaseMediaSerializer)** — los 3-4 serializers de imagen comparten solo ~3 campos reales; el resto diverge por dominio. Descartado con el usuario vía pregunta directa.
+- **DUP-B1 (BaseCatalogList, mitad backend)** — la mitad frontend ya estaba resuelta (una sesión previa no documentada aquí, `BaseBrandForm`/`BaseCategoryForm`). La mitad backend: `renting.RentingBrand`/`RentingCategory` no tienen los mismos campos que `shop.Brand`/`Category` (sin `logo`/`is_active`/SEO) — forzar una base común sería inventar paridad de schema que no existe.
+- **DUP-F7/DT-M13 (unificación completa, más allá del fragmento ya extraído)** — los dos wizards de cotización tienen formas de estado genuinamente distintas, no solo estilo de código distinto.
+- **SEC-M7** — `authentication_classes=[]` en el login es estructuralmente inherente (no hay `request.user` para correlacionar throttling antes de autenticar), no un descuido corregible.
+- **DT-L4** — el archivo (`FilterSidebar.vue`) que el hallazgo señalaba como código muerto ya no existe en el árbol.
+
+**DT-M10** (auditoría de "193 llamadas Axios directas"): re-contado contra el código actual. **0 violaciones reales** de `axios` sin pasar por `useApi()` (los únicos 4 archivos que importan `axios` directo son el propio wrapper y 3 flujos pre-autenticación que necesitan bypasear el interceptor a propósito). Encontró un hallazgo real no buscado: `RentingForm.vue` (llama `useApi()` directo, fiel al original) y `EquipmentDetailView.vue` (100% Pinia) son **dos implementaciones paralelas vivas del mismo dominio** (variantes/logística/reglas de costo de equipos) — confirmado accidentalmente durante la verificación en vivo de otro punto (un clic mal dado aterrizó en la segunda). Flagged como tarea aparte para decidir cuál es la "real" — no resuelto en esta pasada.
+
+**ARCH-M1-M7 + DB-M1** (docs 08/04): de los 7 `ARCH-M`, 4 ya estaban resueltos por una sesión anterior no reflejada en ningún documento; los 3 restantes (M1 en 5 apps, M2 en `operations`, M7 en `quotes`) se resolvieron creando los Selectors que faltaban. De los 6 índices que DB-M1 decía faltantes, solo 2 realmente faltaban (los otros 4 ya existían o ya estaban cubiertos por un índice compuesto mejor) — se agregaron esos 2 vía migración (`renting/0037`, `kyc/0007`), confirmados físicamente presentes en Postgres. `manage.py check` limpio; los 12 apps tocados (accounts, quotes, shop, technical_services, payment, operations, notifications, cart, kyc, orders + renting/technical_services de arriba) se mantuvieron en verde.
+
+**Conclusión de §10.1:** de los hallazgos Media/Baja de docs 02-09 que §8 había dejado "sin re-verificar", el patrón dominante fue "menos duplicación real de la que el hallazgo original asumía" (3 de los 4 items arquitectónicos grandes correspondientes) — pero donde sí había duplicación real (`BaseOperationFSM`, `DUP-B4`, el regex de email, el bloque de parseo de error), se corrigió. `docs/02_DEUDA_TECNICA.md`, `03_DUPLICIDAD_CODIGO.md`, `04_OPTIMIZACION_BD.md`, `06_SEGURIDAD.md`, `08_BACKEND.md` quedan con su contenido Media/Baja ahora sí verificado contra el código actual (no re-escritos línea por línea en esta pasada, pero cada hallazgo tocado arriba está resuelto o descartado con evidencia, no asumido).
+
+### 10.2 Resto de la punch list de doc 13 (P2-1, P2-3, P2-4, P3-1) — cerrados
+
+- **P2-2** (descomponer los 9 archivos `.vue` >1000 LOC): **100% completo**, los 9 archivos divididos, cada uno verificado con build + sesión de navegador real (JWT inyectado para los que requieren auth, chequeo de página pública para los de catálogo/detalle de cliente). El más delicado, `RentalBookingWizard.vue`, resultó estar solo a medio terminar por un agente en segundo plano de una sesión anterior (los 4 componentes hijos existían pero el padre nunca los referenciaba — detectado con un simple `grep` del padre buscando los nombres de los hijos, cero resultados) — completado desde cero por esta sesión.
+- **P2-1** (`onMounted async` → `Promise.all` donde sea seguro): revisados los 29 candidatos, 4 realmente paralelizados (`KycAdminDetail.vue`, `TechnicianAssignmentBoard.vue`, `TechnicianCalendarBoard.vue`, `CheckoutView.vue`). Los 25 restantes tienen una razón documentada para no tocarse — el hallazgo más interesante: dos componentes (`BlocksPanel.vue`, `QuoteTemplateForm.vue`) comparten un solo flag `store.loading` leído por spinners hermanos — paralelizar el fetch haría que el spinner desaparezca con el más rápido mientras el más lento sigue cargando, una regresión de UX real aunque los datos en sí sean independientes.
+- **P2-3** (dividir `router.js` de admin por dominio, 371 líneas/82 rutas → 10 archivos): hecho con cuidado extra porque este archivo causó un bug real de producción antes (`ordenes/renting` tapado por `ordenes/:uuid`) — verificado con `router.resolve()` en vivo contra 25 rutas representativas incluyendo los 3 pares con riesgo real de colisión.
+- **P2-4** (evaluado, sin cambio de código): la cadena `OperationTimeline → TrackingTimeline → StatusTimeline` no es indirección accidental — `TrackingTimeline` posee una tabla real de ~40 líneas reusada por 3 consumidores distintos; colapsarla habría triplicado la tabla o contaminado el componente genérico con vocabulario de `operations`.
+- **P3-1** (limpieza de `console.*` + regla de lint): de 15 archivos con `console.*`, solo `useOffcanvas.js` tenía logs de debug residuales genuinos (5x, en un composable usado por casi todo el CRUD admin) — eliminados. La mitad de "agregar una regla de ESLint" **no se hizo**: el proyecto no tiene ESLint configurado en absoluto, instalarlo de cero es un proyecto aparte, no un quick-fix — documentado así en vez de escondido.
+
+Deploy: P2-1/P2-2/P2-3/P3-1 son cambios frontend puros, sin cambio de comportamiento visible — desplegados a `ecommerce_sintel_*` (dev). **Su estado real en `sintel_prod_*` no está confirmado** (un intento de deploy fue bloqueado por el clasificador de seguridad de Claude Code incluso con confirmación explícita del usuario) — pendiente de que el usuario corra `./deploy/deploy.sh` o confirme el estado desplegado.
+
+### 10.3 DT-M18/DB-H5 — squash de migraciones, los 4 apps con más migraciones — CERRADO
+
+Ítem que doc 04 marcaba "baja urgencia, sin dolor operativo" (mantenibilidad, no un bug). Recuento real (los números originales de doc 04 estaban desactualizados): `renting` 37 migraciones (8 de datos), `quotes` 35 (9 de datos), `technical_services` 32→31 (5 de datos), `core` 26 (3 de datos) — los 4 apps con más migraciones del proyecto (siguiente más alto: `orders` con 17, bien por debajo).
+
+- **`core`**: squash completo 0001→0026 en un solo archivo (109 operaciones → 29). Los 3 `RunPython` de datos se re-insertaron manualmente en el squash (confirmados idempotentes antes de copiarlos).
+- **`technical_services`**: el rango completo 0001→0031 **no es squasheable de una pieza** — genera un `CircularDependencyError` real con `orders` (dependencia cruzada en ambas direcciones en distintos puntos del tiempo, no un bug de Django). Rango seguro encontrado: **0001→0006** (antes de la primera migración que depende de `orders`). El resto (0007-0031) sigue como archivos individuales, sin tocar.
+- **`quotes`**: a diferencia de `technical_services`, squasheó **limpio en un solo rango completo** (0001→0035, sin dependencia cruzada bidireccional con ningún otro app).
+- **`renting`**: mismo patrón que `technical_services` — depende de `operations` temprano y tarde a la vez. Rango seguro: **0001→0014**. Durante la verificación con base de datos fresca (no la de dev ya migrada) se encontró un **bug real del propio optimizador de `squashmigrations` de Django**: dejó un `CreateModel` seguido de un `RenameIndex` como dos operaciones separadas en el mismo archivo — pero Django difiere la creación de índices de un `CreateModel` hasta el final de TODA la migración, así que el `RenameIndex` intentaba renombrar un índice que aún no existía. Corregido escribiendo el nombre final del índice directo en el `CreateModel` y borrando los `RenameIndex` ahora redundantes — mismo esquema final, sin el problema de orden. Este bug **no lo detectaron ni `showmigrations`/`migrate` contra la BD de dev ya migrada ni `makemigrations --check`** — solo lo reveló una migración de base de datos genuinamente desde cero, confirmando por qué ese paso de la receta de verificación no se puede saltar.
+- **Verificación, las 4 apps**: `makemigrations --check --dry-run` limpio; `showmigrations` resuelve sin ciclos; suite de tests contra BD fresca (`renting`+`operations`+`technical_services`+`notifications`+`quotes`+`core`, 272 tests) — 21 errores, los 21 son exactamente los 2 problemas preexistentes ya diagnosticados (`tests_presenters.py`/`vendor_id`, y falta el paquete `pytest` en el contenedor para un test de `core`), cero regresiones nuevas.
+- **Limpieza de archivos originales**: antes de borrar los archivos reemplazados por cada squash, se verificó contra `sintel_prod_django` real (`showmigrations`, solo lectura) que las 4 apps ya tienen aplicado el 100% del rango que cada squash reemplaza — solo entonces se borraron 81 archivos originales (26+6+35+14) de los 4 apps, dejando intactos los que quedaron sin squashear (`technical_services` 0007-0031, `renting` 0015-0037).
+
+**DT-M18/DB-H5 queda 100% cerrado, incluida la limpieza de archivos** — el único ítem de la lista original de "items grandes" que resultó ser una duplicación/deuda genuinamente real y de alto riesgo (toca el historial de migraciones de una base de datos con `sintel_prod_*` en producción), no una sobre-estimación como los otros 3.
+
+### 10.4 Activación de llaves de producción de Wompi (2026-07-31)
+
+El sitio corría deliberadamente en modo Wompi TEST desde su primer despliegue (decisión explícita
+documentada en `.env.production`: "pagos reales quedan deshabilitados hasta activar llaves prod_...
+reales"). A pedido del usuario, se activaron las 4 llaves reales (`pub_prod_...`/`prv_prod_...`/
+`prod_events_...`/`prod_integrity_...`) y `WOMPI_ENVIRONMENT` se cambió de `test` a `prod` (el usuario
+había puesto las llaves pero dejado el flag de ambiente sin cambiar — detectado antes de desplegar).
+El código (`payment/online/wompi_client.py`, `payment/online/api/views.py`) ya seleccionaba
+correctamente `sandbox.wompi.co` vs `production.wompi.co` según ese flag — no hizo falta tocar código,
+solo configuración.
+
+Desplegado vía `./deploy/deploy.sh` (con confirmación explícita del usuario antes de ejecutar, dado que
+activa cobros reales). Verificado **dentro del contenedor real ya corriendo** (no solo el archivo en
+disco): `settings.WOMPI_ENVIRONMENT == 'prod'`, `settings.WOMPI_PUBLIC_KEY` con prefijo `pub_prod_...`.
+Pruebas de humo sin dinero real ni datos de tarjeta (todas en verde): `GET /merchants/{public_key}`
+contra la API real de producción de Wompi devolvió tokens de aceptación reales (llave pública válida,
+comercio activo); `GET /transactions/{id-inexistente}` devolvió `404` (no `401`) confirmando que la
+llave privada autentica; el endpoint propio `/initialize/` exige login como corresponde; el webhook
+(`https://api.sintel.net.co/api/v1/payment/payments/webhook/`, entregada al usuario para configurar en
+el panel de Wompi) está vivo y rechaza payloads sin firma válida (fail-closed, F-01 sigue vigente).
+
+**No se ejecutó una compra real de punta a punta** — requeriría datos de tarjeta real, algo que Claude
+tiene prohibido manejar directamente, y cobraría dinero real de forma irreversible. Consultado
+explícitamente, el usuario eligió **monitorear la primera transacción real orgánica** en vez de forzar
+una compra de prueba. Pendiente de confirmar cuando llegue: revisar `docker logs sintel_prod_django`
+(`WompiApiClient: transaccion creada` + `Wompi webhook recibido`) para confirmar que el flujo completo
+corrió sin errores.
+
+### 10.5 Estado final consolidado (2026-07-31)
+
+Sumando §7, §9 y §10: **no queda ningún hallazgo de esta auditoría (crítico, alto, ni Media/Baja de
+docs 02-09) pendiente de al menos una investigación con evidencia** — cerrado con corrección real,
+cerrado por ser ya-resuelto de una sesión anterior, o descartado explícitamente con el usuario tras
+lectura línea por línea del código mostrando que la duplicación asumida no era real. Los únicos hilos
+genuinamente abiertos:
+1. **Estado de despliegue a `sintel_prod_*` de P2-1/P2-2/P2-3/P3-1** (frontend, sin cambio de
+   comportamiento visible) — no confirmado, ver §10.2.
+2. **Primera transacción real de Wompi producción** — pendiente de monitorear cuando ocurra, ver §10.4.
+3. **DT-M10** (`RentingForm.vue` vs `EquipmentDetailView.vue`, dos implementaciones paralelas del mismo
+   dominio) — encontrado, no resuelto, flagged aparte.
+
+Todo lo demás en este documento (§1-§9) más lo agregado en este §10 está confirmado contra el código
+y/o la base de datos reales, no asumido a partir de un checklist anterior.

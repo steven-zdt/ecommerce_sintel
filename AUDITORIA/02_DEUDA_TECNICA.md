@@ -59,13 +59,13 @@
 
 | ID | Descripción | Esfuerzo |
 |---|---|---|
-| DT-M1 | ProfileResolver violations (2 instancias `getattr(user, 'profile', None)`) | 30 min |
-| DT-M2 | ORM directo en `get_queryset()` de múltiples ViewSets (accounts, quotes, shop, payment/nequi) | 4h |
-| DT-M3 | `notifications/api/views.py:80` write ORM directo en ViewSet | 30 min |
-| DT-M4 | `cart/api/views.py:176` `WishlistItem.objects.get_or_create()` en ViewSet | 30 min |
-| DT-M5 | `payment/online/api/views.py:75,118,137`: `TransactionEvent.objects.create()` en views | 1h |
-| DT-M6 | `operations/api/views.py`: múltiples ORM directos en lógica de negocio | 3h |
-| DT-M7 | 6 índices de BD faltantes | 1h — 6 migraciones |
+| DT-M1 | ProfileResolver violations (2 instancias `getattr(user, 'profile', None)`) | ✅ Resuelto (ARCH-H9, doc 08) |
+| DT-M2 | ORM directo en `get_queryset()` de múltiples ViewSets (accounts, quotes, shop, payment/nequi) | ✅ Resuelto 2026-07-30 (ARCH-M1, doc 08) |
+| DT-M3 | `notifications/api/views.py:80` write ORM directo en ViewSet | ✅ Resuelto (ARCH-M3, doc 08) |
+| DT-M4 | `cart/api/views.py:176` `WishlistItem.objects.get_or_create()` en ViewSet | ✅ Resuelto (ARCH-M4, doc 08) |
+| DT-M5 | `payment/online/api/views.py:75,118,137`: `TransactionEvent.objects.create()` en views | ✅ Resuelto (ARCH-M5, doc 08) |
+| DT-M6 | `operations/api/views.py`: múltiples ORM directos en lógica de negocio | ✅ Resuelto 2026-07-30 (ARCH-M2, doc 08) |
+| DT-M7 | 6 índices de BD faltantes | ✅ Resuelto 2026-07-30 (DB-M1, doc 04) — solo 2 faltaban realmente |
 | DT-M8 | N+1 en `ShipmentOrderSummarySerializer` y `FlashOfferCardSerializer` | 2h |
 | DT-M9 | `FooterGroupSerializer.get_links_count` N+1 sin prefetch | 30 min |
 | DT-M10 | Servicios API ausentes en frontend: 193 llamadas Axios directas | 12h |
@@ -80,8 +80,8 @@
 | DT-M19 | `AdminContractorSerializer` dispara queries extra sin select_related apropiado | 1h |
 | DT-M20 | `TechnicalServiceSerializer`: `get_calculated_price` y `get_price_info` duplican cálculo | 3h |
 | DT-M21 | `SuccessCase` upload sin magic bytes check | 30 min |
-| DT-M22 | Access token lifetime de 60 minutos (debería ser 15) | 5 min |
-| DT-M23 | `UserDetailSerializer` expone `AdminVerificationDetailSerializer` a usuarios normales | 1h |
+| DT-M22 | Access token lifetime de 60 minutos (debería ser 15) | ✅ Resuelto y desplegado a producción (QW-17, ver `11_QUICK_WINS.md`) |
+| DT-M23 | `UserDetailSerializer` expone `AdminVerificationDetailSerializer` a usuarios normales | ✅ Resuelto 2026-07-30 (SEC-M6, doc 06) — confirmado explotable (fuga real de `actor_email` de staff) |
 
 ---
 
@@ -92,13 +92,13 @@
 | DT-L1 | `useFormValidation.js` específico de campaña con nombre genérico | 1h |
 | DT-L2 | `useRentalsStore` 14 líneas innecesariamente como store Pinia | 30 min |
 | DT-L3 | `useAvailabilityStore`: dos actions duplicadas (`check` vs `fetchAvailability`) | 30 min |
-| DT-L4 | `FilterSidebar.vue` sin importadores (posiblemente muerto) | 15 min |
+| DT-L4 | `FilterSidebar.vue` sin importadores (posiblemente muerto) | ✅ Resuelto/moot 2026-07-30 — el archivo ya no existe en el árbol actual |
 | DT-L5 | `src/shared/` directorio vacío | 5 min |
 | DT-L6 | 12 rutas hijas de `/mi-cuenta` repiten `meta: { requiresAuth: true }` | 15 min |
 | DT-L7 | `HomeConfigView.vue` (2.705L) y `ModuleBuilderModal.vue` (1.588L) — god-components | 20h |
 | DT-L8 | FSM de Operaciones triplicado sin clase base compartida | 12h |
 | DT-L9 | Serializers de imagen duplicados por app (shop/renting/services) | 2h |
-| DT-L10 | Sin catch-all admin 404 en el router | 30 min |
+| DT-L10 | Sin catch-all admin 404 en el router | ✅ Resuelto 2026-07-30 — catch-all ahora distingue `/panel/*` (→ `/panel/dashboard`, cae a `/panel/login` si no autenticado) de rutas públicas (→ `/`), verificado en vivo |
 | DT-L11 | `Quotation.answers` JSONField — impide queries analíticas | 16h |
 | DT-L12 | `OrderServiceDetail.contact_person` JSONField — datos estructurados sin normalizar | 4h |
 

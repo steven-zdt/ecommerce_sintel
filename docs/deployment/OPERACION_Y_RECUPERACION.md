@@ -68,17 +68,26 @@ docker compose -f docker-compose.prod.yml --env-file .env.production up -d
 
 **Manual:**
 ```bash
-./deploy/backup.sh                  # respalda BD + media/KYC + config
-./deploy/restore.sh <timestamp>     # restaura (pide confirmación "RESTAURAR")
+./deploy/backup.sh                  # respalda BD + media/KYC + config y valida los archivos
+./deploy/restore.sh <timestamp>     # crea snapshot preventivo y luego pide "RESTAURAR"
 ```
 
-**Automático:** tarea de Windows `SintelEcommerceBackup`, diaria 3:00 AM,
-corre como `SYSTEM`. Verificar con:
+**Automático:** la tarea de Windows `SintelEcommerceBackup` debe ejecutarse con una cuenta de
+servicio que tenga acceso al daemon de Docker Desktop; no usar `SYSTEM`, que no puede acceder al
+named pipe de Docker en esta instalación. Instalar o actualizar la tarea (solicita credenciales
+sin guardarlas en el repositorio):
 ```powershell
+.\deploy\install_backup_task.ps1
+```
+Después de instalarla, iniciar una ejecución de prueba y comprobar resultado `0` antes de confiar
+en la programación diaria de las 3:00 AM:
+```powershell
+Start-ScheduledTask -TaskName "SintelEcommerceBackup"
 Get-ScheduledTask -TaskName "SintelEcommerceBackup"
 Get-ScheduledTaskInfo -TaskName "SintelEcommerceBackup"   # ultima ejecucion
 ```
-Retención: 14 días (`SINTEL_BACKUP_RETENTION_DAYS` en `backup.sh`).
+El script valida cada dump con `pg_restore --list`, valida el archivo de media y evita ejecuciones
+simultáneas. Retención: 14 días (`SINTEL_BACKUP_RETENTION_DAYS` en `backup.sh`).
 
 ## Seguridad configurada (consolidado)
 
