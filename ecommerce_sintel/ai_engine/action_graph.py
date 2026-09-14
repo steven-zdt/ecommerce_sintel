@@ -255,21 +255,17 @@ async def node_optimize_context(state: SintelActionState, config: dict) -> dict:
 
 async def node_retrieve_knowledge(state: SintelActionState, config: dict) -> dict:
     """Preguntas de politica/FAQ/documentacion -- solo conocimiento documental
-    (retrieve_knowledge_for_chat filtra a metadata.language == "markdown"),
-    nunca codigo fuente ni reglas internas de arquitectura backend. Ver
-    AI_SUPPORT_SCOPE.md seccion 6."""
-    resources = (config.get("configurable") or {}).get("resources", {})
-    vectorstore, all_docs = resources.get("vectorstore"), resources.get("all_docs")
-    if vectorstore is None or not all_docs:
-        return {"tool_results": [{"error": "Base de conocimiento no disponible.", "status_code": 503}]}
-    docs = retrieve_knowledge_for_chat(state["message"], vectorstore, all_docs)[:MAX_KNOWLEDGE_CHUNKS]
+    publico (retrieve_knowledge_for_chat delega el filtro en Django/pgvector,
+    FASE 3), nunca codigo fuente ni reglas internas de arquitectura backend.
+    Ver AI_SUPPORT_SCOPE.md seccion 6."""
+    docs = (await retrieve_knowledge_for_chat(state["message"]))[:MAX_KNOWLEDGE_CHUNKS]
     # Fase 17 (Knowledge Governance, 2026-08-08): marcador explicito cuando no hay
     # nada -- antes un bloque vacio dejaba al LLM "rellenar" el hueco por su cuenta
     # (hallazgo real: pregunta de horario de atencion respondida con datos inventados
     # a partir de un chunk irrelevante). Un marcador inequivoco es mas dificil de
     # ignorar que una seccion vacia.
     knowledge = (
-        "\n---\n".join(d.page_content[:800] for d in docs)[:MAX_CONTEXT_CHARS]
+        "\n---\n".join(d["content"][:800] for d in docs)[:MAX_CONTEXT_CHARS]
         if docs else "NINGUNO -- no se encontro informacion verificada sobre este tema."
     )
     return {
@@ -822,7 +818,7 @@ def _pending_interrupt(graph, config) -> dict | None:
 
 
 async def run_action_chat(message: str, conversation_id: str | None, token: str,
-                          user_id, llm, vectorstore, all_docs,
+                          user_id, llm,
                           confirm: bool | None = None) -> dict:
     """
     Punto de entrada para POST /chat. El thread del checkpointer se namespacea
@@ -862,7 +858,7 @@ async def run_action_chat(message: str, conversation_id: str | None, token: str,
         "configurable": {
             "thread_id": f"{user_id}:{conversation_id}",
             "token": token,
-            "resources": {"llm": llm, "vectorstore": vectorstore, "all_docs": all_docs},
+            "resources": {"llm": llm},
             "metrics": metrics,
         }
     }

@@ -1,11 +1,29 @@
+"""
+retrievers.py
+
+FASE 3 (mision de simplificacion arquitectonica, 2026-09-14, ver
+AUDITORIA/ARCHITECTURE_SIMPLIFICATION_AUDIT.md): retrieve_knowledge_for_chat
+ya NO habla con ChromaDB directo -- delega en el endpoint interno de Django
+`ai_knowledge` (RetrievalService sobre PostgreSQL + pgvector, FASE 1/2, ya
+construido y validado). Mismo motivo que el resto de /internal/ai/* (ver
+tools/http_bridge.py): AI Engine corre como proceso separado y no debe
+importar Postgres directo.
+
+Filtro de gobernanza (visibility=="public", nunca contenido interno de
+ingenieria a un cliente -- ver AI_SUPPORT_SCOPE.md seccion 6) ahora vive
+server-side en ai_knowledge.services.selectors.RetrievalService, no aqui --
+este archivo confia en la respuesta de Django, no la re-filtra.
+"""
 import logging
-from langchain_core.documents import Document
-from langchain_chroma import Chroma
-from langchain.retrievers import EnsembleRetriever
-from langchain_community.retrievers import BM25Retriever
-from config import MAX_RETRIEVER_CHUNKS
+
+import httpx
+
+from config import DJANGO_INTERNAL_API_URL
 
 logger = logging.getLogger(__name__)
+
+_KNOWLEDGE_RETRIEVE_URL = f"{DJANGO_INTERNAL_API_URL}/internal/ai/knowledge/retrieve/"
+_TIMEOUT_SECONDS = 8
 
 APP_KEYWORDS_MAP = {
     "shop":               ["shop", "producto", "product", "variante", "variant", "precio", "price", "brand", "marca"],
@@ -42,6 +60,7 @@ APP_KEYWORDS_MAP = {
     "frontend_organization":       ["OrganizationView"],
 }
 
+
 def detect_apps_from_text(text: str) -> list[str]:
     text_lower = text.lower()
     detected = []
@@ -51,93 +70,37 @@ def detect_apps_from_text(text: str) -> list[str]:
     return detected or ["shop"]
 
 
-SAFE_KNOWLEDGE_LANGUAGE = "markdown"
-# Knowledge Governance (Fase 17, 2026-08-08): "markdown" solo evita codigo fuente --
-# no evita documentacion INTERNA de arquitectura/ingenieria (.AGENT/docs, docs/specs,
-# ai_skills) que tambien es markdown pero jamas deberia llegar a un cliente. Un
-# hallazgo real en vivo: una pregunta sobre "horario de atencion" recupero un
-# fragmento de arquitectura de agendamiento tecnico y el LLM fabrico una respuesta a
-# partir de eso. visibility=="public" es el filtro real -- ver loaders.py
-# (_PUBLIC_DOC_TYPES, hoy vacio: no existe todavia contenido curado para clientes).
-SAFE_KNOWLEDGE_VISIBILITY = "public"
-
-
-def _safe_knowledge_filter(app: str | None) -> dict:
-    base = [{"language": {"$eq": SAFE_KNOWLEDGE_LANGUAGE}}, {"visibility": {"$eq": SAFE_KNOWLEDGE_VISIBILITY}}]
-    if app:
-        base.append({"app_name": {"$eq": app}})
-    return {"$and": base}
-
-
-def retrieve_knowledge_for_chat(
-    query: str,
-    vectorstore: Chroma,
-    all_docs: list[Document],
-    apps: list[str] | None = None,
-) -> list[Document]:
+async def retrieve_knowledge_for_chat(query: str, apps: list[str] | None = None, k: int = 8) -> list[dict]:
     """
-    Retrieval para /chat (Support Agent) -- SOLO documentacion PUBLICA
-    (metadata.language == "markdown" Y metadata.visibility == "public").
-    Nunca devuelve codigo fuente Python/Vue/JS ni documentacion interna de
-    ingenieria (aunque sea markdown) -- nada de eso es apropiado como
-    contexto para responder a un cliente. Ver AI_SUPPORT_SCOPE.md seccion 6
-    y AI_ENGINE_AUDIT_SUPPORT_VS_ENGINEERING.md hallazgo 1 (2026-08-08).
+    Retrieval para /chat (Support Agent) -- SOLO documentacion PUBLICA. La
+    gobernanza (nunca devolver contenido interno de ingenieria/codigo fuente
+    a un cliente, ver AI_SUPPORT_SCOPE.md seccion 6) la aplica Django
+    (ai_knowledge.services.selectors.RetrievalService), no este archivo.
 
-    Nota: _PUBLIC_DOC_TYPES (loaders.py) esta vacio hoy -- no existe todavia
-    contenido curado para clientes en el repo, asi que esta funcion devuelve
-    lista vacia hasta que se autoren documentos reales de FAQ/politicas/
-    garantias marcados visibility="public". Es el comportamiento correcto:
-    preferir "no tengo esa informacion" a inventar una respuesta.
+    Retorna [] (nunca lanza) si Django no responde o no hay conocimiento
+    relevante -- mismo criterio de degradacion con gracia que ya tenia esta
+    funcion con vectorstore=None sobre ChromaDB.
 
-    Fallback de produccion (auditoria de puesta en produccion, 2026-08-17):
-    vectorstore puede ser None si ChromaDB no estaba disponible al arrancar
-    sintel_ai (ver main.py::lifespan) -- se degrada a "sin conocimiento" en vez
-    de un AttributeError. Hoy esto nunca se ejercita en la practica (sin docs
-    publicos, `corpus` siempre queda vacio antes de llegar a este punto), pero
-    no debe depender de esa coincidencia de datos.
+    Cada elemento: {"content", "source", "app_name", "title", "updated_at"}
+    -- ya NO son langchain Document (sin .page_content); ver
+    action_graph.py::node_retrieve_knowledge para el consumidor real.
     """
-    if vectorstore is None:
-        return []
     if not apps:
         apps = detect_apps_from_text(query)
 
-    safe_docs = [
-        d for d in all_docs
-        if d.metadata.get("language") == SAFE_KNOWLEDGE_LANGUAGE
-        and d.metadata.get("visibility") == SAFE_KNOWLEDGE_VISIBILITY
-    ]
+    try:
+        async with httpx.AsyncClient(timeout=_TIMEOUT_SECONDS) as client:
+            resp = await client.post(
+                _KNOWLEDGE_RETRIEVE_URL,
+                json={"query": query, "app_names": apps, "k": k},
+            )
+        if resp.status_code != 200:
+            logger.warning("[retrievers] ai_knowledge/retrieve respondio %d, sin conocimiento para este turno", resp.status_code)
+            return []
+        chunks = resp.json().get("chunks", [])
+    except httpx.HTTPError as exc:
+        logger.warning("[retrievers] ai_knowledge inalcanzable (%s), sin conocimiento para este turno", exc)
+        return []
 
-    collected: list[Document] = []
-    for app in apps:
-        corpus = [d for d in safe_docs if d.metadata.get("app_name") == app] or safe_docs
-        if not corpus:
-            continue
-        bm25 = BM25Retriever.from_documents(corpus, k=6)
-        semantic = vectorstore.as_retriever(
-            search_type="mmr",
-            search_kwargs={"k": 8, "fetch_k": 25, "lambda_mult": 0.6, "filter": _safe_knowledge_filter(app)},
-        )
-        retriever = EnsembleRetriever(retrievers=[bm25, semantic], weights=[0.35, 0.65])
-        collected.extend(retriever.invoke(query))
-
-    seen: set[int] = set()
-    unique: list[Document] = []
-    for doc in collected:
-        h = hash(doc.page_content[:200])
-        if h not in seen:
-            seen.add(h)
-            unique.append(doc)
-
-    limited = unique[:MAX_RETRIEVER_CHUNKS]
-    # Knowledge Governance (Fase 17): loguear la fuente exacta de cada chunk usado --
-    # antes era imposible auditar retroactivamente que documento (y que tan
-    # actualizado) sustento una respuesta dada.
-    sources = [
-        {"source": d.metadata.get("source"), "updated_at": d.metadata.get("updated_at")}
-        for d in limited
-    ]
-    logger.info(
-        "[retrievers] chat-knowledge query='%s...' apps=%s -> %d chunks (dedup de %d, solo markdown+public) sources=%s",
-        query[:60], apps, len(limited), len(collected), sources,
-    )
-    return limited
+    logger.info("[retrievers] chat-knowledge query='%s...' apps=%s -> %d chunks", query[:60], apps, len(chunks))
+    return chunks

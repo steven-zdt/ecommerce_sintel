@@ -52,24 +52,30 @@ class AIKnowledgeChunkSelector:
 
 class RetrievalService:
     @staticmethod
-    def retrieve_public_knowledge(query: str, app_name: str | None = None, k: int = 8) -> list[dict]:
+    def retrieve_public_knowledge(query: str, app_names: list[str] | None = None, k: int = 8) -> list[dict]:
         """
         Retrieval para /chat (Support Agent) -- SOLO documentos
-        visibility=public (mismo contrato que
-        ai_engine/retrievers.py::retrieve_knowledge_for_chat antes de esta
-        fase: nunca devuelve contenido interno de ingenieria a un cliente).
+        visibility=public (mismo contrato que tenia
+        ai_engine/retrievers.py::retrieve_knowledge_for_chat sobre ChromaDB:
+        nunca devuelve contenido interno de ingenieria a un cliente).
+        Consumido via ai_knowledge/api/views.py::AiKnowledgeRetrieveView
+        (FASE 3: ai_engine ya no habla con Postgres directo, llama a ese
+        endpoint interno).
+
+        `app_names`: filtro OR -- documentos de cualquiera de esos app_name.
+        None/[] = sin filtro (busca en todo el corpus publico).
 
         Retorna [] (nunca lanza) si no hay modelo de embeddings configurado o
         el proveedor esta caido -- mismo criterio de degradacion con gracia
         que ya usaba el vectorstore=None de ai_engine (preferir "sin
         conocimiento" a romper /chat).
 
-        NOTA (fuera de alcance FASE 1): busqueda puramente semantica (HNSW +
+        NOTA (fuera de alcance FASE 1/3): busqueda puramente semantica (HNSW +
         coseno), sin el hibrido BM25+MMR que tenia
         build_ensemble_retriever/retrieve_knowledge_for_chat en ChromaDB.
-        Evaluar en FASE 3 si hace falta reintroducir keyword-search (ej. via
-        pg_trgm o el `SearchVector` nativo de Postgres) antes de apagar
-        Chroma -- no se asume que no hace falta.
+        Evaluar en una fase futura si hace falta reintroducir keyword-search
+        (ej. via pg_trgm o el `SearchVector` nativo de Postgres) -- no se
+        asume que no hace falta solo porque Chroma ya se retiro.
         """
         try:
             query_vector, _model_id = EmbeddingService.embed_text(query)
@@ -86,8 +92,8 @@ class RetrievalService:
             )
             .select_related('document')
         )
-        if app_name:
-            qs = qs.filter(document__app_name=app_name)
+        if app_names:
+            qs = qs.filter(document__app_name__in=app_names)
 
         # cosine_distance: 0 = identico, 2 = opuesto -- ordenar ascendente
         # es "mas parecido primero", igual semantica que la similitud coseno

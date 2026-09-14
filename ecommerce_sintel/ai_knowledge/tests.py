@@ -86,7 +86,7 @@ class RetrievalVisibilityTests(TestCase):
     @patch('ai_knowledge.services.selectors.EmbeddingService.embed_text')
     def test_retrieval_filters_by_app_name(self, mock_embed):
         mock_embed.return_value = (_fake_vector(1.0), 'fake-model')
-        results = RetrievalService.retrieve_public_knowledge('cualquier consulta', app_name='shop')
+        results = RetrievalService.retrieve_public_knowledge('cualquier consulta', app_names=['shop'])
         self.assertEqual(results, [])
 
 

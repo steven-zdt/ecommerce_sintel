@@ -21,7 +21,7 @@ from ai_knowledge.services.selectors import RetrievalService
 class AiKnowledgeRetrieveView(APIView):
     """
     POST /api/v1/internal/ai/knowledge/retrieve/
-    body: {"query": "...", "app_name": "renting" (opcional), "k": 8 (opcional)}
+    body: {"query": "...", "app_names": ["renting"] (opcional), "k": 8 (opcional)}
     -> {"chunks": [{"content", "source", "app_name", "title", "updated_at"}, ...]}
 
     Siempre 200 con chunks=[] si no hay conocimiento publico relevante o el
@@ -35,7 +35,7 @@ class AiKnowledgeRetrieveView(APIView):
         query = (request.data.get('query') or '').strip()
         if not query:
             return Response({'chunks': []})
-        app_name = request.data.get('app_name') or None
+        app_names = request.data.get('app_names') or None
         k = int(request.data.get('k') or 8)
-        chunks = RetrievalService.retrieve_public_knowledge(query, app_name=app_name, k=k)
+        chunks = RetrievalService.retrieve_public_knowledge(query, app_names=app_names, k=k)
         return Response({'chunks': chunks})

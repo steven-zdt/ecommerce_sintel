@@ -1,131 +1,61 @@
 """
-retrieve_knowledge_for_chat (retrievers.py) -- el fix del Bloque 4 (2026-08-08,
-ver AI_SUPPORT_SCOPE.md seccion 6) + el fix de Knowledge Governance (Fase 17,
-mismo dia): /chat nunca debe recibir codigo fuente (python/vue/javascript) NI
-documentacion interna de ingenieria (aunque sea markdown) como "conocimiento"
-para responderle a un cliente -- solo documentacion explicitamente
-visibility="public".
+retrieve_knowledge_for_chat (retrievers.py) -- FASE 3 (mision de
+simplificacion arquitectonica, 2026-09-14): ya no habla con ChromaDB
+directo, delega en el endpoint interno de Django `ai_knowledge`
+(POST /internal/ai/knowledge/retrieve/, RetrievalService sobre pgvector).
 
-Hallazgo real que motivo el segundo fix: una pregunta de cliente sobre "horario
-de atencion" recupero un fragmento de ARQUITECTURA_COMPLETA_SERVICES.md (interno,
-sobre agendamiento tecnico) y el LLM fabrico una respuesta de todos modos -- el
-filtro anterior (solo language=="markdown") no distinguia entre eso y contenido
-genuinamente apto para clientes.
-
-No se puede levantar un ChromaDB real en esta suite -- se fake-ea el lado
-semantico con un BaseRetriever real (misma interfaz que usa EnsembleRetriever
-en produccion) devolviendo unicamente los docs que matchean el filtro del corpus
-fake, para no depender de si la fusion BM25+MMR de Ensemble prioriza uno u otro:
-el invariante que importa es que NINGUN doc no-publico puede aparecer en el
-resultado, sin importar el ranking.
+El invariante de gobernanza real (nunca devolver contenido interno de
+ingenieria a un cliente, ver AI_SUPPORT_SCOPE.md seccion 6 -- hallazgo
+original: una pregunta de "horario de atencion" recupero un fragmento de
+arquitectura interna y el LLM fabrico una respuesta) ahora se aplica y se
+prueba del lado Django -- ver ai_knowledge/tests.py::RetrievalVisibilityTests.
+Esta suite cubre el contrato propio de ai_engine: como arma la llamada HTTP,
+como interpreta la respuesta, y que se degrada con gracia (nunca lanza) si
+Django no responde. httpx.AsyncClient se mockea (no hay respx instalado en
+este entorno, mismo criterio que tests/test_dynamic_llm_config.py).
 """
-from typing import List
+from unittest.mock import AsyncMock, MagicMock, patch
 
-from langchain_core.documents import Document
-from langchain_core.retrievers import BaseRetriever
+import httpx
 
 from retrievers import retrieve_knowledge_for_chat
 
 
-class _FakeSemanticRetriever(BaseRetriever):
-    docs: List[Document] = []
-
-    def _get_relevant_documents(self, query, *, run_manager=None):
-        return self.docs
-
-
-class _FakeVectorStore:
-    """Duck-types Chroma.as_retriever() lo suficiente para retrieve_knowledge_for_chat."""
-
-    def __init__(self, all_docs: List[Document]):
-        self._all_docs = all_docs
-
-    def as_retriever(self, search_type=None, search_kwargs=None):
-        flt = (search_kwargs or {}).get("filter") or {}
-        conditions = flt.get("$and", [flt]) if flt else []
-        matched = []
-        for doc in self._all_docs:
-            ok = True
-            for cond in conditions:
-                for key, op in cond.items():
-                    if doc.metadata.get(key) != op.get("$eq"):
-                        ok = False
-            if ok:
-                matched.append(doc)
-        return _FakeSemanticRetriever(docs=matched)
+def _mock_response(status_code=200, json_data=None):
+    resp = MagicMock()
+    resp.status_code = status_code
+    resp.json.return_value = json_data or {}
+    return resp
 
 
-def _corpus():
-    return [
-        Document(
-            page_content="La garantia de los equipos de renting es de 12 meses.",
-            metadata={"app_name": "renting", "doc_type": "faq", "language": "markdown", "visibility": "public"},
-        ),
-        Document(
-            page_content="ProfessionalAvailability.check_time_availability valida conflictos de horario.",
-            metadata={"app_name": "renting", "doc_type": "architecture", "language": "markdown", "visibility": "internal"},
-        ),
-        Document(
-            page_content="class RentalRequest(models.Model): ...",
-            metadata={"app_name": "renting", "doc_type": "model", "language": "python", "visibility": "internal"},
-        ),
-        Document(
-            page_content="<template><RentingDetail /></template>",
-            metadata={"app_name": "frontend_renting", "doc_type": "view", "language": "vue", "visibility": "internal"},
-        ),
-        Document(
-            page_content="Reglas globales criticas: arquitectura service layer, soft-delete.",
-            metadata={"app_name": "global_rules", "doc_type": "spec", "language": "markdown", "visibility": "internal"},
-        ),
-    ]
+async def test_retrieve_knowledge_for_chat_devuelve_los_chunks_de_django():
+    payload = {"chunks": [
+        {"content": "La garantia de renting es de 12 meses.", "source": "manual",
+         "app_name": "renting", "title": "FAQ garantia", "updated_at": "2026-09-14T00:00:00Z"},
+    ]}
+    with patch("httpx.AsyncClient.post", new=AsyncMock(return_value=_mock_response(200, payload))):
+        docs = await retrieve_knowledge_for_chat("como funciona la garantia del renting", apps=["renting"])
+    assert len(docs) == 1
+    assert docs[0]["content"] == "La garantia de renting es de 12 meses."
 
 
-def test_retrieve_knowledge_for_chat_nunca_devuelve_codigo_fuente():
-    vectorstore = _FakeVectorStore(_corpus())
-    docs = retrieve_knowledge_for_chat(
-        "como funciona la garantia del renting", vectorstore, _corpus(), apps=["renting"],
-    )
-    assert docs, "deberia devolver al menos el doc publico de garantia"
-    for doc in docs:
-        assert doc.metadata.get("language") == "markdown", (
-            f"retrieve_knowledge_for_chat devolvio un doc no-markdown: {doc.metadata}"
-        )
+async def test_retrieve_knowledge_for_chat_envia_query_y_apps_detectados():
+    mock_post = AsyncMock(return_value=_mock_response(200, {"chunks": []}))
+    with patch("httpx.AsyncClient.post", new=mock_post):
+        await retrieve_knowledge_for_chat("quiero alquilar un equipo de renting")
+    assert mock_post.called
+    body = mock_post.call_args.kwargs["json"]
+    assert body["query"] == "quiero alquilar un equipo de renting"
+    assert "renting" in body["app_names"]
 
 
-def test_retrieve_knowledge_for_chat_nunca_devuelve_doc_interno_aunque_sea_markdown():
-    """Fase 17 (Knowledge Governance): el hallazgo real -- un doc de arquitectura
-    interna (markdown, del mismo app_name, semanticamente parecido) NUNCA debe
-    aparecer, solo por ser markdown. Solo visibility=="public" califica."""
-    vectorstore = _FakeVectorStore(_corpus())
-    docs = retrieve_knowledge_for_chat(
-        "como funciona la garantia del renting", vectorstore, _corpus(), apps=["renting"],
-    )
-    for doc in docs:
-        assert doc.metadata.get("visibility") == "public", (
-            f"retrieve_knowledge_for_chat devolvio un doc no-publico: {doc.metadata}"
-        )
-    contents = [d.page_content for d in docs]
-    assert not any("check_time_availability" in c for c in contents)
+async def test_retrieve_knowledge_for_chat_vacio_si_django_no_responde_200():
+    with patch("httpx.AsyncClient.post", new=AsyncMock(return_value=_mock_response(500, {}))):
+        docs = await retrieve_knowledge_for_chat("cualquier pregunta", apps=["renting"])
+    assert docs == []
 
 
-def test_retrieve_knowledge_for_chat_no_incluye_reglas_globales_fijas():
-    """Esta funcion NO debe inyectar el bloque fijo de reglas globales de
-    arquitectura backend en cada respuesta -- ese bloque es irrelevante para
-    un cliente."""
-    vectorstore = _FakeVectorStore(_corpus())
-    docs = retrieve_knowledge_for_chat(
-        "como funciona la garantia del renting", vectorstore, _corpus(), apps=["renting"],
-    )
-    contents = [d.page_content for d in docs]
-    assert not any("service layer" in c for c in contents)
-
-
-def test_retrieve_knowledge_for_chat_vacio_si_no_hay_contenido_publico():
-    """Si no existe ningun doc publico para el app detectado, debe devolver vacio
-    -- preferible a inventar con documentacion interna disponible."""
-    corpus_sin_publico = [d for d in _corpus() if d.metadata.get("visibility") != "public"]
-    vectorstore = _FakeVectorStore(corpus_sin_publico)
-    docs = retrieve_knowledge_for_chat(
-        "como funciona la garantia del renting", vectorstore, corpus_sin_publico, apps=["renting"],
-    )
+async def test_retrieve_knowledge_for_chat_vacio_si_django_inalcanzable():
+    with patch("httpx.AsyncClient.post", new=AsyncMock(side_effect=httpx.ConnectError("connection refused"))):
+        docs = await retrieve_knowledge_for_chat("cualquier pregunta", apps=["renting"])
     assert docs == []

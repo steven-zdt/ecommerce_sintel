@@ -209,8 +209,6 @@ async def chat(req: ChatRequest, token: str = Depends(get_validated_token)):
             token=token,
             user_id=payload["user_id"],
             llm=chat_llm,
-            vectorstore=_STATE.get("vectorstore"),
-            all_docs=_STATE.get("all_docs", []),
             confirm=req.confirm,
         )
     except Exception:
