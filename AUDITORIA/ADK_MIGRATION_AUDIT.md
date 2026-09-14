@@ -372,11 +372,52 @@ confirmacion real sigue sin probarse (heredado de ADK-02). El fix de
 dado el flake de arriba, verificar tambien si LM Studio (proveedor real de produccion) es
 mas o menos confiable que Ollama para tool-calling con este modelo/tamano.
 
+## 8quater. ADK-05 — migracion de tools 1 a 1 (completado)
+
+Alcance real verificado: ADK-04 ya habia adaptado las 33 instancias de tool de los 9
+perfiles sin excepciones de construccion, pero eso solo probaba que `adapt_sintel_tool` NO
+truena — no que la superficie expuesta al LLM sea exactamente la correcta. ADK-05 audito el
+**registro completo real (29 tools, confirmado en vivo con `tools.list_tools()`)** cruzando,
+para cada una, la firma expuesta por el wrapper contra `ToolMetadata.args_schema.properties`.
+
+**Bug de seguridad real encontrado (no hipotetico) auditando `OpenSupportTicketTool`:** su
+funcion real (`ai_engine/tools/support_tools.py::open_support_ticket_tool`) tiene un
+parametro real `history: list | None = None` que **deliberadamente NO esta en
+`args_schema`** — el comentario del propio codigo dice *"el LLM jamas lo controla"*: lo
+inyecta el grafo desde su propio estado (Human Handoff, Fase 7), nunca el usuario/LLM. El
+adapter de ADK-02/04 construia la superficie expuesta al LLM leyendo `inspect.signature`
+directo (menos `ctx`), sin cruzarla contra `args_schema` para los parametros NO-`**kwargs`
+— eso habria expuesto `history` como un campo rellenable por el LLM en la migracion real,
+violando un boundary de seguridad ya deliberado del sistema actual.
+
+**Fix (`sintel_adapter.py`, rediseño):** `ToolMetadata.args_schema.properties` pasa a ser la
+**unica fuente autoritativa** de que expone el wrapper al LLM — nunca `inspect.signature`
+cruda. Un parametro real ausente del schema no se expone ni se reenvia; `real_func` usa su
+propio default cuando el wrapper no se lo pasa. Los parametros `**kwargs` siguen
+sintetizandose desde `args_schema` igual que en ADK-04.
+
+**Verificado exhaustivamente, no solo con casos puntuales:**
+`test_adk05_tool_registry_audit.py` (31/31) recorre las **29 tools reales** una por una y
+confirma que la firma expuesta == `args_schema.properties` exacto, sin excepciones ni casos
+ocultos adicionales mas alla de `history`. `test_sintel_adapter_hidden_param.py` prueba
+end-to-end con Ollama real: el LLM abre un ticket de soporte real (con una queja real como
+input) y `history` nunca llega al body HTTP real, aunque la tool si tiene ese parametro en
+Python.
+
+**Conclusion de alcance:** con este fix, las 29 tools reales del registro quedan
+adaptadas correcta y exhaustivamente — no queda trabajo pendiente de "migrar tools 1 a 1"
+mas alla de lo ya cubierto por ADK-04+ADK-05 combinados. 48/48 tests pasando en `adk_poc/`.
+
+**Pendiente heredado (sin cambios):** el resto del contrato de `ChatResponse` (`tool_calls`,
+`needs_confirmation`, `metrics`) sigue sin replicarse (ADK-10). El flujo de RESUME tras
+confirmacion real sigue sin probarse (ADK-02). El fix de `JSON_SCHEMA_FOR_FUNC_DECL` sigue
+sin verificarse contra LM Studio (ADK-01).
+
 ## 9. Estado de este documento
 
-ADK-00 + ADK-01 + ADK-02 + ADK-03 + ADK-04 completos. Todo el codigo sigue aislado en
-`adk_poc/`, sin tocar `ai_engine`/Django/Docker — ningun cambio de este documento modifico
-produccion. Pendiente instruccion explicita del usuario para iniciar ADK-05 (migracion de
-tools 1 a 1 -- en gran parte ya cubierto por ADK-04, que adapto las 33 instancias de tools
-reales de los 9 perfiles; revisar alcance real restante antes de empezar) — el propio plan
-(seccion 24, "checkpoint obligatorio") exige no continuar automaticamente entre fases.
+ADK-00 + ADK-01 + ADK-02 + ADK-03 + ADK-04 + ADK-05 completos. Todo el codigo sigue
+aislado en `adk_poc/`, sin tocar `ai_engine`/Django/Docker — ningun cambio de este
+documento modifico produccion. Pendiente instruccion explicita del usuario para iniciar
+ADK-06 (RAG adapter — reusar `ai_knowledge`/`RetrievalService`/pgvector, nunca reintroducir
+ChromaDB/FAISS) — el propio plan (seccion 24, "checkpoint obligatorio") exige no continuar
+automaticamente entre fases.

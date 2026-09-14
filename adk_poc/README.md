@@ -276,3 +276,47 @@ de `llama3.1:8b` local, reproducido 3/3 en aislado -- no una regresion).
   o menos confiable que Ollama dado el flake observado (heredado de ADK-01).
 - Revisar que quede realmente pendiente de "migrar tools 1 a 1" -- ADK-04 ya
   adapto las 33 instancias de tools reales de los 9 perfiles.
+  **Resuelto en ADK-05 abajo.**
+
+---
+
+# ADK-05 — migracion de tools 1 a 1, auditoria del registro completo (completado)
+
+Alcance real: ADK-04 ya probaba que las 33 instancias de tool de los 9
+perfiles construian sin excepciones -- eso no probaba que la superficie
+expuesta al LLM fuera correcta, solo que no truena. ADK-05 audito el
+**registro completo real (29 tools)** cruzando, para cada una, lo que el
+wrapper expone contra `ToolMetadata.args_schema.properties`.
+
+**Bug de seguridad real (no hipotetico), encontrado auditando
+`OpenSupportTicketTool`:** su funcion real tiene un parametro real
+`history: list | None = None` **deliberadamente ausente de `args_schema`**
+-- lo inyecta el grafo (Human Handoff), "el LLM jamas lo controla" (comentario
+real de `support_tools.py`). El adapter anterior (ADK-02/04) leia
+`inspect.signature` directo para los parametros fijos, sin cruzarlos contra
+`args_schema` -- eso habria expuesto `history` como campo rellenable por el
+LLM, violando un boundary de seguridad ya deliberado del sistema real.
+
+**Fix:** `args_schema.properties` pasa a ser la UNICA fuente autoritativa de
+lo que el wrapper expone al LLM, nunca `inspect.signature` cruda. Un
+parametro real ausente del schema no se expone; `real_func` usa su propio
+default.
+
+**Verificado exhaustivamente:** `test_adk05_tool_registry_audit.py` (31/31)
+recorre las 29 tools reales una por una, sin excepciones adicionales mas
+alla de `history`. `test_sintel_adapter_hidden_param.py` prueba end-to-end
+con Ollama real: el LLM abre un ticket de soporte real y `history` nunca
+llega al body HTTP real.
+
+**Conclusion de alcance:** con este fix, las 29 tools reales quedan
+adaptadas correcta y exhaustivamente -- "migrar tools 1 a 1" queda cubierto
+por ADK-04+ADK-05 combinados, sin trabajo pendiente adicional en ese frente.
+48/48 tests pasando.
+
+## Pendiente para ADK-06+
+
+- El resto del contrato de `ChatResponse` (`tool_calls`, `needs_confirmation`,
+  `metrics`) -- ADK-10, dual run.
+- Flujo de RESUME tras confirmacion real (heredado de ADK-02).
+- Verificar `JSON_SCHEMA_FOR_FUNC_DECL=False` contra LM Studio (heredado de
+  ADK-01).

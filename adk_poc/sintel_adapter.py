@@ -63,27 +63,35 @@ def adapt_sintel_tool(registered_tool) -> FunctionTool:
     tools.registry.get_tool("OrderStatusTool") tras importar el modulo de
     dominio real, ej. `import tools.orders_tools`).
 
-    Construye dinamicamente un wrapper con la MISMA firma que la funcion
-    Sintel real (menos `ctx`, mas `tool_context` de ADK) -- ADK necesita una
-    firma Python real con type hints para declarar la tool al LLM (confirmado
-    en ADK-01: FunctionTool introspecciona `inspect.signature(func)`, no
-    acepta un JSON-schema suelto). El wrapper llama a la funcion Sintel REAL
-    sin reimplementar nada de su logica.
+    Construye dinamicamente un wrapper con la firma que el LLM debe ver --
+    ADK necesita una firma Python real con type hints para declarar la tool
+    (confirmado en ADK-01: FunctionTool introspecciona
+    `inspect.signature(func)`, no acepta un JSON-schema suelto). El wrapper
+    llama a la funcion Sintel REAL sin reimplementar nada de su logica.
 
-    Tools con `**kwargs` real (ej. CoreBannerUpdateTool): `inspect.signature`
-    no puede recuperar los nombres de campo desde un VAR_KEYWORD -- se
+    ADK-05, hallazgo real (`open_support_ticket_tool`, ver
+    ai_engine/tools/support_tools.py): la funcion real puede tener un
+    parametro con default que EXISTE en Python pero deliberadamente NO esta
+    en `args_schema` -- `history: list | None = None`, inyectado por el
+    grafo desde su propio estado (Human Handoff), nunca por el LLM ("el LLM
+    jamas lo controla", comentario real del codigo). Por eso la superficie
+    expuesta al LLM se construye SIEMPRE a partir de
+    `ToolMetadata.args_schema.properties` -- la fuente autoritativa real
+    ("JSON-schema de argumentos, para bind_tools", metadata.py) -- nunca de
+    `inspect.signature` cruda. Un parametro real ausente del schema
+    simplemente no se expone ni se reenvia; `real_func` usa su propio
+    default. Tools con `**kwargs` real (ej. CoreBannerUpdateTool):
+    `inspect.signature` no puede recuperar esos nombres de campo -- se
     sintetizan parametros keyword-only adicionales desde
-    `ToolMetadata.args_schema.properties` (la fuente real que YA declara esos
-    campos, ver ai_engine/tools/core_tools.py) para que el LLM los vea. El
-    wrapper en si sigue reenviando todo como **kwargs al `real_func` --
-    Python no exige que `__signature__` coincida con la firma real en tiempo
-    de ejecucion, solo se usa para la declaracion de schema al LLM.
+    `args_schema.properties` para que el LLM los vea.
     """
     metadata = registered_tool.metadata
     real_func: Callable[..., Any] = registered_tool.func
     real_sig = inspect.signature(real_func)
+    args_schema = metadata.args_schema or {}
+    schema_props: dict = args_schema.get("properties") or {}
+    required = set(args_schema.get("required", []))
 
-    named_params = []
     fixed_names: set[str] = set()
     has_var_keyword = False
     for name, p in real_sig.parameters.items():
@@ -92,14 +100,17 @@ def adapt_sintel_tool(registered_tool) -> FunctionTool:
         if p.kind is inspect.Parameter.VAR_KEYWORD:
             has_var_keyword = True
             continue
-        named_params.append(p)
         fixed_names.add(name)
+
+    # Solo lo que args_schema declara se expone al LLM -- ver docstring.
+    exposed_params = [
+        p for name, p in real_sig.parameters.items()
+        if name in fixed_names and name in schema_props
+    ]
 
     extra_params = []
     if has_var_keyword:
-        args_schema = metadata.args_schema or {}
-        required = set(args_schema.get("required", []))
-        for prop_name, prop_schema in (args_schema.get("properties") or {}).items():
+        for prop_name, prop_schema in schema_props.items():
             if prop_name in fixed_names:
                 continue
             py_type = _JSON_SCHEMA_TYPE_MAP.get(prop_schema.get("type"), str)
@@ -113,7 +124,7 @@ def adapt_sintel_tool(registered_tool) -> FunctionTool:
     adk_context_param = inspect.Parameter(
         "tool_context", inspect.Parameter.KEYWORD_ONLY, annotation=AdkToolContext,
     )
-    wrapper_sig = inspect.Signature(named_params + extra_params + [adk_context_param])
+    wrapper_sig = inspect.Signature(exposed_params + extra_params + [adk_context_param])
 
     async def wrapper(*, tool_context: AdkToolContext, **kwargs):
         sintel_ctx = _sintel_ctx_from_adk_state(tool_context)
@@ -126,7 +137,9 @@ def adapt_sintel_tool(registered_tool) -> FunctionTool:
             k: v for k, v in kwargs.items() if k in fixed_names or v is not None
         }
         # Llamada real a la funcion Sintel original -- cero logica de negocio
-        # nueva en este adapter.
+        # nueva en este adapter. Cualquier parametro real oculto al LLM
+        # (ausente de args_schema, ej. `history`) no llega en kwargs -- usa
+        # el default real de `real_func`.
         return await real_func(sintel_ctx, **call_kwargs)
 
     wrapper.__name__ = metadata.name
