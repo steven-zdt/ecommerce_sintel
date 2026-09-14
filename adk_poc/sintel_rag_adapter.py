@@ -48,7 +48,7 @@ async def build_knowledge_context(message: str, apps: list[str] | None = None) -
     `action_graph.py::node_retrieve_knowledge` -- mismo truncado a
     `MAX_KNOWLEDGE_CHUNKS` chunks de 800 chars, mismo separador, mismo
     marcador de Fase 17 cuando no hay resultados."""
-    from action_graph import MAX_CONTEXT_CHARS, MAX_KNOWLEDGE_CHUNKS
+    from routing import MAX_CONTEXT_CHARS, MAX_KNOWLEDGE_CHUNKS
     from retrievers import retrieve_knowledge_for_chat
 
     docs: list[dict[str, Any]] = (await retrieve_knowledge_for_chat(message, apps=apps))[:MAX_KNOWLEDGE_CHUNKS]

@@ -24,9 +24,12 @@ Delegar esa decision a un LLM (via sub_agents) violaria la regla de la
 mision "ADK ORQUESTA. SINTEL EJECUTA Y CONTROLA" -- por eso, con
 confirmacion explicita del usuario, este modulo NO usa sub_agents/transfer
 para el routing de produccion. `resolve_turn_agent()` reutiliza las
-funciones REALES de `action_graph.py` (no las copia) para decidir; ADK solo
-ejecuta al agente ya elegido por Sintel. El mecanismo `sub_agents` queda
-validado como capacidad real del framework (ADK-03), sin uso en este flujo.
+funciones REALES (no las copia) para decidir -- desde ADK-11, via
+`routing.py` (extraido de `action_graph.py`, mismo codigo, ver
+AUDITORIA/ADK_CUTOVER_PLAN.md, para que sea importable sin LangChain/
+LangGraph); ADK solo ejecuta al agente ya elegido por Sintel. El mecanismo
+`sub_agents` queda validado como capacidad real del framework (ADK-03), sin
+uso en este flujo.
 
 ## Identidad y sesion
 
@@ -140,7 +143,7 @@ def resolve_turn_agent(message: str) -> tuple[str, str, str | None]:
     apply_escalation` tal cual, replicando exactamente la logica de
     `action_graph.py::node_detect_intent` (mismo codigo, no una copia).
     Devuelve (intent, agent_name, handoff)."""
-    from action_graph import detect_business_intents, INTENT_CAPABILITIES
+    from routing import detect_business_intents, INTENT_CAPABILITIES
     from agents import AgentRegistry
 
     intents = detect_business_intents(message)
