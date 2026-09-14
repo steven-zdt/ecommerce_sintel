@@ -6,7 +6,7 @@
       Tu cuenta aun no ha sido validada. No puedes comprar ni ofrecer servicios.
       <RouterLink to="/mi-cuenta/verificacion" class="kyc-banner-link">Completar verificacion</RouterLink>
     </div>
-    <main class="customer-main">
+    <main id="main-content" class="customer-main" tabindex="-1">
       <ErrorBoundary>
         <RouterView v-slot="{ Component }">
           <Suspense>
@@ -23,6 +23,7 @@
     <CustomerFooter />
     <CartOffcanvas v-model="showCart" />
     <SupportChatWidget />
+    <CommunicationCenter />
     <ToastManager />
   </div>
 </template>
@@ -38,6 +39,7 @@ import CustomerNavbar from './CustomerNavbar.vue';
 import CustomerFooter from './CustomerFooter.vue';
 import CartOffcanvas from './CartOffcanvas.vue';
 import SupportChatWidget from '@/components/customer/ui/SupportChatWidget.vue';
+import CommunicationCenter from '@/components/customer/communication/CommunicationCenter.vue';
 import ErrorBoundary from '@/components/ui/ErrorBoundary.vue';
 import ToastManager from '@/components/layout/ToastManager.vue';
 

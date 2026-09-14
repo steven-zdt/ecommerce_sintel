@@ -29,6 +29,9 @@ export const useOrganizationAdminStore = defineStore('organizationAdmin', {
     domainSettings: null,
     seoSettings: null,
     legalEntity: null,
+    // White-label F8 (2026-08-14): documentos legales (Terminos/Privacidad/
+    // Garantia/Devoluciones/Autorizacion) -- ver organization.LegalDocument.
+    legalDocuments: [],
 
     loading: false,
     actionLoading: false,
@@ -44,7 +47,7 @@ export const useOrganizationAdminStore = defineStore('organizationAdmin', {
       this.loading = true;
       try {
         const api = this._api();
-        const [company, branding, contact, social, email, domains, seo, legal] = await Promise.all([
+        const [company, branding, contact, social, email, domains, seo, legal, legalDocs] = await Promise.all([
           api.get('organization/company/'),
           api.get('organization/branding/'),
           api.get('organization/contact/'),
@@ -53,6 +56,7 @@ export const useOrganizationAdminStore = defineStore('organizationAdmin', {
           api.get('organization/domain-settings/'),
           api.get('organization/seo-settings/'),
           api.get('organization/legal-entity/'),
+          api.get('organization/legal-documents/'),
         ]);
         this.company = company.data ?? null;
         this.branding = branding.data ?? null;
@@ -62,6 +66,7 @@ export const useOrganizationAdminStore = defineStore('organizationAdmin', {
         this.domainSettings = domains.data ?? null;
         this.seoSettings = seo.data ?? null;
         this.legalEntity = legal.data ?? null;
+        this.legalDocuments = legalDocs.data ?? [];
       } catch {
         this.error = 'Error cargando la configuracion de Organizacion.';
       } finally {
@@ -72,8 +77,8 @@ export const useOrganizationAdminStore = defineStore('organizationAdmin', {
     async _save(action) {
       this.actionLoading = true;
       try {
-        await action();
-        return { ok: true };
+        const response = await action();
+        return { ok: true, data: response?.data };
       } catch (err) {
         return { ok: false, error: err };
       } finally {
@@ -129,6 +134,16 @@ export const useOrganizationAdminStore = defineStore('organizationAdmin', {
 
     saveLegalEntityInfo(payload) {
       return this._save(() => this._api().patch('organization/legal-entity/update/', payload));
+    },
+
+    async saveLegalDocument(docType, payload) {
+      const res = await this._save(async () => {
+        const { data } = await this._api().patch(`organization/legal-documents/${docType}/update/`, payload);
+        const idx = this.legalDocuments.findIndex((d) => d.doc_type === docType);
+        if (idx >= 0) this.legalDocuments[idx] = data;
+        else this.legalDocuments.push(data);
+      });
+      return res;
     },
   },
 });

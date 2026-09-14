@@ -51,6 +51,13 @@
             <div class="col-md-3">
               <BaseUpload label="Favicon" :preview-url="brandingPreview.favicon" @file-selected="(f) => onFileSelected(f, 'favicon')" />
             </div>
+            <div class="col-md-6">
+              <BaseInput v-model="brandingForm.primary_color" label="Color primario" placeholder="#2563eb" maxlength="20" />
+              <p class="org-hint mb-0">Vacio = usa el color por defecto de la plantilla. Formato hex (#rrggbb).</p>
+            </div>
+            <div class="col-md-6">
+              <BaseInput v-model="brandingForm.accent_color" label="Color de acento" placeholder="#06b6d4" maxlength="20" />
+            </div>
           </div>
           <button class="org-btn-primary mt-3" :disabled="saving" @click="saveBranding">Guardar</button>
         </section>
@@ -60,7 +67,7 @@
           <h2 class="org-section-title">Contacto</h2>
           <div class="row g-3">
             <div class="col-md-6">
-              <BaseInput v-model="contactForm.phone" label="Telefono" maxlength="100" />
+              <BaseInput v-model="contactForm.phone" label="Telefono" placeholder="3144601878 o +57 314 460 1878" maxlength="100" />
             </div>
             <div class="col-md-6">
               <BaseInput v-model="contactForm.email" type="email" label="Email" maxlength="254" />
@@ -180,6 +187,40 @@
           </div>
           <button class="org-btn-primary mt-3" :disabled="saving" @click="saveLegalEntityInfo">Guardar</button>
         </section>
+
+        <!-- Documentos Legales (White-label F8, 2026-08-14) -->
+        <section v-if="activeSection === 'legal-documents'">
+          <h2 class="org-section-title">Documentos Legales</h2>
+          <p class="org-hint">
+            Terminos y Condiciones, Politica de Privacidad, Garantia, Devoluciones y
+            Autorizacion de Datos. Antes vivian hardcodeados en el codigo del frontend --
+            ahora se editan aqui sin necesitar un despliegue. El contenido de cada seccion
+            se edita como JSON (formato avanzado, revisar con cuidado antes de guardar).
+          </p>
+          <div class="org-legal-doc-tabs">
+            <button v-for="d in store.legalDocuments" :key="d.doc_type"
+              class="org-tab-btn" :class="{ active: activeLegalDoc === d.doc_type }"
+              @click="selectLegalDoc(d.doc_type)">
+              {{ d.title || d.doc_type }}
+            </button>
+          </div>
+          <div v-if="legalDocForm" class="mt-3">
+            <div class="row g-3">
+              <div class="col-md-8">
+                <BaseInput v-model="legalDocForm.title" label="Titulo" maxlength="200" />
+              </div>
+              <div class="col-md-4">
+                <BaseInput v-model="legalDocForm.updated_label" label="Fecha de actualizacion (texto libre)" maxlength="100" placeholder="10 de julio de 2026" />
+              </div>
+              <div class="col-12">
+                <label class="org-json-label">Contenido (JSON de secciones)</label>
+                <textarea v-model="legalDocSectionsJson" class="org-json-textarea" rows="16" spellcheck="false"></textarea>
+                <p v-if="legalDocJsonError" class="text-danger small mt-1">{{ legalDocJsonError }}</p>
+              </div>
+            </div>
+            <button class="org-btn-primary mt-3" :disabled="saving" @click="saveLegalDocumentForm">Guardar</button>
+          </div>
+        </section>
       </div>
     </div>
   </div>
@@ -209,10 +250,11 @@ const sections = [
   { id: 'domains',  label: 'Dominios',          icon: 'bi-globe' },
   { id: 'seo',      label: 'SEO',               icon: 'bi-search' },
   { id: 'legal',    label: 'Informacion Legal', icon: 'bi-file-earmark-text' },
+  { id: 'legal-documents', label: 'Documentos Legales', icon: 'bi-file-earmark-lock' },
 ];
 
 const companyForm  = ref({ trade_name: '', description: '', founded_year: null });
-const brandingForm = ref({ tagline: '', logo: null, favicon: null });
+const brandingForm = ref({ tagline: '', logo: null, favicon: null, primary_color: '', accent_color: '' });
 const brandingPreview = ref({ logo: null, favicon: null });
 const contactForm  = ref({ phone: '', email: '', address: '', working_hours: '' });
 const newSocialLink = ref({ platform: '', url: '', icon_class: '' });
@@ -226,6 +268,21 @@ const legalForm  = ref({
   legal_representative: '', city: '', department: '',
 });
 
+// White-label F8 (2026-08-14): edicion de organization.LegalDocument.
+const activeLegalDoc = ref(null);
+const legalDocForm = ref(null);
+const legalDocSectionsJson = ref('');
+const legalDocJsonError = ref('');
+
+function selectLegalDoc(docType) {
+  const doc = store.legalDocuments.find((d) => d.doc_type === docType);
+  if (!doc) return;
+  activeLegalDoc.value = docType;
+  legalDocForm.value = { title: doc.title, updated_label: doc.updated_label || '' };
+  legalDocSectionsJson.value = JSON.stringify(doc.sections, null, 2);
+  legalDocJsonError.value = '';
+}
+
 function onFileSelected(file, target) {
   const previewUrl = URL.createObjectURL(file);
   if (target === 'logo')      { brandingForm.value.logo = file;    brandingPreview.value.logo = previewUrl; }
@@ -238,7 +295,13 @@ async function fetchAll() {
   if (store.error) { toast.error(store.error); return; }
   const { company, branding, contact, emailSettings: email, domainSettings: domains, seoSettings: seo, legalEntity: legal } = store;
   if (company)  companyForm.value  = { trade_name: company.trade_name || '', description: company.description || '', founded_year: company.founded_year };
-  if (branding) { brandingForm.value.tagline = branding.tagline || ''; brandingPreview.value.logo = branding.logo; brandingPreview.value.favicon = branding.favicon; }
+  if (branding) {
+    brandingForm.value.tagline = branding.tagline || '';
+    brandingForm.value.primary_color = branding.primary_color || '';
+    brandingForm.value.accent_color = branding.accent_color || '';
+    brandingPreview.value.logo = branding.logo;
+    brandingPreview.value.favicon = branding.favicon;
+  }
   if (contact)  contactForm.value = { phone: contact.phone || '', email: contact.email || '', address: contact.address || '', working_hours: contact.working_hours || '' };
   if (email)   emailForm.value   = { default_from_email: email.default_from_email || '', frontend_base_url: email.frontend_base_url || '', admin_login_url: email.admin_login_url || '' };
   if (domains) domainForm.value  = { primary_domain: domains.primary_domain || '', admin_panel_domain: domains.admin_panel_domain || '', api_domain: domains.api_domain || '' };
@@ -258,6 +321,8 @@ async function saveCompany() {
 async function saveBranding() {
   const fd = new FormData();
   fd.append('tagline', brandingForm.value.tagline);
+  fd.append('primary_color', brandingForm.value.primary_color || '');
+  fd.append('accent_color', brandingForm.value.accent_color || '');
   if (brandingForm.value.logo)    fd.append('logo', brandingForm.value.logo);
   if (brandingForm.value.favicon) fd.append('favicon', brandingForm.value.favicon);
   const res = await store.saveBranding(fd);
@@ -266,7 +331,13 @@ async function saveBranding() {
 
 async function saveContact() {
   const res = await store.saveContact(contactForm.value);
-  if (res.ok) toast.success('Contacto guardado.'); else toast.error('Error guardando Contacto.');
+  if (res.ok) {
+    contactForm.value.phone = res.data?.phone ?? contactForm.value.phone;
+    toast.success('Contacto guardado.');
+  } else {
+    const phoneError = res.error?.response?.data?.phone?.[0];
+    toast.error(phoneError || 'Error guardando Contacto.');
+  }
 }
 
 async function createSocialLink() {
@@ -321,7 +392,27 @@ async function saveLegalEntityInfo() {
   if (res.ok) toast.success('Informacion legal guardada.'); else toast.error('Error guardando Informacion Legal.');
 }
 
-onMounted(fetchAll);
+async function saveLegalDocumentForm() {
+  let sections;
+  try {
+    sections = JSON.parse(legalDocSectionsJson.value);
+  } catch (e) {
+    legalDocJsonError.value = 'JSON invalido: ' + e.message;
+    return;
+  }
+  legalDocJsonError.value = '';
+  const res = await store.saveLegalDocument(activeLegalDoc.value, {
+    title: legalDocForm.value.title,
+    updated_label: legalDocForm.value.updated_label,
+    sections,
+  });
+  if (res.ok) toast.success('Documento legal guardado.'); else toast.error('Error guardando el documento legal.');
+}
+
+onMounted(async () => {
+  await fetchAll();
+  if (store.legalDocuments.length) selectLegalDoc(store.legalDocuments[0].doc_type);
+});
 </script>
 
 <style scoped>
@@ -357,4 +448,11 @@ onMounted(fetchAll);
 .org-social-url { flex-grow: 1; color: #6b7280; }
 .org-social-form { display: flex; gap: .6rem; align-items: flex-start; }
 .org-social-form .bi-field { flex: 1; }
+.org-legal-doc-tabs { display: flex; flex-wrap: wrap; gap: .4rem; }
+.org-legal-doc-tabs .org-tab-btn { width: auto; }
+.org-json-label { display: block; font-size: .82rem; font-weight: 600; color: #374151; margin-bottom: .35rem; }
+.org-json-textarea {
+  width: 100%; font-family: 'SFMono-Regular', Consolas, monospace; font-size: .8rem;
+  border: 1px solid #d1d5db; border-radius: 8px; padding: .75rem; color: #111827;
+}
 </style>
