@@ -1,7 +1,7 @@
+# langchain-core/langgraph se quedan: action_graph.py los sigue usando
+# (Policy Layer, ver tests/test_policy_layer.py) aunque su endpoint /chat
+# ya no exista (ADK-12, 2026-09-14) -- ver docstring de main.py.
 langchain-core>=0.3.0,<0.4.0
-langchain-ollama>=0.2.0,<0.3.0
-langchain-openai>=0.2.0,<0.3.0
-langchain-anthropic>=0.2.0,<0.3.0
 langgraph>=0.2.0,<0.3.0
 fastapi>=0.115.0,<0.116.0
 uvicorn[standard]>=0.32.0,<0.33.0
@@ -18,9 +18,11 @@ PyJWT>=2.9.0,<3.0.0
 # rank-bm25 retirados en FASE 5: solo los usaba specialized_retrieval.py
 # (BM25Retriever/EnsembleRetriever para /search e /indices, tambien
 # eliminados -- sin consumidor real desde que el pipeline de generacion de
-# codigo que alimentaban se retiro en FASE 4a). langchain-core/langchain-
-# ollama/langchain-openai/langchain-anthropic se quedan: siguen sirviendo los
-# clientes de CHAT en llm_factory.py.
+# codigo que alimentaban se retiro en FASE 4a).
+# ADK-12 (2026-09-14): langchain-ollama/langchain-openai/langchain-anthropic
+# retirados tambien -- solo los usaba llm_factory.py (clientes de CHAT,
+# eliminado junto con /chat de main.py, ver docstring de main.py). langchain-
+# core/langgraph SI se quedan (ver comentario arriba, junto a esos paquetes).
 # B2 (AUDITORIA/16): checkpointer propio del Action Graph sobre Redis (redis_checkpointer.py) --
 # NO el paquete langgraph-checkpoint-redis (requiere el modulo RediSearch, no disponible en
 # redis:7.2-alpine ya usado por el proyecto). Cliente redis plano, sync+async.

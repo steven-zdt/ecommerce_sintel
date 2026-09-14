@@ -580,6 +580,55 @@ pero no verificada exhaustivamente para las tools admin-only que NO proxean a Dj
 de cerrar ADK-12, decidir si se porta igual (mismo patron que este fix) o se documenta como
 aceptado.
 
+## 4decies. ADK-12 -- Retiro de lo genuinamente muerto -- EJECUTADO (2026-09-14, autorizado
+## explicitamente: "continuar ADK-12")
+
+Con el rate limiter ya portado (4nonies), se ejecuto la parte de ADK-12 que ya estaba
+confirmada como segura: retirar lo que la auditoria de consumidores reales identifico como
+muerto, sin tocar la Policy Layer (que sigue viva en `action_graph.py` mientras `IsAdminUser`
+no se porte, ver riesgo pendiente arriba).
+
+**Cambios reales:**
+- `ai_engine/tests/test_intent_detection.py` y `ai_engine/tests/test_dynamic_llm_config.py`
+  **eliminados** -- confirmado que probaban logica ya extraida byte-a-byte a `routing.py`/
+  `model_chain.py` (ADK-11), reusada intacta por `ai_engine_adk` sin estos archivos.
+- `ai_engine/main.py`: **retirado el endpoint `/chat`** (y `ChatRequest`/`ChatResponse`,
+  `_ensure_ollama_models`, el `lifespan` que construia un LLM propio, `_STATE`) -- el chat de
+  soporte real vive enteramente en `ai_engine_adk/` desde el cutover. `main.py` ahora expone
+  SOLO `/health` (simplificado, ya no depende de `_STATE`) y el AI Gateway
+  (`/api/v1/ai/*`, Meta Ads MCP) -- el consumidor real que obligaba a mantener el contenedor
+  `sintel_ai` vivo (ver 4nonies).
+- `ai_engine/llm_factory.py` **eliminado** -- confirmado por grep que sus unicos importadores
+  eran `main.py` (ya retirado) y `test_dynamic_llm_config.py` (ya retirado). `action_graph.py`
+  NUNCA lo importaba (solo lo mencionaba en un comentario) -- no se toco.
+- `ai_engine/requirements.txt`: retirados `langchain-ollama`/`langchain-openai`/
+  `langchain-anthropic` (unicos consumidores: `llm_factory.py`, eliminado). `langchain-core`/
+  `langgraph` **se mantienen** -- `action_graph.py` los sigue importando de verdad
+  (`from langchain_core.messages import ...`, `from langgraph.graph import ...`), y
+  `action_graph.py` se mantiene por la Policy Layer (ver riesgo pendiente). `redis_checkpointer.py`
+  tampoco se toco: sigue siendo un importador real de `action_graph.py`
+  (`_CHECKPOINTER = RedisCheckpointSaver(...)`).
+
+**Verificacion real:** `docker compose build sintel_ai` (staging) -> instala limpio sin los 3
+paquetes de proveedor LLM retirados -> contenedor arrancado temporalmente (estaba detenido
+desde el cutover) -> `pytest tests/ -v` -> **104 passed, 16 skipped** (mismos skips
+preexistentes, 0 failures; la baja de 162->104 son exactamente los tests de los 2 archivos
+eliminados) -> `GET /health` -> `200 {"status": "ok"}` -> `POST /chat` -> **404** (confirmado
+retirado) -> contenedor vuelto a detener, mismo estado que antes de este cambio.
+`ai_engine_adk` no se toco ni se vio afectado (su Dockerfile copia archivos especificos de
+`ai_engine/`, ninguno de los eliminados/modificados aqui estaba en esa lista).
+
+**Hallazgo colateral, NO resuelto, fuera del alcance aprobado:** `ai_engine/e2e_http/
+e2e_support_ai_chat_test.ps1` (script E2E real, 202 lineas) apunta directamente a
+`http://localhost:8100/chat` -- ahora un 404 real. Esta citado desde documentos de
+certificacion reales (`ai_engine/.AGENT/AI_ENGINE_AUDIT_SUPPORT_VS_ENGINEERING.md`,
+`SUPPORT_AGENT_SPEC.md`, `SUPPORT_AI_CERTIFICATION.md`, y el `MEMORY.md` del propio repo) como
+parte de como se certifico el chat de soporte -- no es un simple test suelto, es evidencia
+citada en un documento de certificacion formal ("APTA"). Retirarlo o reescribirlo para apuntar
+a `ai_engine_adk` implica tocar esos documentos de certificacion, que es una decision mas
+sensible que borrar codigo muerto -- **no se toco sin autorizacion explicita**. Queda como
+pendiente real para una proxima fase (posiblemente ADK-13, auditoria final).
+
 ## 5. Gate final antes de ejecutar cualquier paso de este plan
 
 Ningun paso de la seccion 3 (Opcion A) se ejecuta sin autorizacion explicita, item por
