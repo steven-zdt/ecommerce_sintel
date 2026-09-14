@@ -66,6 +66,7 @@
 import { computed } from 'vue';
 import BaseHorizontalCard from '@/components/base/BaseHorizontalCard.vue';
 import { formatCOP } from '@/utils/money';
+import { resolvePrimaryImage } from '@/utils/media';
 
 const props = defineProps({
   equipment: { type: Object, required: true },
@@ -77,11 +78,9 @@ const defaultVariant = computed(() =>
   props.equipment.variants?.find(v => v.is_default) || props.equipment.variants?.[0] || {}
 );
 
-const primaryImage = computed(() => {
-  const images = props.equipment.images;
-  if (!images?.length) return '';
-  return (images.find(img => img.is_primary) || images[0]).image;
-});
+// Auditoria Enterprise de Imagenes (2026-08-04): logica de "elegir imagen principal"
+// centralizada en resolvePrimaryImage() -- antes reimplementada identicamente 4 veces.
+const primaryImage = computed(() => resolvePrimaryImage(props.equipment.images) || '');
 
 const pricePerDay   = computed(() => parseFloat(defaultVariant.value.rental_price_per_day  || 0));
 const pricePerHour  = computed(() => parseFloat(defaultVariant.value.rental_price_per_hour || 0));

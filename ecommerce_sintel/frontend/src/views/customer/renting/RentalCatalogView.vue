@@ -2,72 +2,13 @@
   <div class="rental-catalog">
 
     <!-- ── Hero premium ─────────────────────────────────────────────────────── -->
-    <section class="catalog-hero">
-      <div class="ch-glow ch-glow-1"></div>
-      <div class="ch-glow ch-glow-2"></div>
-      <div class="container-xl">
-        <div class="ch-inner">
-          <!-- Left: breadcrumb + title -->
-          <div class="ch-left">
-            <nav class="ch-breadcrumb" aria-label="breadcrumb">
-              <RouterLink to="/" class="ch-bc-link">Inicio</RouterLink>
-              <span class="ch-bc-sep">/</span>
-              <span class="ch-bc-current">Alquiler</span>
-            </nav>
-            <div class="d-flex align-items-center gap-3 mt-1">
-              <h1 class="ch-title">Alquiler de Equipos</h1>
-              <span v-if="totalCount && !loading" class="ch-count-badge">
-                {{ totalCount.toLocaleString('es-CO') }} equipos
-              </span>
-            </div>
-            <p class="ch-sub">Soluciones temporales completas: equipo, logistica, instalacion, soporte y disponibilidad inteligente.</p>
-            <div class="ch-actions">
-              <a href="#renting-marketplace" class="ch-cta-primary">
-                <i class="bi bi-calendar-check"></i>
-                Reservar solucion
-              </a>
-              <RouterLink to="/cotizar" class="ch-cta-secondary">
-                <i class="bi bi-file-earmark-text"></i>
-                Cotizar proyecto
-              </RouterLink>
-            </div>
-            <div class="ch-trust-row">
-              <span><i class="bi bi-box-seam"></i> Equipos certificados</span>
-              <span><i class="bi bi-truck"></i> Transporte opcional</span>
-              <span><i class="bi bi-shield-check"></i> Soporte postventa</span>
-            </div>
-          </div>
-
-          <!-- Right: filtro rapido "destacados" + search mobile -->
-          <div class="ch-right d-none d-lg-flex">
-            <label class="ch-featured-toggle">
-              <input
-                v-model="filterFeatured"
-                type="checkbox"
-                @change="fetchEquipment"
-              >
-              <span class="ch-toggle-track"></span>
-              <span class="ch-toggle-label">Solo destacados</span>
-            </label>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <section class="renting-home">
-      <div class="container-xl">
-        <div class="rh-grid">
-          <article v-for="solution in premiumSolutions" :key="solution.title" class="rh-card">
-            <div class="rh-icon"><i :class="['bi', solution.icon]"></i></div>
-            <div>
-              <h2>{{ solution.title }}</h2>
-              <p>{{ solution.copy }}</p>
-            </div>
-          </article>
-        </div>
-
- </div>
-    </section>
+    <RentalCatalogHero
+      :total-count="totalCount"
+      :loading="loading"
+      :featured="filterFeatured"
+      @update:featured="filterFeatured = $event; fetchEquipment()"
+    />
+    <RentalSolutionStrip :solutions="premiumSolutions" />
 
     <div id="renting-marketplace" class="container-xl py-4">
 
@@ -289,6 +230,8 @@ import { useToast } from '@/composables/useToast';
 import ItemCard from '@/components/customer/ui/ItemCard.vue';
 import FilterPanel from '@/components/customer/ui/FilterPanel.vue';
 import EquipmentHorizontalCard from '@/components/renting/EquipmentHorizontalCard.vue';
+import RentalCatalogHero from './rental-catalog/RentalCatalogHero.vue';
+import RentalSolutionStrip from './rental-catalog/RentalSolutionStrip.vue';
 
 const api = useApi();
 const toast = useToast();
@@ -303,7 +246,7 @@ const totalPages = ref(0);
 const currentPage = ref(1);
 const filterFeatured = ref(false);
 const showFilterMobile = ref(false);
-const viewMode = ref('list');
+const viewMode = ref('grid');
 const homeCards = ref([]);
 const homeCardGroups = ref([]);
 
@@ -313,25 +256,6 @@ const fallbackPremiumSolutions = [
   { icon: 'bi-hdd-rack', title: 'Infraestructura TI', copy: 'Racks, energia, respaldo, computo y equipos empresariales con soporte tecnico.' },
   { icon: 'bi-person-workspace', title: 'Solucion con operador', copy: 'Equipo, transporte, instalacion, configuracion, capacitacion y operador especializado.' },
 ];
-
-const fallbackUseCases = [
-  { icon: 'bi-music-note-beamed', name: 'Eventos' },
-  { icon: 'bi-cone-striped', name: 'Construccion' },
-  { icon: 'bi-hospital', name: 'Hospitales' },
-  { icon: 'bi-shop-window', name: 'Centros comerciales' },
-  { icon: 'bi-buildings', name: 'Empresas' },
-  { icon: 'bi-house-gear', name: 'Condominios' },
-];
-
-const fallbackAvailabilityHighlights = [
-  { label: 'Modalidad', value: 'Horas o dias' },
-  { label: 'Siguiente fecha', value: 'Motor de disponibilidad' },
-  { label: 'Logistica', value: 'Entrega y recogida' },
-  { label: 'Paquetes', value: 'Solo equipo a premium' },
-];
-
-const fallbackRentalProcess = ['Seleccionar', 'Reservar', 'Pagar', 'Entregar', 'Instalar', 'Usar', 'Recoger', 'Cerrar'];
-const fallbackCompatibleBrands = ['Hikvision', 'Dahua', 'Ubiquiti', 'Cisco', 'Dell', 'Axis', 'Bosch', 'Mikrotik', 'APC'];
 
 const filterState = reactive({
   categorySlug: '',
@@ -362,10 +286,6 @@ function cardsFor(groupName) {
     .sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
 }
 
-function groupMeta(groupName) {
-  return homeCardGroups.value.find((group) => group.name === groupName && group.is_visible !== false) || {};
-}
-
 const premiumSolutions = computed(() => {
   const cards = cardsFor('renting_home_solutions');
   if (!cards.length) return fallbackPremiumSolutions;
@@ -374,34 +294,6 @@ const premiumSolutions = computed(() => {
     copy: card.description || card.subtitle || '',
     icon: card.icon_class || 'bi-star',
   }));
-});
-
-const useCases = computed(() => {
-  const cards = cardsFor('renting_home_use_cases');
-  if (!cards.length) return fallbackUseCases;
-  return cards.map((card) => ({
-    name: card.title,
-    icon: card.icon_class || 'bi-check2-circle',
-  }));
-});
-
-const availabilityHighlights = computed(() => {
-  const cards = cardsFor('renting_home_availability');
-  if (!cards.length) return fallbackAvailabilityHighlights;
-  return cards.map((card) => ({
-    label: card.title,
-    value: card.subtitle || card.description || '',
-  }));
-});
-
-const rentalProcess = computed(() => {
-  const cards = cardsFor('renting_home_process');
-  return cards.length ? cards.map((card) => card.title) : fallbackRentalProcess;
-});
-
-const compatibleBrands = computed(() => {
-  const cards = cardsFor('renting_home_brands');
-  return cards.length ? cards.map((card) => card.title) : fallbackCompatibleBrands;
 });
 
 async function fetchEquipment() {
@@ -683,16 +575,6 @@ onMounted(() => { fetchMarketplaceContent(); fetchFilters(); fetchEquipment(); }
   letter-spacing: .08em;
   margin-bottom: .25rem;
 }
-.section-link {
-  display: inline-flex;
-  align-items: center;
-  gap: .35rem;
-  color: #0369a1;
-  text-decoration: none;
-  font-size: .86rem;
-  font-weight: 760;
-  white-space: nowrap;
-}
 .use-case-strip {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
@@ -768,21 +650,6 @@ onMounted(() => { fetchMarketplaceContent(); fetchFilters(); fetchEquipment(); }
   text-align: center;
   font-size: .76rem;
   font-weight: 780;
-}
-.brand-cloud {
-  display: flex;
-  flex-wrap: wrap;
-  gap: .5rem;
-  margin-top: 1rem;
-}
-.brand-cloud span {
-  border: 1px solid #e2e8f0;
-  background: #fff;
-  color: #475569;
-  border-radius: 999px;
-  padding: .38rem .75rem;
-  font-size: .78rem;
-  font-weight: 720;
 }
 
 /* Featured toggle in hero */
@@ -1099,8 +966,6 @@ onMounted(() => { fetchMarketplaceContent(); fetchFilters(); fetchEquipment(); }
     grid-template-columns: repeat(2, minmax(0, 1fr));
     margin-top: 1rem;
   }
-  .use-case-strip { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .renting-split { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 575px) {

@@ -24,12 +24,13 @@ import { useDocumentDownload } from '@/composables/useDocumentDownload';
 const props = defineProps({
   documents: { type: Array, default: () => [] },
   equipmentUuid: { type: String, required: true },
+  basePath: { type: String, default: 'renting/equipment' },
 });
 
 const otherFiles = computed(() =>
   props.documents.filter((d) => d.document_type !== 'MANUAL' && d.document_type !== 'FICHA_TECNICA'),
 );
-const { download } = useDocumentDownload(props.equipmentUuid);
+const { download } = useDocumentDownload(props.equipmentUuid, props.basePath);
 </script>
 
 <style scoped>

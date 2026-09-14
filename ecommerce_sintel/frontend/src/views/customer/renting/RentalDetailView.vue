@@ -365,7 +365,14 @@
         <div class="row g-3">
           <div v-for="equipment in detail.related_equipment" :key="equipment.uuid" class="col-md-6 col-lg-4">
             <RouterLink :to="{ name: 'rental-detail', params: { uuid: equipment.uuid } }" class="related-card text-decoration-none">
-              <img :src="equipment.image_url" :alt="equipment.name" class="related-image" />
+              <MediaImage
+                :src="equipment.image_url"
+                :alt="equipment.name"
+                placeholder-icon="bi-truck"
+                placeholder-bg="linear-gradient(135deg, #faf5ff, #f3e8ff)"
+                placeholder-color="#7c3aed"
+                class="related-media"
+              />
               <h6>{{ equipment.name }}</h6>
               <span class="price">{{ equipment.price_from }}</span>
             </RouterLink>
@@ -384,9 +391,11 @@ import { useToast } from '@/composables/useToast';
 import { useSeo } from '@/composables/useSeo';
 import { usePreloadImage } from '@/composables/useLazyImage';
 import { generateProductSchema, generateBreadcrumbSchema, injectJsonLd } from '@/composables/useSeoStructuredData';
+import { useAppConfigStore } from '@/store/appConfig';
 
 // Hero section (above fold - eager load)
 import BaseGallery from '@/components/base/BaseGallery.vue';
+import MediaImage from '@/components/ui/MediaImage.vue';
 import DiscountBadge from '@/components/marketplace/DiscountBadge.vue';
 import UrgencyBanner from '@/components/marketplace/UrgencyBanner.vue';
 import TagBadge from '@/components/marketplace/TagBadge.vue';
@@ -419,6 +428,8 @@ const api = useApi();
 const toast = useToast();
 const route = useRoute();
 const router = useRouter();
+// White-label F7 (2026-08-14): antes 'Sintel' hardcodeado como fallback de marca.
+const appConfigStore = useAppConfigStore();
 const { setSeo } = useSeo();
 
 const loading = ref(true);
@@ -430,7 +441,7 @@ const FAVORITES_KEY = 'sintel_renting_favorites';
 const quickSpecs = computed(() => {
   if (!detail.value?.hero) return [];
   return [
-    { label: 'Marca', value: detail.value.hero.brand_name || 'Sintel' },
+    { label: 'Marca', value: detail.value.hero.brand_name || appConfigStore.brand.site_name },
     { label: 'Categoría', value: detail.value.hero.category_name || 'Equipo' },
     { label: 'Disponibilidad', value: detail.value.availability?.status_label || 'N/A' },
     { label: 'Stock', value: `${detail.value.availability?.available_now || 0} unidad(es)` },
@@ -807,13 +818,14 @@ onMounted(() => {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 }
 
-.related-image {
+.related-media {
   width: 100%;
   height: 180px;
-  object-fit: cover;
   border-radius: 0.375rem;
   margin-bottom: 0.75rem;
+  overflow: hidden;
 }
+.related-media :deep(.mi-img) { border-radius: 0.375rem; }
 
 .related-card h6 {
   font-weight: 600;

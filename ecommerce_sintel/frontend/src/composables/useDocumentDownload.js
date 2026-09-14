@@ -1,18 +1,23 @@
 import useApi from '@/composables/useApi';
 
 /**
- * Registra la descarga de un RentalDocument (contador `downloads`) y abre el
+ * Registra la descarga de un documento (contador `downloads`) y abre el
  * archivo. Compartido por EquipmentManualList/EquipmentDocumentList/
- * EquipmentDownloadSection -- las 3 secciones de "archivos" del detalle de
- * renting llaman el mismo endpoint publico.
+ * EquipmentDownloadSection -- las 3 secciones de "archivos" de cualquier
+ * detalle publico (renting/shop) llaman el mismo patron de endpoint,
+ * `<basePath>/<entityUuid>/documents/<docUuid>/register-download/`.
+ *
+ * `basePath` por defecto preserva el comportamiento original (renting) sin
+ * tocar ningun call site existente -- shop pasa basePath="shop/products"
+ * (generalizado 2026-08-03, mismo patron que CatalogListManager.parentKey).
  */
-export function useDocumentDownload(equipmentUuid) {
+export function useDocumentDownload(entityUuid, basePath = 'renting/equipment') {
   const api = useApi();
 
   async function download(document) {
     try {
       const res = await api.post(
-        `renting/equipment/${equipmentUuid}/documents/${document.uuid}/register-download/`,
+        `${basePath}/${entityUuid}/documents/${document.uuid}/register-download/`,
       );
       const url = res.data?.file || document.file;
       if (url) window.open(url, '_blank', 'noopener');

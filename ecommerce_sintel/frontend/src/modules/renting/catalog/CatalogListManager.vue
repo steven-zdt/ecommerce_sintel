@@ -113,6 +113,11 @@ const props = defineProps({
   secondaryField: { type: String, default: null },
   supportsDuplicate: { type: Boolean, default: true },
   emptyIcon: { type: String, default: 'bi-list-ul' },
+  // Generalizado (2026-08-03) para reusar este componente en shop (catalogo enriquecido de
+  // Product, espejo de renting.Equipment) sin duplicarlo: nombre del query param / campo del
+  // body que identifica al padre. Default 'equipment' preserva el comportamiento original de
+  // renting sin tocar ningun call site existente; shop pasa parent-key="product".
+  parentKey: { type: String, default: 'equipment' },
 });
 
 const api = useApi();
@@ -167,7 +172,7 @@ const form = ref(emptyForm());
 async function fetchItems() {
   if (!props.equipmentUuid) return;
   try {
-    const res = await api.get(`${props.endpoint}?equipment=${props.equipmentUuid}`);
+    const res = await api.get(`${props.endpoint}?${props.parentKey}=${props.equipmentUuid}`);
     items.value = res.data.results || res.data;
   } catch {
     toast.error(`No se pudo cargar ${props.resourceLabelPlural.toLowerCase()}`);
@@ -208,7 +213,7 @@ async function save() {
       await api.patch(`${props.endpoint}${editingItem.value.uuid}/`, { ...form.value });
       toast.success(`${props.resourceLabel} actualizado`);
     } else {
-      await api.post(props.endpoint, { equipment: props.equipmentUuid, ...form.value });
+      await api.post(props.endpoint, { [props.parentKey]: props.equipmentUuid, ...form.value });
       toast.success(`${props.resourceLabel} agregado`);
     }
     cancelForm();
@@ -263,7 +268,7 @@ async function handleDrop(targetIndex) {
   items.value = reordered;
   try {
     await api.post(`${props.endpoint}reorder/`, {
-      equipment: props.equipmentUuid,
+      [props.parentKey]: props.equipmentUuid,
       ordered_uuids: reordered.map((i) => i.uuid),
     });
   } catch {
