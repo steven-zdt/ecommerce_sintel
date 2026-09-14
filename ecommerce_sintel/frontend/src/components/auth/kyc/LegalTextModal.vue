@@ -15,6 +15,9 @@
           Sujeto a revision por un abogado antes de considerarse definitivo.
         </p>
 
+        <p v-if="loading" class="text-muted">Cargando...</p>
+        <p v-else-if="loadError" class="text-danger">No se pudo cargar el documento. Intenta de nuevo mas tarde.</p>
+
         <section v-for="(section, i) in doc.sections" :key="i" class="legal-section">
           <h3 v-if="section.heading" class="legal-section__heading">{{ section.heading }}</h3>
           <p v-for="(p, j) in section.paragraphs" :key="j" v-html="p"></p>
@@ -30,16 +33,46 @@
 </template>
 
 <script setup>
-import { computed } from 'vue';
-import { LEGAL_DOCS } from './legalDocs';
+import { ref, reactive, computed, watch } from 'vue';
+import useApi from '@/composables/useApi';
 
+// White-label F5 (2026-08-14): el contenido ya no viene de legalDocs.js
+// hardcodeado -- se obtiene de organization.LegalDocument via API publica
+// (organization/legal-documents/<doc_type>/), editable desde el panel sin
+// requerir un deploy. Ver AUDITORIA/WHITE_LABEL/WHITE_LABEL_BUSINESS_RULE_CATALOG.md.
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
   docType: { type: String, required: true }, // 'terminos' | 'privacidad' | 'garantia' | 'devoluciones' | 'autorizacion'
 });
 const emit = defineEmits(['update:modelValue']);
 
-const doc = computed(() => LEGAL_DOCS[props.docType] || LEGAL_DOCS.terminos);
+const api = useApi();
+const loading = ref(false);
+const loadError = ref(false);
+const EMPTY_DOC = { title: '', updated: '', sections: [] };
+// Cache simple por docType: el usuario puede abrir/cerrar el mismo modal
+// varias veces en una sesion sin repetir la llamada.
+const cache = reactive({});
+
+const doc = computed(() => cache[props.docType] || EMPTY_DOC);
+
+async function fetchDoc(docType) {
+  if (!docType || cache[docType]) return;
+  loading.value = true;
+  loadError.value = false;
+  try {
+    const { data } = await api.get(`organization/legal-documents/${docType}/`);
+    cache[docType] = { title: data.title, updated: data.updated_label, sections: data.sections };
+  } catch {
+    loadError.value = true;
+  } finally {
+    loading.value = false;
+  }
+}
+
+watch(() => [props.modelValue, props.docType], ([open, docType]) => {
+  if (open) fetchDoc(docType);
+}, { immediate: true });
 
 function close() {
   emit('update:modelValue', false);

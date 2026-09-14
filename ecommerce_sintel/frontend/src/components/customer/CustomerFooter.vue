@@ -5,9 +5,9 @@
 
         <!-- Columna Brand -->
         <div class="footer-col footer-col--brand">
-          <span class="footer-brand">Sintel</span>
+          <span class="footer-brand">{{ brand.site_name }}</span>
           <p class="text-secondary small mt-3 mb-0" style="max-width:280px">
-            Ecosistema inteligente de e-commerce. Productos, alquiler de equipos y servicios tecnicos en un solo lugar.
+            {{ brand.tagline || 'Ecosistema inteligente de e-commerce. Productos, alquiler de equipos y servicios tecnicos en un solo lugar.' }}
           </p>
 
           <!-- Redes sociales dinamicas -->
@@ -126,7 +126,7 @@
       <hr class="footer-divider">
 
       <div class="d-flex flex-column flex-md-row justify-content-between align-items-center py-4 gap-2">
-        <p class="text-secondary small mb-0">&copy; {{ year }} Sintel Ecosystem. Todos los derechos reservados.</p>
+        <p class="text-secondary small mb-0">&copy; {{ year }}<template v-if="brand.site_name"> {{ brand.site_name }}.</template> Todos los derechos reservados.</p>
         <p class="text-secondary small mb-0">Hecho con <i class="bi bi-heart-fill text-danger"></i> en Colombia</p>
       </div>
     </div>
@@ -144,9 +144,17 @@ import { ref, computed, onMounted } from 'vue';
 import { RouterLink, useRoute, useRouter } from 'vue-router';
 import useApi from '@/composables/useApi';
 import LegalTextModal from '@/components/auth/kyc/LegalTextModal.vue';
-import { LEGAL_DOCS } from '@/components/auth/kyc/legalDocs';
+
+// White-label F5 (2026-08-14): antes se comprobaba membership contra el objeto
+// LEGAL_DOCS importado de legalDocs.js -- el contenido ahora vive en
+// organization.LegalDocument (via API), pero las claves de docType siguen
+// siendo las mismas (LegalDocument.DOC_TYPE_CHOICES en el backend), asi que
+// esta lista local solo sirve para decidir "es un link legal, abre el modal"
+// sin necesitar el contenido completo aqui.
+const KNOWN_LEGAL_DOC_TYPES = ['terminos', 'politica', 'privacidad', 'garantia', 'devoluciones', 'autorizacion'];
 import IconRenderer from '@/components/ui/IconRenderer.vue';
 import { useAuthStore } from '@/store/auth';
+import { useAppConfigStore } from '@/store/appConfig';
 
 /**
  * *Override: cuando se pasan (no null), se usan en vez de hacer fetch a
@@ -165,6 +173,7 @@ const api        = useApi();
 const route      = useRoute();
 const router     = useRouter();
 const authStore  = useAuthStore();
+const appConfigStore = useAppConfigStore();
 const year       = new Date().getFullYear();
 const fetchedContact    = ref(null);
 const fetchedSocialLinks = ref([]);
@@ -174,6 +183,7 @@ const legalDocOpen = ref(null);
 const contact     = computed(() => props.contactOverride     || fetchedContact.value);
 const socialLinks = computed(() => props.socialLinksOverride || fetchedSocialLinks.value);
 const navGroups   = computed(() => props.navGroupsOverride   || fetchedNavGroups.value);
+const brand       = computed(() => appConfigStore.brand);
 
 function groupStyle(group) {
   const style = {};
@@ -201,7 +211,7 @@ function visibleLinks(links) {
 function onLinkClick(url, event) {
   if (typeof url === 'string' && url.startsWith('#')) {
     const docType = url.slice(1);
-    if (LEGAL_DOCS[docType]) {
+    if (KNOWN_LEGAL_DOC_TYPES.includes(docType)) {
       event.preventDefault();
       legalDocOpen.value = docType;
       router.replace({ hash: `#${docType}` }).catch(() => {});
@@ -218,7 +228,7 @@ function closeLegalDoc() {
 // se abra solo al cargar la pagina (ej. desde un correo o WhatsApp).
 function openFromHash() {
   const docType = route.hash?.replace('#', '');
-  if (docType && LEGAL_DOCS[docType]) {
+  if (docType && KNOWN_LEGAL_DOC_TYPES.includes(docType)) {
     legalDocOpen.value = docType;
   }
 }
@@ -240,7 +250,7 @@ onMounted(async () => {
 
 <style scoped>
 .customer-footer {
-  background: #0f172a;
+  background: var(--landing-ink-950);
   color: #94a3b8;
 }
 .footer-grid {
@@ -282,7 +292,7 @@ onMounted(async () => {
 .footer-brand {
   font-size: 1.6rem;
   font-weight: 800;
-  background: linear-gradient(135deg, #60a5fa 0%, #a5b4fc 100%);
+  background: linear-gradient(135deg, #93c5fd 0%, #c4b5fd 100%);
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -319,15 +329,15 @@ onMounted(async () => {
 .footer-social {
   width: 36px;
   height: 36px;
-  border-radius: 8px;
+  border-radius: var(--landing-radius-sm);
   background: rgba(255,255,255,.07);
   color: #94a3b8;
   display: flex;
   align-items: center;
   justify-content: center;
   text-decoration: none;
-  transition: all .15s ease;
+  transition: background var(--landing-transition-fast), transform var(--landing-transition-fast);
 }
-.footer-social:hover { background: #2563eb; color: white; }
+.footer-social:hover { background: var(--landing-primary); color: white; transform: translateY(-2px); }
 .footer-divider { border-color: rgba(255,255,255,.08); }
 </style>

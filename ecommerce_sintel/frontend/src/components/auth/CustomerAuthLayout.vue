@@ -2,8 +2,8 @@
   <div class="auth-shell" :class="`auth-shell--${variant}`">
     <div class="auth-main">
       <RouterLink to="/" class="auth-logo">
-        <span class="auth-logo-box">S</span>
-        <span class="auth-logo-text">Sintel</span>
+        <span class="auth-logo-box">{{ brandInitial }}</span>
+        <span class="auth-logo-text">{{ brandName }}</span>
       </RouterLink>
 
       <div class="auth-content auth-enter" :class="{ 'auth-content--wide': variant === 'wide' }">
@@ -30,7 +30,18 @@
 </template>
 
 <script setup>
+import { computed, onMounted } from 'vue';
 import ToastManager from '@/components/layout/ToastManager.vue';
+import { useAppConfigStore } from '@/store/appConfig';
+
+// White-label F7 (2026-08-14): antes "Sintel" hardcodeado -- ver
+// AUDITORIA/WHITE_LABEL/WHITE_LABEL_FRONTEND_AUDIT.md. fetchConfig() propio
+// porque esta pantalla NO pasa por CustomerLayout.vue (el que normalmente
+// dispara el fetch inicial) -- login/register usan su propio layout.
+const appConfigStore = useAppConfigStore();
+const brandName = computed(() => appConfigStore.brand.site_name || 'Tu tienda');
+const brandInitial = computed(() => (brandName.value || '?').charAt(0).toUpperCase());
+onMounted(() => appConfigStore.fetchConfig());
 
 defineProps({
   variant: {

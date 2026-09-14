@@ -2,8 +2,8 @@
   <div class="admin-auth-shell">
     <div class="admin-auth-card auth-enter">
       <div class="admin-auth-logo">
-        <span class="admin-logo-box">S</span>
-        <span class="admin-logo-text">Sintel <em>Admin</em></span>
+        <span class="admin-logo-box">{{ brandInitial }}</span>
+        <span class="admin-logo-text">{{ brandName }} <em>Admin</em></span>
       </div>
       <slot />
     </div>
@@ -16,6 +16,18 @@
 // del sidebar del panel (ai_skills/frontend/design_system/colors.md: #0a0a0a +
 // gradiente #fff->#38bdf8), sin panel de marca/ventas (spec: acceso administrativo,
 // no una pantalla comercial).
+//
+// White-label F7 (2026-08-14): antes "Sintel Admin" hardcodeado -- logica propia
+// (no importada de CustomerAuthLayout.vue, respeta la regla de separacion de
+// arriba), usa el mismo store compartido appConfig que ya consume el resto de la
+// app (Navbar/Footer/Sidebar), no logica exclusiva de un layout de auth.
+import { computed, onMounted } from 'vue';
+import { useAppConfigStore } from '@/store/appConfig';
+
+const appConfigStore = useAppConfigStore();
+const brandName = computed(() => appConfigStore.brand.site_name || 'Panel');
+const brandInitial = computed(() => (brandName.value || '?').charAt(0).toUpperCase());
+onMounted(() => appConfigStore.fetchConfig());
 </script>
 
 <style scoped>

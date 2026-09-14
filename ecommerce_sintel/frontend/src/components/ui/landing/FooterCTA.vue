@@ -74,8 +74,8 @@ const { el, visible } = useScrollReveal({ threshold: 0.15 });
 <style scoped>
 .fcta-root {
   position: relative;
-  background: linear-gradient(135deg, #0d1526 0%, #1e3a8a 50%, #1d4ed8 100%);
-  padding: clamp(4rem, 8vw, 7rem) 0;
+  background: linear-gradient(135deg, var(--landing-ink-950) 0%, #1e3a8a 50%, var(--landing-primary-strong) 100%);
+  padding: var(--landing-space-8) 0;
   overflow: hidden;
 }
 
@@ -169,10 +169,10 @@ const { el, visible } = useScrollReveal({ threshold: 0.15 });
   gap: 0.5rem;
   font-size: 0.95rem;
   font-weight: 600;
-  border-radius: 9999px;
+  border-radius: var(--landing-radius-pill);
   padding: 0.78rem 1.85rem;
   text-decoration: none;
-  transition: transform 0.28s cubic-bezier(0.16,1,0.3,1),
+  transition: transform 0.28s var(--landing-ease),
               box-shadow 0.28s ease;
   cursor: pointer;
 }

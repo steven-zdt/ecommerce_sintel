@@ -3,6 +3,9 @@
 // RegisterView.vue (unico registro publico -- SSoT de identidad, siempre CUSTOMER).
 import { DEFAULT_COUNTRY, COUNTRY_TO_NATIONALITY } from './latamData';
 import { COLOMBIAN_ROAD_TYPES } from '@/data/colombiaLocations';
+import { isValidEmail } from '@/utils/validators';
+
+export { isValidEmail };
 
 export function isAdult(fechaNacimiento) {
   if (!fechaNacimiento) return false;
@@ -18,10 +21,6 @@ export function isAdult(fechaNacimiento) {
 
 export function isValidDocumentNumber(value) {
   return /^\d{5,20}$/.test((value || '').trim());
-}
-
-export function isValidEmail(value) {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test((value || '').trim());
 }
 
 // Mismos criterios que PasswordStrengthMeter.vue + ecommerce/validators.py::

@@ -2,6 +2,16 @@
  * Composable para manejar Structured Data (JSON-LD) para SEO.
  * Soporta: Product, AggregateRating, Review, Organization, BreadcrumbList.
  */
+import { useAppConfigStore } from '@/store/appConfig';
+
+// White-label F7 (2026-08-14): antes 'Sintel' hardcodeado en 4 lugares --
+// ver AUDITORIA/WHITE_LABEL/WHITE_LABEL_FRONTEND_AUDIT.md. appConfigStore ya
+// esta cargado en la practica (fetchConfig() corre desde CustomerLayout/
+// AppShell antes de que se rendericen las vistas que llaman estas funciones),
+// pero se degrada con gracia si no -- '' en vez de un nombre de marca falso.
+function currentBrandName() {
+  return useAppConfigStore().brand.site_name || '';
+}
 
 /**
  * Genera JSON-LD para Product con todos los detalles.
@@ -18,7 +28,7 @@ export function generateProductSchema(equipment) {
     ].filter(Boolean),
     brand: {
       '@type': 'Brand',
-      name: equipment.hero?.brand_name || 'Sintel',
+      name: equipment.hero?.brand_name || currentBrandName(),
     },
     category: equipment.hero?.category_name,
     offers: {
@@ -32,7 +42,7 @@ export function generateProductSchema(equipment) {
       inventoryLevel: equipment.availability?.available_now,
       seller: {
         '@type': 'Organization',
-        name: 'Sintel',
+        name: currentBrandName(),
       },
     },
     aggregateRating: equipment.reviews?.average_rating ? {
@@ -79,11 +89,17 @@ export function generateBreadcrumbSchema(breadcrumbs) {
 /**
  * Genera JSON-LD para Organization (en el header/footer).
  */
+// NOTA (white-label F7, 2026-08-14): esta funcion no se llama desde ningun
+// componente hoy (grep confirmado) -- logo/sameAs/contactPoint seguian
+// siendo datos de ejemplo (sintel.example.com, telefono ficticio) que nunca
+// se conectaron a organization.Branding/SocialLink/ContactInfo reales. Se
+// corrige `name` por consistencia con el resto del archivo, pero conectar
+// logo/redes/contacto reales queda pendiente si esta funcion llega a usarse.
 export function generateOrganizationSchema() {
   return {
     '@context': 'https://schema.org',
     '@type': 'Organization',
-    name: 'Sintel',
+    name: currentBrandName(),
     url: typeof window !== 'undefined' ? window.location.origin : '',
     logo: 'https://sintel.example.com/logo.png',
     sameAs: [
@@ -126,7 +142,7 @@ export function generateOpenGraphTags(equipment) {
     'og:description': equipment.seo?.meta_description || equipment.hero?.description,
     'og:image': equipment.seo?.og_image_url || equipment.media?.gallery?.principal?.url,
     'og:url': typeof window !== 'undefined' ? window.location.href : '',
-    'og:site_name': 'Sintel',
+    'og:site_name': currentBrandName(),
   };
 }
 

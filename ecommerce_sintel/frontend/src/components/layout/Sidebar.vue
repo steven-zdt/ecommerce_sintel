@@ -2,13 +2,13 @@
   <nav id="sintel-sidebar" class="sidebar d-flex flex-column h-100">
     <!-- Mobile header -->
     <div class="offcanvas-header d-lg-none border-bottom border-dark border-opacity-50 py-3">
-      <h5 class="offcanvas-title text-gradient fw-bold mb-0">Sintel Panel</h5>
+      <h5 class="offcanvas-title text-gradient fw-bold mb-0">{{ brandName }} Panel</h5>
       <button type="button" class="btn-close btn-close-white" @click="$emit('close')"></button>
     </div>
 
     <!-- Desktop header -->
     <div class="sidebar-brand p-4 border-bottom border-dark border-opacity-50 d-none d-lg-block">
-      <h4 class="mb-0 fw-bold text-gradient">Sintel <span class="fw-light opacity-50">UI</span></h4>
+      <h4 class="mb-0 fw-bold text-gradient">{{ brandName }} <span class="fw-light opacity-50">Admin</span></h4>
     </div>
 
     <!-- Navigation -->
@@ -66,8 +66,14 @@
 </template>
 
 <script setup>
-import { reactive } from 'vue';
+import { reactive, computed } from 'vue';
 import { useRoute } from 'vue-router';
+import { useAppConfigStore } from '@/store/appConfig';
+
+// White-label F7 (2026-08-14): antes "Sintel Panel"/"Sintel UI" hardcodeado --
+// ver AUDITORIA/WHITE_LABEL/WHITE_LABEL_FRONTEND_AUDIT.md.
+const appConfigStore = useAppConfigStore();
+const brandName = computed(() => appConfigStore.brand.site_name || 'Panel');
 
 const route = useRoute();
 
@@ -103,8 +109,9 @@ const moduleGroups = [
     icon:  'bi-window-stack',
     color: '#14b8a6',
     children: [
-      { to: '/panel/home-config', icon: 'bi-house-gear', label: 'Home Publica' },
-      { to: '/panel/nosotros',    icon: 'bi-people',      label: 'Nosotros' },
+      { to: '/panel/home-config',    icon: 'bi-house-gear', label: 'Home Publica' },
+      { to: '/panel/nosotros',       icon: 'bi-people',      label: 'Nosotros' },
+      { to: '/panel/seo/meta-tags',  icon: 'bi-tags',        label: 'Meta Tags SEO' },
     ],
   },
   {
@@ -138,6 +145,7 @@ const moduleGroups = [
     color: '#f59e0b',
     children: [
       { to: '/panel/servicios',    icon: 'bi-wrench-adjustable', label: 'Servicios' },
+      { to: '/panel/servicios/solicitudes', icon: 'bi-inbox',    label: 'Solicitudes' },
       { to: '/panel/s-categorias', icon: 'bi-diagram-3',         label: 'Categorias' },
       { to: '/panel/s-niveles',    icon: 'bi-bar-chart-steps',   label: 'Niveles' },
     ],
@@ -212,6 +220,7 @@ const moduleGroups = [
     color: '#10b981',
     children: [
       { to: '/panel/soporte', icon: 'bi-chat-dots', label: 'Chat de Soporte' },
+      { to: '/panel/soporte/ia-config', icon: 'bi-robot', label: 'Proveedores de IA' },
     ],
   },
 ];
