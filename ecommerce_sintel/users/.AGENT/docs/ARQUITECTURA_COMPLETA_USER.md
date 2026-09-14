@@ -1,8 +1,10 @@
 # Arquitectura Completa: Módulo Users (Autenticación)
 
-> **Actualizado:** 2026-07-17 — `erase()` corregido a soft-delete real (ver seccion 4c);
-> refactor DDD (2026-06-19) sigue vigente sin cambios.
-> `users` = solo identidad/auth. Todos los datos de perfil viven en `accounts`.
+> **Actualizado:** 2026-08-07 — Identity Management Lote 1 (bajo riesgo): acciones masivas,
+> timeline unificado, auditoria enriquecida con IP/user-agent (ver seccion 4d).
+> `erase()` corregido a soft-delete real (ver seccion 4c); refactor DDD (2026-06-19) sigue
+> vigente sin cambios. `users` = solo identidad/auth. Todos los datos de perfil viven en
+> `accounts`.
 
 ---
 
@@ -199,6 +201,67 @@ confirmar que sobreviven intactas tras el erase).
 
 ---
 
+## 4d. Identity Management Lote 1 (2026-08-07) — acciones masivas, timeline, auditoria IP/UA
+
+Primer lote (bajo riesgo) de un plan mas amplio de "Identity Management Center" pedido para
+`/panel/usuarios`. La Fase 0 (auditoria) encontro que **no hay duplicidad real** en
+`users`/`accounts`/`organization`/`dashboard`/`security`/`notifications`/`kyc` — los flujos que
+parecen duplicados (3 rutas de "resetear contrasena", 2 flujos OTP admin/cliente) son
+aislamiento deliberado y documentado. Pero varias piezas de un "Identity Management" completo
+**no existen aun como concepto** y quedan fuera de este lote: sesiones/JWT con IP/geo/dispositivo,
+bloqueo automatico por intentos fallidos, 2FA, una matriz de permisos real (los Groups de
+`UserDetail.vue` siguen sin efecto en la autorizacion — ver seccion 5), purga fisica validada
+cross-app, import/export Excel/PDF, dashboard de KPIs, buscador global indexado, endpoints
+`/internal/ai/users/`, `correlation_id` en auditoria.
+
+**Decisiones de alcance (confirmadas con el usuario):**
+- Sin cambios al modelo de autorizacion, sin subsistemas nuevos.
+- "Suspendido"/"Bloqueado" son **solo etiquetas visuales** sobre `is_active=False`, resueltas
+  por texto libre en `UserAuditLog.metadata.reason` — **sin campo `status` nuevo en `User`**,
+  sin migracion de esquema.
+
+**Cambios:**
+
+1. **`UserAuditCommands.log(actor, target_user, action, metadata=None, target_user_email='',
+   request=None)`** (`users/services/commands.py`) — nuevo parametro opcional `request`, mismo
+   patron exacto que `security.SecurityCommands.log_event()`: si se pasa, extrae
+   `request.META.get('REMOTE_ADDR')`/`HTTP_USER_AGENT` (truncado a 255) dentro de `metadata`.
+   Todas las llamadas existentes en `UserViewSet` (`create`, `partial_update`, `destroy`,
+   `erase`, `reset_password`, `resend_verification`, `update_groups`) ahora pasan `request=request`.
+2. **Motivo opcional al desactivar** — `destroy()` y `partial_update()` (cuando cambia
+   `is_active` a `False`) leen un `reason` opcional del body (no es un campo de serializer, se
+   lee directo de `request.data`, igual que el patron ya usado para otros campos no-modelo) y lo
+   guardan en `UserAuditLog.metadata.reason`.
+3. **`UserDetailSerializer.last_deactivation_reason`** (`SerializerMethodField`) — `None` si
+   `is_active=True`; si no, el `reason` del `UserAuditLog` de tipo `deactivated` mas reciente
+   para ese usuario. El frontend hace matching de texto (`bloque`/`suspend`) sobre este campo
+   para mostrar "Bloqueado"/"Suspendido"/"Inactivo" en vez de un generico "Inactivo".
+4. **`POST /api/v1/users/bulk-action/`** (`UserViewSet.bulk_action`) — body
+   `{uuids: [...], action: 'activate'|'deactivate'|'resend_verification', reason: ''}`. Reusa
+   `AccountCommands.admin_update_user`/`resend_verification_email` en un loop, cada usuario
+   dentro de su propio `transaction.atomic()` (un fallo no revierte a los demas), un
+   `UserAuditLog` por usuario afectado con `metadata={'bulk': True, 'batch_size': N, ...}`.
+   Responde `{updated: [uuid, ...], failed: [{uuid, email, detail}, ...]}`. Guarda contra
+   auto-desactivacion masiva (`user == request.user` + `action='deactivate'`). **Sin
+   eliminacion masiva** — el borrado permanente sigue siendo uno-por-uno via `erase()`.
+5. **`UserTimelineSelector.get_timeline(user, limit=100)`** (`users/services/selectors.py`) —
+   mezcla `UserAuditLog`, `kyc.VerificationEvent` (via `verification__user=user`) y
+   `security.SecurityEvent` en 3 querysets pequenos separados (sin UNION SQL), normaliza cada
+   uno a `{timestamp, source, event_type, description, actor_email, metadata}` y ordena
+   descendente en Python. Expuesto en `GET /api/v1/users/{uuid}/timeline/`.
+6. **Frontend** — `UserList.vue`: seleccion por fila + "seleccionar todo visible" (patron
+   `selectedIds` Set de `BrandList.vue`), barra de acciones masivas, boton "Exportar CSV" (BOM
+   UTF-8, todo o solo la seleccion), etiqueta de estado via `statusLabel()`/`statusBadgeClass()`.
+   `UserDetail.vue`: nueva seccion "Timeline" con `StatusTimeline.vue` (`mode="events"`),
+   alimentada por `store.fetchTimeline(uuid)`.
+
+**Tests:** `users/tests.py` — `UserAuditLogRequestMetadataTestCase` (2), `UserBulkActionTestCase`
+(7), `UserTimelineTestCase` (2). 11/11 OK.
+
+Ver tambien `users/.AGENT/docs/AUDIT_USER_MANAGEMENT.md` (entregable completo de la Fase 0).
+
+---
+
 ## 5. Clasificacion de Usuarios (reemplaza campo role)
 
 | Tipo de usuario | Como se detecta | Como se crea |
@@ -325,12 +388,30 @@ divergido del comportamiento real.
 | GET | `/api/v1/users/groups-catalog/` | Catalogo de Django `Group` existentes |
 | PUT | `/api/v1/users/{uuid}/groups/` | Asigna Groups al usuario (`AccountCommands.set_user_groups`) — **sin efecto en la autorizacion real hoy**, ver seccion 5 |
 | GET | `/api/v1/users/{uuid}/audit-log/` | Historial paginado de `UserAuditLog` para ese usuario |
+| POST | `/api/v1/users/bulk-action/` | Accion masiva sobre una lista de `uuids` (`activate`/`deactivate`/`resend_verification`) — Lote 1, ver seccion 4d |
+| GET | `/api/v1/users/{uuid}/timeline/` | Timeline unificado (auditoria + KYC + seguridad) via `UserTimelineSelector` — Lote 1, ver seccion 4d |
 
 **Proteccion de auto-desactivacion:** el admin no puede desactivarse a si mismo.
 
 **Confirmacion publica de verificacion** (no vive en `UserViewSet`, es publica): `POST
 /api/v1/auth/verify-email-confirm/` en `accounts/api/views.py::AccountViewSet` (`AllowAny`), body
 `{token}` → `AccountCommands.confirm_email_verification_link`.
+
+### Recuperacion self-service del administrador por OTP de correo
+
+Las rutas bajo `/api/v1/admin-auth/` se mantienen aisladas de la recuperacion de clientes:
+
+| Metodo | URL | Accion |
+|---|---|---|
+| POST | `/api/v1/admin-auth/forgot-password-request/` | Solicita OTP para el correo indicado y siempre devuelve una respuesta generica para no enumerar cuentas. |
+| POST | `/api/v1/admin-auth/forgot-password-verify/` | Verifica el OTP sin consumirlo. |
+| POST | `/api/v1/admin-auth/reset-password/` | Consume el OTP, cambia la contrasena y devuelve un par JWT nuevo. |
+
+`AdminPasswordResetCommands` solo genera o consume codigos para cuentas activas con
+`is_staff=True` e `is_superuser=True`. El serializer de confirmacion aplica
+`validate_password` del servidor y exige que ambas contrasenas coincidan; el medidor de seguridad
+del frontend no sustituye esta validacion. Cada cambio queda registrado como
+`UserAuditLog.ACTION_PASSWORD_RESET` con el metodo `admin_self_service_otp`.
 
 ---
 
@@ -379,9 +460,10 @@ divergido del comportamiento real.
 - Registro y actualizacion de perfil delegados a `AccountCommands` en `accounts/services/commands.py`.
 
 ### UserAuditCommands (users/services/commands.py) — nuevo (2026-07-05)
-- `log(actor, target_user, action, metadata=None, target_user_email='')` — unico punto de escritura
-  de `UserAuditLog`. Se llama explicitamente desde cada accion de `UserViewSet` (no via signals,
-  siguiendo el patron de Service Layer del proyecto).
+- `log(actor, target_user, action, metadata=None, target_user_email='', request=None)` — unico
+  punto de escritura de `UserAuditLog`. Se llama explicitamente desde cada accion de
+  `UserViewSet` (no via signals, siguiendo el patron de Service Layer del proyecto). El parametro
+  `request` (2026-08-07, Lote 1) enriquece `metadata` con `ip_address`/`user_agent` — ver seccion 4d.
 
 ### UserSelector (users/services/selectors.py)
 - `list_all(search='', user_type='', is_active='', is_verified='', company='', city='', country='',
@@ -393,6 +475,10 @@ divergido del comportamiento real.
 
 ### UserAuditLogSelector (users/services/selectors.py) — nuevo (2026-07-05)
 - `list_for_user(user)` — historial de auditoria acotado a `target_user=user`, mas reciente primero.
+
+### UserTimelineSelector (users/services/selectors.py) — nuevo (2026-08-07, Lote 1)
+- `get_timeline(user, limit=100)` — mezcla `UserAuditLog` + `kyc.VerificationEvent` +
+  `security.SecurityEvent` en un timeline unico ordenado. Ver seccion 4d.
 
 ---
 
@@ -490,6 +576,7 @@ esten copiados antes de eliminar las columnas originales de `User`.
 | 2026-06-19 | `UserManager.create_user()` simplificado (sin `phone_number`, `role`) |
 | 2026-06-19 | `get_full_name()` delega a `user.profile` |
 | 2026-07-17 | Bug real corregido: `erase()` hacia hard-delete (`user.delete()`) y lanzaba `ProtectedError` sin capturar (500) para usuarios con `RentalRequest`/`RentalOperation` reales. Fix: `UserCommands.erase_user()` nuevo, soft-delete via `is_deleted=True` — ver seccion 4c |
+| 2026-08-07 | Identity Management Lote 1: `bulk-action`/`timeline` endpoints nuevos, `UserAuditCommands.log(request=...)` para IP/user-agent, `reason` opcional al desactivar, `UserDetailSerializer.last_deactivation_reason`, seleccion masiva + export CSV en `UserList.vue`, pestana Timeline en `UserDetail.vue` — ver seccion 4d |
 
 ---
 

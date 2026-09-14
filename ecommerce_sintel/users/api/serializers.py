@@ -59,6 +59,7 @@ class UserDetailSerializer(serializers.ModelSerializer):
     last_name = serializers.SerializerMethodField()
     kyc_status = serializers.SerializerMethodField()
     kyc_verification = serializers.SerializerMethodField()
+    last_deactivation_reason = serializers.SerializerMethodField()
 
     class Meta:
         model = User
@@ -67,7 +68,7 @@ class UserDetailSerializer(serializers.ModelSerializer):
             'is_verified', 'is_active', 'is_staff',
             'date_joined', 'last_login',
             'profile', 'technician_profile', 'dispatcher_profile', 'groups',
-            'kyc_status', 'kyc_verification',
+            'kyc_status', 'kyc_verification', 'last_deactivation_reason',
         )
 
     def get_full_name(self, obj) -> str:
@@ -99,8 +100,45 @@ class UserDetailSerializer(serializers.ModelSerializer):
         verification = getattr(obj, 'kyc_verification', None)
         if verification is None:
             return None
-        from kyc.api.serializers import AdminVerificationDetailSerializer  # import diferido: evita ciclo
-        return AdminVerificationDetailSerializer(verification).data
+        # SEC-M6 (auditoria, doc 06): este serializer se usa tanto para el
+        # detalle admin de OTRO usuario (UserViewSet, admin-only) como para el
+        # /auth/profile/ del propio usuario autenticado (AccountViewSet.profile,
+        # IsAuthenticated generico). AdminVerificationDetailSerializer incluye
+        # timeline_events -> VerificationEventSerializer.actor_email, el correo
+        # del staff que reviso el caso -- filtrar esto por request.user real
+        # (no por quien es `obj`) evita que un cliente viendo su propio perfil
+        # vea el correo interno del admin que aprobo/rechazo su KYC.
+        requester = self.context.get('request')
+        requester_user = getattr(requester, 'user', None)
+        is_admin_viewer = bool(
+            requester_user and requester_user.is_authenticated
+            and requester_user.is_staff and requester_user.is_superuser
+        )
+        if is_admin_viewer:
+            from kyc.api.serializers import AdminVerificationDetailSerializer  # import diferido: evita ciclo
+            return AdminVerificationDetailSerializer(verification).data
+        from kyc.api.serializers import UserVerificationSerializer  # import diferido: evita ciclo
+        return UserVerificationSerializer(verification).data
+
+    def get_last_deactivation_reason(self, obj) -> str | None:
+        """
+        Lote 1 Identity Management (2026-08-07): motivo del ultimo `deactivated` de
+        UserAuditLog, si lo hay -- solo relevante cuando is_active=False. El frontend
+        lo usa para mostrar "Suspendido"/"Bloqueado" en vez de un generico "Inactivo",
+        sin que exista un campo status nuevo en el modelo (puramente una etiqueta).
+        """
+        if obj.is_active:
+            return None
+        from users.models import UserAuditLog
+        entry = (
+            UserAuditLog.objects
+            .filter(target_user=obj, action=UserAuditLog.ACTION_DEACTIVATED)
+            .order_by('-created_at')
+            .first()
+        )
+        if not entry:
+            return None
+        return (entry.metadata or {}).get('reason') or None
 
 
 class UserAdminCreateSerializer(serializers.Serializer):

@@ -11,6 +11,7 @@ REGLAS DE DISENO (mismo aislamiento que users/api/admin_auth.py):
   duplicados a proposito para no crear una dependencia cruzada.
 - Archivo nuevo (no se edita admin_auth.py) para no arriesgar el login admin.
 """
+from django.contrib.auth.password_validation import validate_password
 from rest_framework import serializers, status
 from rest_framework.permissions import AllowAny
 from rest_framework.renderers import JSONRenderer
@@ -42,7 +43,7 @@ class AdminVerifyResetCodeSerializer(serializers.Serializer):
 
 
 class AdminResetPasswordSerializer(AdminVerifyResetCodeSerializer):
-    new_password = serializers.CharField(write_only=True)
+    new_password = serializers.CharField(write_only=True, validators=[validate_password])
     new_password_confirm = serializers.CharField(write_only=True)
 
     def validate(self, data):

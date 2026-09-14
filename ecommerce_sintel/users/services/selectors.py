@@ -72,3 +72,54 @@ class UserAuditLogSelector:
     @staticmethod
     def list_for_user(user) -> QuerySet:
         return UserAuditLog.objects.filter(target_user=user).order_by('-created_at')
+
+
+class UserTimelineSelector:
+    """
+    Fusiona 3 fuentes YA existentes en un timeline cronologico unico para un usuario:
+    UserAuditLog (acciones administrativas), kyc.VerificationEvent (proceso KYC) y
+    security.SecurityEvent (login/seguridad, con IP/user-agent ya capturados). Ninguna
+    de las 3 se modifica -- solo se leen y normalizan a un shape comun. Imports diferidos
+    (dentro del metodo) para evitar ciclos, mismo patron que security/notifications al
+    ser consumidos desde otras apps.
+    """
+
+    @staticmethod
+    def get_timeline(user, limit: int = 100) -> list[dict]:
+        from kyc.models import VerificationEvent
+        from security.models import SecurityEvent
+
+        entries = []
+
+        for log in UserAuditLog.objects.filter(target_user=user).order_by('-created_at')[:limit]:
+            entries.append({
+                'timestamp': log.created_at,
+                'source': 'audit',
+                'event_type': log.action,
+                'description': log.get_action_display(),
+                'actor_email': log.actor_email,
+                'metadata': log.metadata,
+            })
+
+        for ev in VerificationEvent.objects.filter(verification__user=user).order_by('-created_at')[:limit]:
+            entries.append({
+                'timestamp': ev.created_at,
+                'source': 'kyc',
+                'event_type': ev.event_type,
+                'description': ev.description or ev.get_event_type_display(),
+                'actor_email': ev.actor_email,
+                'metadata': ev.metadata,
+            })
+
+        for sec in SecurityEvent.objects.filter(user=user).order_by('-created_at')[:limit]:
+            entries.append({
+                'timestamp': sec.created_at,
+                'source': 'security',
+                'event_type': sec.event_type,
+                'description': sec.get_event_type_display(),
+                'actor_email': '',
+                'metadata': {**sec.metadata, 'ip_address': sec.ip_address, 'user_agent': sec.user_agent},
+            })
+
+        entries.sort(key=lambda e: e['timestamp'], reverse=True)
+        return entries[:limit]

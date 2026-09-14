@@ -23,20 +23,19 @@ _OTP_EXPIRY_MINUTES_BY_PURPOSE = {
 
 
 class UserCommands:
-    @staticmethod
-    @transaction.atomic
-    def change_password(user: User, old_password: str, new_password: str):
-        """Cambia la contrasena del usuario tras validar la anterior."""
-        if not user.check_password(old_password):
-            raise ValidationError({"old_password": "La contrasena actual es incorrecta."})
-        user.set_password(new_password)
-        user.save()
-        logger.info(f"[users:change_password] Contrasena cambiada para: {user.email}")
-        return user
+    # [ELIMINADO 2026-08-04, hallazgo A2 de AUDITORIA_INTEGRAL_PRODUCCION_2026-08-04.md]
+    # change_password() vivia duplicado aqui y en accounts.services.commands.AccountCommands
+    # (la version realmente usada por el endpoint de cambio de password) -- esta copia
+    # tenia 0 callers en todo el repo Y no invalidaba los refresh tokens existentes tras el
+    # cambio (a diferencia de AccountCommands.change_password, que si llama
+    # _blacklist_all_refresh_tokens()). Si algo la hubiera invocado en el futuro, un
+    # atacante con un refresh token robado habria mantenido sesion valida despues de que
+    # la victima cambiara su password. Codigo muerto y peligroso, eliminado en vez de
+    # arreglado -- la unica implementacion vigente es AccountCommands.change_password.
 
     @staticmethod
     @transaction.atomic
-    def erase_user(actor: User, user: User) -> User:
+    def erase_user(actor: User, user: User, request=None) -> User:
         """
         Soft-delete permanente (is_deleted=True): el usuario desaparece de todas
         las listas (UserSelector.list_all() ya filtra is_deleted=False) sin tocar
@@ -57,7 +56,7 @@ class UserCommands:
         email = user.email
         user.is_deleted = True
         user.save(update_fields=['is_deleted'])
-        UserAuditCommands.log(actor, user, UserAuditLog.ACTION_ERASED, target_user_email=email)
+        UserAuditCommands.log(actor, user, UserAuditLog.ACTION_ERASED, target_user_email=email, request=request)
         logger.info(f"[users:erase_user] Usuario eliminado (soft-delete) por {actor.email}: {email}")
         return user
 
@@ -153,6 +152,18 @@ class VerificationCommands:
         return verification
 
     @staticmethod
+    def mark_as_used(verification: EmailVerificationCode) -> None:
+        """
+        [AGREGADO 2026-08-04, hallazgo M7 de AUDITORIA_INTEGRAL_PRODUCCION_2026-08-04.md]
+        Sin @transaction.atomic propio a proposito -- mismo motivo que get_valid_verification():
+        debe participar en la MISMA transaccion atomica que la mutacion real (creacion del
+        usuario) en el caller, para que un fallo posterior revierta tambien el consumo del
+        codigo. Antes el ViewSet escribia is_used directo sobre el modelo.
+        """
+        verification.is_used = True
+        verification.save(update_fields=['is_used'])
+
+    @staticmethod
     @transaction.atomic
     def resend_email_verification(
         email: str, purpose: str = EmailVerificationCode.PURPOSE_REGISTRATION
@@ -237,14 +248,25 @@ class VerificationCommands:
 
 class UserAuditCommands:
     @staticmethod
-    def log(actor, target_user, action: str, metadata: dict | None = None, target_user_email: str = '') -> UserAuditLog:
+    def log(actor, target_user, action: str, metadata: dict | None = None, target_user_email: str = '',
+             request=None) -> UserAuditLog:
+        """
+        request opcional: mismo patron que security.SecurityCommands.log_event() (IP/user-agent
+        de la peticion que disparo la accion administrativa) -- no se duplica esa extraccion,
+        solo se replica aqui porque UserAuditLog es un dominio distinto (auditoria de acciones
+        sobre un usuario, no eventos de seguridad transversales).
+        """
+        resolved_metadata = dict(metadata or {})
+        if request is not None:
+            resolved_metadata['ip_address'] = request.META.get('REMOTE_ADDR')
+            resolved_metadata['user_agent'] = request.META.get('HTTP_USER_AGENT', '')[:255]
         return UserAuditLog.objects.create(
             actor=actor if getattr(actor, 'is_authenticated', False) else None,
             actor_email=getattr(actor, 'email', '') or '',
             target_user=target_user,
             target_user_email=target_user_email or getattr(target_user, 'email', '') or '',
             action=action,
-            metadata=metadata or {},
+            metadata=resolved_metadata,
         )
 
 

@@ -235,6 +235,28 @@ class AdminForgotPasswordTestCase(TestCase):
         self.customer.refresh_from_db()
         self.assertTrue(self.customer.check_password('OldPass123!'))
 
+    def test_reset_rejects_password_that_fails_policy(self):
+        self.client.post(
+            '/api/v1/admin-auth/forgot-password-request/', {'email': self.admin.email}, format='json',
+        )
+        code_obj = self._latest_code(self.admin.email)
+
+        response = self.client.post(
+            '/api/v1/admin-auth/reset-password/',
+            {
+                'email': self.admin.email,
+                'code': code_obj.code,
+                'new_password': 'short',
+                'new_password_confirm': 'short',
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('new_password', response.data)
+        self.admin.refresh_from_db()
+        self.assertTrue(self.admin.check_password('OldPass123!'))
+
 
 class UserEraseTestCase(TestCase):
     """
@@ -387,3 +409,161 @@ class OtpNotLoggedTestCase(TestCase):
         log_text = '\n'.join(captured.output)
         self.assertNotIn(real_code, log_text)
         self.assertIn('Nuevo OTP', log_text)
+
+
+class UserAuditLogRequestMetadataTestCase(TestCase):
+    """
+    Lote 1 Identity Management (bajo riesgo): UserAuditCommands.log() ahora acepta
+    `request` y captura ip_address/user_agent en metadata -- mismo patron ya usado
+    por security.SecurityCommands.log_event(). Sin request, se comporta igual que
+    antes (metadata sin esos 2 campos).
+    """
+
+    def setUp(self):
+        self.admin = User.objects.create_superuser(email='audit_meta_admin@example.com', password='Pass@1234!')
+        self.target = User.objects.create_user(email='audit_meta_target@example.com', password='Pass@1234!', is_active=True)
+        self.client = APIClient()
+        self.client.force_authenticate(self.admin)
+
+    def test_reset_password_via_api_captures_ip_and_user_agent(self):
+        response = self.client.post(
+            f'/api/v1/users/{self.target.uuid}/reset-password/',
+            HTTP_USER_AGENT='pytest-agent/1.0',
+        )
+        self.assertEqual(response.status_code, 200)
+        entry = UserAuditLog.objects.get(target_user=self.target, action=UserAuditLog.ACTION_PASSWORD_RESET)
+        self.assertIn('ip_address', entry.metadata)
+        self.assertEqual(entry.metadata['user_agent'], 'pytest-agent/1.0')
+
+    def test_log_without_request_has_no_ip_fields(self):
+        from users.services.commands import UserAuditCommands
+        entry = UserAuditCommands.log(self.admin, self.target, UserAuditLog.ACTION_UPDATED)
+        self.assertNotIn('ip_address', entry.metadata)
+        self.assertNotIn('user_agent', entry.metadata)
+
+
+class UserBulkActionTestCase(TestCase):
+    """POST /api/v1/users/bulk-action/ -- Lote 1 Identity Management."""
+
+    def setUp(self):
+        self.admin = User.objects.create_superuser(email='bulk_admin@example.com', password='Pass@1234!')
+        self.u1 = User.objects.create_user(email='bulk_u1@example.com', password='Pass@1234!', is_active=True)
+        self.u2 = User.objects.create_user(email='bulk_u2@example.com', password='Pass@1234!', is_active=True)
+        self.client = APIClient()
+        self.client.force_authenticate(self.admin)
+
+    def test_bulk_deactivate_updates_all_and_logs_each(self):
+        response = self.client.post('/api/v1/users/bulk-action/', {
+            'uuids': [str(self.u1.uuid), str(self.u2.uuid)],
+            'action': 'deactivate',
+            'reason': 'prueba masiva',
+        }, format='json')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data['updated']), 2)
+        self.assertEqual(response.data['failed'], [])
+        self.u1.refresh_from_db()
+        self.u2.refresh_from_db()
+        self.assertFalse(self.u1.is_active)
+        self.assertFalse(self.u2.is_active)
+        for u in (self.u1, self.u2):
+            entry = UserAuditLog.objects.get(target_user=u, action=UserAuditLog.ACTION_DEACTIVATED)
+            self.assertTrue(entry.metadata['bulk'])
+            self.assertEqual(entry.metadata['reason'], 'prueba masiva')
+
+    def test_bulk_activate_from_inactive(self):
+        User.objects.filter(uuid__in=[self.u1.uuid, self.u2.uuid]).update(is_active=False)
+        response = self.client.post('/api/v1/users/bulk-action/', {
+            'uuids': [str(self.u1.uuid), str(self.u2.uuid)], 'action': 'activate',
+        }, format='json')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data['updated']), 2)
+        self.u1.refresh_from_db()
+        self.assertTrue(self.u1.is_active)
+
+    def test_bulk_deactivate_skips_self_but_processes_others(self):
+        response = self.client.post('/api/v1/users/bulk-action/', {
+            'uuids': [str(self.admin.uuid), str(self.u1.uuid)], 'action': 'deactivate',
+        }, format='json')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['updated'], [str(self.u1.uuid)])
+        self.assertEqual(len(response.data['failed']), 1)
+        self.assertEqual(response.data['failed'][0]['uuid'], str(self.admin.uuid))
+        self.admin.refresh_from_db()
+        self.assertTrue(self.admin.is_active)
+
+    def test_bulk_unknown_uuid_reported_as_failed(self):
+        missing = '00000000-0000-0000-0000-000000000000'
+        response = self.client.post('/api/v1/users/bulk-action/', {
+            'uuids': [str(self.u1.uuid), missing], 'action': 'activate',
+        }, format='json')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['updated'], [str(self.u1.uuid)])
+        self.assertEqual(response.data['failed'], [{'uuid': missing, 'email': '', 'detail': 'Usuario no encontrado.'}])
+
+    def test_bulk_invalid_action_returns_400(self):
+        response = self.client.post('/api/v1/users/bulk-action/', {
+            'uuids': [str(self.u1.uuid)], 'action': 'delete_forever',
+        }, format='json')
+        self.assertEqual(response.status_code, 400)
+
+    def test_bulk_empty_uuids_returns_400(self):
+        response = self.client.post('/api/v1/users/bulk-action/', {
+            'uuids': [], 'action': 'activate',
+        }, format='json')
+        self.assertEqual(response.status_code, 400)
+
+    def test_bulk_resend_verification_skips_already_verified(self):
+        self.u1.is_verified = True
+        self.u1.save(update_fields=['is_verified'])
+        response = self.client.post('/api/v1/users/bulk-action/', {
+            'uuids': [str(self.u1.uuid), str(self.u2.uuid)], 'action': 'resend_verification',
+        }, format='json')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['updated'], [str(self.u2.uuid)])
+        self.assertEqual(len(response.data['failed']), 1)
+        self.assertEqual(response.data['failed'][0]['uuid'], str(self.u1.uuid))
+
+
+class UserTimelineTestCase(TestCase):
+    """GET /api/v1/users/{uuid}/timeline/ -- fusiona UserAuditLog + KYC + SecurityEvent."""
+
+    def setUp(self):
+        self.admin = User.objects.create_superuser(email='timeline_admin@example.com', password='Pass@1234!')
+        self.target = User.objects.create_user(email='timeline_target@example.com', password='Pass@1234!', is_active=True)
+        self.client = APIClient()
+        self.client.force_authenticate(self.admin)
+
+    def test_timeline_merges_and_sorts_three_sources(self):
+        from users.services.commands import UserAuditCommands
+        from kyc.models import UserVerification, VerificationEvent
+        from security.services.commands import SecurityCommands
+        from security.models import SecurityEvent
+
+        UserAuditCommands.log(self.admin, self.target, UserAuditLog.ACTION_UPDATED)
+
+        verification = UserVerification.objects.create(user=self.target, status=UserVerification.STATUS_APPROVED)
+        VerificationEvent.objects.create(
+            verification=verification, event_type=VerificationEvent.APPROVED, description='Aprobado en prueba',
+        )
+
+        SecurityCommands.log_event(SecurityEvent.LOGIN_SUCCESS, user=self.target)
+
+        response = self.client.get(f'/api/v1/users/{self.target.uuid}/timeline/')
+        self.assertEqual(response.status_code, 200)
+        results = response.data['results']
+        sources = {e['source'] for e in results}
+        self.assertEqual(sources, {'audit', 'kyc', 'security'})
+
+        timestamps = [e['timestamp'] for e in results]
+        self.assertEqual(timestamps, sorted(timestamps, reverse=True))
+
+    def test_timeline_scoped_to_target_user_only(self):
+        from users.services.commands import UserAuditCommands
+        other = User.objects.create_user(email='timeline_other@example.com', password='Pass@1234!')
+        UserAuditCommands.log(self.admin, other, UserAuditLog.ACTION_UPDATED)
+        UserAuditCommands.log(self.admin, self.target, UserAuditLog.ACTION_UPDATED)
+
+        response = self.client.get(f'/api/v1/users/{self.target.uuid}/timeline/')
+        emails_involved = [e.get('actor_email') for e in response.data['results']]
+        self.assertEqual(len(response.data['results']), 1)
+        self.assertNotIn(other.email, [e for e in emails_involved if e])

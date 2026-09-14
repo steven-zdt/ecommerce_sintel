@@ -19,7 +19,7 @@ Datos de perfil personal y clasificacion viven en `accounts.UserProfile`.
 | `api/views.py` | UserViewSet — único ViewSet de administración de usuarios (paginación/filtros/búsqueda + reset-password/resend-verification/groups/audit-log) |
 | `api/serializers.py` | UserDetailSerializer, UserAdminCreateSerializer, UserAdminUpdateSerializer, GroupSerializer, UserGroupsUpdateSerializer, UserAuditLogSerializer |
 | `api/permissions.py` | IsAdminUser, IsAuthenticatedActiveUser (alias IsCustomerUser), IsTechnicianUser, IsOwnerOrAdmin, IsAdminOrReadOnly |
-| `services/commands.py` | UserCommands: change_password(); UserAuditCommands: log() |
+| `services/commands.py` | UserCommands: erase_user(), verify OTP, etc. (change_password() eliminado 2026-08-04, duplicado peligroso — usar `accounts.services.commands.AccountCommands.change_password`, la única implementación vigente, sí invalida refresh tokens); UserAuditCommands: log() |
 | `services/selectors.py` | UserSelector: get_by_email(), get_by_id(), list_all(search=, user_type=, is_active=, is_verified=, company=, city=, country=, ordering=); UserAuditLogSelector: list_for_user() |
 
 `/panel/usuarios` (frontend `modules/users/UserList.vue` + `UserDetail.vue` + `UserForm.vue`)
