@@ -475,11 +475,78 @@ cualquier test que combine RAG + un LLM real en el mismo turno.
 confirmacion real sigue sin probarse (ADK-02). El fix de `JSON_SCHEMA_FOR_FUNC_DECL` sigue
 sin verificarse contra LM Studio (ADK-01).
 
+## 8sexies. ADK-07 — Knowledge Graph adapter (completado)
+
+Regla dura del plan (seccion 7): reusar `graph_sdk` via `ai_editor.graph_client` — UNICA
+frontera oficial hacia `project_knowledge_graph` (regla ya existente, verificada por AST en
+los tests reales de `ai_editor`), nunca serializar el grafo completo al LLM. Confirmado en
+vivo: las 16 operaciones reales de `graph_client` ya devuelven dicts/lists ACOTADOS (un
+nodo, un vecindario, un resumen de una sola app) — ninguna serializa los 9575 nodos/20335
+aristas reales del grafo completo (`get_graph_status()` real, contra el grafo YA construido
+y poblado del repo).
+
+**HALLAZGO REAL IMPORTANTE — cambia el alcance de ADK-09/10/11, no solo de ADK-07:**
+`ai_editor.agent.run_autonomous_change_loop(request, policy=None, intent=None)` **ya existe**
+como orquestador real, completo, end-to-end (FASE 51-53, plan "AI Change Proposal Engine",
+2026-08-11) — compone `intent/interpret_request()` -> `resolver/resolve_change_context()` ->
+`planner/build_change_plan()`+`validate_plan()` -> `generation/generate_with_retry()` ->
+`generation/run_sandbox_validation_loop()` -> checks de calidad/arquitectura/dependencias/
+contratos/tests/documentacion -> `APPROVAL_REQUIRED`. La regla de seguridad esta garantizada
+**estructuralmente, por ausencia de import**: `ai_editor.agent` NUNCA importa
+`generation.promotion` ni `repository.promote` — promover exige una llamada SEPARADA,
+humana, `generation.promotion.review_and_promote()`, fuera de este paquete.
+
+Esto contradice la lectura inicial de ADK-00 (que `intent/`/`resolver/`/`planner/` seguian
+siendo "stubs documentales" — literal del docstring de `graph_client/__init__.py`, escrito
+en una fase anterior a FASE 51 y nunca actualizado). **Implicacion real para ADK-09/10/11:
+el rol de ADK para `ai_editor` NO deberia ser reimplementar el pipeline como Tools ADK
+sueltas que llamen a `graph_client` una por una para planificar un cambio — deberia ser un
+wrapper delgado alrededor de `run_autonomous_change_loop()` ya existente** (sesion/eventos/
+streaming hacia un chat, HITL real sobre el resultado `APPROVAL_REQUIRED`), para no duplicar
+una orquestacion ya construida y con su propia regla de seguridad estructural. Revisar este
+hallazgo ANTES de escribir codigo de ADK-09.
+
+**Alcance real ejecutado en ADK-07:** un adapter (`sintel_graph_adapter.py`) para un caso de
+uso MAS LIGERO y distinto — preguntas de ingenieria ad-hoc ("que modelos tiene la app X",
+"que impacto tiene cambiar Y"), pensado para un futuro `EngineeringAgent` (mencionado en la
+arquitectura propuesta por el usuario, seccion 3 del plan; NO es un perfil real hoy, a
+diferencia de los 9 Support Agent profiles de ADK-04/05). Subconjunto deliberado de 9
+operaciones de solo lectura (`find_symbol`, `find_file`, `find_endpoint`, `find_consumers`,
+`trace_data_flow`, `find_tests`, `calculate_impact`, `get_app_summary`, `get_graph_status`) —
+excluye a proposito `resolve_change`/`build_change_plan` (pipeline de PROPUESTA de cambio, ya
+cubierto por `run_autonomous_change_loop`).
+
+**Bug de naming real encontrado (no un problema de logica):** el `__name__` propio de la
+funcion real de `graph_sdk` no siempre coincide con el alias que `graph_client` exporta —
+`calculate_impact.__name__ == "calculate_change_impact"`,
+`get_graph_status.__name__ == "latest_snapshot"` (alias de import, Python no renombra
+`__name__`). Sin normalizar esto, el LLM veria nombres de tool distintos a los documentados
+en este audit. Fix: wrapper delgado que fija `__name__`/`__doc__`/`__signature__` al nombre
+canonico de `graph_client`, sin mutar la funcion real (evita parchear `ai_editor` desde el
+POC) y sin cambiar comportamiento (delega sin logica nueva).
+
+**Verificado, todo contra el grafo REAL (sin mocks — solo lectura, cero riesgo de
+escritura):** `test_sintel_graph_adapter.py` (5/5) — nombres normalizados correctos;
+`resolve_change`/`build_change_plan` rechazados por el subconjunto de solo lectura;
+`calculate_impact("Order")` resuelve el modelo real `orders/models.py`; `get_graph_status()`
+confirma en vivo que ninguna respuesta serializa el grafo completo; y, con **Ollama real**,
+un `EngineeringAgent` de prueba responde "que modelos tiene la app orders" citando
+correctamente los 11 modelos reales (`ShippingAddress`, `Coupon`, `Order`, etc.) sin
+alucinar. 58/59 tests pasando en `adk_poc/` (el unico fallo es el flake pre-existente de
+ADK-01, no relacionado).
+
+`ai_editor`/`project_knowledge_graph` importan limpio en el venv aislado de `adk_poc/` sin
+Django instalado ni configurado — confirma que el grafo es un sistema file-based,
+desacoplado del ORM (consistente con su naturaleza de conocimiento ESTRUCTURAL, no runtime).
+
+**Pendiente heredado (sin cambios):** el resto del contrato de `ChatResponse` sigue sin
+replicarse (ADK-10). El flujo de RESUME tras confirmacion real sigue sin probarse (ADK-02).
+El fix de `JSON_SCHEMA_FOR_FUNC_DECL` sigue sin verificarse contra LM Studio (ADK-01).
+
 ## 9. Estado de este documento
 
-ADK-00 + ADK-01 + ADK-02 + ADK-03 + ADK-04 + ADK-05 + ADK-06 completos. Todo el codigo
-sigue aislado en `adk_poc/`, sin tocar `ai_engine`/Django/Docker — ningun cambio de este
-documento modifico produccion. Pendiente instruccion explicita del usuario para iniciar
-ADK-07 (Knowledge Graph adapter via `graph_sdk`/`ai_editor.graph_client`, nunca serializar
-el grafo completo al LLM) — el propio plan (seccion 24, "checkpoint obligatorio") exige no
-continuar automaticamente entre fases.
+ADK-00 + ADK-01 + ADK-02 + ADK-03 + ADK-04 + ADK-05 + ADK-06 + ADK-07 completos. Todo el
+codigo sigue aislado en `adk_poc/`, sin tocar `ai_engine`/`ai_editor`/Django/Docker — ningun
+cambio de este documento modifico produccion. Usuario autorizo continuar sin pausa entre
+fases ("continua hasta terminar la instruccion anterior", 2026-09-14) — siguiente: ADK-08
+(Session/state — mapear estado persistente vs efimero antes de decidir que va donde).

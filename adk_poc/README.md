@@ -371,3 +371,43 @@ asi que parcha el modulo `httpx` COMPARTIDO globalmente, incluyendo el
 - Flujo de RESUME tras confirmacion real (heredado de ADK-02).
 - Verificar `JSON_SCHEMA_FOR_FUNC_DECL=False` contra LM Studio (heredado de
   ADK-01).
+
+---
+
+# ADK-07 — Knowledge Graph adapter (completado)
+
+Reusa `ai_editor.graph_client` (UNICA frontera oficial hacia
+`project_knowledge_graph`), nunca serializa el grafo completo -- las 16
+operaciones reales ya devuelven dicts/lists acotados, confirmado contra el
+grafo REAL (9575 nodos, 20335 aristas, ya construido).
+
+**Hallazgo real importante (afecta ADK-09/10/11):**
+`ai_editor.agent.run_autonomous_change_loop()` YA EXISTE como orquestador
+completo end-to-end (intent -> resolver -> planner -> generation -> sandbox
+-> `APPROVAL_REQUIRED`), con la regla de seguridad garantizada
+ESTRUCTURALMENTE (ausencia de import a `generation.promotion`/
+`repository.promote`). Esto contradice la lectura inicial de ADK-00. El rol
+de ADK para `ai_editor` deberia ser un wrapper delgado sobre este loop ya
+existente, NO reimplementar el pipeline como Tools ADK sueltas -- ver
+AUDITORIA/ADK_MIGRATION_AUDIT.md seccion 8sexies para el detalle completo.
+
+`sintel_graph_adapter.py`: subconjunto de 9 operaciones de solo lectura,
+pensado para un futuro `EngineeringAgent` (preguntas ad-hoc, no propuestas
+de cambio). Bug de naming real encontrado: `__name__` real de la funcion no
+siempre coincide con el alias exportado (`calculate_impact.__name__ ==
+"calculate_change_impact"`) -- normalizado con un wrapper delgado, sin
+mutar la funcion real.
+
+**Verificado contra el grafo real (sin mocks):** 5/5 tests, incluye un
+`EngineeringAgent` de prueba con Ollama real respondiendo "que modelos
+tiene la app orders" citando correctamente los 11 modelos reales. 58/59
+tests en `adk_poc/` (el unico fallo es el flake conocido de ADK-01).
+
+## Pendiente para ADK-08+
+
+- Revisar el hallazgo de `run_autonomous_change_loop` antes de disenar
+  ADK-09 (HITL para `ai_editor`).
+- El resto del contrato de `ChatResponse` -- ADK-10, dual run.
+- Flujo de RESUME tras confirmacion real (heredado de ADK-02).
+- Verificar `JSON_SCHEMA_FOR_FUNC_DECL=False` contra LM Studio (heredado de
+  ADK-01).
