@@ -224,6 +224,7 @@
 <script setup>
 import { reactive, computed } from 'vue';
 import { COLOMBIA_LOCATIONS as colombiaLocations, COLOMBIAN_ROAD_TYPES as tiposVia } from '@/data/colombiaLocations.js';
+import { isValidEmail } from '@/utils/validators';
 
 // ── Estado reactivo ─────────────────────────────────────────────────────────────
 const contact  = reactive({ fullName: '', email: '', phone: '' });
@@ -246,7 +247,7 @@ const availableCities = computed(() =>
 
 const errors = computed(() => ({
   fullName:      !contact.fullName.trim(),
-  email:         !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contact.email.trim()),
+  email:         !isValidEmail(contact.email),
   phone:         !/^[3][0-9]{9}$/.test(contact.phone.trim()),
   department:    !location.department,
   city:          !location.city,

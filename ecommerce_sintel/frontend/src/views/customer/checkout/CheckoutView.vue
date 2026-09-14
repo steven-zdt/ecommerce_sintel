@@ -325,9 +325,7 @@ onMounted(async () => {
       phone:    authStore.user.phone || '',
     });
   }
-  await fetchCheckoutPreview();
-  await fetchFeatureFlags();
-  await fetchSavedCards();
+  await Promise.all([fetchCheckoutPreview(), fetchFeatureFlags(), fetchSavedCards()]);
 });
 </script>
 

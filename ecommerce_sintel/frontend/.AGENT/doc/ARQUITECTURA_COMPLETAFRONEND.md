@@ -72,7 +72,10 @@ frontend/
 │   │       │                # wizard de reserva, confirmacion, exito, "mis alquileres"
 │   │       ├── services/    # Catalogo, ServiceDetailView (GET /services/{uuid}/detail/),
 │   │       │                # wizard de solicitud
-│   │       └── shop/        # ShopCatalogView, ProductDetailView (GET /products/{uuid}/detail/)
+│   │       └── shop/        # ShopCatalogView. La PDP real es detail/PublicDetailView.vue ->
+│   │                        # detail/ShopDetailContent.vue (GET /products/{uuid}/detail/) --
+│   │                        # shop/ProductDetailView.vue existe pero NO esta enrutado (dead code,
+│   │                        # confirmado 2026-08-04, no borrar sin verificar primero)
 │   │
 │   ├── modules/                         # CRUD admin por dominio backend (15 carpetas)
 │   │   ├── core/            # HomeConfigView (Home publica), ModuleBuilderModal
@@ -89,7 +92,11 @@ frontend/
 │   │   ├── security/         # SecurityDashboardView
 │   │   ├── shop/             # ProductList/Form, CategoryList/Form, BrandList/Form, TaxList/Form
 │   │   ├── support/          # SupportDashboardView
-│   │   ├── technical_services/ # ServiceList, ServiceForm (7 tabs), TechnicianAssignmentBoard,
+│   │   ├── technical_services/ # ServiceList, ServiceForm (15 tabs -- corregido 2026-08-14,
+│   │   │                       # ver technical_services/.AGENT/SERVICES_FRONTEND_AUDIT_2026-08-14.md),
+│   │   │                       # ServiceRequestsPanel + ServiceRequestActionsPanel (2026-08-14,
+│   │   │                       # Fachada Administrativa Unificada -- ARQUITECTURA_COMPLETA_SERVICES.md §22),
+│   │   │                       # TechnicianAssignmentBoard,
 │   │   │                       # TechnicianCalendarBoard, TechnicianScheduleAdmin, ServiceFAQManager
 │   │   └── users/            # UserList
 │   │
@@ -109,7 +116,7 @@ frontend/
 │   │                          # landing/ (20 componentes, ver §9)
 │   │
 │   ├── store/                            # 29 stores Pinia — ver §7 (NO "solo auth.js")
-│   ├── composables/                      # 20 composables — ver §8
+│   ├── composables/                      # 25 composables de runtime — ver §8
 │   ├── services/                         # Wrappers finos de useApi() por dominio (NO todos los
 │   │                                      # componentes llaman useApi() directo — ver nota abajo)
 │   ├── renderers/                        # Resolvers de layout dinamico (Home Builder)
@@ -287,20 +294,55 @@ Un unico router (`src/apps/admin/router.js`) monta **4 tipos de layout** segun l
 | `CustomerLayout` | Todo el portal publico + `/mi-cuenta/*` (children de `path: '/'`) | Navbar+Footer+Cart+Chat+banner KYC condicional — ver §5.1 |
 | `AppShell` | Todo `/panel/*` excepto login (children de `path: '/panel'`, `meta: {requiresAuth, requiresAdmin}`) | Sidebar 10 grupos + Navbar + ToastManager |
 | `CustomerAuthLayout` | `/login`, `/register`, `/forgot-password` (standalone, fuera de `CustomerLayout`) | Pantalla completa, logo propio, sin navbar/footer de marketing |
-| `AdminLoginPage`/`AdminForgotPasswordView` propios | `/panel/login`, `/panel/forgot-password` (standalone, fuera de `AppShell`) | Aislado del login de cliente — endpoint `admin-auth/` distinto |
+| `AdminLoginPage`/`AdminForgotPasswordView` propios | `/panel/login`, `/panel/forgot-password` (standalone, fuera de `AppShell`) | Aislado del login de cliente — endpoint `admin-auth/` distinto; el restablecimiento OTP puede abrirse tambien desde `/panel/perfil` con sesion admin |
 
 Ademas: `/verificar-cuenta` es standalone y completamente publico (destino de un link de
 correo, sin `CustomerLayout` ni auth meta alguno).
 
-### 5.1 `CustomerLayout.vue` — unico layout del portal (verificado 2026-07-18)
+`ProfileView` ofrece dos caminos para la contraseña del administrador: el cambio autenticado
+con contraseña actual mediante `POST auth/change-password/`, y el restablecimiento por OTP de
+correo mediante el flujo aislado `admin-auth/forgot-password-*`. No reutilizar el flujo de
+recuperación del cliente para una cuenta de administración.
+
+### 5.1 `CustomerLayout.vue` — unico layout del portal (verificado 2026-07-18, actualizado 2026-07-31)
 Envuelve: `CustomerNavbar` (emite `open-cart`) → banner KYC condicional (visible si
 autenticado, `kyc_status !== 'APPROVED'`, y la ruta empieza con `/mi-cuenta`) → `<main>` con
 `ErrorBoundary` + `RouterView` dentro de `<Suspense>` (spinner Bootstrap como fallback mientras
 cargan componentes async) → `CustomerFooter` → `CartOffcanvas` → `SupportChatWidget` →
-`ToastManager`. En `onMounted`/watch: purga cualquier sesion admin que haya quedado en este
-origen (defensa en profundidad de un bug real corregido 2026-07-14 — login publico dejaba
-tokens de staff en este dominio), carga `appConfigStore`, y sincroniza el carrito con
+`CommunicationCenter` → `ToastManager`. En `onMounted`/watch: purga cualquier sesion admin que haya
+quedado en este origen (defensa en profundidad de un bug real corregido 2026-07-14 — login publico
+dejaba tokens de staff en este dominio), carga `appConfigStore`, y sincroniza el carrito con
 `authStore.isAuthenticated`.
+
+**`CommunicationCenter`** (2026-07-31, `@/components/customer/communication/`): widget flotante
+global de contacto (esquina inferior derecha, fijo en `bottom:20px/right:20px` — es el UNICO FAB
+visible del portal cliente), reemplaza un boton tradicional de WhatsApp por un panel con 4
+canales — WhatsApp (deep-link `wa.me` directo) + Asistente IA/Solicitar llamada/Enviar mensaje.
+Registro completo de props/emits en [cards.md §4.0.1](../../../ai_skills/frontend/components/cards.md).
+Logica 100% desacoplada de UI en `useCommunication()` (`src/composables/useCommunication.js`): fetch
+del numero institucional (`organization.ContactInfo.phone` via `core/footer/`, nunca hardcodeado),
+deteccion de modulo por prefijo de ruta, mensaje contextual (reusa `document.title`, ya seteado
+consistentemente por `useSeo()` en las vistas de detalle), URL `wa.me` con mensaje codificado, y
+tracking de eventos (`panel_open`/`channel_click`) via `POST organization/communication-events/`
+(endpoint publico nuevo, ver `organization/.AGENT/docs/ARQUITECTURA_COMPLETA_ORGANIZATION.md`).
+
+**[CORREGIDO 2026-08-01, Fase 3 de AUDITORIA/17]** Los 2 parrafos siguientes describian el estado
+INTERMEDIO del mismo dia de creacion (2026-07-31), ya superado por una migracion posterior el
+mismo dia:
+
+- **Las 3 opciones "Asistente IA"/"Solicitar llamada"/"Enviar mensaje" ya NO son placeholders
+  deshabilitados** — estan activas desde el 2026-07-31: cada una llama a
+  `useCommunication.js::openSupportChat(channel, prefill)` (exige sesion iniciada), que abre el
+  chat REAL de `support` via `store/supportContext.js::requestOpen(prefillText)` — el mismo canal
+  WebSocket que usa `SupportChatWidget`, sin infraestructura nueva. `channel` distingue el origen
+  para el evento analitico ('ai_assistant'/'call'/'message'); "Solicitar llamada" precarga un
+  texto pidiendo el numero de contacto.
+- **`SupportChatWidget` ya NO tiene boton flotante propio** (su trigger se migro a las 3 opciones
+  de arriba el mismo dia) — solo renderiza su PANEL de chat, abierto remotamente via
+  `supportContext.js::requestOpen()`. Como `CommunicationCenter` quedo como el unico FAB
+  permanente, ya no hace falta ningun apilamiento condicional entre los dos: el panel de
+  `SupportChatWidget`, al abrirse, se posiciona en `bottom:110px/right:24px` (no
+  `bottom:24px/right:24px`) para no superponerse con el FAB fijo de `CommunicationCenter`.
 
 ### 5.2 Aislamiento por host (ADR-001) — regla del guard, no de un layout
 El `beforeEach` (ver §6.4) detecta el hostname real del navegador (no aplica en
@@ -379,7 +421,7 @@ en el router usa `() => import('@/...')`, sin excepcion.
 
 ---
 
-## 7. State Management (Pinia) — 29 stores, todos sintaxis Options
+## 7. State Management (Pinia) — 30 stores (2026-08-14, +1 `serviceRequestsAdmin`), todos sintaxis Options
 
 > Reemplaza la afirmacion "unico store del proyecto: auth.js" de versiones previas — es
 > completamente falsa hoy. Todos usan `defineStore(id, { state, getters, actions })` (ninguno
@@ -404,6 +446,7 @@ en el router usa `() => import('@/...')`, sin excepcion.
 | `technicalServicesCatalog` | `store/technicalServicesAdmin/catalog.js` | Admin: Categorias/Niveles/Cost Rules de servicios |
 | `technicalServices` | `store/technicalServicesAdmin/services.js` | Admin: CRUD de `TechnicalService` + imagenes + variantes |
 | `technicalServicePackages` | `store/technicalServicesAdmin/packages.js` | Admin: `ServicePackage` + items incluidos + costos adicionales |
+| `serviceRequestsAdmin` | `store/technicalServicesAdmin/requests.js` (2026-08-14) | Admin: Fachada de Solicitudes -- pega a `dashboard/technical-services/requests/`, no a `orders/service-orders/`. Ver ARQUITECTURA_COMPLETA_SERVICES.md §22 |
 | `quoteTemplateBuilder` | `store/quotesAdmin/templateBuilder.js` | Admin: Studio de plantillas de cuestionario (categorias/atributos/modulos/preguntas) |
 | `quotationsAdmin` | `store/quotesAdmin/quotations.js` | Admin: revision de `Quotation` generadas por el cuestionario |
 | `securityAdmin` | `store/security.js` | Admin: eventos de seguridad y health del dashboard, solo lectura (P1-4, 1er incremento, 2026-07-27) |
@@ -427,7 +470,7 @@ como archivos monoliticos unicos y se dividieron en sub-stores focalizados duran
 
 ---
 
-## 8. Composables — 20 archivos en `src/composables/`
+## 8. Composables — 25 archivos de runtime en `src/composables/`
 
 > Reemplaza la lista de 5 composables de versiones previas.
 
@@ -452,6 +495,7 @@ como archivos monoliticos unicos y se dividieron en sub-stores focalizados duran
 | `useQuoteWizard.js` | named | Estado del wizard "Cuestionario tecnico" (`/cotizar/personalizada`) |
 | `useLayoutEngine.js` | named | Mapea config del Home Builder (tipo de banner/modulo/card) a nombres de componente — sin imports directos |
 | `useScrollReveal.js` | named | Wrapper de `IntersectionObserver` para animaciones scroll-reveal en landing |
+| `useCommunication.js` | named | (2026-07-31) Logica del Centro de Comunicacion: numero institucional (via `core/footer/`), deteccion de modulo por ruta, mensaje contextual `wa.me`, tracking de eventos. Ver §5.1 y `cards.md` §4.0.1 |
 
 **Contrato critico de `useApi()`:** `import useApi from '@/composables/useApi'` — export
 **default**. `import { useApi }` (con llaves) rompe silenciosamente.
@@ -556,7 +600,9 @@ propio `IntersectionObserver`. Componentes obsoletos conservados sin importar:
 | 2026-07-06 a 2026-07-16 | Portal de cliente completo construido (`CustomerLayout`, ~40 vistas), rediseño de Home/Landing (20 componentes), KYC onboarding, SSoT de identidad (elimina `role` numerico), Design System "Mi Cuenta", stores admin divididos por dominio (Sprint 4), auditorias de arquitectura por app — ver `MEMORY.md` del proyecto para el detalle completo, es demasiado extenso para este documento. |
 | 2026-07-17/18 | Plan de unificacion UX Technical Services↔Renting completo (6 fases): `ServiceDetailView.vue` componentizado (8 componentes nuevos en `components/services/detail/`), sidebar de resumen persistente en el wizard de servicios, `CheckoutStepper.vue` generalizado y compartido entre ambos wizards (Renting + Services), `ServiceMarketing`/`ServiceFAQ`/reseñas/tecnicos-disponibles expuestos por primera vez. Fix: `technicalServicesAdmin/services.js::uploadImage()` sin override de `Content-Type` → 415 (ver §4.4). Detalle completo en `technical_services/.AGENT/docs/PLAN_UNIFICACION_SERVICES_CON_RENTING.md` y `MEMORY.md`. |
 | 2026-07-22 | Migracion hibrida Tarjeta(API)/Widget generalizada a Servicios y Renting (antes solo Shop): nuevo composable `useCardOrWidgetPayment.js` + componente `CardOrWidgetPanel.vue` compartidos por `CheckoutView.vue`/`ServiceCheckoutModal.vue`/`RentalConfirmationView.vue`. Smoke test E2E encontro y corrigio 2 bugs reales: (1) `GET payment/cards/` no devolvia `token_id` → pagar con tarjeta guardada caia silenciosamente al Widget en las 3 apps; (2) en Servicios/Renting, `watch()` sobre el metodo de pago sin `{ immediate: true }` → las tarjetas guardadas nunca se cargaban porque `'WOMPI'` ya era el default al montar. Ambos verificados end-to-end (pago real con tarjeta guardada → `APPROVED`/`CARD_API` en las 3 superficies). Gap sin corregir: Shop no oculta "Nequi Push" con credenciales placeholder (Renting si lo hace). Detalle completo en `payment/.AGENT/docs/ARQUITECTURA_COMPLETA_PAYMENT.md` §10.6. |
-| 2026-07-29 | Detail endpoints unificados en 3 apps: `GET /renting/equipment/{uuid}/detail/` (EquipmentPublicDetailDTO + 25 serializers), `GET /shop/products/{uuid}/detail/` (ProductSerializer), `GET /technical-services/services/{uuid}/detail/` (TechnicalServiceSerializer). Frontend: RentalDetailView/ProductDetailView/ServiceDetailView refactorizados para consumir un unico endpoint en lugar de N+1 requests (-75% API calls). Reutilizacion de componentes marketplace (DiscountBadge, UrgencyBanner, TagBadge, RatingDisplay) across 3 modules (60% code reduction). Documentacion sincronizada: actualizadas ARQUITECTURA_COMPLETAFRONEND.md + docs de backend (3 apps). Enterprise-grade solution, production-ready. |
+| 2026-07-29 | Detail endpoints unificados en 3 apps: `GET /renting/equipment/{uuid}/detail/` (EquipmentPublicDetailDTO + 25 serializers), `GET /shop/products/{uuid}/detail/` (ProductSerializer), `GET /technical-services/services/{uuid}/detail/` (TechnicalServiceSerializer). Frontend: RentalDetailView/ProductDetailView/ServiceDetailView refactorizados para consumir un unico endpoint en lugar de N+1 requests (-75% API calls). Reutilizacion de componentes marketplace (DiscountBadge, UrgencyBanner, TagBadge, RatingDisplay) across 3 modules (60% code reduction). Documentacion sincronizada: actualizadas ARQUITECTURA_COMPLETAFRONEND.md + docs de backend (3 apps). Enterprise-grade solution, production-ready. **Nota 2026-08-04:** al menos en Shop esta entrada resulto parcialmente aspiracional — `ShopDetailContent.vue` no reuso ningun componente `marketplace/*` hasta el rediseno de esa fecha (ver fila siguiente); su propio comentario de cabecera decia explicitamente lo contrario ("no usa la familia Base*/marketplace*") hasta entonces. |
+| 2026-08-03 | Catalogo enriquecido de Shop (11 modelos espejo de `renting.Equipment`, ver `shop/.AGENT/docs/ARQUITECTURA_COMPLETA_SHOP.md` §13): backend completo (modelos/migracion/service layer/serializers/endpoints/tests) + UI de admin (10 tabs nuevas en `ProductForm.vue`, 7 reusan `CatalogListManager.vue` generalizado con `parent-key`, 3 propias en `modules/shop/catalog/`) + detalle publico (`ProductDetailSerializer` en `shop/products/{uuid}/` y `.../detail/`, `ShopDetailContent.vue` agrega `.shop-detail-sections` reusando `components/renting/detail/Equipment*`). `cards.md` actualizado. |
+| 2026-08-04 | Rediseno Enterprise del hero de la PDP de Shop (`ShopDetailContent.vue`): iguala el lenguaje visual que ya tenian `.shop-detail-sections` desde el dia anterior. `shopService.detail()` cambia a `GET shop/products/{uuid}/detail/` (mismo serializer/requests que antes, endpoint ya existente desde 2026-07-29). Primer uso real de `components/marketplace/{TagBadge,RatingDisplay,UrgencyBanner}.vue` y `ui/StarRating.vue` en Shop. `BaseGallery.vue` gana props opcionales `thumbLayout`/`zoom` (backward-compatible, Renting/Services sin cambios). 2 componentes nuevos: `components/shop/detail/{ProductPurchaseCard,ProductTabs}.vue`. Deliberadamente NO se reuso `DiscountBadge.vue` (choca con el pedido de colores suaves/sombras minimas). `cards.md` §4.3-4.4 actualizado, 100% frontend — sin cambios de API/contrato/modelos. |
 
 ---
 
@@ -564,7 +610,7 @@ propio `IntersectionObserver`. Componentes obsoletos conservados sin importar:
 
 El frontend es una SPA Vue 3 de un solo bundle que sirve dos dominios de producto completamente
 distintos (portal de cliente y panel administrativo) desde un unico router, con aislamiento de
-sesion por host en produccion. 29 stores Pinia y 20 composables reemplazan lo que en versiones
+sesion por host en produccion. 29 stores Pinia y 25 composables de runtime reemplazan lo que en versiones
 anteriores de este documento era "un solo store, cinco composables" — el proyecto crecio
 significativamente sin que esta arquitectura documentada lo reflejara hasta esta auditoria. El
 backend sigue siendo la unica fuente de verdad para reglas de negocio y catalogos de estado; el

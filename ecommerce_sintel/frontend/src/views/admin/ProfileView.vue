@@ -45,12 +45,53 @@
           </form>
         </div>
       </div>
+
+      <!-- Seguridad de la cuenta -->
+      <div class="col-12">
+        <div class="card shadow-sm border-0 rounded-4 p-4">
+          <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-3 mb-4">
+            <div>
+              <h6 class="fw-bold mb-1">Seguridad de la cuenta</h6>
+              <p class="text-muted small mb-0">Actualiza tu contraseña o usa un código enviado a {{ profile.email }} si no recuerdas la actual.</p>
+            </div>
+            <RouterLink :to="{ name: 'admin-forgot-password' }" class="btn btn-outline-primary">
+              <i class="bi bi-envelope-check me-1"></i>Restablecer con código
+            </RouterLink>
+          </div>
+
+          <form @submit.prevent="changePassword">
+            <div class="row g-3">
+              <div class="col-md-4">
+                <label for="admin-current-password" class="form-label">Contraseña actual</label>
+                <input id="admin-current-password" v-model="passwordForm.old_password" class="form-control" type="password" autocomplete="current-password" required>
+              </div>
+              <div class="col-md-4">
+                <label for="admin-new-password" class="form-label">Nueva contraseña</label>
+                <input id="admin-new-password" v-model="passwordForm.new_password" class="form-control" type="password" autocomplete="new-password" required>
+              </div>
+              <div class="col-md-4">
+                <label for="admin-confirm-password" class="form-label">Confirmar nueva contraseña</label>
+                <input id="admin-confirm-password" v-model="passwordForm.confirm_password" class="form-control" type="password" autocomplete="new-password" required>
+              </div>
+            </div>
+            <div class="d-flex flex-wrap align-items-center gap-3 mt-4">
+              <button type="submit" class="btn btn-danger" :disabled="changingPassword">
+                <span v-if="changingPassword" class="spinner-border spinner-border-sm me-2"></span>
+                {{ changingPassword ? 'Actualizando...' : 'Cambiar contraseña' }}
+              </button>
+              <span v-if="passwordSuccessMsg" class="text-success small" role="status">{{ passwordSuccessMsg }}</span>
+              <span v-if="passwordErrorMsg" class="text-danger small" role="alert">{{ passwordErrorMsg }}</span>
+            </div>
+          </form>
+        </div>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted } from 'vue';
+import { RouterLink } from 'vue-router';
 import useApi from '@/composables/useApi';
 import { useAuthStore } from '@/store/auth';
 
@@ -66,6 +107,10 @@ const savedProfile = ref({ first_name: '', last_name: '', phone_number: '' });
 const saving = ref(false);
 const successMsg = ref('');
 const errorMsg = ref('');
+const passwordForm = ref({ old_password: '', new_password: '', confirm_password: '' });
+const changingPassword = ref(false);
+const passwordSuccessMsg = ref('');
+const passwordErrorMsg = ref('');
 
 const initials = computed(() => authStore.initials);
 const roleLabel = computed(() => profile.value.is_staff ? 'Administrador' : 'Usuario');
@@ -98,6 +143,32 @@ async function saveProfile() {
     errorMsg.value = 'Error al guardar los cambios.';
   } finally {
     saving.value = false;
+  }
+}
+
+async function changePassword() {
+  passwordSuccessMsg.value = '';
+  passwordErrorMsg.value = '';
+  if (passwordForm.value.new_password !== passwordForm.value.confirm_password) {
+    passwordErrorMsg.value = 'Las contraseñas nuevas no coinciden.';
+    return;
+  }
+
+  changingPassword.value = true;
+  try {
+    await api.post('auth/change-password/', {
+      old_password: passwordForm.value.old_password,
+      new_password: passwordForm.value.new_password,
+    });
+    passwordForm.value = { old_password: '', new_password: '', confirm_password: '' };
+    passwordSuccessMsg.value = 'Contraseña actualizada correctamente.';
+  } catch (error) {
+    passwordErrorMsg.value = error.response?.data?.old_password?.[0]
+      || error.response?.data?.new_password?.[0]
+      || error.response?.data?.detail
+      || 'No fue posible actualizar la contraseña.';
+  } finally {
+    changingPassword.value = false;
   }
 }
 </script>

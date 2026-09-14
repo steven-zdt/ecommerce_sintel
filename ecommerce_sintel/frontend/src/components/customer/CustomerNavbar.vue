@@ -1,10 +1,11 @@
 <template>
-  <nav :class="['customer-navbar navbar navbar-expand-lg', standalone ? 'position-relative' : 'fixed-top']">
+  <nav :class="['customer-navbar navbar navbar-expand-lg', standalone ? 'position-relative' : 'fixed-top', { 'customer-navbar--scrolled': isScrolled }]" aria-label="Navegacion principal">
+    <a class="skip-link" href="#main-content">Saltar al contenido principal</a>
     <div class="container-fluid px-3 px-lg-4">
 
       <!-- Logo / Nombre de empresa -->
       <RouterLink class="navbar-brand d-flex align-items-center gap-2" to="/">
-        <img v-if="brand.logo" :src="brand.logo" alt="logo" class="brand-img" />
+        <img v-if="brand.logo" :src="brand.logo" :alt="`Logo de ${brand.site_name}`" class="brand-img" />
         <span class="brand-logo">{{ brand.site_name }}</span>
       </RouterLink>
 
@@ -80,7 +81,7 @@
         </div>
 
         <!-- Cart button -->
-        <button class="btn btn-light btn-sm position-relative me-2 cart-btn" @click="$emit('open-cart')">
+        <button class="btn btn-light btn-sm position-relative me-2 cart-btn" aria-label="Abrir carrito" @click="$emit('open-cart')">
           <i class="bi bi-bag fs-5"></i>
           <span v-if="cartStore.itemCount > 0" class="cart-badge">{{ cartStore.itemCount }}</span>
         </button>
@@ -133,11 +134,11 @@
 
       <!-- Mobile: cart + hamburger -->
       <div class="d-flex align-items-center gap-2 d-lg-none">
-        <button class="btn btn-light btn-sm position-relative cart-btn" @click="$emit('open-cart')">
+        <button class="btn btn-light btn-sm position-relative cart-btn" aria-label="Abrir carrito" @click="$emit('open-cart')">
           <i class="bi bi-bag fs-5"></i>
           <span v-if="cartStore.itemCount > 0" class="cart-badge">{{ cartStore.itemCount }}</span>
         </button>
-        <button class="navbar-toggler border-0" type="button" data-bs-toggle="collapse" data-bs-target="#customerNav">
+        <button class="navbar-toggler border-0" type="button" data-bs-toggle="collapse" data-bs-target="#customerNav" aria-controls="customerNav" aria-label="Abrir menu de navegacion">
           <i class="bi bi-list fs-4"></i>
         </button>
       </div>
@@ -147,7 +148,7 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '@/store/auth';
 import { useCartStore } from '@/store/cart';
@@ -193,7 +194,19 @@ function isExternalUrl(url) {
 
 const searchQuery = ref('');
 const logoutLoading = ref(false);
+const isScrolled = ref(false);
 let searchTimer = null;
+
+function updateScrolledState() {
+  isScrolled.value = !props.standalone && window.scrollY > 12;
+}
+
+onMounted(() => {
+  updateScrolledState();
+  window.addEventListener('scroll', updateScrolledState, { passive: true });
+});
+
+onUnmounted(() => window.removeEventListener('scroll', updateScrolledState));
 
 function doSearch() {
   if (!searchQuery.value.trim()) return;
@@ -222,7 +235,25 @@ async function handleLogout() {
   border-bottom: 1px solid rgba(0, 0, 0, 0.07);
   height: 70px;
   z-index: 1030;
+  transition: box-shadow var(--landing-transition), background var(--landing-transition);
 }
+.customer-navbar--scrolled {
+  background: rgba(255, 255, 255, .98);
+  box-shadow: var(--landing-shadow-sm);
+}
+.skip-link {
+  position: fixed;
+  top: .75rem;
+  left: .75rem;
+  z-index: 1040;
+  padding: .65rem 1rem;
+  border-radius: var(--landing-radius-sm);
+  background: var(--landing-ink-950);
+  color: #fff;
+  transform: translateY(-160%);
+  transition: transform var(--landing-transition);
+}
+.skip-link:focus { transform: translateY(0); color: #fff; }
 
 /* Menu movil (hamburguesa, < 992px / navbar-expand-lg): el menu expandido es
    hijo de .customer-navbar, que tiene height:70px fijo -- sin esto, el

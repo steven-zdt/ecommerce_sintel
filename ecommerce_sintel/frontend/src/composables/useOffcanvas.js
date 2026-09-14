@@ -5,10 +5,7 @@ export function useOffcanvas() {
   const mode = ref('create');        // 'create' | 'edit' | 'detail'
   const selected = ref(null);
 
-  console.log('[UI] useOffcanvas initialized');
-
   const openCreate = () => {
-    console.log('[UI] useOffcanvas: openCreate trigger');
     // Objeto nuevo (no null) en cada llamada: los formularios hijos usan
     // watch(() => props.item, ...) para poblar/resetear sus campos, y ese
     // watcher solo refire si la referencia cambia. Reutilizar `null` en
@@ -19,21 +16,18 @@ export function useOffcanvas() {
   };
 
   const openEdit = (item) => {
-    console.log('[UI] useOffcanvas: openEdit trigger', item);
     selected.value = { ...item }; // Shallow copy to avoid direct mutation
     mode.value = 'edit';
     show.value = true;
   };
 
   const openDetail = (item) => {
-    console.log('[UI] useOffcanvas: openDetail trigger', item);
     selected.value = item;
     mode.value = 'detail';
     show.value = true;
   };
 
   const close = () => {
-    console.log('[UI] useOffcanvas: close trigger');
     show.value = false;
     setTimeout(() => {
         selected.value = null;
