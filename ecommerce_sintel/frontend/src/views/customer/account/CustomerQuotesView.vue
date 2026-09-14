@@ -49,7 +49,7 @@
           <div v-if="quote.response" class="quote-response mt-3">
             <div class="d-flex align-items-center gap-2 mb-1">
               <i class="bi bi-chat-left-text text-primary small"></i>
-              <span class="text-muted small fw-semibold">Respuesta de Sintel</span>
+              <span class="text-muted small fw-semibold">Respuesta de {{ brandName }}</span>
             </div>
             <p class="small mb-0">{{ quote.response }}</p>
           </div>
@@ -122,11 +122,12 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { RouterLink } from 'vue-router';
 import useApi from '@/composables/useApi';
 import { useToast } from '@/composables/useToast';
 import { useEnums } from '@/composables/useEnums';
+import { useAppConfigStore } from '@/store/appConfig';
 import { formatCOP } from '@/utils/money';
 import CustomerAccountShell from '@/components/customer/account/CustomerAccountShell.vue';
 import CustomerPageHeader from '@/components/customer/account/CustomerPageHeader.vue';
@@ -142,6 +143,9 @@ import CustomerPagination from '@/components/customer/account/CustomerPagination
 const api = useApi();
 const toast = useToast();
 const enums = useEnums();
+// White-label F7 (2026-08-14): antes 'Sintel' hardcodeado.
+const appConfigStore = useAppConfigStore();
+const brandName = computed(() => appConfigStore.brand.site_name || 'la plataforma');
 
 const loading = ref(true);
 const loadError = ref(false);

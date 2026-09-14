@@ -1,6 +1,7 @@
 import { ref, reactive, computed, watch } from 'vue';
 import { quotesService } from '@/services/quotes/quotesService';
 import { isQuestionVisible as checkQuestionVisible } from '@/utils/quoteVisibility';
+import { extractQuoteSubmitError } from '@/utils/quoteErrors';
 
 const STORAGE_KEY = 'sintel:quote-wizard:v2';
 const FILE_TYPES = ['IMAGE', 'FILE', 'SIGNATURE'];
@@ -204,11 +205,7 @@ export function useQuoteWizard() {
       localStorage.removeItem(STORAGE_KEY);
       return true;
     } catch (e) {
-      const fieldErrors = e.response?.data;
-      const firstFieldError = fieldErrors && typeof fieldErrors === 'object'
-        ? Object.values(fieldErrors).flat()[0]
-        : null;
-      error.value = fieldErrors?.detail || firstFieldError || 'No pudimos enviar tu solicitud. Intenta de nuevo.';
+      error.value = extractQuoteSubmitError(e);
       return false;
     } finally {
       submitting.value = false;

@@ -3,6 +3,7 @@ import useApi from '@/composables/useApi';
 import { shopService } from '@/services/shop/shopService';
 import { servicesService } from '@/services/technical_services/servicesService';
 import { quotesService } from '@/services/quotes/quotesService';
+import { extractQuoteSubmitError } from '@/utils/quoteErrors';
 
 const blankApplicant = () => ({
   client_name: '', client_email: '', notes: '',
@@ -232,11 +233,7 @@ export function useCatalogQuoteWizard() {
       cart.splice(0, cart.length);
       return true;
     } catch (e) {
-      const fieldErrors = e.response?.data;
-      const firstFieldError = fieldErrors && typeof fieldErrors === 'object'
-        ? Object.values(fieldErrors).flat()[0]
-        : null;
-      error.value = fieldErrors?.detail || firstFieldError || 'No pudimos enviar tu solicitud. Intenta de nuevo.';
+      error.value = extractQuoteSubmitError(e);
       return false;
     } finally {
       submitting.value = false;
