@@ -31,15 +31,14 @@
     </div>
 
     <!-- Loading -->
-    <div v-if="loading" class="loading-state">
-      <span class="spinner"></span> Cargando agenda…
-    </div>
+    <CustomerSkeleton v-if="loading" :count="4" height="70px" />
 
     <!-- Empty -->
-    <div v-else-if="filteredSlots.length === 0" class="empty-state">
-      <svg xmlns="http://www.w3.org/2000/svg" width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-      <p>No hay slots en este rango.</p>
-    </div>
+    <CustomerEmptyState
+      v-else-if="filteredSlots.length === 0"
+      icon="bi-calendar-x"
+      title="No hay slots en este rango."
+    />
 
     <!-- Tabla de slots -->
     <div v-else class="table-container">
@@ -143,6 +142,14 @@
 import { ref, computed, onMounted } from 'vue';
 import useApi from '@/composables/useApi';
 import { useAuthStore } from '@/store/auth';
+import CustomerSkeleton from '@/components/customer/account/CustomerSkeleton.vue';
+import CustomerEmptyState from '@/components/customer/account/CustomerEmptyState.vue';
+// [2026-08-04, hallazgo A6 de AUDITORIA_INTEGRAL_PRODUCCION_2026-08-04.md] Loading/empty-state
+// migrados a la libreria compartida de "Mi Cuenta". El badge de estado (slot.status) se dejo
+// como estaba a proposito -- CustomerStatusBadge exige un enum-name registrado en
+// core/api/views.py, y no existe ninguno para los estados de disponibilidad de contratista
+// (AVAILABLE/BOOKED/PENDING_RESERVATION/BLOCKED/VACATION/SICK_LEAVE); forzarlo sin esa
+// infraestructura habria roto el label real que hoy sirve el backend (slot.status_display).
 
 const { get, post, patch } = useApi();
 const authStore = useAuthStore();
@@ -313,21 +320,6 @@ h1 { font-size: 1.75rem; font-weight: 700; color: #1e1b4b; margin: 0 0 .25rem; }
 }
 .filter-chip.active { background: #6366f1; border-color: #6366f1; color: #fff; }
 .filter-chip:hover:not(.active) { border-color: #6366f1; color: #6366f1; }
-
-/* Loading / Empty */
-.loading-state {
-  display: flex; align-items: center; justify-content: center;
-  gap: .75rem; padding: 3rem; color: #64748b;
-}
-.spinner {
-  width: 22px; height: 22px; border: 3px solid #e0e7ff;
-  border-top-color: #6366f1; border-radius: 50%;
-  animation: spin .8s linear infinite; flex-shrink: 0;
-}
-.empty-state {
-  text-align: center; padding: 3.5rem 1rem; color: #94a3b8;
-}
-.empty-state svg { margin-bottom: 1rem; }
 
 /* Day sections */
 .day-section { margin-bottom: 1.75rem; }

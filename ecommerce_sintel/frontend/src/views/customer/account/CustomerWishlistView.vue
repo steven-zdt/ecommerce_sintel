@@ -18,9 +18,15 @@
 
     <div v-else class="wishlist-grid">
       <CustomerCard v-for="item in items" :key="item.uuid" tag="div" class="wishlist-item">
-        <div class="wishlist-image">
-          <i class="bi bi-bag-heart"></i>
-        </div>
+        <MediaImage
+          :src="item.image"
+          :alt="item.product_name"
+          placeholder-icon="bi-bag-heart"
+          placeholder-bg="var(--acc-accent-bg, #eff6ff)"
+          placeholder-color="var(--acc-accent, #2563eb)"
+          image-fit="cover"
+          class="wishlist-image"
+        />
         <div class="wishlist-body">
           <p class="item-name">{{ item.product_name }}</p>
           <p class="item-sku text-muted small">SKU: {{ item.sku }}</p>
@@ -65,6 +71,7 @@ import CustomerConfirmInline from '@/components/customer/account/CustomerConfirm
 import CustomerEmptyState from '@/components/customer/account/CustomerEmptyState.vue';
 import CustomerErrorState from '@/components/customer/account/CustomerErrorState.vue';
 import CustomerSkeleton from '@/components/customer/account/CustomerSkeleton.vue';
+import MediaImage from '@/components/ui/MediaImage.vue';
 
 const toast = useToast();
 const cartStore = useCartStore();
@@ -131,13 +138,9 @@ onMounted(fetchWishlist);
 
 .wishlist-image {
   height: 120px;
-  background: var(--acc-accent-bg, #eff6ff);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 2.2rem;
-  color: var(--acc-accent, #2563eb);
+  display: block;
 }
+.wishlist-image :deep(.mi-placeholder) { font-size: 2.2rem; }
 
 .wishlist-body { padding: 16px; flex: 1; }
 .item-name { font-weight: 600; font-size: 0.9rem; color: var(--acc-text, #111827); margin-bottom: 4px; }

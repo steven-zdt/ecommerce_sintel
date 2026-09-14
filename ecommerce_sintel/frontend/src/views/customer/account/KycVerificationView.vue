@@ -1,8 +1,6 @@
 <template>
   <div class="kyc-verification-page">
-    <div v-if="loading" class="text-center py-5">
-      <div class="spinner-border text-primary"></div>
-    </div>
+    <CustomerSkeleton v-if="loading" :count="3" height="90px" />
 
     <div v-else-if="verification" class="kyc-card">
       <h1 class="h4 fw-bold mb-1">Verificacion de identidad</h1>
@@ -10,7 +8,7 @@
       <!-- PENDING / REJECTED: subir documentos ------------------------------>
       <template v-if="verification.status === 'PENDING' || verification.status === 'REJECTED'">
         <p class="text-muted small mb-4">
-          Tu cuenta fue creada. Para poder comprar y ofrecer servicios en Sintel,
+          Tu cuenta fue creada. Para poder comprar y ofrecer servicios en {{ brandName }},
           sube los siguientes documentos y envialos a revision.
         </p>
 
@@ -41,7 +39,7 @@
           <i class="bi bi-hourglass-split display-4 text-warning"></i>
           <p class="mt-3 mb-0">
             Tu documentacion esta en revision. Te avisaremos por correo cuando
-            el equipo de Sintel termine.
+            nuestro equipo termine.
           </p>
         </div>
       </template>
@@ -81,11 +79,16 @@ import { kycService } from '@/services/kyc/kycService';
 import { useToast } from '@/composables/useToast';
 import { useErrorHandler } from '@/composables/useErrorHandler';
 import { useAuthStore } from '@/store/auth';
+import { useAppConfigStore } from '@/store/appConfig';
 import KycDocumentUploadStep from '@/components/auth/kyc/KycDocumentUploadStep.vue';
+import CustomerSkeleton from '@/components/customer/account/CustomerSkeleton.vue';
 
 const toast = useToast();
 const { handleError } = useErrorHandler();
 const authStore = useAuthStore();
+// White-label F7 (2026-08-14): antes 'Sintel' hardcodeado.
+const appConfigStore = useAppConfigStore();
+const brandName = computed(() => appConfigStore.brand.site_name || 'la plataforma');
 
 const loading = ref(true);
 const submitting = ref(false);

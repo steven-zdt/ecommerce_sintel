@@ -60,36 +60,41 @@
         <form @submit.prevent="addCard">
           <div class="row g-3">
             <div class="col-12">
-              <label class="form-label small fw-semibold">Numero de tarjeta</label>
+              <label class="form-label small fw-semibold" for="cardNumber">Numero de tarjeta</label>
               <input
+                id="cardNumber"
                 v-model="rawCard.number" type="text" inputmode="numeric" autocomplete="cc-number"
                 class="form-control" placeholder="4242 4242 4242 4242" maxlength="19" required
               />
             </div>
             <div class="col-sm-4">
-              <label class="form-label small fw-semibold">Mes exp.</label>
+              <label class="form-label small fw-semibold" for="cardExpMonth">Mes exp.</label>
               <input
+                id="cardExpMonth"
                 v-model="rawCard.exp_month" type="text" inputmode="numeric" autocomplete="cc-exp-month"
                 class="form-control" placeholder="MM" maxlength="2" required
               />
             </div>
             <div class="col-sm-4">
-              <label class="form-label small fw-semibold">Ano exp.</label>
+              <label class="form-label small fw-semibold" for="cardExpYear">Ano exp.</label>
               <input
+                id="cardExpYear"
                 v-model="rawCard.exp_year" type="text" inputmode="numeric" autocomplete="cc-exp-year"
                 class="form-control" placeholder="AA" maxlength="2" required
               />
             </div>
             <div class="col-sm-4">
-              <label class="form-label small fw-semibold">CVC</label>
+              <label class="form-label small fw-semibold" for="cardCvc">CVC</label>
               <input
+                id="cardCvc"
                 v-model="rawCard.cvc" type="password" inputmode="numeric" autocomplete="cc-csc"
                 class="form-control" placeholder="123" maxlength="4" required
               />
             </div>
             <div class="col-12">
-              <label class="form-label small fw-semibold">Nombre del titular</label>
+              <label class="form-label small fw-semibold" for="cardHolder">Nombre del titular</label>
               <input
+                id="cardHolder"
                 v-model="rawCard.card_holder" type="text" autocomplete="cc-name"
                 class="form-control" placeholder="Como aparece en la tarjeta" required
               />

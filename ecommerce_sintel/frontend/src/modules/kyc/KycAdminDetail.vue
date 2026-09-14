@@ -30,7 +30,10 @@ function reload() {
 }
 
 onMounted(async () => {
-  await Promise.all([enums.ensure('kyc-verification-statuses'), enums.ensure('kyc-document-statuses')]);
-  await reload();
+  await Promise.all([
+    enums.ensure('kyc-verification-statuses'),
+    enums.ensure('kyc-document-statuses'),
+    reload(),
+  ]);
 });
 </script>
