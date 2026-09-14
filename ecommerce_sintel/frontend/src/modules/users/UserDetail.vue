@@ -152,6 +152,15 @@
       </button>
     </section>
 
+    <!-- Timeline unificado (auditoria + KYC + seguridad) -->
+    <section class="mb-3">
+      <h6 class="text-uppercase text-muted small fw-bold mb-2">Timeline</h6>
+      <div v-if="timelineLoading" class="text-center py-3">
+        <div class="spinner-border spinner-border-sm text-primary"></div>
+      </div>
+      <StatusTimeline v-else mode="events" :events="timelineEvents" empty-message="Sin eventos registrados." />
+    </section>
+
     <!-- Acciones -->
     <div class="d-flex gap-2 justify-content-end border-top pt-3">
       <button
@@ -186,6 +195,7 @@ import { useEnums } from '@/composables/useEnums';
 import { useAuthStore } from '@/store/auth';
 import { useUsersAdminStore } from '@/store/usersAdmin';
 import KycVerificationPanel from '@/modules/kyc/KycVerificationPanel.vue';
+import StatusTimeline from '@/components/shared/StatusTimeline.vue';
 
 const props = defineProps({
   item: { type: Object, default: null },
@@ -200,9 +210,33 @@ const store = useUsersAdminStore();
 const {
   currentDetail: detail, detailLoading: loading,
   auditLog, auditNext, auditLoading,
+  timeline, timelineLoading,
   groupsCatalog,
   actionLoading,
 } = storeToRefs(store);
+
+// Timeline unificado (Lote 1, 2026-08-07) -- traduce las 3 fuentes
+// (audit/kyc/security) al shape normalizado que espera StatusTimeline.vue.
+const TIMELINE_SOURCE_STYLE = {
+  audit: { icon: 'bi-person-gear', color: '#2563eb' },
+  kyc: { icon: 'bi-patch-check', color: '#7c3aed' },
+  security: { icon: 'bi-shield-lock', color: '#f59e0b' },
+};
+const timelineEvents = computed(() => (timeline.value || []).map((e, idx) => {
+  const style = TIMELINE_SOURCE_STYLE[e.source] || {};
+  const isFailure = e.event_type === 'LOGIN_FAILED';
+  const extra = e.actor_email
+    ? `Por: ${e.actor_email}`
+    : (e.metadata?.ip_address ? `IP: ${e.metadata.ip_address}` : '');
+  return {
+    key: `${e.source}-${idx}-${e.timestamp}`,
+    label: e.description,
+    icon: isFailure ? 'bi-x-circle' : (style.icon || 'bi-dot'),
+    color: isFailure ? '#dc2626' : style.color,
+    date: e.timestamp,
+    description: extra,
+  };
+}));
 
 const editingGroups = ref(false);
 const selectedGroupIds = ref([]);
@@ -302,6 +336,7 @@ watch(
     auditNext.value = null;
     loadDetail(uuid);
     loadAudit(uuid);
+    store.fetchTimeline(uuid);
     enums.ensure('user-types');
     enums.ensure('kyc-verification-statuses');
     enums.ensure('kyc-document-statuses');

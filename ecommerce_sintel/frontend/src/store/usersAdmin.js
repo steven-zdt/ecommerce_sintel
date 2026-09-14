@@ -36,6 +36,9 @@ export const useUsersAdminStore = defineStore('usersAdmin', {
     auditNext: null,
     auditLoading: false,
 
+    timeline: [],
+    timelineLoading: false,
+
     groupsCatalog: [],
 
     actionLoading: false,
@@ -122,6 +125,25 @@ export const useUsersAdminStore = defineStore('usersAdmin', {
 
     resendVerification(uuid) {
       return this._mutate(() => this._api().post(`users/${uuid}/resend-verification/`));
+    },
+
+    // Lote 1 Identity Management (2026-08-07) -- acciones masivas + timeline unificado.
+    bulkAction(uuids, action, reason = '') {
+      return this._mutate(async () => (
+        await this._api().post('users/bulk-action/', { uuids, action, reason })
+      ).data);
+    },
+
+    async fetchTimeline(uuid) {
+      this.timelineLoading = true;
+      try {
+        const { data } = await this._api().get(`users/${uuid}/timeline/`);
+        this.timeline = data.results;
+      } catch {
+        this.error = 'No se pudo cargar el timeline del usuario.';
+      } finally {
+        this.timelineLoading = false;
+      }
     },
 
     async fetchGroupsCatalog() {

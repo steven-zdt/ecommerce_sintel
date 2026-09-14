@@ -3,8 +3,9 @@
 
     <!-- Email -->
     <div class="mb-3">
-      <label class="form-label small fw-bold">Email</label>
+      <label class="form-label small fw-bold" for="userFormEmail">Email</label>
       <input
+        id="userFormEmail"
         v-model="form.email"
         type="email"
         class="form-control"
@@ -20,19 +21,19 @@
     <!-- Nombre + Apellido -->
     <div class="row">
       <div class="col-6 mb-3">
-        <label class="form-label small fw-bold">Nombre</label>
-        <input v-model="form.first_name" type="text" class="form-control" required maxlength="50" placeholder="Nombre">
+        <label class="form-label small fw-bold" for="userFormFirstName">Nombre</label>
+        <input id="userFormFirstName" v-model="form.first_name" type="text" class="form-control" required maxlength="50" placeholder="Nombre">
       </div>
       <div class="col-6 mb-3">
-        <label class="form-label small fw-bold">Apellido</label>
-        <input v-model="form.last_name" type="text" class="form-control" required maxlength="50" placeholder="Apellido">
+        <label class="form-label small fw-bold" for="userFormLastName">Apellido</label>
+        <input id="userFormLastName" v-model="form.last_name" type="text" class="form-control" required maxlength="50" placeholder="Apellido">
       </div>
     </div>
 
     <!-- Telefono -->
     <div class="mb-3">
-      <label class="form-label small fw-bold">Telefono <span class="text-muted fw-normal">(opcional)</span></label>
-      <input v-model="form.phone_number" type="tel" class="form-control" maxlength="20" placeholder="+57 300 000 0000">
+      <label class="form-label small fw-bold" for="userFormPhone">Telefono <span class="text-muted fw-normal">(opcional)</span></label>
+      <input id="userFormPhone" v-model="form.phone_number" type="tel" class="form-control" maxlength="20" placeholder="+57 300 000 0000">
     </div>
 
     <!-- Tipo de usuario -->
@@ -64,9 +65,10 @@
     <!-- Contrasena (solo crear) -->
     <template v-if="mode === 'create'">
       <div class="mb-3">
-        <label class="form-label small fw-bold">Contrasena</label>
+        <label class="form-label small fw-bold" for="userFormPassword">Contrasena</label>
         <div class="input-group">
           <input
+            id="userFormPassword"
             v-model="form.password"
             :type="showPwd ? 'text' : 'password'"
             class="form-control"
@@ -80,8 +82,9 @@
         </div>
       </div>
       <div class="mb-3">
-        <label class="form-label small fw-bold">Confirmar Contrasena</label>
+        <label class="form-label small fw-bold" for="userFormPasswordConfirm">Confirmar Contrasena</label>
         <input
+          id="userFormPasswordConfirm"
           v-model="form.password_confirm"
           :type="showPwd ? 'text' : 'password'"
           class="form-control"

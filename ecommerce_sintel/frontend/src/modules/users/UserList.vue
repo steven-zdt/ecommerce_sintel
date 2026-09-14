@@ -7,9 +7,54 @@
         <h4 class="fw-bold mb-0">Gestión de Usuarios</h4>
         <p class="text-muted small mb-0">{{ totalCount }} usuario{{ totalCount !== 1 ? 's' : '' }} en el sistema</p>
       </div>
-      <button class="btn btn-primary" @click="openCreate">
-        <i class="bi bi-person-plus me-1"></i> Nuevo Usuario
-      </button>
+      <div class="d-flex gap-2">
+        <button class="btn btn-light border" @click="exportCSV" :disabled="items.length === 0">
+          <i class="bi bi-download me-1"></i>
+          {{ selectedIds.size > 0 ? `Exportar seleccionados (${selectedIds.size})` : 'Exportar CSV' }}
+        </button>
+        <button class="btn btn-primary" @click="openCreate">
+          <i class="bi bi-person-plus me-1"></i> Nuevo Usuario
+        </button>
+      </div>
+    </div>
+
+    <!-- Barra de acciones masivas -->
+    <div v-if="selectedIds.size > 0" class="alert alert-primary d-flex align-items-center justify-content-between py-2 px-3 mb-3">
+      <span class="small fw-bold">{{ selectedIds.size }} usuario(s) seleccionado(s)</span>
+      <div class="d-flex gap-2">
+        <button class="btn btn-sm btn-success" @click="pendingBulk = 'activate'" :disabled="actionLoading">
+          <i class="bi bi-check-circle me-1"></i>Activar
+        </button>
+        <button class="btn btn-sm btn-warning" @click="pendingBulk = 'deactivate'" :disabled="actionLoading">
+          <i class="bi bi-slash-circle me-1"></i>Desactivar
+        </button>
+        <button class="btn btn-sm btn-light border" @click="pendingBulk = 'resend_verification'" :disabled="actionLoading">
+          <i class="bi bi-envelope me-1"></i>Reenviar verificación
+        </button>
+        <button class="btn btn-sm btn-light border" @click="selectedIds.clear(); selectedIds = new Set()">Cancelar selección</button>
+      </div>
+    </div>
+
+    <!-- Confirmacion de accion masiva -->
+    <div v-if="pendingBulk" class="alert alert-warning d-flex align-items-center gap-3 py-2 px-3 mb-3">
+      <i class="bi bi-exclamation-triangle-fill"></i>
+      <span class="small">
+        ¿{{ bulkActionLabel(pendingBulk) }} {{ selectedIds.size }} usuario(s)?
+      </span>
+      <input
+        v-if="pendingBulk === 'deactivate'"
+        v-model="bulkReason"
+        class="form-control form-control-sm ms-2"
+        style="max-width: 260px"
+        placeholder="Motivo (opcional)"
+      />
+      <div class="ms-auto d-flex gap-2">
+        <button class="btn btn-sm btn-warning" @click="executeBulk" :disabled="actionLoading">
+          <span v-if="actionLoading" class="spinner-border spinner-border-sm me-1"></span>
+          Confirmar
+        </button>
+        <button class="btn btn-sm btn-light border" @click="pendingBulk = null; bulkReason = ''">Cancelar</button>
+      </div>
     </div>
 
     <!-- Filtros -->
@@ -72,6 +117,15 @@
         <table class="table table-hover align-middle mb-0">
           <thead class="table-light">
             <tr>
+              <th style="width:36px">
+                <input
+                  type="checkbox"
+                  class="form-check-input"
+                  :checked="allVisibleSelected"
+                  @change="toggleSelectAll"
+                  title="Seleccionar todos los visibles"
+                >
+              </th>
               <th>Email</th>
               <th>Nombre Completo</th>
               <th>Tipo</th>
@@ -86,13 +140,13 @@
           </thead>
           <tbody>
             <tr v-if="loading">
-              <td colspan="10" class="text-center py-5">
+              <td colspan="11" class="text-center py-5">
                 <div class="spinner-border text-primary" role="status"></div>
                 <div class="mt-2 text-muted small">Cargando usuarios...</div>
               </td>
             </tr>
             <tr v-else-if="items.length === 0">
-              <td colspan="10" class="text-center py-5 text-muted">
+              <td colspan="11" class="text-center py-5 text-muted">
                 <i class="bi bi-inbox fs-3 d-block mb-2"></i>
                 No hay usuarios que coincidan con los filtros.
               </td>
@@ -101,19 +155,26 @@
 
               <!-- Confirmacion inline: toggle -->
               <tr v-if="pendingToggle?.uuid === user.uuid" class="bg-warning-subtle">
-                <td colspan="10" class="p-0">
+                <td colspan="11" class="p-0">
                   <div class="d-flex align-items-center gap-3 px-3 py-2">
                     <i class="bi bi-exclamation-triangle-fill text-warning"></i>
                     <span class="small">
                       ¿Deseas <strong>{{ user.is_active ? 'desactivar' : 'activar' }}</strong>
                       a <strong>{{ user.email }}</strong>?
                     </span>
+                    <input
+                      v-if="user.is_active"
+                      v-model="toggleReason"
+                      class="form-control form-control-sm ms-2"
+                      style="max-width: 220px"
+                      placeholder="Motivo (opcional)"
+                    />
                     <div class="ms-auto d-flex gap-2">
                       <button class="btn btn-sm btn-warning" @click="executeToggle(user)" :disabled="actionLoading">
                         <span v-if="actionLoading" class="spinner-border spinner-border-sm me-1"></span>
                         Confirmar
                       </button>
-                      <button class="btn btn-sm btn-light border" @click="pendingToggle = null">Cancelar</button>
+                      <button class="btn btn-sm btn-light border" @click="pendingToggle = null; toggleReason = ''">Cancelar</button>
                     </div>
                   </div>
                 </td>
@@ -121,7 +182,7 @@
 
               <!-- Confirmacion inline: eliminar permanente -->
               <tr v-else-if="pendingDelete?.uuid === user.uuid" class="bg-danger-subtle">
-                <td colspan="10" class="p-0">
+                <td colspan="11" class="p-0">
                   <div class="d-flex align-items-center gap-3 px-3 py-2">
                     <i class="bi bi-trash-fill text-danger"></i>
                     <span class="small">
@@ -141,6 +202,14 @@
 
               <!-- Fila normal -->
               <tr v-else :class="{ 'opacity-60': !user.is_active }" role="button" @click="openDetail(user)">
+                <td @click.stop>
+                  <input
+                    type="checkbox"
+                    class="form-check-input"
+                    :checked="selectedIds.has(user.uuid)"
+                    @change="toggleSelect(user.uuid)"
+                  >
+                </td>
                 <td>
                   <div class="fw-semibold d-flex align-items-center gap-1">
                     {{ user.email }}
@@ -167,8 +236,8 @@
                   <span v-else class="text-muted smaller">—</span>
                 </td>
                 <td>
-                  <span :class="['badge rounded-pill', user.is_active ? 'bg-success' : 'bg-secondary']">
-                    {{ user.is_active ? 'Activo' : 'Inactivo' }}
+                  <span :class="['badge rounded-pill', statusBadgeClass(user)]">
+                    {{ statusLabel(user) }}
                   </span>
                 </td>
                 <td>
@@ -281,6 +350,101 @@ const {
 const pendingToggle = ref(null);
 const pendingDelete = ref(null);
 const showAdvanced = ref(false);
+const toggleReason = ref('');
+
+// --- Seleccion + acciones masivas + exportacion (Lote 1, 2026-08-07) ------
+const selectedIds = ref(new Set());
+const pendingBulk = ref(null);
+const bulkReason = ref('');
+
+const allVisibleSelected = computed(() =>
+  items.value.length > 0 && items.value.every((u) => selectedIds.value.has(u.uuid))
+);
+
+function toggleSelect(uuid) {
+  if (selectedIds.value.has(uuid)) selectedIds.value.delete(uuid);
+  else selectedIds.value.add(uuid);
+  selectedIds.value = new Set(selectedIds.value);
+}
+
+function toggleSelectAll() {
+  selectedIds.value = allVisibleSelected.value
+    ? new Set()
+    : new Set(items.value.map((u) => u.uuid));
+}
+
+function bulkActionLabel(action) {
+  return {
+    activate: 'Activar',
+    deactivate: 'Desactivar',
+    resend_verification: 'Reenviar verificación a',
+  }[action] || action;
+}
+
+async function executeBulk() {
+  const uuids = Array.from(selectedIds.value);
+  const res = await store.bulkAction(uuids, pendingBulk.value, bulkReason.value.trim());
+  if (res.ok) {
+    const failed = res.data.failed || [];
+    if (failed.length > 0) {
+      toast.error(`${failed.length} de ${uuids.length} usuario(s) no se pudieron procesar`);
+    } else {
+      toast.success(`${res.data.updated.length} usuario(s) actualizados correctamente`);
+    }
+    selectedIds.value = new Set();
+    await loadPage();
+  } else {
+    handleError(res.error, 'No se pudo ejecutar la acción masiva');
+  }
+  pendingBulk.value = null;
+  bulkReason.value = '';
+}
+
+function statusLabel(user) {
+  if (user.is_active) return 'Activo';
+  const reason = (user.last_deactivation_reason || '').toLowerCase();
+  if (reason.includes('bloque')) return 'Bloqueado';
+  if (reason.includes('suspend')) return 'Suspendido';
+  return 'Inactivo';
+}
+
+function statusBadgeClass(user) {
+  if (user.is_active) return 'bg-success';
+  const reason = (user.last_deactivation_reason || '').toLowerCase();
+  if (reason.includes('bloque')) return 'bg-danger';
+  if (reason.includes('suspend')) return 'bg-warning text-dark';
+  return 'bg-secondary';
+}
+
+function exportCSV() {
+  const rows = selectedIds.value.size > 0
+    ? items.value.filter((u) => selectedIds.value.has(u.uuid))
+    : items.value;
+  if (rows.length === 0) return;
+
+  const header = ['Email', 'Nombre', 'Tipo', 'Estado', 'Verificado', 'KYC', 'Ciudad', 'País', 'Empresa', 'Registro'];
+  const lines = rows.map((u) => [
+    u.email,
+    u.full_name || '',
+    u.is_staff ? 'Administrador' : (u.profile?.user_type || ''),
+    statusLabel(u),
+    u.is_verified ? 'Si' : 'No',
+    u.kyc_status || '',
+    u.profile?.city || '',
+    u.profile?.country || '',
+    u.profile?.company || '',
+    u.date_joined ? new Date(u.date_joined).toISOString().slice(0, 10) : '',
+  ].map((v) => `"${String(v ?? '').replace(/"/g, '""')}"`).join(','));
+  const csv = [header.join(','), ...lines].join('\n');
+
+  const blob = new Blob([`﻿${csv}`], { type: 'text/csv;charset=utf-8;' }); // BOM para Excel/es-CO
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `usuarios_${new Date().toISOString().slice(0, 10)}.csv`;
+  link.click();
+  URL.revokeObjectURL(url);
+}
 
 const search = ref('');
 const userTypes = ref({});
@@ -318,7 +482,9 @@ watch([search, () => filters.company, () => filters.city, () => filters.country]
 });
 
 const executeToggle = async (user) => {
-  const res = await store.patchUser(user.uuid, { is_active: !user.is_active });
+  const payload = { is_active: !user.is_active };
+  if (user.is_active && toggleReason.value.trim()) payload.reason = toggleReason.value.trim();
+  const res = await store.patchUser(user.uuid, payload);
   if (res.ok) {
     toast.success(`Usuario ${!user.is_active ? 'activado' : 'desactivado'} correctamente`);
     await loadPage();
@@ -326,6 +492,7 @@ const executeToggle = async (user) => {
     handleError(res.error, 'No se pudo cambiar el estado');
   }
   pendingToggle.value = null;
+  toggleReason.value = '';
 };
 
 const executeDelete = async (user) => {
