@@ -7,6 +7,7 @@ from redis.exceptions import RedisError
 from decouple import config as env
 from langchain_core.language_models import BaseChatModel
 from config import CHECKPOINTER_REDIS_URL, DJANGO_INTERNAL_API_URL, LOCAL_MODEL_CHAIN, OPENAI_API_KEY, ANTHROPIC_API_KEY
+from model_chain import parse_local_model_chain
 
 logger = logging.getLogger(__name__)
 
@@ -17,31 +18,9 @@ logger = logging.getLogger(__name__)
 # motor mismo pudiera cortar nada.
 LLM_TIMEOUT_SECONDS = 90
 
-_VALID_KINDS = {"ollama-nativo", "openai-compatible", "anthropic"}
-
-
-def parse_local_model_chain(raw: str) -> list[dict]:
-    """Parsea LOCAL_MODEL_CHAIN (ver config.py para el formato). Entradas invalidas se
-    ignoran con un warning en vez de tumbar el arranque -- un typo en una entrada de
-    fallback no deberia impedir que el motor arranque con las demas."""
-    entries: list[dict] = []
-    for chunk in (raw or "").split(";"):
-        chunk = chunk.strip()
-        if not chunk:
-            continue
-        parts = [p.strip() for p in chunk.split("|")]
-        if len(parts) not in (4, 5):
-            logger.warning("[llm_factory] entrada invalida en LOCAL_MODEL_CHAIN, se ignora: %r", chunk)
-            continue
-        name, kind, base_url, model = parts[:4]
-        if kind not in _VALID_KINDS:
-            logger.warning("[llm_factory] tipo desconocido '%s' en LOCAL_MODEL_CHAIN, se ignora: %r", kind, chunk)
-            continue
-        entries.append({
-            "name": name, "kind": kind, "base_url": base_url, "model": model,
-            "api_key_env": parts[4] if len(parts) == 5 else None,
-        })
-    return entries
+# parse_local_model_chain: movido a model_chain.py (ADK-11, 2026-09-14) --
+# ver ese modulo para el porque (logica pura, reusada por ai_engine_adk/ sin
+# arrastrar langchain-core). Re-exportado arriba via el import.
 
 
 def _resolve_api_key(entry: dict, default: str) -> str:
