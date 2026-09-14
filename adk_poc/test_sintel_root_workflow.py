@@ -28,6 +28,7 @@ AI_ENGINE_ROOT = Path(__file__).resolve().parent.parent / "ecommerce_sintel" / "
 if str(AI_ENGINE_ROOT) not in sys.path:
     sys.path.insert(0, str(AI_ENGINE_ROOT))
 
+from sintel_adapter import _EPHEMERAL_TOKENS
 from sintel_rag_adapter import SINTEL_KNOWLEDGE_CONTEXT_STATE_KEY
 from sintel_root_workflow import (
     APP_NAME,
@@ -247,3 +248,48 @@ async def test_run_sintel_turn_clears_knowledge_context_on_next_non_knowledge_tu
         "El conocimiento RAG del turno anterior sobrevivio a un turno de "
         "otro intent -- se filtraria al agente de otro dominio."
     )
+
+
+@pytest.mark.asyncio
+async def test_run_sintel_turn_never_persists_the_jwt_in_session_state():
+    """ADK-08, regresion de seguridad directa: `action_graph.py` real
+    declara la regla dura "el checkpointer persiste el estado; un token no
+    se persiste". `Session.state` es exactamente lo que un SessionService
+    persistente de ADK (confirmado real: `DatabaseSessionService`, bundled
+    con el propio framework) guardaria tal cual -- si el token apareciera
+    ahi, el dia que ADK-11+ cambie `InMemorySessionService` por un backend
+    persistente, el JWT quedaria escrito en ese backend. Prueba que el
+    token JAMAS aparece en `Session.state` (en ningun valor, no solo bajo
+    la clave conocida) mientras la tool real SI lo recibe y lo usa
+    correctamente (no es un test de "no funciona", es un test de "funciona
+    Y no persiste")."""
+    token = _make_real_access_token(user_id=23)
+    fake_context = {"user_id": 23, "email": "cliente6@sintel.dev", "user_type": "customer"}
+    order_response = {"results": [{"uuid": "ord-secure", "status": "delivered"}]}
+
+    with patch("auth.fetch_user_context", new=AsyncMock(return_value=fake_context)), \
+         patch(
+             "tools.orders_tools.django_internal_get", new=AsyncMock(return_value=order_response),
+         ) as mock_bridge:
+        result = await run_sintel_turn(
+            message="Cual es el estado de mi pedido?",
+            token=token, conversation_id="conv-token-security",
+        )
+
+    # La tool real SI recibio el token real -- la seguridad no vino a costa
+    # de romper la funcionalidad.
+    call_args = mock_bridge.call_args
+    token_arg = call_args.args[0] if call_args.args else call_args.kwargs.get("token")
+    assert token_arg == token, "La tool real nunca recibio el token -- la funcionalidad se rompio"
+
+    session = await _session_service.get_session(
+        app_name=APP_NAME, user_id="23", session_id=result["session_id"],
+    )
+    serialized_state = str(session.state)
+    assert token not in serialized_state, (
+        "El JWT aparece en Session.state -- un SessionService persistente lo "
+        "guardaria, violando la regla real de action_graph.py."
+    )
+
+    # El dict efimero tampoco debe dejar el token colgado despues del turno.
+    assert result["session_id"] not in _EPHEMERAL_TOKENS

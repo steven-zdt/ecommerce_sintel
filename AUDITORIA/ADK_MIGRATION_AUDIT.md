@@ -543,10 +543,68 @@ desacoplado del ORM (consistente con su naturaleza de conocimiento ESTRUCTURAL, 
 replicarse (ADK-10). El flujo de RESUME tras confirmacion real sigue sin probarse (ADK-02).
 El fix de `JSON_SCHEMA_FOR_FUNC_DECL` sigue sin verificarse contra LM Studio (ADK-01).
 
+## 8septies. ADK-08 — Session/state, persistente vs efimero (completado)
+
+Investigacion contra el codigo real (`ai_engine/redis_checkpointer.py`): el sistema real
+persiste el `SintelActionState` completo de LangGraph en Redis (`RedisCheckpointSaver`, TTL
+7 dias — misma convencion que `REFRESH_TOKEN_LIFETIME` de Django), reemplazando un
+`MemorySaver()` anterior que perdia TODA conversacion activa (incluidas confirmaciones de
+escritura a mitad de curso) en cada reinicio del contenedor `sintel_ai` (hallazgo real B2,
+`AUDITORIA/16_AUDITORIA_AI_ENGINE_SYNC.md`).
+
+**Clasificacion real de estado (el mapeo que esta fase pedia, antes de decidir que va
+donde):**
+
+| Campo | Categoria | Donde vive hoy (real) | Decision ADK |
+|---|---|---|---|
+| Historial de conversacion / turnos | Persistente, sobrevive reinicios | Redis, checkpoint completo | `Session` de un `SessionService` persistente (ADK-11+, backend por decidir) |
+| `user_context` (perfil resuelto) | Persistente, no sensible | Parte del checkpoint | `Session.state[SINTEL_USER_STATE_KEY]` — seguro de persistir, ya visible via `/internal/ai-context/` |
+| `optimized_context`/conocimiento RAG | Persistido como snapshot, pero reconstruido CADA turno (no acumulado) | Parte del checkpoint, sobreescrito cada turno | `Session.state[SINTEL_KNOWLEDGE_CONTEXT_STATE_KEY]`, limpiado explicitamente en turnos no-knowledge (ADK-06) |
+| `agent`/`handoff`/`intent` del turno | Persistido como snapshot del turno | Parte del checkpoint | Devuelto en el resultado de `run_sintel_turn()`, no necesita vivir en `Session.state` (se recalcula cada turno via el router determinista) |
+| **JWT del usuario (`token`)** | **NUNCA persistido — regla dura ya vigente** | Vive en `config["configurable"]["token"]` de LangGraph, un canal SEPARADO del state persistido (comentario real explicito: *"el checkpointer persiste el estado; un token no se persiste"*) | Ver hallazgo de seguridad abajo |
+
+**HALLAZGO DE SEGURIDAD REAL (encontrado auditando el codigo propio de esta mision, no del
+usuario) — corregido en el mismo commit de ADK-08:** desde ADK-03, `sintel_root_workflow.py`
+sembraba el JWT directo en `Session.state` (`create_session(state={...,
+SINTEL_TOKEN_STATE_KEY: token})` / luego `state_delta`). Confirmado que ADK tiene su propio
+`google.adk.sessions.DatabaseSessionService` REAL, bundled con el framework, que persistiria
+`Session.state` tal cual a una base de datos — si ADK-11+ reemplazara
+`InMemorySessionService` por un backend persistente sin corregir esto, **el JWT del usuario
+habria quedado escrito en ese backend**, violando directamente la regla ya vigente en
+produccion. Este es exactamente el tipo de regresion de seguridad que el checkpoint
+obligatorio del plan (seccion 24) exige detener antes de continuar — se corrigio de
+inmediato, sin esperar una nueva autorizacion del usuario (ya autorizado "continua hasta
+terminar", y el fix no cambia ningun comportamiento observable, solo cierra una fuga).
+
+**Fix real:** `sintel_adapter._EPHEMERAL_TOKENS` — dict de proceso, indexado por
+`session_id`, poblado/limpiado por `sintel_root_workflow.run_sintel_turn()` alrededor de
+cada turno (`try`/`finally`, nunca queda colgado si el turno falla). Cumple el mismo rol que
+`config["configurable"]` de LangGraph: un canal para datos que las tools necesitan en tiempo
+de ejecucion pero que NUNCA deben pasar por el mecanismo de persistencia de sesion. Los
+tests aislados de ADK-02 (que siembran el token directo en `state`, validos porque ahi nunca
+hay un backend persistente de por medio) siguen funcionando via un fallback explicito.
+
+**Verificado (`test_run_sintel_turn_never_persists_the_jwt_in_session_state`):** el JWT
+real NUNCA aparece en `Session.state` (buscado en el dict serializado completo, no solo bajo
+la clave conocida) DESPUES de un turno completo — mientras la tool real SI lo recibe y lo usa
+correctamente (test de "funciona Y no persiste", no solo "no persiste"). El dict efimero
+tampoco deja el token colgado en memoria del proceso despues del turno. 60/61 tests pasando
+en `adk_poc/` (el unico fallo es el mismo flake pre-existente de muestreo del modelo local,
+ya documentado en ADK-01, confirmado no relacionado).
+
+**Pendiente real para ADK-11 (no de esta fase):** elegir el backend persistente real
+(Redis, para no duplicar infraestructura ya operada por el proyecto — `redis:7.2-alpine` ya
+sirve Channels/Celery/Cache — vs. el `DatabaseSessionService` de ADK sobre Postgres, ya
+usado por el resto del proyecto). El mismo problema real que motivo `RedisCheckpointSaver`
+(RediSearch no disponible en el Redis del proyecto) puede repetirse si el backend elegido de
+ADK asume capacidades de Redis que no estan disponibles — verificar antes de elegir, no
+asumir.
+
 ## 9. Estado de este documento
 
-ADK-00 + ADK-01 + ADK-02 + ADK-03 + ADK-04 + ADK-05 + ADK-06 + ADK-07 completos. Todo el
-codigo sigue aislado en `adk_poc/`, sin tocar `ai_engine`/`ai_editor`/Django/Docker — ningun
-cambio de este documento modifico produccion. Usuario autorizo continuar sin pausa entre
-fases ("continua hasta terminar la instruccion anterior", 2026-09-14) — siguiente: ADK-08
-(Session/state — mapear estado persistente vs efimero antes de decidir que va donde).
+ADK-00 + ADK-01 + ADK-02 + ADK-03 + ADK-04 + ADK-05 + ADK-06 + ADK-07 + ADK-08 completos.
+Todo el codigo sigue aislado en `adk_poc/`, sin tocar `ai_engine`/`ai_editor`/Django/Docker
+— ningun cambio de este documento modifico produccion. Usuario autorizo continuar sin pausa
+entre fases ("continua hasta terminar la instruccion anterior", 2026-09-14) — siguiente:
+ADK-09 (Human-in-the-loop para `ai_editor`, revisando el hallazgo de ADK-07 sobre
+`run_autonomous_change_loop` antes de disenar).

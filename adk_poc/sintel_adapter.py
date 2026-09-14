@@ -15,13 +15,17 @@ Mapeo:
   ToolMetadata.name/description   -> nombre/descripcion de la FunctionTool ADK
   ToolMetadata.requires_confirmation -> FunctionTool(require_confirmation=...)
                                         (mapeo directo, mismo concepto en ambos lados)
-  ToolContext(user, token) de Sintel -> reconstruido desde tool_context.state
-                                        de ADK (sembrado en la sesion al
-                                        arrancarla -- la resolucion de
-                                        identidad real es responsabilidad de
-                                        ADK-03/Root Workflow, no de este
-                                        adapter; aqui solo se demuestra el
-                                        mecanismo de paso de contexto)
+  ToolContext(user, token) de Sintel -> `user` se reconstruye desde
+                                        tool_context.state (no sensible,
+                                        perfil ya resuelto por Django);
+                                        `token` se resuelve por session_id
+                                        desde `_EPHEMERAL_TOKENS` (ADK-08 --
+                                        NUNCA desde `state`, para que un
+                                        SessionService persistente jamas lo
+                                        guarde), con fallback a `state` solo
+                                        para los tests aislados de este
+                                        modulo que no pasan por el Root
+                                        Workflow real.
 """
 import inspect
 from typing import Any, Callable, Optional
@@ -31,6 +35,33 @@ from google.adk.tools.tool_context import ToolContext as AdkToolContext
 
 SINTEL_USER_STATE_KEY = "sintel_user"
 SINTEL_TOKEN_STATE_KEY = "sintel_token"
+
+# ADK-08, hallazgo de seguridad real: `action_graph.py` (docstring propio)
+# declara una regla dura ya vigente en produccion -- "El JWT del usuario
+# viaja por config['configurable'], NUNCA dentro del estado (el
+# checkpointer persiste el estado; un token no se persiste)". Confirmado
+# que ADK tiene su propio `DatabaseSessionService` real (bundled con el
+# framework) que persiste `Session.state` completo -- si `sintel_root_
+# workflow.py` sembrara el token en `state`/`state_delta` (como hacia
+# antes de ADK-08), el dia que se cambie `InMemorySessionService` por un
+# backend persistente (ADK-11+) el JWT quedaria escrito en ese backend,
+# violando la regla real. Este dict, indexado por `session_id`, cumple el
+# mismo rol que `config["configurable"]` de LangGraph -- nunca pasa por
+# `Session.state`, por diseno. `sintel_root_workflow.py` lo puebla/limpia
+# alrededor de cada turno (ver `run_sintel_turn`); si no lo puebla (como
+# los tests aislados de ADK-02 que siguen sembrando el token en `state`
+# directo, valido porque ahi jamas hay un backend persistente de por
+# medio), `_sintel_ctx_from_adk_state` cae al fallback de `state` de
+# abajo, sin romper ningun test existente.
+_EPHEMERAL_TOKENS: dict[str, str] = {}
+
+
+def set_ephemeral_token(session_id: str, token: str) -> None:
+    _EPHEMERAL_TOKENS[session_id] = token
+
+
+def clear_ephemeral_token(session_id: str) -> None:
+    _EPHEMERAL_TOKENS.pop(session_id, None)
 
 # ADK-04: 5 tools reales de ai_engine (core_tools.py -- Core*Update/Create)
 # usan `**kwargs` para overrides opcionales (ver ToolMetadata.args_schema,
@@ -47,13 +78,23 @@ def _sintel_ctx_from_adk_state(adk_tool_context: AdkToolContext):
     """Reconstruye tools.metadata.ToolContext (Sintel) desde el estado de
     sesion de ADK. Import diferido: el modulo real de ai_engine.tools solo
     debe existir en sys.path cuando se usa este adapter, no como dependencia
-    dura de adk_poc en general."""
+    dura de adk_poc en general.
+
+    El token se busca PRIMERO en `_EPHEMERAL_TOKENS` (nunca persistido, ver
+    ADK-08 arriba) por `session.id`; solo si no esta ahi (tests aislados de
+    ADK-02 que siembran el token directo en `state`) cae al fallback de
+    `state.get(SINTEL_TOKEN_STATE_KEY, "")`."""
     from tools.metadata import ToolContext as SintelToolContext
 
     state = adk_tool_context.state
+    session = getattr(adk_tool_context, "session", None)
+    session_id = getattr(session, "id", None)
+    token = (
+        _EPHEMERAL_TOKENS.get(session_id) if session_id else None
+    ) or state.get(SINTEL_TOKEN_STATE_KEY, "")
     return SintelToolContext(
         user=state.get(SINTEL_USER_STATE_KEY, {}),
-        token=state.get(SINTEL_TOKEN_STATE_KEY, ""),
+        token=token,
     )
 
 

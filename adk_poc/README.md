@@ -411,3 +411,40 @@ tests en `adk_poc/` (el unico fallo es el flake conocido de ADK-01).
 - Flujo de RESUME tras confirmacion real (heredado de ADK-02).
 - Verificar `JSON_SCHEMA_FOR_FUNC_DECL=False` contra LM Studio (heredado de
   ADK-01).
+
+---
+
+# ADK-08 — Session/state: persistente vs efimero (completado)
+
+Mapeo real contra `redis_checkpointer.py`: el sistema real persiste el
+estado completo del turno en Redis (TTL 7 dias), reemplazando un
+`MemorySaver()` que antes perdia toda conversacion activa en cada reinicio
+del contenedor. Tabla de clasificacion completa en
+`AUDITORIA/ADK_MIGRATION_AUDIT.md` seccion 8septies.
+
+**Hallazgo de seguridad real, encontrado y corregido en esta misma fase:**
+desde ADK-03, el JWT se sembraba directo en `Session.state`. Confirmado que
+ADK tiene su propio `DatabaseSessionService` real (bundled con el
+framework) que persistiria `state` tal cual -- si ADK-11+ cambiara
+`InMemorySessionService` por un backend persistente sin este fix, el JWT
+habria quedado escrito ahi, violando la regla real ya vigente en
+`action_graph.py` ("el checkpointer persiste el estado; un token no se
+persiste"). Fix: `sintel_adapter._EPHEMERAL_TOKENS`, un dict de proceso
+indexado por `session_id`, mismo rol que `config["configurable"]` de
+LangGraph -- nunca pasa por `Session.state`.
+
+**Verificado:** un test confirma que el JWT real NUNCA aparece en
+`Session.state` despues de un turno completo, mientras la tool real SI lo
+recibe y lo usa correctamente. 60/61 tests en `adk_poc/` (unico fallo: el
+mismo flake de muestreo del modelo local ya documentado).
+
+## Pendiente para ADK-09+
+
+- Elegir el backend persistente real para ADK-11 (Redis vs
+  `DatabaseSessionService`/Postgres) -- verificar capacidades disponibles
+  antes de elegir (mismo problema real que forzo `RedisCheckpointSaver` a
+  evitar RediSearch).
+- El resto del contrato de `ChatResponse` -- ADK-10, dual run.
+- Flujo de RESUME tras confirmacion real (heredado de ADK-02).
+- Verificar `JSON_SCHEMA_FOR_FUNC_DECL=False` contra LM Studio (heredado de
+  ADK-01).

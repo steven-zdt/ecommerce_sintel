@@ -28,12 +28,19 @@ funciones REALES de `action_graph.py` (no las copia) para decidir; ADK solo
 ejecuta al agente ya elegido por Sintel. El mecanismo `sub_agents` queda
 validado como capacidad real del framework (ADK-03), sin uso en este flujo.
 
-## Identidad y sesion (sin cambios desde ADK-03)
+## Identidad y sesion
 
 - `auth.decode_django_jwt` / `auth.fetch_user_context` -- boundary real de
   identidad, YA es el "AIContext" que el plan pedia crear de cero.
 - `session_id = f"{user_id}:{conversation_id}"` -- mismo patron que
   `action_graph.run_action_chat`'s `thread_id`.
+- **ADK-08**: el JWT NUNCA se siembra en `Session.state`/`state_delta` --
+  `action_graph.py` ya declara la regla real ("el checkpointer persiste el
+  estado; un token no se persiste"), y ADK tiene su propio
+  `DatabaseSessionService` real que persistiria `state` tal cual. El token
+  vive en `sintel_adapter._EPHEMERAL_TOKENS` (dict de proceso, indexado por
+  `session_id`, poblado/limpiado alrededor de cada turno) -- mismo rol que
+  `config["configurable"]["token"]` de LangGraph.
 
 ## Los 9 agentes de dominio (ADK-04)
 
@@ -89,7 +96,12 @@ from google.adk.models.lite_llm import LiteLlm
 from google.adk.runners import Runner
 from google.adk.sessions.in_memory_session_service import InMemorySessionService
 
-from sintel_adapter import SINTEL_TOKEN_STATE_KEY, SINTEL_USER_STATE_KEY, adapt_sintel_tool
+from sintel_adapter import (
+    SINTEL_USER_STATE_KEY,
+    adapt_sintel_tool,
+    clear_ephemeral_token,
+    set_ephemeral_token,
+)
 from sintel_rag_adapter import SINTEL_KNOWLEDGE_CONTEXT_STATE_KEY, build_knowledge_context
 
 OLLAMA_BASE_URL = "http://localhost:11434"
@@ -231,18 +243,34 @@ async def run_sintel_turn(*, message: str, token: str, conversation_id: str | No
         app_name=APP_NAME, user_id=str(user_id), session_id=session_id,
     )
     if existing is None:
+        # ADK-08: el token NUNCA se siembra aqui -- `state` es exactamente
+        # el payload que un SessionService persistente (confirmado real:
+        # google.adk.sessions.DatabaseSessionService) guardaria tal cual.
+        # `context` (perfil ya resuelto por Django, no sensible) si es
+        # seguro de persistir -- mismo criterio que un dato ya visible en
+        # /internal/ai-context/.
         await _session_service.create_session(
             app_name=APP_NAME, user_id=str(user_id), session_id=session_id,
-            state={SINTEL_USER_STATE_KEY: context, SINTEL_TOKEN_STATE_KEY: token},
+            state={SINTEL_USER_STATE_KEY: context},
         )
 
     adk_message = types.Content(role="user", parts=[types.Part(text=message)])
     events = []
-    async for event in runner.run_async(
-        user_id=str(user_id), session_id=session_id, new_message=adk_message,
-        state_delta={SINTEL_KNOWLEDGE_CONTEXT_STATE_KEY: knowledge_context},
-    ):
-        events.append(event)
+    # El token vive SOLO en este dict de proceso mientras dura el turno --
+    # mismo rol que config["configurable"]["token"] de LangGraph en el
+    # sistema real (action_graph.py: "el checkpointer persiste el estado;
+    # un token no se persiste"). Se limpia siempre, incluso si el turno
+    # falla, para no dejarlo colgado en memoria del proceso mas alla de su
+    # turno.
+    set_ephemeral_token(session_id, token)
+    try:
+        async for event in runner.run_async(
+            user_id=str(user_id), session_id=session_id, new_message=adk_message,
+            state_delta={SINTEL_KNOWLEDGE_CONTEXT_STATE_KEY: knowledge_context},
+        ):
+            events.append(event)
+    finally:
+        clear_ephemeral_token(session_id)
 
     final_text = "".join(
         part.text or ""
