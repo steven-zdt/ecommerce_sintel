@@ -177,6 +177,47 @@ completar ADK-12 formalmente, no el mecanismo del cutover en si.
   FastAPI, PyJWT, httpx -- YA verificado que corre limpio sin Django/Postgres) mas lo que
   falte para servir HTTP real (uvicorn, ya viene con FastAPI en el proyecto real).
 
+## 4bis. Ejecucion real (2026-09-14, autorizada explicitamente: "ajecuta el plan y sicroniza con produccion de forma general")
+
+Pasos 1-3 de la Opcion A EJECUTADOS y verificados contra infraestructura real (no un
+simulacro):
+
+1. **Extraccion de `routing.py`/`model_chain.py`** desde `action_graph.py`/`llm_factory.py`
+   (commits `64b340e`, `e564d25`) -- logica pura, cero cambio de comportamiento, verificado
+   contra la imagen REAL del contenedor `sintel_ai` (disposable, sin afectar produccion):
+   162/162 tests reales de `ai_engine/tests/` sin regresiones.
+2. **Flujo de RESUME de confirmaciones descubierto y probado** (`adk_poc/
+   test_sintel_hitl_resume.py`, commit `6d159ea`) -- gap abierto desde ADK-02, ahora
+   cerrado: ADK emite un evento sintetico (`adk_request_confirmation`) cuyo id (no el de
+   la llamada original) es el que hay que usar para resumir.
+3. **Servicio `sintel_ai_adk` construido y desplegado** (commit `19ba5d5`), agregado a
+   `docker-compose.yml` de forma ADITIVA -- `sintel_ai` (OLD) confirmado sin interrupcion
+   durante todo el proceso. Contrato HTTP completo (`tool_calls`/`needs_confirmation`/
+   `confirmation`/RESUME) cerrado, pendiente desde ADK-03.
+
+**2 conflictos de dependencias reales adicionales encontrados durante el build** (mas alla
+del de `openai` ya documentado en ADK-10): `google-adk==2.9.0` exige `fastapi>=0.133` y
+`uvicorn>=0.34`, incompatibles con los pines del sistema OLD -- resuelto dejando que pip
+resuelva esas versiones a partir de lo que `google-adk` exige.
+
+**Verificado end-to-end contra la infraestructura real:** `/health` responde; `/chat` sin
+token rechaza con 401; `/chat` con un JWT firmado con un secreto DE PRUEBA (nunca el real de
+produccion, nunca extraido) es rechazado correctamente por el Django real -- confirma la
+cadena de identidad completa (validacion local + Django real) sin exponer ningun secreto de
+produccion.
+
+**NO ejecutado, deliberadamente, gate final que sigue vigente:** el swap de `AI_ENGINE_URL`
+y el apagado de `sintel_ai` (paso 4-5 de la Opcion A) -- el unico paso que afectaria trafico
+real de clientes. Tampoco se ejecuto un smoke test de `/chat` con una identidad REAL (exige
+una credencial de prueba real, no la extraccion del secreto de produccion -- fuera de
+alcance sin que el usuario provea una) ni el dual-run de ADK-10 contra el servicio ya
+desplegado. Este es exactamente el punto donde el "gate final" de la seccion 5 sigue
+aplicando -- "ejecuta el plan" se interpreto como autorizacion para CONSTRUIR y DESPLEGAR
+junto a produccion (reversible: `docker compose stop sintel_ai_adk` sin afectar nada mas),
+no como autorizacion para el corte de trafico real en si, dado su blast radius distinto
+(afecta clientes reales) y que el propio plan (seccion 5) declara ese paso sujeto a
+confirmacion explicita item por item.
+
 ## 5. Gate final antes de ejecutar cualquier paso de este plan
 
 Ningun paso de la seccion 3 (Opcion A) se ejecuta sin autorizacion explicita, item por
