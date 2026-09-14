@@ -7,6 +7,7 @@ y que el endpoint /detail/ retorna la información esperada.
 
 from decimal import Decimal
 from django.contrib.auth import get_user_model
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 from rest_framework.test import APITestCase
 from rest_framework import status
@@ -23,9 +24,19 @@ from renting.services.presenters import (
 
 User = get_user_model()
 
+# PNG 1x1 valido (necesario porque ImageField valida contenido real con Pillow).
+_PNG_BYTES = bytes.fromhex(
+    '89504e470d0a1a0a0000000d4948445200000001000000010802000000'
+    '907753de0000000c4944415478da6360000002000155a5ee0e000000004'
+    '9454e44ae426082'
+)
+
 
 class EquipmentPricingPresenterTestCase(TestCase):
     def setUp(self):
+        self.user = User.objects.create_user(
+            email='test@example.com', password='testpass123',
+        )
         self.category = RentingCategory.objects.create(
             name='Test Category', slug='test-category',
         )
@@ -33,6 +44,7 @@ class EquipmentPricingPresenterTestCase(TestCase):
             category=self.category,
             name='Test Equipment',
             slug='test-equipment',
+            vendor=self.user,
         )
         self.variant = EquipmentVariant.objects.create(
             equipment=self.equipment,
@@ -99,19 +111,23 @@ class EquipmentPublicDetailPresenterTestCase(TestCase):
             slug='premium-equipment',
             description='A premium test equipment',
             is_active=True,
+            vendor=self.user,
         )
         self.variant = EquipmentVariant.objects.create(
             equipment=self.equipment,
             sku='PREM-001',
             rental_price_per_day=Decimal('150000.00'),
-            stock=5,
+            stock=10,
         )
         EquipmentImage.objects.create(
             equipment=self.equipment,
-            image_url='https://example.com/image1.jpg',
+            image=SimpleUploadedFile(
+                'image1.png', _PNG_BYTES, content_type='image/png',
+            ),
             alt_text='Main image',
             image_type='PRINCIPAL',
-            order=1,
+            is_primary=True,
+            position=1,
         )
 
     def test_detail_presenter_returns_complete_dto(self):
@@ -137,7 +153,7 @@ class EquipmentPublicDetailPresenterTestCase(TestCase):
 
         assert dto.availability is not None
         assert dto.availability.status == 'available'
-        assert dto.availability.available_now == 5
+        assert dto.availability.available_now == 10
 
     def test_detail_presenter_pricing(self):
         presenter = EquipmentPublicDetailPresenter(self.equipment, user=self.user)
@@ -186,7 +202,7 @@ class EquipmentPublicDetailPresenterTestCase(TestCase):
             equipment=self.equipment,
             title='Operator',
             description='Professional operator',
-            price_per_hour=Decimal('25000.00'),
+            price=Decimal('25000.00'),
             is_active=True,
         )
 
@@ -224,14 +240,15 @@ class EquipmentPublicDetailPresenterTestCase(TestCase):
             user=self.user,
             rating=5,
             comment='Excellent equipment!',
-            is_active=True,
+        )
+        second_user = User.objects.create_user(
+            email='second@example.com', password='testpass123',
         )
         EquipmentReview.objects.create(
             equipment=self.equipment,
-            user=self.user,
+            user=second_user,
             rating=4,
             comment='Good quality',
-            is_active=True,
         )
 
         presenter = EquipmentPublicDetailPresenter(self.equipment, user=self.user)
@@ -255,6 +272,7 @@ class EquipmentDetailEndpointTestCase(APITestCase):
             name='API Test Equipment',
             slug='api-test-equipment',
             is_active=True,
+            vendor=self.user,
         )
         self.variant = EquipmentVariant.objects.create(
             equipment=self.equipment,
@@ -264,20 +282,23 @@ class EquipmentDetailEndpointTestCase(APITestCase):
         )
         EquipmentImage.objects.create(
             equipment=self.equipment,
-            image_url='https://example.com/api-test.jpg',
+            image=SimpleUploadedFile(
+                'api-test.png', _PNG_BYTES, content_type='image/png',
+            ),
             alt_text='API test image',
             image_type='PRINCIPAL',
-            order=1,
+            is_primary=True,
+            position=1,
         )
 
     def test_detail_endpoint_returns_200(self):
-        url = f'/renting/equipment/{self.equipment.uuid}/detail/'
+        url = f'/api/v1/renting/equipment/{self.equipment.uuid}/detail/'
         response = self.client.get(url)
 
         assert response.status_code == status.HTTP_200_OK
 
     def test_detail_endpoint_response_structure(self):
-        url = f'/renting/equipment/{self.equipment.uuid}/detail/'
+        url = f'/api/v1/renting/equipment/{self.equipment.uuid}/detail/'
         response = self.client.get(url)
 
         data = response.json()
@@ -298,7 +319,7 @@ class EquipmentDetailEndpointTestCase(APITestCase):
         assert 'seo' in data
 
     def test_detail_endpoint_hero_data(self):
-        url = f'/renting/equipment/{self.equipment.uuid}/detail/'
+        url = f'/api/v1/renting/equipment/{self.equipment.uuid}/detail/'
         response = self.client.get(url)
 
         data = response.json()
@@ -309,7 +330,7 @@ class EquipmentDetailEndpointTestCase(APITestCase):
         assert hero['hero_image'] is not None
 
     def test_detail_endpoint_pricing_data(self):
-        url = f'/renting/equipment/{self.equipment.uuid}/detail/'
+        url = f'/api/v1/renting/equipment/{self.equipment.uuid}/detail/'
         response = self.client.get(url)
 
         data = response.json()
@@ -321,7 +342,7 @@ class EquipmentDetailEndpointTestCase(APITestCase):
 
     def test_detail_endpoint_with_authenticated_user(self):
         self.client.force_authenticate(user=self.user)
-        url = f'/renting/equipment/{self.equipment.uuid}/detail/'
+        url = f'/api/v1/renting/equipment/{self.equipment.uuid}/detail/'
         response = self.client.get(url)
 
         assert response.status_code == status.HTTP_200_OK
@@ -329,19 +350,19 @@ class EquipmentDetailEndpointTestCase(APITestCase):
         assert data['uuid'] == str(self.equipment.uuid)
 
     def test_detail_endpoint_404_on_nonexistent_equipment(self):
-        url = f'/renting/equipment/00000000-0000-0000-0000-000000000000/detail/'
+        url = '/api/v1/renting/equipment/00000000-0000-0000-0000-000000000000/detail/'
         response = self.client.get(url)
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_detail_endpoint_no_breaking_changes_to_list_endpoint(self):
-        url = f'/renting/equipment/'
+        url = '/api/v1/renting/equipment/'
         response = self.client.get(url)
 
         assert response.status_code == status.HTTP_200_OK
 
     def test_detail_endpoint_no_breaking_changes_to_retrieve_endpoint(self):
-        url = f'/renting/equipment/{self.equipment.uuid}/'
+        url = f'/api/v1/renting/equipment/{self.equipment.uuid}/'
         response = self.client.get(url)
 
         assert response.status_code == status.HTTP_200_OK

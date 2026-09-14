@@ -207,6 +207,23 @@ class EquipmentBlockSelector:
         return qs
 
     @staticmethod
+    def list_all(active_only: bool = False) -> QuerySet:
+        """Todos los bloqueos, sin filtrar por variante/equipo (ARCH-M1).
+
+        Fallback de EquipmentBlockViewSet.get_queryset() cuando no llega ni
+        ?variant ni ?equipment. Admin-only, por eso no filtra por dueno.
+        """
+        qs = (
+            EquipmentBlock.objects
+            .filter(is_deleted=False)
+            .select_related('equipment_variant__equipment', 'created_by', 'released_by')
+            .order_by('-created_at')
+        )
+        if active_only:
+            qs = qs.filter(status=EquipmentBlock.STATUS_ACTIVE)
+        return qs
+
+    @staticmethod
     def get_by_uuid(uuid: str) -> EquipmentBlock:
         return get_object_or_404(EquipmentBlock, uuid=uuid, is_deleted=False)
 

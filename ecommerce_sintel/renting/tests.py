@@ -103,10 +103,50 @@ class RentalOperationLifecycleTestCase(TestCase):
         )
         self.assertEqual(operation.priority, RentalRequest.PRIORITY_LOW)
 
-    def test_cannot_assign_before_scheduling(self):
-        with self.assertRaisesMessage(ValueError, 'programada'):
+    def test_can_pre_assign_dispatcher_before_scheduling(self):
+        """Cross-domain audit FASE B (2026-08-14): assign_dispatcher() ya no
+        exige programacion previa (mismo patron que
+        ServiceOperationCommands.assign_technician(), FASE 2 de la migracion
+        de autoridad de tecnico). Sin fecha, el transportista queda
+        'pre-asignado' (status no avanza) hasta que schedule() completa la
+        asignacion."""
+        operation = RentalOperationCommands.assign_dispatcher(
+            self.operation, dispatcher=self.dispatcher, actor=self.admin,
+        )
+        self.assertEqual(operation.status, RentalOperation.READY_FOR_SCHEDULING)
+        self.assertEqual(operation.assigned_dispatcher_id, self.dispatcher.id)
+        self.dispatcher.refresh_from_db()
+        self.assertFalse(self.dispatcher.is_available)
+
+        operation = RentalOperationCommands.schedule(
+            operation,
+            delivery_date=self.request.start_date, delivery_time=time(8, 0),
+            pickup_date=self.request.end_date, pickup_time=time(16, 0),
+            actor=self.admin,
+        )
+        self.assertEqual(operation.status, RentalOperation.TRANSPORT_ASSIGNED)
+        self.assertEqual(operation.assigned_dispatcher_id, self.dispatcher.id)
+
+    def test_cannot_assign_dispatcher_invalid_operation_status(self):
+        operation = RentalOperationCommands.schedule(
+            self.operation,
+            delivery_date=self.request.start_date, delivery_time=time(8, 0),
+            pickup_date=self.request.end_date, pickup_time=time(16, 0),
+            actor=self.admin,
+        )
+        operation = RentalOperationCommands.assign_dispatcher(
+            operation, dispatcher=self.dispatcher, actor=self.admin,
+        )
+        for target in (
+            RentalOperation.READY_FOR_DELIVERY, RentalOperation.DELIVERED,
+            RentalOperation.IN_OPERATION, RentalOperation.READY_FOR_PICKUP,
+            RentalOperation.PICKED_UP, RentalOperation.RETURN_INSPECTION,
+            RentalOperation.COMPLETED,
+        ):
+            operation = RentalOperationCommands.transition(operation, target, self.admin)
+        with self.assertRaisesMessage(ValueError, 'programacion'):
             RentalOperationCommands.assign_dispatcher(
-                self.operation, dispatcher=self.dispatcher, actor=self.admin,
+                operation, dispatcher=self.dispatcher, actor=self.admin,
             )
 
     def test_cannot_skip_transition(self):

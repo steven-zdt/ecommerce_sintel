@@ -727,11 +727,7 @@ class EquipmentBlockViewSet(
         elif equipment_uuid:
             qs = EquipmentBlockSelector.list_for_equipment(equipment_uuid)
         else:
-            qs = (
-                EquipmentBlock.objects.filter(is_deleted=False)
-                .select_related('equipment_variant__equipment', 'created_by', 'released_by')
-                .order_by('-created_at')
-            )
+            qs = EquipmentBlockSelector.list_all()
 
         status_param = self.request.query_params.get('status')
         if status_param:

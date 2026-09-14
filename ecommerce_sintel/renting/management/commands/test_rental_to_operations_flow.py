@@ -290,7 +290,10 @@ class Command(BaseCommand):
     def _cleanup_all_test_data(self):
         from operations.models import OperationTicket, TrackingEvent, OperationDocument, OperationAssignment
         from renting.models import RentalRequest, RentalPeriod
-        rrs = RentalRequest.objects.filter(contact_doc_number='000000001')
+        # contact_doc_number vive en RentalRequestContact desde la migracion 0036
+        # (auditoria DB-H1) -- ya no es una columna de RentalRequest, hay que
+        # filtrar via la relacion.
+        rrs = RentalRequest.objects.filter(contact_info__contact_doc_number='000000001')
         count = 0
         for rr in rrs:
             try:

@@ -41,21 +41,42 @@ fisico total; la disponibilidad real = `stock - unidades ocupadas en periodos ac
 
 ## Estructura de Directorios
 
+> **[CORREGIDO 2026-08-05, auditoria transversal]** este arbol tenia un bloque `api/` duplicado
+> (dos veces, con contenido distinto) y `models.py` listado como archivo unico -- en realidad es
+> un paquete de 11 archivos / 1807 lineas (`renting/models/__init__.py` + `common.py`/
+> `equipment.py`/`catalog.py`/`logistics.py`/`commercial.py`/`marketing.py`/`requests.py`/
+> `availability.py`/`inspections.py`/`operations.py`/`pricing.py`). Tambien faltaban
+> `services/dtos.py` (394 lineas) y `services/presenters.py` (585 lineas) -- ambos alimentan el
+> endpoint `/equipment/{uuid}/detail/` agregado 2026-07-29 (linea 750 de este documento, ya
+> mencionado ahi pero nunca en este arbol) -- y `api/internal_ai.py` (229 lineas) +
+> `api/operation_serializers.py` (74 lineas), que no aparecian en ningun lugar del documento.
+
 ```
 renting/
-├── models.py                  # Todos los modelos del dominio
+├── models/                    # Paquete (NO un archivo unico), 11 modulos, 1807 lineas totales:
+│   ├── common.py              #   RentingCategory, RentingBrand, RentalLabor
+│   ├── equipment.py           #   Equipment, EquipmentVariant, EquipmentImage, EquipmentReview
+│   ├── catalog.py             #   11 modelos del catalogo enriquecido (ver services/catalog.py abajo)
+│   ├── logistics.py           #   EquipmentLogisticsConfig
+│   ├── commercial.py          #   EquipmentCommercialConfig, EquipmentCommercialOption
+│   ├── marketing.py           #   EquipmentMarketing
+│   ├── requests.py            #   RentalRequest (fachada) + RentalRequestLocation/Contact/Costs/
+│   │                          #   PaymentInfo (ver nota de normalizacion mas abajo) + RentalProjectAttachment
+│   ├── availability.py        #   RentalPeriod, EquipmentBlock
+│   ├── inspections.py         #   EquipmentReturnInspection
+│   ├── operations.py          #   RentalOperation, RentalOperationEvent
+│   └── pricing.py             #   RentalCostRule, RentalCostAssignment
 ├── urls.py                    # Router raiz del modulo
-├── tasks.py                   # Celery beat: expire_abandoned_pending_payment_requests
-│
-├── api/
-│   ├── views.py               # ViewSets con logica de permisos y acciones
-│   ├── serializers.py         # Serializers de entrada/salida
-│   └── urls.py                # Router REST
+├── tasks.py                   # Celery beat: expire_abandoned_pending_payment_requests,
+│                               #   notify_rentals_expiring_soon (migracion 0029, no listada antes)
 │
 ├── api/
 │   ├── views.py               # ViewSets con logica de permisos y acciones
 │   ├── operation_views.py     # RentalOperationViewSet (ciclo operativo post-pago)
 │   ├── serializers.py         # Serializers de entrada/salida
+│   ├── operation_serializers.py  # [antes no documentado] Serializers de RentalOperationViewSet
+│   ├── internal_ai.py         # [antes no documentado, 229 lineas] API interna solo para AI Core,
+│   │                          #   mismo patron que technical_services/api/internal_ai.py
 │   └── urls.py                # Router REST
 │
 ├── services/
@@ -71,6 +92,8 @@ renting/
 │   │                          #   enriquecido (Included/Excluded/Feature/SpecificationGroup/
 │   │                          #   Specification/Requirement/ServiceIncluded/OptionalService/FAQ/
 │   │                          #   Video/Document) + EquipmentImage
+│   ├── dtos.py                # [antes no documentado, 394 lineas] DTOs para /equipment/{uuid}/detail/
+│   ├── presenters.py          # [antes no documentado, 585 lineas] Presenters para el mismo endpoint
 │   ├── availability.py        # AvailabilityEngine (is_available/find_next_available_slot/generate_schedule)
 │   ├── operations.py          # [NUEVO 2026-07-07] RentalOperationCommands/RentalOperationSelector
 │   ├── display.py             # Vocabulario de estados visibles
@@ -304,6 +327,23 @@ propios):
 ---
 
 ### RentalRequest
+
+> **[CORREGIDO 2026-08-05, auditoria transversal — LEER ANTES DEL BLOQUE DE ABAJO]** El
+> pseudo-codigo que sigue documenta `RentalRequest` como UN modelo plano con ~50 campos directos
+> (`location_address`, `contact_full_name`, `delivery_cost`, `payment_method`, etc). Esto ya no
+> es la estructura real: en migraciones `0033`-`0037` (posteriores a lo que este documento
+> describe) esos campos se normalizaron en 4 tablas hijas —
+> `RentalRequestLocation`/`RentalRequestContact`/`RentalRequestCosts`/`RentalRequestPaymentInfo`
+> (`renting/models/requests.py:647-781`) — y `RentalRequest` pasó a exponer 37 pares
+> `@property`/`setter` (`requests.py:344-589`, via helpers internos `_submodel_get`/
+> `_submodel_set`) que leen/escriben esos hijos por debajo. El nombre de cada campo (`
+> location_address`, `payment_method`, etc.) **sigue siendo válido para leer/escribir vía la
+> fachada** (`request.location_address = "..."` sigue funcionando) — por eso `services/
+> commands.py` nunca tuvo que cambiar y el pseudo-codigo de abajo sigue siendo utilizable como
+> referencia de CAMPOS, pero es incorrecto como referencia de TABLAS: son 5 tablas (RentalRequest
+> + 4 hijas), no 1. El docstring del propio modelo (`requests.py:14`) menciona "wizard de 8
+> pasos", no los "4 pasos visibles" que dice este documento más abajo — no se investigó cuál de
+> los dos es el actual en esta pasada, queda como hallazgo abierto.
 
 ```python
 class RentalRequest(SintelBaseModel):

@@ -7,6 +7,7 @@ from django.utils import timezone
 from renting.models import (
     RentalOperation, RentalOperationEvent, RentalPeriod, RentalRequest,
 )
+from operations.services.fsm import transition_operation
 
 UPCOMING_RETURN_WINDOW_DAYS = 3
 
@@ -56,6 +57,21 @@ class RentalOperationCommands:
         return operation
 
     @staticmethod
+    def _set_dispatcher_availability(dispatcher, is_available):
+        """Mantiene DispatcherProfile.is_available sincronizada con la
+        asignacion real via RentalOperation. Cross-domain audit FASE B
+        (2026-08-14, ver CROSS_DOMAIN_ASSIGNMENT_AUDIT_FINAL.md): antes
+        assign_dispatcher() nunca tocaba esta bandera, permitiendo doble-
+        reserva de un despachador; se cierra al consolidar aqui el unico
+        escritor real (mismo patron que
+        ServiceOperationCommands._set_technician_availability())."""
+        if dispatcher is None:
+            return
+        if dispatcher.is_available != is_available:
+            dispatcher.is_available = is_available
+            dispatcher.save(update_fields=['is_available', 'updated_at'])
+
+    @staticmethod
     @transaction.atomic
     def schedule(operation, *, delivery_date, delivery_time, pickup_date,
                  pickup_time, estimated_duration_minutes=None, route='', notes='',
@@ -67,6 +83,15 @@ class RentalOperationCommands:
             raise ValueError('Solo se puede programar una operacion pendiente o programada.')
         if pickup_date < delivery_date:
             raise ValueError('La fecha de recogida no puede ser anterior a la entrega.')
+        # Cross-domain audit FASE B (2026-08-14): si ya habia un despachador
+        # pre-asignado (asignado antes de conocer fecha, ver assign_dispatcher()
+        # abajo), completar esa asignacion ahora que hay fecha, delegando en
+        # assign_dispatcher() en vez de duplicar su logica aqui.
+        pending_dispatcher = (
+            operation.assigned_dispatcher
+            if not (operation.delivery_date and operation.delivery_time) else None
+        )
+        pending_vehicle = operation.assigned_vehicle
         operation.delivery_date = delivery_date
         operation.delivery_time = delivery_time
         operation.pickup_date = pickup_date
@@ -82,64 +107,86 @@ class RentalOperationCommands:
             operation=operation, event_type='SCHEDULED', actor=actor,
             description='Entrega y recogida programadas.',
         )
+        if pending_dispatcher:
+            return RentalOperationCommands.assign_dispatcher(
+                operation, dispatcher=pending_dispatcher, vehicle=pending_vehicle, actor=actor,
+            )
         return operation
 
     @staticmethod
     @transaction.atomic
     def assign_dispatcher(operation, *, dispatcher, vehicle='', actor=None):
         operation = RentalOperation.objects.select_for_update().get(pk=operation.pk)
-        if operation.status != RentalOperation.SCHEDULED:
-            raise ValueError('Solo se puede asignar transportista a una operacion programada.')
-        if not dispatcher.is_active or not dispatcher.is_available:
+        # Cross-domain audit FASE B (2026-08-14): precondicion de fecha/hora
+        # relajada -- permite pre-asignar transportista antes de programar,
+        # mismo patron ya usado en ServiceOperationCommands.assign_technician()
+        # (FASE 2 de la migracion de autoridad de tecnico, misma sesion). Sin
+        # fecha, el transportista queda "pre-asignado" (sin avanzar de
+        # READY_FOR_SCHEDULING) hasta que schedule() completa la asignacion.
+        if operation.status not in {
+            RentalOperation.READY_FOR_SCHEDULING, RentalOperation.SCHEDULED,
+            RentalOperation.TRANSPORT_ASSIGNED,
+        }:
+            raise ValueError(
+                'Solo se puede asignar transportista a una operacion pendiente de '
+                'programacion o ya programada.'
+            )
+        same_dispatcher = operation.assigned_dispatcher_id == dispatcher.id
+        if not dispatcher.is_active or (not same_dispatcher and not dispatcher.is_available):
             raise ValueError('El transportista seleccionado no esta disponible.')
-        if not operation.delivery_date or not operation.delivery_time:
-            raise ValueError('La operacion debe programarse antes de asignar transportista.')
+
+        has_schedule = bool(operation.delivery_date and operation.delivery_time)
+        previous_dispatcher = operation.assigned_dispatcher
         operation.assigned_dispatcher = dispatcher
         operation.assigned_vehicle = vehicle or dispatcher.vehicle_plate
-        operation.status = RentalOperation.TRANSPORT_ASSIGNED
+        if has_schedule:
+            operation.status = RentalOperation.TRANSPORT_ASSIGNED
         operation.save()
+        if previous_dispatcher and previous_dispatcher.id != dispatcher.id:
+            RentalOperationCommands._set_dispatcher_availability(previous_dispatcher, True)
+        RentalOperationCommands._set_dispatcher_availability(dispatcher, False)
         RentalOperationEvent.objects.create(
             operation=operation, event_type='DISPATCHER_ASSIGNED', actor=actor,
             description=f'Transportista asignado: {dispatcher.user.get_full_name() or dispatcher.user.email}.',
         )
-        request = operation.rental_request
-        context = {
-            'request_uuid': str(request.uuid),
-            'operation_uuid': str(operation.uuid),
-            'equipment_name': request.equipment_variant.equipment.name,
-            'address': request.location_address,
-            'delivery_date': str(operation.delivery_date),
-            'delivery_time': str(operation.delivery_time),
-            'pickup_date': str(operation.pickup_date),
-            'pickup_time': str(operation.pickup_time),
-            'dispatcher_name': dispatcher.user.get_full_name() or dispatcher.user.email,
-            'vehicle': operation.assigned_vehicle,
-            'instructions': operation.notes,
-        }
-        from notifications.services.commands import NotificationCommands
-        transaction.on_commit(lambda: NotificationCommands.dispatch_notification(
-            user=dispatcher.user, template_slug='rental_dispatch_assigned',
-            context=context, ws_group=f'user_{dispatcher.user.uuid}',
-        ))
-        transaction.on_commit(lambda: NotificationCommands.dispatch_notification(
-            user=request.user, template_slug='rental_delivery_scheduled',
-            context=context, ws_group=f'user_{request.user.uuid}',
-        ))
-        RentalOperationEvent.objects.create(
-            operation=operation, event_type='NOTIFICATIONS_QUEUED', actor=actor,
-            description='Correos de programacion encolados para cliente y transportista.',
-        )
+        if has_schedule:
+            request = operation.rental_request
+            context = {
+                'request_uuid': str(request.uuid),
+                'operation_uuid': str(operation.uuid),
+                'equipment_name': request.equipment_variant.equipment.name,
+                'address': request.location_address,
+                'delivery_date': str(operation.delivery_date),
+                'delivery_time': str(operation.delivery_time),
+                'pickup_date': str(operation.pickup_date),
+                'pickup_time': str(operation.pickup_time),
+                'dispatcher_name': dispatcher.user.get_full_name() or dispatcher.user.email,
+                'vehicle': operation.assigned_vehicle,
+                'instructions': operation.notes,
+            }
+            from notifications.services.commands import NotificationCommands
+            transaction.on_commit(lambda: NotificationCommands.dispatch_notification(
+                user=dispatcher.user, template_slug='rental_dispatch_assigned',
+                context=context, ws_group=f'user_{dispatcher.user.uuid}',
+            ))
+            transaction.on_commit(lambda: NotificationCommands.dispatch_notification(
+                user=request.user, template_slug='rental_delivery_scheduled',
+                context=context, ws_group=f'user_{request.user.uuid}',
+            ))
+            RentalOperationEvent.objects.create(
+                operation=operation, event_type='NOTIFICATIONS_QUEUED', actor=actor,
+                description='Correos de programacion encolados para cliente y transportista.',
+            )
         return operation
 
     @staticmethod
     @transaction.atomic
     def transition(operation, target_status, actor=None):
-        operation = RentalOperation.objects.select_for_update().get(pk=operation.pk)
-        allowed = RentalOperationCommands.TRANSITIONS.get(operation.status, set())
-        if target_status not in allowed:
-            raise ValueError(f'Transicion invalida: {operation.status} -> {target_status}.')
-        operation.status = target_status
-        operation.save(update_fields=['status', 'updated_at'])
+        operation = transition_operation(
+            model_class=RentalOperation,
+            transitions_map=RentalOperationCommands.TRANSITIONS,
+            operation=operation, target_status=target_status,
+        )
 
         rental_request = RentalRequest.objects.select_for_update().get(
             pk=operation.rental_request_id
