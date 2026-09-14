@@ -223,6 +223,21 @@ class NotificationCommands:
         ).exists()
         if already_notified:
             return False
+
+        # Fase 9 (AUDITORIA/24_AUDITORIA_NOTIFICATIONS_SUPPORT.md, 2026-08-01): antes el
+        # marcador de dedupe (STATUS_SENT) se creaba ANTES de validar que la plantilla exista
+        # y este activa. Si la plantilla se desactivaba/borraba, el envio real fallaba dentro
+        # de dispatch_notification() (que deja su propio log FAILED aparte) pero el marcador ya
+        # habia quedado como "SENT" -- esa entidad (sala, cotizacion, etc.) nunca mas se
+        # reintentaba, ni siquiera si la plantilla se reactivaba despues.
+        if not NotificationTemplate.objects.filter(slug=template_slug, is_active=True).exists():
+            logger.warning(
+                "dispatch_notification_once: plantilla '%s' no encontrada o inactiva -- no se "
+                "crea marcador de dedupe (dedupe_key=%s), se reintentara en la proxima corrida.",
+                template_slug, dedupe_key,
+            )
+            return False
+
         NotificationLog.objects.create(
             user=user, template=None, template_slug=template_slug,
             channel='', status=NotificationLog.STATUS_SENT,

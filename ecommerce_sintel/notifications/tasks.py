@@ -5,6 +5,28 @@ from django.utils import timezone
 logger = logging.getLogger(__name__)
 
 
+def _mark_meta_webhook_event(event_id, new_status, *, error_code='', bump_retry=False):
+    """Avanza el ciclo de vida de un MetaWebhookEvent (FASE 6 integracion Meta
+    Business). No-op y a prueba de fallos: event_id es None en las llamadas
+    directas / tests de process_whatsapp_inbound_task, y la fila podria haberse
+    purgado -- nunca debe tumbar el procesamiento del mensaje."""
+    if not event_id:
+        return
+    try:
+        from django.db.models import F
+        from notifications.models import MetaWebhookEvent
+        fields = {'status': new_status}
+        if error_code:
+            fields['error_code'] = error_code[:64]
+        if new_status == MetaWebhookEvent.STATUS_PROCESSED:
+            fields['processed_at'] = timezone.now()
+        if bump_retry:
+            fields['retry_count'] = F('retry_count') + 1
+        MetaWebhookEvent.objects.filter(id=event_id).update(**fields)
+    except Exception:
+        logger.exception('[wa-inbound] no se pudo actualizar MetaWebhookEvent %s', event_id)
+
+
 @shared_task(
     bind=True,
     autoretry_for=(Exception,),
@@ -282,7 +304,7 @@ def send_sms_notification_task(
     queue='notifications',
     acks_late=True,
 )
-def process_whatsapp_inbound_task(self, wa_id: str, text: str):
+def process_whatsapp_inbound_task(self, wa_id: str, text: str, event_id: int | None = None):
     """
     Mensaje entrante de WhatsApp -> Action Graph -> respuesta por WhatsApp.
     El usuario se resuelve por los ultimos 10 digitos del telefono del
@@ -322,6 +344,7 @@ def process_whatsapp_inbound_task(self, wa_id: str, text: str):
     )
     if profile is None:
         logger.warning('[wa-inbound] numero sin usuario asociado: ...%s', digits[-4:])
+        _mark_meta_webhook_event(event_id, 'PROCESSED', error_code='no_user_for_number')
         return
 
     room = ChatCommands.get_or_create_room(profile.user)
@@ -336,9 +359,11 @@ def process_whatsapp_inbound_task(self, wa_id: str, text: str):
     room.refresh_from_db(fields=['status', 'ai_paused', 'assigned_admin'])
     if not is_ai_mode_active(room):
         logger.info('[wa-inbound] IA inactiva para room=%s (handoff activo) -- sin auto-respuesta', room.uuid)
+        _mark_meta_webhook_event(event_id, 'PROCESSED', error_code='handoff_active')
         return
     if is_ai_rate_limited(room):
         logger.warning('[wa-inbound] rate limit de IA alcanzado para room=%s -- sin auto-respuesta', room.uuid)
+        _mark_meta_webhook_event(event_id, 'PROCESSED', error_code='ai_rate_limited')
         return
 
     try:
@@ -351,11 +376,13 @@ def process_whatsapp_inbound_task(self, wa_id: str, text: str):
             '[wa-inbound] ask_ai fallo (intento %s/%s) user=%s: %s',
             self.request.retries, self.max_retries, profile.user.email, exc,
         )
+        _mark_meta_webhook_event(event_id, 'FAILED', error_code='ai_engine_error', bump_retry=True)
         raise self.retry(exc=exc)
 
     reply = (ai_response or {}).get('response') or ''
     if not reply.strip():
         logger.warning('[wa-inbound] AI sin respuesta para user=%s', profile.user.email)
+        _mark_meta_webhook_event(event_id, 'PROCESSED', error_code='ai_empty_response')
         return
 
     bot = get_ai_bot_user()
@@ -364,9 +391,11 @@ def process_whatsapp_inbound_task(self, wa_id: str, text: str):
 
     try:
         WhatsAppClient().send_text(wa_id, reply)
+        _mark_meta_webhook_event(event_id, 'PROCESSED')
     except WhatsAppApiError as exc:
         # Config/token de Meta invalido: se registra, no se reintenta en loop.
         logger.error('[wa-inbound] no se pudo responder por WhatsApp: %s', exc)
+        _mark_meta_webhook_event(event_id, 'FAILED', error_code='whatsapp_send_failed')
 
 
 def _broadcast_chat_message(room, user, text: str, sender_email: str, *, is_admin: bool, created_at=None) -> None:
@@ -509,3 +538,39 @@ def send_whatsapp_agent_reply_task(self, user_id: int, text: str):
         WhatsAppClient().send_text(f'57{phone}', text)
     except WhatsAppApiError as exc:
         logger.error('[agent-reply] no se pudo reenviar por WhatsApp a %s: %s', user.email, exc)
+
+
+# Retencion de MetaWebhookEvent (FASE 6.1 integracion Meta Business). El campo
+# `payload` guarda el evento crudo de Meta, que para los mensajes entrantes
+# incluye el texto del cliente -- misma clase de dato que ChatMessage. Politica:
+#   > 30 dias  -> se sanitiza el payload (se deja {}), la fila queda para auditoria
+#   > 180 dias -> se borra la fila completa
+# Sembrada como PeriodicTask diaria (migration 0009).
+_META_EVENT_SANITIZE_AFTER_DAYS = 30
+_META_EVENT_DELETE_AFTER_DAYS = 180
+
+
+@shared_task(
+    name='notifications.purge_meta_webhook_events',
+    queue='notifications',
+)
+def purge_meta_webhook_events_task():
+    from datetime import timedelta
+    from notifications.models import MetaWebhookEvent
+
+    now = timezone.now()
+    delete_cutoff = now - timedelta(days=_META_EVENT_DELETE_AFTER_DAYS)
+    sanitize_cutoff = now - timedelta(days=_META_EVENT_SANITIZE_AFTER_DAYS)
+
+    deleted, _ = MetaWebhookEvent.objects.filter(received_at__lt=delete_cutoff).delete()
+    sanitized = (
+        MetaWebhookEvent.objects
+        .filter(received_at__lt=sanitize_cutoff, received_at__gte=delete_cutoff)
+        .exclude(payload={})
+        .update(payload={})
+    )
+    logger.info(
+        '[meta-events-purge] %s filas borradas (>%sd), %s payloads sanitizados (>%sd)',
+        deleted, _META_EVENT_DELETE_AFTER_DAYS, sanitized, _META_EVENT_SANITIZE_AFTER_DAYS,
+    )
+    return {'deleted': deleted, 'sanitized': sanitized}

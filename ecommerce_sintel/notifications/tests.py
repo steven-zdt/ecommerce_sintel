@@ -10,6 +10,7 @@ from rest_framework import status
 
 from notifications.models import (
     NotificationTemplate, NotificationLog, UserNotificationPreference,
+    MetaWebhookEvent,
     CHANNEL_EMAIL, CHANNEL_WHATSAPP, CHANNEL_WEB_SOCKET
 )
 from notifications.services.commands import NotificationCommands
@@ -223,14 +224,17 @@ class NotificationsTestCase(TransactionTestCase):
                 variables={}
             )
 
+    # El transporte HTTP se movio a marketing/integrations/meta/client.py
+    # (MetaGraphClient, FASE 3 integracion Meta Business). Estos 3 tests ahora
+    # mockean ese seam unico (requests.request) en vez de requests.Session.post.
     @override_settings(META_ACCESS_TOKEN='valid_token', WHATSAPP_PHONE_NUMBER_ID='valid_phone_id')
-    @patch('requests.Session.post')
-    def test_whatsapp_client_send_template_auth_error(self, mock_post):
+    @patch('marketing.integrations.meta.client.requests.request')
+    def test_whatsapp_client_send_template_auth_error(self, mock_request):
         mock_response = MagicMock()
-        mock_response.ok = False
         mock_response.status_code = 401
-        mock_response.text = '{"error": "Invalid OAuth Access Token"}'
-        mock_post.return_value = mock_response
+        mock_response.text = '{"error": {"message": "Invalid OAuth Access Token", "code": 190}}'
+        mock_response.json.return_value = {"error": {"message": "Invalid OAuth Access Token", "code": 190}}
+        mock_request.return_value = mock_response
 
         client = WhatsAppClient()
         with self.assertRaises(WhatsAppAuthError):
@@ -241,13 +245,13 @@ class NotificationsTestCase(TransactionTestCase):
             )
 
     @override_settings(META_ACCESS_TOKEN='valid_token', WHATSAPP_PHONE_NUMBER_ID='valid_phone_id')
-    @patch('requests.Session.post')
-    def test_whatsapp_client_send_template_api_error(self, mock_post):
+    @patch('marketing.integrations.meta.client.requests.request')
+    def test_whatsapp_client_send_template_api_error(self, mock_request):
         mock_response = MagicMock()
-        mock_response.ok = False
         mock_response.status_code = 500
-        mock_response.text = '{"error": "Internal Server Error"}'
-        mock_post.return_value = mock_response
+        mock_response.text = '{"error": {"message": "Internal Server Error"}}'
+        mock_response.json.return_value = {"error": {"message": "Internal Server Error"}}
+        mock_request.return_value = mock_response
 
         client = WhatsAppClient()
         with self.assertRaises(WhatsAppApiError):
@@ -262,14 +266,15 @@ class NotificationsTestCase(TransactionTestCase):
                 self.fail("Raised WhatsAppAuthError instead of general WhatsAppApiError")
 
     @override_settings(META_ACCESS_TOKEN='valid_token', WHATSAPP_PHONE_NUMBER_ID='valid_phone_id')
-    @patch('requests.Session.post')
-    def test_whatsapp_client_send_template_success(self, mock_post):
+    @patch('marketing.integrations.meta.client.requests.request')
+    def test_whatsapp_client_send_template_success(self, mock_request):
         mock_response = MagicMock()
-        mock_response.ok = True
+        mock_response.status_code = 200
+        mock_response.content = b'{"messages": [{"id": "wamid.HBgLNTczMDA0NTY3ODkwFQIAERg"}]}'
         mock_response.json.return_value = {
             "messages": [{"id": "wamid.HBgLNTczMDA0NTY3ODkwFQIAERg"}]
         }
-        mock_post.return_value = mock_response
+        mock_request.return_value = mock_response
 
         client = WhatsAppClient()
         msg_id = client.send_template(
@@ -279,8 +284,8 @@ class NotificationsTestCase(TransactionTestCase):
         )
 
         self.assertEqual(msg_id, "wamid.HBgLNTczMDA0NTY3ODkwFQIAERg")
-        mock_post.assert_called_once()
-        payload = mock_post.call_args[1]['json']
+        mock_request.assert_called_once()
+        payload = mock_request.call_args[1]['json']
         self.assertEqual(payload['template']['components'][0]['parameters'][0]['text'], 'val1')
 
     # ──────────────────────────────────────────────────────────────────────────
@@ -461,6 +466,95 @@ class WhatsAppInboundWebhookDedupeTestCase(TransactionTestCase):
         mock_delay.assert_called_once()
 
 
+@override_settings(META_APP_SECRET='test-meta-app-secret')
+class MetaWebhookEventAuditTestCase(TransactionTestCase):
+    """FASE 6 integracion Meta Business: cada evento del webhook queda auditado
+    en MetaWebhookEvent, incluso los rechazados por firma y los reintentos."""
+
+    def setUp(self):
+        self.client = APIClient()
+        self.url = reverse('whatsapp-inbound-webhook')
+
+    def _sign(self, body: bytes) -> str:
+        return 'sha256=' + hmac.new(b'test-meta-app-secret', body, hashlib.sha256).hexdigest()
+
+    def _post(self, body: bytes, signed=True):
+        headers = {'HTTP_X_HUB_SIGNATURE_256': self._sign(body)} if signed else {}
+        return self.client.generic('POST', self.url, data=body, content_type='application/json', **headers)
+
+    def _text_payload(self, message_id: str) -> bytes:
+        import json
+        return json.dumps({'entry': [{'id': 'WABA123', 'changes': [{'field': 'messages', 'value': {
+            'metadata': {'phone_number_id': 'PN99'},
+            'messages': [{'id': message_id, 'type': 'text', 'from': '573001234567', 'text': {'body': 'hola'}}],
+        }}]}]}).encode('utf-8')
+
+    @patch('notifications.tasks.process_whatsapp_inbound_task.delay')
+    def test_valid_text_message_persists_received_event(self, _delay):
+        mid = f'wamid.{uuid.uuid4()}'
+        self.assertEqual(self._post(self._text_payload(mid)).status_code, status.HTTP_200_OK)
+        event = MetaWebhookEvent.objects.get(external_message_id=mid)
+        self.assertEqual(event.status, MetaWebhookEvent.STATUS_RECEIVED)
+        self.assertEqual(event.object_type, MetaWebhookEvent.OBJECT_WHATSAPP)
+        self.assertEqual(event.waba_id, 'WABA123')
+        self.assertEqual(event.phone_number_id, 'PN99')
+        self.assertTrue(event.signature_valid)
+        _delay.assert_called_once()
+        self.assertEqual(_delay.call_args[1]['event_id'], event.id)
+
+    @patch('notifications.tasks.process_whatsapp_inbound_task.delay')
+    def test_meta_retry_persists_duplicate_event_and_skips_task(self, _delay):
+        body = self._text_payload(f'wamid.{uuid.uuid4()}')
+        self._post(body)
+        self._post(body)
+        statuses = sorted(MetaWebhookEvent.objects.values_list('status', flat=True))
+        self.assertEqual(statuses, [MetaWebhookEvent.STATUS_DUPLICATE, MetaWebhookEvent.STATUS_RECEIVED])
+        self.assertEqual(_delay.call_count, 1)
+
+    def test_invalid_signature_persists_rejected_event(self):
+        resp = self._post(self._text_payload(f'wamid.{uuid.uuid4()}'), signed=False)
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+        event = MetaWebhookEvent.objects.get()
+        self.assertEqual(event.status, MetaWebhookEvent.STATUS_REJECTED)
+        self.assertFalse(event.signature_valid)
+        self.assertEqual(event.error_code, 'invalid_signature')
+
+    def test_purge_task_sanitizes_then_deletes_by_age(self):
+        from datetime import timedelta
+        from django.utils import timezone
+        from notifications.tasks import purge_meta_webhook_events_task
+
+        now = timezone.now()
+        recent = MetaWebhookEvent.objects.create(status='RECEIVED', payload={'text': 'hola'})
+        mid = MetaWebhookEvent.objects.create(status='PROCESSED', payload={'text': 'secreto'})
+        old = MetaWebhookEvent.objects.create(status='PROCESSED', payload={'text': 'viejo'})
+        # received_at es auto_now_add -> se fuerza con update() para el test.
+        MetaWebhookEvent.objects.filter(pk=mid.pk).update(received_at=now - timedelta(days=45))
+        MetaWebhookEvent.objects.filter(pk=old.pk).update(received_at=now - timedelta(days=200))
+
+        result = purge_meta_webhook_events_task()
+
+        self.assertEqual(result, {'deleted': 1, 'sanitized': 1})
+        self.assertFalse(MetaWebhookEvent.objects.filter(pk=old.pk).exists())
+        mid.refresh_from_db()
+        self.assertEqual(mid.payload, {})
+        recent.refresh_from_db()
+        self.assertEqual(recent.payload, {'text': 'hola'})
+
+    @patch('notifications.tasks.process_whatsapp_inbound_task.delay')
+    def test_status_callback_persists_statuses_event(self, _delay):
+        import json
+        body = json.dumps({'entry': [{'id': 'WABA123', 'changes': [{'field': 'messages', 'value': {
+            'metadata': {'phone_number_id': 'PN99'},
+            'statuses': [{'id': 'wamid.X', 'status': 'delivered'}],
+        }}]}]}).encode('utf-8')
+        self.assertEqual(self._post(body).status_code, status.HTTP_200_OK)
+        event = MetaWebhookEvent.objects.get(event_type='statuses')
+        self.assertEqual(event.error_code, 'delivered')
+        self.assertEqual(event.external_message_id, 'wamid.X')
+        _delay.assert_not_called()
+
+
 class WhatsAppInboundVisibilityTestCase(TransactionTestCase):
     """
     M2 (AUDITORIA/19_AUDITORIA_COMMUNICATION_CENTER_CANALES.md, 2026-08-01): antes
@@ -512,6 +606,26 @@ class WhatsAppInboundVisibilityTestCase(TransactionTestCase):
         self.assertEqual(len(messages), 1)
         self.assertEqual(messages[0].message, 'hola de nuevo')
         mock_send_text.assert_not_called()
+
+    @patch('notifications.clients.whatsapp.WhatsAppClient.send_text')
+    @patch('support.services.ai_bridge.ask_ai')
+    def test_event_id_lifecycle_is_marked_processed(self, mock_ask_ai, mock_send_text):
+        mock_ask_ai.return_value = {'response': 'listo', 'metrics': {}}
+        event = MetaWebhookEvent.objects.create(
+            object_type=MetaWebhookEvent.OBJECT_WHATSAPP,
+            external_message_id='wamid.LC1',
+            status=MetaWebhookEvent.STATUS_RECEIVED,
+            signature_valid=True,
+        )
+        process_whatsapp_inbound_task(wa_id='573001234567', text='hola', event_id=event.id)
+        event.refresh_from_db()
+        self.assertEqual(event.status, MetaWebhookEvent.STATUS_PROCESSED)
+        self.assertIsNotNone(event.processed_at)
+
+    def test_event_id_none_is_a_safe_noop(self):
+        # Las llamadas directas / de otros tests no pasan event_id -- no debe romper.
+        with patch('support.services.ai_bridge.ask_ai', return_value=None):
+            process_whatsapp_inbound_task(wa_id='573001234567', text='sin evento')
 
 
 @override_settings(AI_SUPPORT_CHAT_ENABLED=True)

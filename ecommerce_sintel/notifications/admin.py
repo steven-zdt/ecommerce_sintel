@@ -1,5 +1,10 @@
 from django.contrib import admin
-from notifications.models import NotificationTemplate, UserNotificationPreference, NotificationLog
+from notifications.models import (
+    NotificationTemplate,
+    UserNotificationPreference,
+    NotificationLog,
+    MetaWebhookEvent,
+)
 
 
 @admin.register(NotificationTemplate)
@@ -39,3 +44,26 @@ class NotificationLogAdmin(admin.ModelAdmin):
         'sent_at', 'payload_context', 'error_message', 'created_at',
     )
     ordering = ('-created_at',)
+
+
+@admin.register(MetaWebhookEvent)
+class MetaWebhookEventAdmin(admin.ModelAdmin):
+    """Solo lectura -- lo escribe el webhook (notifications/api/whatsapp_webhook.py)
+    y la tarea process_whatsapp_inbound_task. FASE 6 integracion Meta Business."""
+    list_display = (
+        'received_at', 'object_type', 'event_type', 'status',
+        'signature_valid', 'phone_number_id', 'external_message_id', 'error_code',
+    )
+    list_filter = ('object_type', 'status', 'signature_valid', 'event_type')
+    search_fields = ('external_message_id', 'payload_hash', 'waba_id', 'phone_number_id')
+    date_hierarchy = 'received_at'
+    ordering = ('-received_at',)
+    readonly_fields = (
+        'uuid', 'object_type', 'event_type', 'business_id', 'waba_id',
+        'phone_number_id', 'external_message_id', 'payload_hash', 'signature_valid',
+        'status', 'received_at', 'processed_at', 'retry_count', 'error_code',
+        'payload', 'created_at', 'updated_at',
+    )
+
+    def has_add_permission(self, request):
+        return False

@@ -1,5 +1,6 @@
 from django.db import models
 from django.conf import settings
+from django.contrib.postgres.indexes import GinIndex
 from ecommerce.base_models import SintelBaseModel
 
 CHANNEL_EMAIL      = 'EMAIL'
@@ -129,7 +130,97 @@ class NotificationLog(SintelBaseModel):
         indexes             = [
             models.Index(fields=['user', 'status']),
             models.Index(fields=['template', 'channel', 'status']),
+            # Repaso de backlog (AUDITORIA/24_AUDITORIA_NOTIFICATIONS_SUPPORT.md, 2026-08-03):
+            # dispatch_notification_once() filtra por template_slug + payload_context__dedupe_key
+            # en cada corrida de los 4 scanners proactivos -- sin indice, scan JSON no indexado
+            # sobre una tabla que solo crece (11+ apps escriben aqui).
+            models.Index(fields=['template_slug']),
+            GinIndex(fields=['payload_context']),
         ]
 
     def __str__(self):
         return f"{self.template} | {self.channel} | {self.status}"
+
+
+class MetaWebhookEvent(SintelBaseModel):
+    """
+    Auditoria de cada evento entrante de Meta (WhatsApp Cloud API hoy; Page /
+    Instagram / Leads en fases posteriores). FASE 6 del plan de integracion Meta
+    Business (Documentacion/Arquitectura_general/META_BUSINESS_INTEGRATION_MASTER_PLAN.md).
+
+    Se persiste una fila por evento ANTES de encolar cualquier procesamiento,
+    incluso los rechazados por firma invalida -- asi el ciclo de vida
+    (recibido -> procesado / duplicado / fallido / rechazado) es reconstruible
+    desde BD y no solo desde logs. El endpoint sigue respondiendo 200 rapido:
+    esto es un INSERT plano, la IA nunca corre dentro del request.
+
+    NOTA de retencion: `payload` guarda el evento crudo de Meta, que puede
+    incluir el texto del mensaje del cliente. Aplicar la misma politica de
+    retencion/purga que a NotificationLog / ChatMessage (pendiente de tarea
+    Celery de limpieza -- ver master plan FASE 6).
+    """
+    OBJECT_WHATSAPP  = 'whatsapp_business_account'
+    OBJECT_PAGE      = 'page'
+    OBJECT_INSTAGRAM = 'instagram'
+    OBJECT_UNKNOWN   = 'unknown'
+    OBJECT_CHOICES = [
+        (OBJECT_WHATSAPP,  'WhatsApp Business Account'),
+        (OBJECT_PAGE,      'Facebook Page'),
+        (OBJECT_INSTAGRAM, 'Instagram'),
+        (OBJECT_UNKNOWN,   'Desconocido'),
+    ]
+
+    STATUS_RECEIVED   = 'RECEIVED'
+    STATUS_PROCESSING = 'PROCESSING'
+    STATUS_PROCESSED  = 'PROCESSED'
+    STATUS_FAILED     = 'FAILED'
+    STATUS_DUPLICATE  = 'DUPLICATE'
+    STATUS_REJECTED   = 'REJECTED'
+    STATUS_CHOICES = [
+        (STATUS_RECEIVED,   'Recibido'),
+        (STATUS_PROCESSING, 'En proceso'),
+        (STATUS_PROCESSED,  'Procesado'),
+        (STATUS_FAILED,     'Fallido'),
+        (STATUS_DUPLICATE,  'Duplicado (reintento de Meta)'),
+        (STATUS_REJECTED,   'Rechazado (firma invalida)'),
+    ]
+
+    object_type         = models.CharField(
+        max_length=32, choices=OBJECT_CHOICES, default=OBJECT_UNKNOWN, db_index=True,
+    )
+    event_type          = models.CharField(
+        max_length=64, blank=True, default='',
+        help_text="'messages', 'message_status', 'statuses', ...",
+    )
+    business_id         = models.CharField(max_length=64, blank=True, default='')
+    waba_id             = models.CharField(max_length=64, blank=True, default='')
+    phone_number_id     = models.CharField(max_length=64, blank=True, default='')
+    external_message_id = models.CharField(
+        max_length=255, blank=True, default='', db_index=True,
+        help_text='ID del mensaje asignado por Meta (wamid...), cuando aplica.',
+    )
+    payload_hash        = models.CharField(
+        max_length=64, blank=True, default='', db_index=True,
+        help_text='SHA-256 del cuerpo crudo del webhook. Dedupe + deteccion de manipulacion.',
+    )
+    signature_valid     = models.BooleanField(default=False)
+    status              = models.CharField(
+        max_length=12, choices=STATUS_CHOICES, default=STATUS_RECEIVED, db_index=True,
+    )
+    received_at         = models.DateTimeField(auto_now_add=True, db_index=True)
+    processed_at        = models.DateTimeField(null=True, blank=True)
+    retry_count         = models.PositiveSmallIntegerField(default=0)
+    error_code          = models.CharField(max_length=64, blank=True, default='')
+    payload             = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        verbose_name        = 'Evento de webhook Meta'
+        verbose_name_plural  = 'Eventos de webhook Meta'
+        ordering             = ['-received_at']
+        indexes              = [
+            models.Index(fields=['object_type', 'status'], name='notificatio_object__922ad6_idx'),
+            models.Index(fields=['status', 'received_at'], name='notificatio_status_7e1180_idx'),
+        ]
+
+    def __str__(self):
+        return f"{self.object_type} | {self.event_type or '-'} | {self.status}"
