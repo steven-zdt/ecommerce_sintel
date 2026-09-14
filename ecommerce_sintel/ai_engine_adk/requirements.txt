@@ -21,6 +21,12 @@ python-multipart>=0.0.12
 httpx>=0.28.0
 python-decouple>=3.8,<4.0
 PyJWT>=2.9.0,<3.0.0
+# Bug real encontrado en el smoke test del cutover (2026-09-14, primer
+# /chat real contra LM Studio): cost_control.py (reusado tal cual de
+# ai_engine/, ver Dockerfile) importa redis.asyncio -- olvidado en este
+# requirements.txt, causaba un 500 controlado ("motor no disponible") en
+# CUALQUIER turno real. Misma version que ai_engine/requirements.txt.
+redis>=5.0.0,<7.0.0
 
 # Backend de sesion de google-adk (InMemorySessionService por ahora --
 # eleccion de backend persistente real, pendiente, ver

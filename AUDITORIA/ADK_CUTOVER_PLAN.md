@@ -274,6 +274,45 @@ atencion al cliente en produccion -- requisito duro del usuario (seccion 0) cump
 fase separada, con su propio checklist ("cero consumidores verificados, tests, rollback",
 seccion 12 del plan original) -- no se borro nada del sistema OLD, solo se detuvo.
 
+## 4quater. Primer mensaje REAL de produccion, contra LM Studio real (2026-09-14, pedido explicito del usuario: "e iniciado LM Studio y manda un mensaje real de prueba")
+
+**El riesgo critico que quedaba abierto tras el swap (JSON_SCHEMA_FOR_FUNC_DECL nunca
+verificado contra LM Studio) queda CONFIRMADO RESUELTO** -- primer turno real de
+produccion, con identidad real (JWT emitido con `AccessToken.for_user()`, el MISMO
+mecanismo real que usa `ai_bridge.py::ask_ai()`, para el usuario de prueba ya existente
+`cliente.test@sintel.co`, id=4 -- nunca se extrajo `JWT_SECRET_KEY` de produccion),
+mensaje "Cual es el estado de mi pedido?", contra el servicio YA desplegado en produccion
+(`sintel_ai_adk`, no un ambiente aislado):
+
+- `intent=order_status`, `agent=OrderAgent` -- router determinista correcto.
+- `tool_calls=[{'name': 'OrderStatusTool', 'args': {'limit': 5}}]` -- **el LLM SI disparo
+  una function call real contra LM Studio** (el hallazgo que quedaba pendiente).
+- `tool_results` con los 5 pedidos REALES del usuario de prueba (uuids/montos/estados
+  reales de la base de datos, verificados contra `Order.objects.filter(user=u)`).
+- Respuesta final grounded en los datos reales (uuids/montos/estados citados
+  correctamente, ningun dato inventado).
+
+**Bug real encontrado y corregido en el mismo ciclo:** el primer intento fallo con 200 +
+degradacion controlada (`engine_unavailable`) -- `cost_control.py` (reusado de `ai_engine/`
+en el Dockerfile) importa `redis.asyncio`, pero `redis` nunca se agrego a
+`ai_engine_adk/requirements.txt`. Cualquier turno real habria fallado con esto hasta
+corregirlo -- no se detecto en las pruebas de `adk_poc/` porque ahi `redis` ya estaba
+instalado por otras razones (ADK-10). Fix: `redis>=5.0.0,<7.0.0` agregado (misma version
+que `ai_engine/requirements.txt`), imagen reconstruida y redesplegada
+(`docker compose build sintel_ai_adk && docker compose up -d sintel_ai_adk`), reintentado
+con exito.
+
+**Hallazgo NO bloqueante, pendiente de pulido (no de este cutover, seguimiento futuro):**
+la respuesta final incluye el razonamiento interno del modelo (`qwen/qwen3.5-9b` via LM
+Studio) mezclado antes de la respuesta real ("El usuario quiere saber el estado de su
+pedido. Para responder a esta consulta, necesito usar la herramienta...") -- un cliente
+real veria ese "pensar en voz alta" del modelo, no solo la respuesta limpia. No es un
+problema de seguridad ni de correctness (los datos citados son reales y correctos) -- es
+un problema de UX/prompt-engineering especifico de como este modelo emite su
+razonamiento, a revisar en un seguimiento (posible fix: instruccion explicita de no incluir
+razonamiento, o configuracion de LiteLlm/LM Studio para separar `reasoning_content` de
+`content` si el modelo lo soporta).
+
 ## 5. Gate final antes de ejecutar cualquier paso de este plan
 
 Ningun paso de la seccion 3 (Opcion A) se ejecuta sin autorizacion explicita, item por
