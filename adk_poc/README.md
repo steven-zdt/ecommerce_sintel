@@ -448,3 +448,38 @@ mismo flake de muestreo del modelo local ya documentado).
 - Flujo de RESUME tras confirmacion real (heredado de ADK-02).
 - Verificar `JSON_SCHEMA_FOR_FUNC_DECL=False` contra LM Studio (heredado de
   ADK-01).
+
+---
+
+# ADK-09 — Human-in-the-loop para ai_editor (completado)
+
+Diseno directamente informado por el hallazgo de ADK-07: como
+`run_autonomous_change_loop()` ya orquesta la PROPUESTA de forma segura
+(estructuralmente incapaz de promover), este adapter expone 2 Tools con
+gating distinto: `propose_code_change` (sin gate -- seguro, solo toca un
+sandbox) y `promote_code_change` (`require_confirmation=True` -- unico
+punto con acceso a `review_and_promote`, la funcion real que escribe sobre
+`WORKSPACE_ROOT`, confirmado que es literalmente `ecommerce_sintel/` el
+repo vivo).
+
+**Verificado (4/4):** gating estructural correcto; **chequeo AST** que
+confirma que `propose_code_change` no puede referenciar codigo de
+promocion por ningun camino; y, con **Ollama real**, un LLM que decide
+promover una propuesta -- ADK pausa, `review_and_promote` (mockeado) nunca
+se ejecuta sin confirmacion humana.
+
+**Limite deliberado:** ningun test corre `run_autonomous_change_loop()`
+real contra un LLM -- es una cadena larga de llamadas LLM + validacion de
+sandbox (el propio `loop.py` la describe como la primera vez que TODO su
+plan de 60 fases corre contra un LLM real). Se prueba el mecanismo de
+gating, no el contenido que produciria el loop real.
+
+64/64 tests en `adk_poc/`.
+
+## Pendiente para ADK-10+
+
+- Elegir el backend persistente real para ADK-11.
+- El resto del contrato de `ChatResponse` -- ADK-10, dual run.
+- Flujo de RESUME tras confirmacion real (heredado de ADK-02).
+- Verificar `JSON_SCHEMA_FOR_FUNC_DECL=False` contra LM Studio (heredado de
+  ADK-01).

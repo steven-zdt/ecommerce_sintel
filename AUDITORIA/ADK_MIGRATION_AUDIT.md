@@ -600,11 +600,65 @@ usado por el resto del proyecto). El mismo problema real que motivo `RedisCheckp
 ADK asume capacidades de Redis que no estan disponibles — verificar antes de elegir, no
 asumir.
 
+## 8octies. ADK-09 — Human-in-the-loop para `ai_editor` (completado)
+
+Regla dura del plan (seccion 9): "ADK debe usar require_confirmation en cualquier escritura
+real; ADK NUNCA debe llegar a `promote_to_workspace()` directamente — debe seguir detras de
+validation/risk-gate/human-approval/promotion-guard."
+
+**Diseno directamente informado por el hallazgo de ADK-07**: como `ai_editor.agent.
+run_autonomous_change_loop()` ya orquesta el pipeline completo de PROPUESTA de forma segura
+(estructuralmente incapaz de promover), este adapter NO reimplementa ese pipeline — expone
+DOS Tools con gating deliberadamente distinto:
+
+1. `propose_code_change` — envuelve `run_autonomous_change_loop()` directo, SIN
+   `require_confirmation`. Seguro de correr libremente: la regla estructural de `ai_editor.
+   agent` (ausencia de import a `generation.promotion`/`repository.promote`) garantiza que
+   nunca puede escribir sobre `WORKSPACE_ROOT` real, solo sobre un sandbox.
+2. `promote_code_change` — UNICO punto de todo este adapter con acceso a `generation.
+   promotion.review_and_promote()` (la funcion real que SI escribe sobre `WORKSPACE_ROOT`
+   real — confirmado leyendo `ai_editor/workspace.py`: es literalmente `ecommerce_sintel/`,
+   el repo Django VIVO, no un sandbox — si sus propios 4 gates internos lo permiten,
+   documentados en ADK-00). Registrada como `FunctionTool(require_confirmation=True)` —
+   mismo mecanismo ya probado funcional en ADK-02 (`RequestKycUpgradeTool`).
+
+`AgentRunResult` (el resultado real del loop) contiene objetos Python vivos
+(`sandbox_loop_result`, `context`, `plan` — no serializables para que un LLM los reenvie).
+Se guardan en `_PENDING_PROPOSALS`, un registro de proceso indexado por `proposal_id` —
+mismo patron de aislamiento que `_EPHEMERAL_TOKENS` de ADK-08 (nunca pasa por
+`Session.state`), aunque la razon de fondo es distinta (no serializable, no secreto).
+
+**Verificado (`test_sintel_ai_editor_adapter.py`, 4/4):**
+- Estructural: `propose_code_change` sin gate, `promote_code_change` con gate — confirmado
+  via el mismo atributo `_require_confirmation` ya usado en ADK-02.
+- **Chequeo AST** (mismo criterio que la regla real ya existente en `ai_editor`, "verificada
+  por AST" para el boundary de `graph_client"): confirma ESTRUCTURALMENTE, parseando el
+  codigo fuente de `propose_code_change`, que esa funcion NUNCA referencia
+  `review_and_promote`/`promote_to_workspace`/`WORKSPACE_ROOT` por ningun camino — no solo
+  "no lo hace hoy", sino que no puede sin cambiar el codigo mismo.
+- Mecanismo del registro de propuestas, con `run_autonomous_change_loop` mockeado (ver
+  limite de alcance abajo).
+- **Con Ollama REAL**: un LLM decide promover una propuesta pendiente — ADK pausa la
+  ejecucion, `review_and_promote` (mockeado, nunca la version real que toca
+  `WORKSPACE_ROOT`) NUNCA se ejecuta sin confirmacion humana explicita.
+
+**Limite deliberado de alcance, explicito (no un vacio accidental):** ningun test de esta
+fase ejecuta `run_autonomous_change_loop()` REAL contra un LLM — el propio `loop.py` lo
+describe como "primera vez que se ejecuta contra un LLM real en TODO el desarrollo" de su
+plan de 60 fases (cadena larga de llamadas LLM + validacion de sandbox, no trivial de
+correr en un test de esta mision). Se prueba el MECANISMO de gating con
+`review_and_promote` mockeado — igual criterio que ADK-02 nunca invoco la escritura real de
+`RequestKycUpgradeTool`. Ejecutar el loop real completo, si se decide necesario, es trabajo
+propio de una fase posterior (no bloquea ADK-10/11: el mecanismo de seguridad ya esta
+probado independientemente del contenido real que produzca el loop).
+
+64/64 tests pasando en `adk_poc/`.
+
 ## 9. Estado de este documento
 
-ADK-00 + ADK-01 + ADK-02 + ADK-03 + ADK-04 + ADK-05 + ADK-06 + ADK-07 + ADK-08 completos.
-Todo el codigo sigue aislado en `adk_poc/`, sin tocar `ai_engine`/`ai_editor`/Django/Docker
-— ningun cambio de este documento modifico produccion. Usuario autorizo continuar sin pausa
-entre fases ("continua hasta terminar la instruccion anterior", 2026-09-14) — siguiente:
-ADK-09 (Human-in-the-loop para `ai_editor`, revisando el hallazgo de ADK-07 sobre
-`run_autonomous_change_loop` antes de disenar).
+ADK-00 + ADK-01 + ADK-02 + ADK-03 + ADK-04 + ADK-05 + ADK-06 + ADK-07 + ADK-08 + ADK-09
+completos. Todo el codigo sigue aislado en `adk_poc/`, sin tocar
+`ai_engine`/`ai_editor`/Django/Docker — ningun cambio de este documento modifico produccion.
+Usuario autorizo continuar sin pausa entre fases ("continua hasta terminar la instruccion
+anterior", 2026-09-14) — siguiente: ADK-10 (Dual run — comparar el runtime OLD
+`action_graph` contra el NEW ADK Workflow antes de promover cualquiera a produccion).
