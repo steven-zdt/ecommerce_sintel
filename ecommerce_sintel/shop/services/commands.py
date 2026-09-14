@@ -3,7 +3,6 @@ import logging
 
 from django.contrib.contenttypes.models import ContentType
 from django.db import transaction
-from django.utils import timezone
 from inventory.models import StockRecord
 from inventory.services.commands import InventoryCommands
 from inventory.services.dtos import StockAdjustmentDTO
@@ -145,19 +144,46 @@ class ProductReviewCommands:
     @staticmethod
     @transaction.atomic
     def create_review(user, product: Product, rating: int, comment: str) -> ProductReview:
-        """Crea una resena para un producto."""
+        """
+        Crea una resena para un producto.
+
+        [CORREGIDO 2026-08-06] Antes cualquier usuario autenticado podia resenar
+        cualquier producto, sin haberlo comprado -- unica diferencia real entre
+        los 3 dominios de resenas de catalogo, encontrada en la evaluacion de
+        Sprint 6 (PLAN_SPRINT6_EVALUACION_2026-08-05.md #1.2): Renting exige
+        `RentalRequest.STATUS_FINISHED`, Services exige `ServiceOperation.CLOSED`,
+        Shop no exigia nada. Se cierra la brecha con el mismo criterio (estado
+        terminal, no solo "pagado"): el usuario debe tener una Order con este
+        producto en status `STATUS_DELIVERED`. `is_verified_purchase` (campo que
+        existia pero nunca se seteaba en `True` en ningun lugar del codigo) ahora
+        se marca `True` siempre -- el gate de abajo lo garantiza.
+        """
+        from orders.models import Order
+
+        has_delivered_order = Order.objects.filter(
+            user=user,
+            items__variant__product=product,
+            status=Order.STATUS_DELIVERED,
+        ).exists()
+        if not has_delivered_order:
+            raise ValueError(
+                'Solo puedes resenar productos que ya hayas comprado y recibido.'
+            )
+
         return ProductReview.objects.create(
             user=user,
             product=product,
             rating=rating,
-            comment=comment
+            comment=comment,
+            is_verified_purchase=True,
         )
 
 
 class ProductCommands:
 
     PRODUCT_ALLOWED_FIELDS = {
-        'name', 'short_description', 'description', 'video_url', 'condition', 'is_active', 'is_featured',
+        'name', 'short_description', 'description', 'video_url', 'scope', 'warranty',
+        'condition', 'is_active', 'is_featured',
         'category', 'brand', 'meta_title', 'meta_description',
     }
 
@@ -172,6 +198,8 @@ class ProductCommands:
         short_description: str = None,
         description: str = "",
         video_url: str = None,
+        scope: str = "",
+        warranty: str = "",
         brand=None,
         is_active: bool = True,
         is_featured: bool = False,
@@ -193,6 +221,8 @@ class ProductCommands:
             short_description=short_description,
             description=description,
             video_url=video_url,
+            scope=scope,
+            warranty=warranty,
             is_active=is_active,
             is_featured=is_featured,
             meta_title=meta_title,
@@ -355,43 +385,6 @@ class TaxCommands:
         tax.is_active = False
         tax.is_deleted = True
         tax.save(update_fields=['is_active', 'is_deleted', 'updated_at'])
-
-
-class PricingService:
-    """
-    Servicio de calculo de precio efectivo de una variante.
-    Aplica descuento temporal solo si la fecha actual esta dentro del rango configurado.
-    """
-
-    @staticmethod
-    def calculate_variant_price(variant: ProductVariant):
-        """
-        Retorna el precio efectivo de la variante.
-
-        Logica de descuento temporal:
-          - Si no hay discounted_price: retorna price.
-          - Si hay discounted_price pero sin fechas de control: siempre aplica.
-          - Si hay discount_start_date y/o discount_end_date, aplica solo si
-            la fecha actual esta dentro del rango definido.
-        """
-        if variant.discounted_price is None:
-            return variant.price
-
-        now = timezone.now()
-        start = variant.discount_start_date
-        end = variant.discount_end_date
-
-        # Sin restriccion de fechas: descuento siempre activo
-        if start is None and end is None:
-            return variant.discounted_price
-
-        after_start = (start is None) or (now >= start)
-        before_end = (end is None) or (now <= end)
-
-        if after_start and before_end:
-            return variant.discounted_price
-
-        return variant.price
 
 
 class ProductImageCommands:

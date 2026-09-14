@@ -1,4 +1,6 @@
 from django.db import IntegrityError
+from django.http import Http404
+from django.shortcuts import get_object_or_404
 from rest_framework import viewsets, permissions, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -8,7 +10,7 @@ from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema
 
-from shop.models import Product, ProductReview, Category, Brand, Tax, ProductVariant
+from shop.models import Product, ProductReview, Category, Brand, Tax
 from shop.services import (
     ProductSelector,
     ProductVariantSelector,
@@ -16,9 +18,12 @@ from shop.services import (
     BrandSelector,
     TaxSelector,
     ProductReviewCommands,
+    ProductDocumentSelector,
+    ProductDocumentCommands,
 )
 from shop.api.serializers import (
     ProductSerializer,
+    ProductDetailSerializer,
     ProductVariantSerializer,
     CategorySerializer,
     BrandSerializer,
@@ -54,6 +59,11 @@ class ProductViewSet(viewsets.ReadOnlyModelViewSet):
     search_fields = ['name', 'slug', 'short_description', 'description']
     ordering_fields = ['created_at', 'name']
     filterset_fields = ['is_featured', 'category']
+
+    def get_serializer_class(self):
+        if self.action == 'retrieve':
+            return ProductDetailSerializer
+        return ProductSerializer
 
     def get_queryset(self):
         if getattr(self, 'swagger_fake_view', False):
@@ -101,6 +111,11 @@ class ProductViewSet(viewsets.ReadOnlyModelViewSet):
                 rating=serializer.validated_data['rating'],
                 comment=serializer.validated_data['comment']
             )
+        except ValueError as exc:
+            # [AGREGADO 2026-08-06] Gate de compra: el usuario no tiene ninguna
+            # Order de este producto en status DELIVERED. Mismo patron que
+            # renting.api.views.EquipmentViewSet.review().
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         except IntegrityError:
             # Condicion de carrera: dos envios simultaneos pasaron la validacion del
             # serializer antes de que cualquiera confirmara. La constraint unique_together
@@ -119,8 +134,30 @@ class ProductViewSet(viewsets.ReadOnlyModelViewSet):
         No rompe API existente (endpoint nuevo, aditivo).
         """
         product = self.get_object()
-        serializer = ProductSerializer(product, context={'request': request})
+        serializer = ProductDetailSerializer(product, context={'request': request})
         return Response(serializer.data)
+
+    @extend_schema(
+        description="Registra una descarga y devuelve la URL absoluta del archivo. Solo documentos publicos/activos.",
+        responses={200: dict},
+    )
+    @action(
+        detail=True,
+        methods=['post'],
+        url_path=r'documents/(?P<document_uuid>[^/.]+)/register-download',
+        permission_classes=[permissions.AllowAny],
+    )
+    def register_document_download(self, request, uuid=None, document_uuid=None):
+        """POST /shop/products/{uuid}/documents/{document_uuid}/register-download/"""
+        document = get_object_or_404(
+            ProductDocumentSelector.list_for_product(uuid, public_only=True),
+            uuid=document_uuid,
+        )
+        ProductDocumentCommands.register_download(document)
+        return Response({
+            'file': request.build_absolute_uri(document.file.url) if document.file else None,
+            'downloads': document.downloads,
+        })
 
 
 # ---------------------------------------------------------------------------
@@ -149,8 +186,8 @@ class ProductVariantViewSet(viewsets.ViewSet):
 
     def retrieve(self, request, uuid=None):
         try:
-            variant = ProductVariant.objects.get(uuid=uuid, is_deleted=False)
-        except ProductVariant.DoesNotExist:
+            variant = ProductVariantSelector.get_by_uuid(uuid)
+        except Http404:
             return Response({'detail': 'No encontrado.'}, status=status.HTTP_404_NOT_FOUND)
         return Response(ProductVariantSerializer(variant).data)
 
@@ -167,8 +204,8 @@ class ProductVariantViewSet(viewsets.ViewSet):
         Query param: quantity (int, default 1).
         """
         try:
-            variant = ProductVariant.objects.get(uuid=uuid, is_deleted=False)
-        except ProductVariant.DoesNotExist:
+            variant = ProductVariantSelector.get_by_uuid(uuid)
+        except Http404:
             return Response({'detail': 'No encontrado.'}, status=status.HTTP_404_NOT_FOUND)
 
         try:

@@ -1,7 +1,13 @@
-from django.db.models import QuerySet, Avg, Count, Sum, Value, IntegerField
+from django.db.models import Prefetch, QuerySet, Avg, Count, Sum, Value, IntegerField
 from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404
-from shop.models import Product, ProductVariant, Category, Brand, ProductReview, Tax
+from shop.models import (
+    Product, ProductVariant, Category, Brand, ProductReview, Tax,
+    ProductFeature, ProductIncludedItem, ProductExcludedItem,
+    ProductSpecificationGroup, ProductSpecification, ProductRequirement,
+    ProductServiceIncluded, ProductOptionalService, ProductFAQ,
+    ProductVideo, ProductDocument, ProductFunctioningStep,
+)
 
 # 'is_active' incluido para que el panel de admin pueda filtrar/mostrar estado sin redefinir campos.
 PRODUCT_LIST_FIELDS = ('id', 'uuid', 'name', 'slug', 'condition', 'category_id', 'brand_id', 'is_featured', 'is_active', 'meta_title', 'meta_description')
@@ -14,12 +20,35 @@ class ProductSelector:
 
     @staticmethod
     def _get_detail_queryset() -> QuerySet:
-        """QuerySet base para detalle de producto: anotaciones + prefetches completos."""
+        """QuerySet base para detalle de producto: anotaciones + prefetches completos.
+
+        Incluye el catalogo enriquecido (2026-08-03, espejo de RentingSelector.get_by_uuid)
+        via Prefetch filtrado (is_deleted=False) para que ProductDetailSerializer no dispare
+        queries N+1 adicionales al recorrer estas relaciones. is_active se filtra en el
+        serializer (el admin necesita ver filas inactivas para poder reactivarlas).
+        """
         return (
             Product.objects
             .select_related('category', 'brand')
             .annotate(avg_rating=Avg('reviews__rating'), review_count=Count('reviews'))
-            .prefetch_related('variants', 'images', 'reviews__user', 'variants__images')
+            .prefetch_related(
+                'variants', 'images', 'reviews__user', 'variants__images',
+                Prefetch('features', queryset=ProductFeature.objects.filter(is_deleted=False)),
+                Prefetch('included_items', queryset=ProductIncludedItem.objects.filter(is_deleted=False)),
+                Prefetch('excluded_items', queryset=ProductExcludedItem.objects.filter(is_deleted=False)),
+                Prefetch('specification_groups', queryset=ProductSpecificationGroup.objects.filter(is_deleted=False)),
+                Prefetch(
+                    'specification_groups__specifications',
+                    queryset=ProductSpecification.objects.filter(is_deleted=False),
+                ),
+                Prefetch('requirements', queryset=ProductRequirement.objects.filter(is_deleted=False)),
+                Prefetch('services_included', queryset=ProductServiceIncluded.objects.filter(is_deleted=False)),
+                Prefetch('optional_services', queryset=ProductOptionalService.objects.filter(is_deleted=False)),
+                Prefetch('faqs', queryset=ProductFAQ.objects.filter(is_deleted=False)),
+                Prefetch('videos', queryset=ProductVideo.objects.filter(is_deleted=False)),
+                Prefetch('documents', queryset=ProductDocument.objects.filter(is_deleted=False)),
+                Prefetch('functioning_steps', queryset=ProductFunctioningStep.objects.filter(is_deleted=False)),
+            )
         )
 
     @staticmethod

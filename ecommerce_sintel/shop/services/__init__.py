@@ -2,6 +2,21 @@ from .selectors import ProductSelector, CategorySelector, BrandSelector, TaxSele
 from .commands import ProductReviewCommands, ProductCommands, CategoryCommands, BrandCommands, TaxCommands, ProductVariantCommands
 from .pricing_service import PricingService
 from .pricing import ShopPricingCalculator, ProductCostRuleSelector, ProductCostRuleCommands
+from .catalog import (
+    ProductImageSelector, ProductImageCommands,
+    ProductIncludedItemSelector, ProductIncludedItemCommands,
+    ProductExcludedItemSelector, ProductExcludedItemCommands,
+    ProductFeatureSelector, ProductFeatureCommands,
+    ProductSpecificationGroupSelector, ProductSpecificationGroupCommands,
+    ProductSpecificationSelector, ProductSpecificationCommands,
+    ProductRequirementSelector, ProductRequirementCommands,
+    ProductServiceIncludedSelector, ProductServiceIncludedCommands,
+    ProductOptionalServiceSelector, ProductOptionalServiceCommands,
+    ProductFAQSelector, ProductFAQCommands,
+    ProductVideoSelector, ProductVideoCommands,
+    ProductDocumentSelector, ProductDocumentCommands,
+    ProductFunctioningStepSelector, ProductFunctioningStepCommands,
+)
 
 __all__ = [
     'ProductSelector',
@@ -19,4 +34,17 @@ __all__ = [
     'ShopPricingCalculator',
     'ProductCostRuleSelector',
     'ProductCostRuleCommands',
+    'ProductImageSelector', 'ProductImageCommands',
+    'ProductIncludedItemSelector', 'ProductIncludedItemCommands',
+    'ProductExcludedItemSelector', 'ProductExcludedItemCommands',
+    'ProductFeatureSelector', 'ProductFeatureCommands',
+    'ProductSpecificationGroupSelector', 'ProductSpecificationGroupCommands',
+    'ProductSpecificationSelector', 'ProductSpecificationCommands',
+    'ProductRequirementSelector', 'ProductRequirementCommands',
+    'ProductServiceIncludedSelector', 'ProductServiceIncludedCommands',
+    'ProductOptionalServiceSelector', 'ProductOptionalServiceCommands',
+    'ProductFAQSelector', 'ProductFAQCommands',
+    'ProductVideoSelector', 'ProductVideoCommands',
+    'ProductDocumentSelector', 'ProductDocumentCommands',
+    'ProductFunctioningStepSelector', 'ProductFunctioningStepCommands',
 ]

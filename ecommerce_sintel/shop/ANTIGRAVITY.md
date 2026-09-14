@@ -6,6 +6,10 @@
 ecommerce_sintel/shop/.AGENT/docs/ARQUITECTURA_COMPLETA_SHOP.md
 ```
 
+Para redactar la ficha comercial/tecnica de un producto (descripcion, componentes,
+especificaciones, documentacion asociada), ver
+`ecommerce_sintel/shop/.AGENT/docs/GUIA_FICHA_PRODUCTO.md`.
+
 ## Responsabilidad de esta app
 
 Catálogo de productos físicos. Gestión de productos, variantes (SKU), categorías,
@@ -15,13 +19,22 @@ marcas, reseñas, impuestos y cálculo de precios.
 
 | Archivo | Propósito |
 |---------|-----------|
-| `models.py` | Category, Brand, Product, ProductVariant, ProductImage, ProductReview, Tax |
+| `models.py` | Category, Brand, Product, ProductVariant, ProductImage, ProductReview, Tax, ProductCostRule, ProductCostAssignment, + catalogo enriquecido (2026-08-03, espejo de renting.Equipment): ProductFeature, ProductIncludedItem, ProductExcludedItem, ProductSpecificationGroup/ProductSpecification, ProductRequirement, ProductServiceIncluded, ProductOptionalService, ProductFAQ, ProductVideo, ProductDocument |
+| `services/catalog.py` | Selector+Commands del catalogo enriquecido (11 pares), mismo patron factorizado que `renting/services/catalog.py` |
 | `api/views.py` | ProductViewSet, CategoryViewSet (CRUD admin), BrandViewSet (ReadOnly) |
 | `api/serializers.py` | ProductSerializer (output), ProductInputSerializer (input), CategoryInputSerializer |
 | `services/commands.py` | ProductCommands, CategoryCommands, BrandCommands, TaxCommands |
 | `services/selectors.py` | ProductSelector, CategorySelector, BrandSelector, TaxSelector |
 | `services/pricing_service.py` | PricingService: calculate_final_price(), calculate_variant_price() |
 | `services/summary.py` | ShopSummaryProvider: get_summary() → stats para marketing |
+
+Endpoints admin del catalogo enriquecido: `dashboard/api/shop_catalog_views.py` (ver
+ARQUITECTURA_COMPLETA_SHOP.md §13.2 para el contrato REST completo). UI de admin en
+`ProductForm.vue` (10 tabs nuevas: Incluye, No incluye, Caracteristicas, Especificaciones,
+Requisitos, Servicios incluidos, Servicios opcionales, Documentacion, Videos, FAQ), reusando
+`CatalogListManager.vue` de renting (generalizado con prop `parent-key`) mas 3 componentes
+propios de shop (`SpecificationsManager.vue`, `DocumentsManager.vue`, `VideosManager.vue`)
+en `frontend/src/modules/shop/catalog/`. Desplegado en produccion 2026-08-03.
 
 ## Patrones obligatorios en esta app
 

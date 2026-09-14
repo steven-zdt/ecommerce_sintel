@@ -74,6 +74,15 @@ class ProductCostRuleCommands:
 
     @staticmethod
     @transaction.atomic
+    def delete_rule(rule):
+        """Soft-delete una regla y todas sus asignaciones dejan de aplicar."""
+        rule.is_active = False
+        rule.is_deleted = True
+        rule.save(update_fields=['is_active', 'is_deleted'])
+        ProductCostAssignment.objects.filter(rule=rule, is_deleted=False).update(is_deleted=True)
+
+    @staticmethod
+    @transaction.atomic
     def assign_to_variant(rule, variant):
         obj, _ = ProductCostAssignment.objects.get_or_create(
             rule=rule, variant=variant, defaults={'is_deleted': False}
