@@ -34,6 +34,7 @@ from langgraph.types import interrupt
 
 from config import CHECKPOINTER_REDIS_URL
 from cost_control import DAILY_TURN_LIMIT_PER_USER, check_and_increment_daily_turns
+from rate_limit import rate_limit_exceeded as _rate_limit_exceeded
 from redis_checkpointer import RedisCheckpointSaver
 
 import tools as tool_registry
@@ -428,46 +429,14 @@ async def node_select_and_execute_tools(state: SintelActionState, config: dict) 
 # Policy Layer (Componente 5) + confirmacion humana + audit (Fase 4)
 # ---------------------------------------------------------------------------
 
-# Rate limiter por (user_id, tool), respaldado en Redis: la Policy Layer aplica el
-# ToolMetadata.rate_limit ("N/hour/user" | "N/day/user"). La autorizacion real
-# (permission classes) la aplica Django en el endpoint interno -- aqui solo hay
-# defensa temprana, nunca la unica.
-#
-# CERRADO (auditoria E2E AI Engine, 2026-08-17): antes esto era un deque en memoria
-# del proceso (_RATE_HITS) -- se reseteaba en cada restart y, si sintel_ai algun dia
-# corre en mas de una replica, cada una contaria aparte (limite inexacto). Mismo
-# Redis y mismo patron fail-open que cost_control.py (DB 2, CHECKPOINTER_REDIS_URL) --
-# INCR es atomico en Redis, evita la condicion de carrera de un get-then-set manual.
-_RATE_WINDOWS = {"hour": 3600, "day": 86400}
-
-
-def _tool_rate_key(user_id, tool_name: str, window_name: str) -> str:
-    return f"ai:tool_rate:{user_id}:{tool_name}:{window_name}"
-
-
-async def _rate_limit_exceeded(user_id, tool_name: str, rate_limit: str) -> bool:
-    try:
-        count_raw, window_name, _scope = rate_limit.split("/")
-        limit, window = int(count_raw), _RATE_WINDOWS[window_name]
-    except (ValueError, KeyError):
-        return False
-
-    import redis.asyncio as aredis
-    key = _tool_rate_key(user_id, tool_name, window_name)
-    # Cliente nuevo por llamada, a proposito -- mismo motivo que cost_control.py:
-    # redis.asyncio ata su pool al event loop activo en el primer comando, un
-    # singleton de modulo rompe entre loops distintos (tests, o cualquier reload).
-    client = aredis.Redis.from_url(CHECKPOINTER_REDIS_URL, decode_responses=True)
-    try:
-        current = await client.incr(key)
-        if current == 1:
-            await client.expire(key, window)
-        return current > limit
-    except Exception:
-        logger.exception("[policy] Redis no disponible para rate limit de %s, fail-open", tool_name)
-        return False
-    finally:
-        await client.aclose()
+# _rate_limit_exceeded (rate limiter por (user_id, tool), respaldado en Redis,
+# aplica ToolMetadata.rate_limit "N/hour/user" | "N/day/user") vive ahora en
+# `rate_limit.py` (extraido ADK-12, 2026-09-14) para que `ai_engine_adk`
+# tambien lo use -- ver docstring de ese modulo. Importado arriba como
+# `_rate_limit_exceeded`, mismo nombre y comportamiento de siempre, cero
+# cambios para `tests/test_policy_layer.py`. La autorizacion real (permission
+# classes) la aplica Django en el endpoint interno -- esto es defensa
+# temprana, nunca la unica.
 
 
 def _pending_metadata(state: SintelActionState):

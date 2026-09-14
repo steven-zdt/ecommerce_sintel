@@ -448,6 +448,138 @@ django celery_worker celery_beat` -- deja de invocarse la IA sin tocar el resto 
 cutover (`sintel_ai_adk` puede seguir corriendo o detenerse, indistinto para el cliente
 una vez el flag esta en `False`).
 
+## 4octies. ADK-11 CERRADO -- resumen consolidado (2026-09-14)
+
+Confirmado por el usuario en vivo: "bien ya responde chat en produccion buen trabajo".
+ADK-11 (Cutover) queda **completo** en ambos entornos:
+
+| | Staging (`ecommerce_sintel`) | Produccion real (`sintel_production`) |
+|---|---|---|
+| Servicio nuevo (`*_ai_adk`) | Desplegado, verificado | Desplegado, verificado |
+| `sintel_ai`/`ecommerce_sintel_ai` (OLD) | Detenido (`stop`, no removido) | Detenido (`stop`, no removido) |
+| Fix del reasoning leak | Verificado con trafico real | Verificado con trafico real |
+| `AI_SUPPORT_CHAT_ENABLED` | N/A (dev) | **`True`** -- IA activa para clientes reales |
+| 3 bugs de red/seguridad de prod (ALLOWED_HOSTS/SSL redirect/DNS) | N/A (no aplican en staging) | Encontrados y corregidos |
+
+Turnos reales confirmados funcionando correctamente en produccion (via el Monitor en
+vivo), con razonamiento interno separado del contenido publico en cada uno, sin fugas.
+
+**Siguiente fase del plan original de 13 fases: ADK-12 (eliminacion del runtime viejo),
+seccion 4nonies a continuacion -- SOLO auditoria por ahora, sin tocar codigo, per el
+checklist propio de esa fase ("cero consumidores verificados, tests, rollback, nunca
+stub/dead code").**
+
+## 4nonies. ADK-12 -- Auditoria de consumidores reales antes de eliminar nada (EN CURSO)
+
+**Hallazgo que cambia el alcance de esta fase:** `ai_engine`/`sintel_ai` (el contenedor)
+NO puede eliminarse por completo -- `main.py` tambien monta el AI Gateway
+(`app.include_router(ai_router)`, `gateway.py`, MCP de Meta Ads, ver memoria
+`project_meta_business_integration`) -- una funcionalidad real, activa, SEPARADA del chat
+LangGraph. "Eliminar el runtime viejo" en este proyecto significa: retirar
+`action_graph.py`/`llm_factory.py`/`redis_checkpointer.py`/el endpoint `/chat` +
+`ChatRequest`/`ChatResponse` de `main.py` + las dependencias LangChain de
+`requirements.txt` -- el contenedor/servicio `sintel_ai` SIGUE existiendo (para el
+Gateway), solo pierde su capacidad de chat.
+
+Pendiente de completar (auditoria de consumidores reales, sin tocar codigo todavia):
+verificar que ningun otro modulo real importa `action_graph`/`llm_factory`/
+`redis_checkpointer` fuera de `main.py`, y que los tests reales de `ai_engine/tests/` que
+estos modulos motivan quedan igualmente retirados o adaptados (no dejados como dead code
+que ya no prueba nada real).
+
+**Consumidores reales encontrados (grep `action_graph|llm_factory|redis_checkpointer` fuera
+de `main.py`):**
+
+| Archivo | Que prueba realmente | Veredicto |
+|---|---|---|
+| `tests/test_intent_detection.py` | `detect_business_intents` (via `action_graph`) | **Retirable** -- ya extraido byte-a-byte a `routing.py` (ADK-11), reusado por `ai_engine_adk` sin este archivo. |
+| `tests/test_dynamic_llm_config.py` | parseo de `LOCAL_MODEL_CHAIN` (via `llm_factory`) | **Retirable** -- ya extraido byte-a-byte a `model_chain.py` (ADK-11). |
+| `tests/test_policy_layer.py` | `node_evaluate_policy`/`_rate_limit_exceeded` | **NO retirable sin portar antes** -- ver hallazgo critico abajo. |
+| `tests/test_security_adversarial.py` | `node_evaluate_policy`/`node_select_and_execute_tools` | **NO retirable sin portar antes** -- mismo motivo. |
+| `tests/test_tool_policy_matrix.py` | `node_evaluate_policy` contra TODAS las capabilities activas | **NO retirable sin portar antes** -- mismo motivo. |
+
+**Hallazgo critico de seguridad (2026-09-14, encontrado durante esta auditoria, ANTES de
+tocar ningun archivo):** la Policy Layer de `action_graph.py` (`node_evaluate_policy` +
+`_rate_limit_exceeded`) nunca se porto a `ai_engine_adk` durante ADK-11 -- confirmado por
+grep (`is_staff|IsAdminUser|rate_limit|permissions`) sin UN SOLO resultado en todo
+`ai_engine_adk/`. Esto significa que **el rate limiting por hora/dia
+(`ToolMetadata.rate_limit`, ej. `cancelar_alquiler` 10/hour, KYC 3/hour, cotizaciones
+5/hour, tickets de soporte 10/hour) no existia en el runtime que ya sirve clientes reales**
+(`AI_SUPPORT_CHAT_ENABLED=True` en produccion desde la seccion 4septies) -- confirmado que
+Django tampoco throttlea estos endpoints internos por su cuenta (`grep throttle` vacio en
+`renting/`, `support/`, `quotes/`, `kyc/`): la Policy Layer vieja era el UNICO rate limiter
+real. El gate de `requires_confirmation` (confirmacion humana antes de escribir) SI se
+porto correctamente (`sintel_adapter.py::adapt_sintel_tool` -> `FunctionTool(require_
+confirmation=...)`), limitando el impacto real (un abuso todavia requiere confirmar cada
+escritura), pero el limite por hora/dia estaba completamente ausente. El gate `IsAdminUser`
+tambien esta ausente, pero de menor severidad real: las tools que lo declaran
+(`core_tools.py`, `marketing_tools.py`, una de `renting_tools.py`) proxean a Django, que es
+la autoridad final de permisos en ese camino (defensa en profundidad perdida, no un hueco
+duro) -- **no se toco este gate en esta sesion, queda como riesgo abierto, ver seccion
+"Riesgos pendientes" mas abajo**.
+
+Presentado el hallazgo al usuario en vivo (rate limiting ausente en un runtime ya sirviendo
+produccion real) con 3 opciones (portar ahora / documentar y seguir con ADK-12 / apagar el
+flag mientras se porta) -- eligio explicitamente **"Portar rate limit ahora"**.
+
+**Fix ejecutado (2026-09-14), mismo patron de extraccion que `routing.py`/`model_chain.py`
+(ADK-11) -- "no duplicar":**
+- `ai_engine/rate_limit.py` (NUEVO): `_rate_limit_exceeded` extraido de `action_graph.py`
+  a un modulo puro (`redis.asyncio` + `logging`, sin LangChain), como
+  `rate_limit_exceeded(user_id, tool_name, rate_limit)`. Mismo Redis (`CHECKPOINTER_REDIS_
+  URL`, DB 2), misma clave (`ai:tool_rate:{user_id}:{tool_name}:{window}`), mismo criterio
+  fail-open si Redis no responde. Cero cambio de comportamiento.
+- `action_graph.py`: `_rate_limit_exceeded` ahora es `from rate_limit import
+  rate_limit_exceeded as _rate_limit_exceeded` -- mismo nombre, mismo comportamiento, cero
+  cambios a `tests/test_policy_layer.py`.
+- `ai_engine_adk/sintel_adapter.py::adapt_sintel_tool`: el wrapper que ADK invoca por cada
+  Tool ahora chequea `metadata.rate_limit` con `rate_limit_exceeded()` ANTES de llamar a
+  `real_func` -- si esta excedido, devuelve `{"error": "...", "status_code": 429}` (mismo
+  criterio de error sintetico que ya usa el resto del adapter/`action_graph.py` para 400/403)
+  en vez de ejecutar la escritura. Si la Tool no declara `rate_limit`, no toca Redis (mismo
+  fail-open).
+- `ai_engine_adk/Dockerfile`: agregado `COPY ai_engine/rate_limit.py .`.
+- `ai_engine_adk/pytest.ini` (NUEVO): `asyncio_mode = auto` -- no existia (el contenedor no
+  tiene el `pytest.ini` de la raiz del repo, solo lo que copia su propio Dockerfile);
+  sin esto un fixture async autouse fallaba silenciosamente (`PytestRemovedIn9Warning`,
+  Redis nunca se flusheaba entre tests). Mismo valor que `ai_engine/pytest.ini` ya usaba.
+- `ai_engine_adk/tests/test_rate_limit.py` (NUEVO, 3 tests, todos con Redis/tipos reales, no
+  mocks): RL1 bloquea al superar el limite (mismo caso que
+  `test_policy_layer.py::test_rate_limit_exceeded_bloquea_al_superar_el_limite`), RL2 formato
+  invalido nunca bloquea, RL3 `adapt_sintel_tool` bloquea ANTES de invocar la funcion real
+  (`RegisteredTool`/`ToolMetadata` reales, verifica que la funcion real nunca se llama en el
+  hit bloqueado).
+
+**Verificacion real, ambos entornos:**
+- Staging: `docker compose build sintel_ai_adk` + `up -d` (recreate limpio) ->
+  `docker exec ecommerce_sintel_ai_adk python -m pytest tests/ -v` -> **14 passed** (11 de
+  `test_reasoning_separation.py` sin regresion + 3 nuevos de `test_rate_limit.py`).
+  Regresion del runtime OLD tambien verificada: `ecommerce_sintel_ai` (detenido desde el
+  cutover) se arranco temporalmente solo para correr su suite real completa con
+  `action_graph.py`+`rate_limit.py` actualizados -> **162 passed, 16 skipped** (skips
+  preexistentes, no relacionados), **0 failures** -> vuelto a detener.
+- Produccion real: `docker compose -f docker-compose.prod.yml --env-file .env.production
+  build sintel_ai_adk` + `up -d sintel_ai_adk` -> recreate limpio, **`db` NO se recreo esta
+  vez** (a diferencia de la migracion inicial de 4sexies -- consistente con que aquel fue un
+  efecto puntual del cambio estructural del compose, no un patron persistente) ->
+  `docker exec sintel_prod_ai_adk python -m pytest tests/test_rate_limit.py -v` -> **3
+  passed** contra el Redis REAL de produccion. Vigilancia de produccion re-armada
+  (`docker logs -f sintel_prod_ai_adk`, incluye ahora `status_code.: 429` en el filtro).
+
+**Estado del veredicto de la tabla de arriba, actualizado:** con el rate limit ya portado,
+`test_policy_layer.py`/`test_security_adversarial.py`/`test_tool_policy_matrix.py` siguen
+siendo la red de regresion REAL de una proteccion que ahora existe en ambos runtimes --
+correcto mantenerlos intactos en `action_graph.py` mientras ese archivo exista, sin importar
+si el endpoint `/chat` de `main.py` se retira. `test_intent_detection.py`/`test_dynamic_
+llm_config.py` siguen siendo los unicos genuinamente retirables de esta lista.
+
+**Riesgo pendiente, NO resuelto en esta sesion (fuera del alcance que el usuario aprobo):**
+el gate `IsAdminUser` de la Policy Layer tampoco se porto a `ai_engine_adk`. Severidad
+estimada baja (Django es la autoridad final para las tools que proxean via `http_bridge.py`)
+pero no verificada exhaustivamente para las tools admin-only que NO proxean a Django. Antes
+de cerrar ADK-12, decidir si se porta igual (mismo patron que este fix) o se documenta como
+aceptado.
+
 ## 5. Gate final antes de ejecutar cualquier paso de este plan
 
 Ningun paso de la seccion 3 (Opcion A) se ejecuta sin autorizacion explicita, item por

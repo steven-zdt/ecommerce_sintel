@@ -15,6 +15,10 @@ Mapeo:
   ToolMetadata.name/description   -> nombre/descripcion de la FunctionTool ADK
   ToolMetadata.requires_confirmation -> FunctionTool(require_confirmation=...)
                                         (mapeo directo, mismo concepto en ambos lados)
+  ToolMetadata.rate_limit         -> chequeado en el wrapper via rate_limit.py
+                                        (ADK-12, mismo Redis/criterio que la
+                                        Policy Layer de action_graph.py) antes
+                                        de llamar a la funcion real.
   ToolContext(user, token) de Sintel -> `user` se reconstruye desde
                                         tool_context.state (no sensible,
                                         perfil ya resuelto por Django);
@@ -28,10 +32,15 @@ Mapeo:
                                         Workflow real.
 """
 import inspect
+import logging
 from typing import Any, Callable, Optional
 
 from google.adk.tools import FunctionTool
 from google.adk.tools.tool_context import ToolContext as AdkToolContext
+
+from rate_limit import rate_limit_exceeded
+
+logger = logging.getLogger(__name__)
 
 SINTEL_USER_STATE_KEY = "sintel_user"
 SINTEL_TOKEN_STATE_KEY = "sintel_token"
@@ -177,6 +186,20 @@ def adapt_sintel_tool(registered_tool) -> FunctionTool:
         call_kwargs = {
             k: v for k, v in kwargs.items() if k in fixed_names or v is not None
         }
+        # ADK-12, hallazgo real de la auditoria: `ToolMetadata.rate_limit` lo
+        # aplicaba SOLO la Policy Layer de `action_graph.py` (OLD) -- este
+        # runtime nunca lo porto, y ya sirve clientes reales (AI_SUPPORT_
+        # CHAT_ENABLED=True en produccion desde 2026-09-14). Mismo criterio
+        # que node_evaluate_policy: se evalua ANTES de ejecutar la funcion
+        # real, con el mismo rate_limit.py (Redis, fail-open) que ahora usa
+        # tambien `action_graph.py`. Si no hay rate_limit en la metadata,
+        # rate_limit_exceeded() devuelve False sin tocar Redis.
+        if metadata.rate_limit:
+            user_id = sintel_ctx.user.get("user_id")
+            if await rate_limit_exceeded(user_id, metadata.name, metadata.rate_limit):
+                logger.warning("[policy] rate limit %s para user=%s", metadata.name, user_id)
+                return {"error": "Limite de intentos alcanzado para esta accion, "
+                                  "intentar mas tarde.", "status_code": 429}
         # Llamada real a la funcion Sintel original -- cero logica de negocio
         # nueva en este adapter. Cualquier parametro real oculto al LLM
         # (ausente de args_schema, ej. `history`) no llega en kwargs -- usa
