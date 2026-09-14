@@ -3,11 +3,34 @@ Marketing Campaign Commands
 Orchestrates campaign dispatch across selected channels.
 Uses Celery for async execution to keep the API response fast.
 """
+import logging
+
+from django.core.cache import cache
 from django.db import transaction
 from django.utils import timezone
 from marketing.models import MarketingCampaign, CampaignLog
 from marketing.channels.registry import get_adapter
 from marketing.channels.base import CampaignMessage
+
+logger = logging.getLogger(__name__)
+
+# Fase 13 (AUDITORIA/27_AUDITORIA_MARKETING.md, 2026-08-03): el canal whatsapp de marketing usa
+# el MISMO phone_number_id/token de Meta que notifications (envio transaccional de soporte,
+# OTPs) -- ver organization.services.selectors.OrganizationSelector.get_integration_settings()
+# vs notifications/clients/whatsapp.py. Sin limite propio, una rafaga de campanas de marketing
+# podia consumir la cuota de mensajeria de esa cuenta y degradar/bloquear mensajes
+# transaccionales de soporte que comparten el mismo numero. Mismo patron atomico
+# cache.add()/cache.incr() ya usado en notifications/services/commands.py::_channel_rate_limited
+# y en support/services/commands.py::is_message_flood_limited.
+_WHATSAPP_MARKETING_RATE_LIMIT_KEY = 'marketing_whatsapp_throttle'
+_WHATSAPP_MARKETING_RATE_LIMIT_MAX = 20
+_WHATSAPP_MARKETING_RATE_LIMIT_WINDOW_SECONDS = 3600
+
+
+def _marketing_whatsapp_rate_limited() -> bool:
+    cache.add(_WHATSAPP_MARKETING_RATE_LIMIT_KEY, 0, timeout=_WHATSAPP_MARKETING_RATE_LIMIT_WINDOW_SECONDS)
+    count = cache.incr(_WHATSAPP_MARKETING_RATE_LIMIT_KEY)
+    return count > _WHATSAPP_MARKETING_RATE_LIMIT_MAX
 
 
 class MarketingCommands:
@@ -22,6 +45,13 @@ class MarketingCommands:
         from marketing.tasks import send_via_channel_task
 
         for channel in campaign.channels:
+            if channel == 'whatsapp' and _marketing_whatsapp_rate_limited():
+                logger.warning(
+                    "[MarketingCommands] whatsapp omitido por rate-limit (comparte cuota Meta "
+                    "con soporte transaccional) -- campaign=%s", campaign.uuid,
+                )
+                continue
+
             log, created = CampaignLog.objects.get_or_create(
                 campaign=campaign,
                 channel=channel,

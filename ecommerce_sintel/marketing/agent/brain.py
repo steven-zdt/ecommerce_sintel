@@ -6,10 +6,18 @@ import json
 import logging
 from django.utils import timezone
 
+# Fase 13 (AUDITORIA/27_AUDITORIA_MARKETING.md, 2026-08-03): este archivo importaba
+# `CampaignCommands` de marketing.services.commands, una clase que nunca existio ahi (el
+# nombre real siempre fue `MarketingCommands`) -- ImportError a nivel de modulo, presente desde
+# el commit inicial. El agente autonomo de marketing (run_marketing_agent_task, scheduled o
+# manual) NUNCA pudo ejecutarse una sola vez sin fallar en el import, antes de llegar a
+# cualquier logica real. Descubierto al escribir el primer test que efectivamente importa este
+# modulo (marketing/tests.py::MarketingAgentBroadcastChannelFilterTestCase).
 from marketing.agent.llm_router import LLMRouter
 from marketing.agent.prompts import MARKETING_AGENT_SYSTEM_PROMPT, ANALYSIS_PROMPT_TEMPLATE
 from marketing.services.selectors import MarketingSelector
-from marketing.services.commands import CampaignCommands
+from marketing.services.commands import MarketingCommands
+from marketing.channels.registry import BROADCAST_CHANNELS
 from marketing.models import MarketingCampaign, AgentRun
 
 logger = logging.getLogger(__name__)
@@ -74,23 +82,45 @@ class MarketingAgent:
                 return run
 
             # 4. Create and dispatch campaign
+            # Fase 13 (AUDITORIA/27_AUDITORIA_MARKETING.md, 2026-08-03): el agente autonomo
+            # solo resuelve un sentinel "broadcast", no una lista real de destinatarios --
+            # antes se pasaba ese sentinel TAMBIEN a email/whatsapp (canales que si usan
+            # `recipient` como direccion real), rompiendo el envio en silencio siempre que el
+            # LLM los elegia. Se filtran aqui a los canales realmente broadcast (pagina/cuenta,
+            # sin destinatario individual); email/whatsapp requieren una audiencia real que este
+            # flujo de un solo disparo no resuelve -- construir esa resolucion de audiencia es
+            # una feature mayor, fuera de alcance de este fix incremental.
+            requested_channels = decision.get("channels", [])
+            dispatchable_channels = [c for c in requested_channels if c in BROADCAST_CHANNELS]
+            skipped_channels = [c for c in requested_channels if c not in BROADCAST_CHANNELS]
+
             campaign = MarketingCampaign.objects.create(
                 title=_sanitize_llm_text(decision["campaign_title"]),
                 content=_sanitize_llm_text(decision["content"]),
-                channels=decision.get("channels", []),
+                channels=dispatchable_channels,
                 scheduled_at=timezone.now(),
                 target_audience={"description": decision.get("target_audience", "")},
             )
 
-            # Dispatch to all registered channels (no specific recipient needed for social/broadcast)
-            CampaignCommands.dispatch(
-                campaign=campaign,
-                recipient="broadcast",  # Broadcast channels don't need individual recipients
-            )
+            if skipped_channels:
+                logger.warning(
+                    f"[MarketingAgent] canales omitidos (requieren destinatario real que este "
+                    f"flujo no resuelve): {skipped_channels}"
+                )
 
-            run.status = "completed_dispatched"
+            if dispatchable_channels:
+                # Broadcast channels don't need individual recipients.
+                MarketingCommands.dispatch(campaign=campaign, recipient="broadcast")
+
+            run.status = "completed_dispatched" if dispatchable_channels else "completed_no_action"
             run.campaign = campaign
-            run.notes = decision.get("rationale", "")
+            notes = decision.get("rationale", "")
+            if skipped_channels:
+                notes = (notes + " " if notes else "") + (
+                    f"[Fase 13] Canales omitidos por requerir destinatario real: "
+                    f"{', '.join(skipped_channels)}."
+                )
+            run.notes = notes
             run.save()
 
             logger.info(f"[MarketingAgent] Campaign dispatched: {campaign.title} → {campaign.channels}")

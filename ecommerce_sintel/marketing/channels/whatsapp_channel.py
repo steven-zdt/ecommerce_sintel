@@ -1,47 +1,31 @@
 """
-WhatsApp Channel Adapter
-Uses Meta Cloud API to send messages via approved templates.
+WhatsApp Channel Adapter (campanas de marketing).
+
+Usa MetaWhatsAppClient (marketing/integrations/meta/) -- FASE 4 del plan de
+integracion Meta Business. Distinto del envio transaccional
+(notifications/clients/whatsapp.py, que tambien es ahora un shim sobre el mismo
+cliente): este canal manda una plantilla de marketing pre-aprobada.
 """
-import requests
 from marketing.channels.base import AbstractChannelAdapter, CampaignMessage
+from marketing.integrations.meta.exceptions import MetaApiError
+from marketing.integrations.meta.whatsapp import MetaWhatsAppClient
 
 
 class WhatsAppChannelAdapter(AbstractChannelAdapter):
     channel_name = "whatsapp"
 
-    BASE_URL = "https://graph.facebook.com/v19.0"
+    # Debe existir aprobada en Meta Business Manager.
+    TEMPLATE_NAME = "marketing_campaign"
+    TEMPLATE_LANG = "es"
 
     def send(self, message: CampaignMessage) -> dict:
-        # [2026-07-12] Fachada de solo lectura sobre settings, ver
-        # organization.services.selectors.OrganizationSelector.get_integration_settings()
-        # y MIGRACION_ORGANIZATION_FASE1_AUDITORIA.md. NOTA: notifications/clients/whatsapp.py
-        # (envio transaccional, distinto de este canal de campanas) sigue leyendo settings
-        # directo -- migrarlo queda fuera del alcance de "Marketing" como consumidor.
-        from organization.services.selectors import OrganizationSelector
-        integrations = OrganizationSelector.get_integration_settings()
-        phone_number_id = integrations['whatsapp_phone_number_id']
-        token = integrations['meta_access_token']
-        url = f"{self.BASE_URL}/{phone_number_id}/messages"
-
-        payload = {
-            "messaging_product": "whatsapp",
-            "to": message.recipient,
-            "type": "template",
-            "template": {
-                "name": "marketing_campaign",   # Must be a pre-approved template in Meta Business Manager
-                "language": {"code": "es"},
-                "components": [
-                    {
-                        "type": "body",
-                        "parameters": [{"type": "text", "text": message.body[:1024]}]
-                    }
-                ]
-            }
-        }
-
         try:
-            response = requests.post(url, json=payload, headers={"Authorization": f"Bearer {token}"}, timeout=10)
-            response.raise_for_status()
-            return {"success": True, "channel": self.channel_name, "response": response.json()}
-        except requests.RequestException as e:
-            return {"success": False, "channel": self.channel_name, "response": str(e)}
+            message_id = MetaWhatsAppClient().send_template(
+                to=message.recipient,
+                template_name=self.TEMPLATE_NAME,
+                variables={"1": message.body[:1024]},
+                lang=self.TEMPLATE_LANG,
+            )
+            return {"success": True, "channel": self.channel_name, "response": {"message_id": message_id}}
+        except MetaApiError as exc:
+            return {"success": False, "channel": self.channel_name, "response": str(exc)}

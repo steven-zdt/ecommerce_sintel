@@ -25,6 +25,17 @@ CHANNEL_REGISTRY = {
 
 AVAILABLE_CHANNELS = list(CHANNEL_REGISTRY.keys())
 
+# Fase 13 (AUDITORIA/27_AUDITORIA_MARKETING.md, 2026-08-03): facebook/instagram/youtube/tiktok/
+# x/google_business ignoran CampaignMessage.recipient (publican a nivel de pagina/cuenta, no a
+# un destinatario individual) -- son los unicos canales que el agente autonomo
+# (marketing/agent/brain.py) puede despachar de forma segura con su sentinel "broadcast", ya que
+# no resuelve una lista real de destinatarios por usuario. email/whatsapp SI usan `recipient`
+# como direccion real (email.to=[...], whatsapp "to": ...) y antes rompian en silencio (fallaban
+# siempre, CampaignLog.is_sent=False) cuando el LLM los elegia.
+BROADCAST_CHANNELS = {
+    'facebook', 'instagram', 'youtube', 'tiktok', 'x', 'google_business',
+}
+
 
 def get_adapter(channel_name: str):
     """Returns an instantiated adapter for the given channel name."""

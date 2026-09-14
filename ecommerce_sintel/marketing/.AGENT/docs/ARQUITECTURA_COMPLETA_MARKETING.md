@@ -42,7 +42,8 @@ marketing/
 ├── services/
 │   ├── __init__.py                  # Exports: Commands, Selectors
 │   ├── commands.py                  # MarketingCommands (dispatch, send_now)
-│   └── selectors.py                 # MarketingSelector (queries, dashboard, user profiling)
+│   ├── selectors.py                 # MarketingSelector (queries, dashboard, user profiling)
+│   └── meta_selectors.py            # [2026-08-31] MetaCampaignSelector — Meta Ads READ normalizado (FASE 7)
 │
 ├── channels/
 │   ├── __init__.py
@@ -63,6 +64,15 @@ marketing/
 │   ├── llm_router.py                # LLMRouter (OpenAI, Anthropic, Gemini support)
 │   ├── prompts.py                   # System & analysis prompts
 │   └── [tool use examples]
+│
+├── integrations/                    # [2026-08-31] Frontera HTTP hacia terceros
+│   └── meta/                        # Frontera UNICA hacia Meta (Graph/WhatsApp/Marketing/CAPI)
+│       ├── exceptions.py            # MetaApiError / *TransientError / *AuthError / *ConfigError / *RateLimitError
+│       ├── client.py                # MetaGraphClient -- transporte puro (get/post/delete/paginate)
+│       ├── signatures.py            # verify_meta_webhook_signature() -- funcion pura, fail-closed
+│       ├── whatsapp.py              # MetaWhatsAppClient(send_template/send_text) sobre MetaGraphClient
+│       ├── marketing.py             # MetaMarketingClient -- Marketing API READ (campaigns/adsets/ads/insights)
+│       └── tests/                   # SimpleTestCase, mock de requests.request
 │
 └── migrations/
     ├── __init__.py
@@ -1592,6 +1602,48 @@ MARKETING MODULE:
         → Passes to LLM Agent
         → Agent reasons and dispatches campaigns
 ```
+
+---
+
+## 🔌 `integrations/meta/` — Frontera HTTP hacia Meta (2026-08-31)
+
+FASE 3 del plan de integracion Meta Business
+(`Documentacion/Arquitectura_general/META_BUSINESS_INTEGRATION_MASTER_PLAN.md`).
+
+**Regla:** ningun `requests.*` a `graph.facebook.com` fuera de este paquete. Vive
+bajo `marketing/` porque marketing es el dominio dueno de Meta/Ads; los demas
+consumidores importan el subcliente que necesitan (`notifications/clients/whatsapp.py`
+importa `MetaWhatsAppClient`).
+
+| Archivo | Contenido |
+|---|---|
+| `client.py` | `MetaGraphClient` — transporte puro, equivalente a `payment/online/wompi_client.py::WompiApiClient`. `get/post/delete/paginate` (paginacion por cursores). Version de Graph API, timeout, y clasificacion de errores: HTTP 429 o Graph code `{4,17,32,613,80004,80014}` → `MetaRateLimitError`; 401/403 o code `{102,190,200,...}` → `MetaAuthError`; 5xx / error de red → `MetaApiTransientError`; resto 4xx → `MetaApiError`; falta token/id → `MetaConfigError` (antes de tocar la red). **Cero logica de negocio.** Lee la config via `OrganizationSelector.get_integration_settings()`. |
+| `exceptions.py` | Jerarquia. `MetaApiTransientError`/`MetaRateLimitError` son "seguro reintentar"; el resto es definitivo. |
+| `signatures.py` | `verify_meta_webhook_signature(app_secret, raw_body, header)` — funcion pura, sin Django, fail-closed si `app_secret` vacio. Reusable por futuros webhooks de Meta. |
+| `whatsapp.py` | `MetaWhatsAppClient(send_template, send_text)` sobre `MetaGraphClient`. Reemplazo del transporte propio que vivia en `notifications/clients/whatsapp.py`. |
+| `marketing.py` | `MetaMarketingClient` (FASE 7) — **solo GET**: `list_campaigns` / `get_campaign` / `list_adsets` / `list_ads` / `get_insights` (soporta `time_range` o `date_preset`) / `get_account_summary`. `_act()` antepone `act_` al ad account id. |
+
+**Config:** todo via `settings`/`.env` + `OrganizationSelector.get_integration_settings()`
+(claves `meta_access_token`, `meta_graph_api_version`, `meta_ad_account_id`, etc.).
+Nada en BD. Los tokens nunca llegan al frontend / LLM / logs.
+
+**Adapters de canal** (`channels/facebook_channel.py`, `whatsapp_channel.py`,
+`instagram_channel.py`) migrados a `MetaGraphClient` / `MetaWhatsAppClient` (FASE 4,
+2026-08-31). Interfaz `AbstractChannelAdapter.send()` intacta.
+
+### `services/meta_selectors.py` + `api/internal_ai.py` (Meta Ads READ, FASE 7+9)
+
+- `MetaCampaignSelector` (`services/meta_selectors.py`) — solo lectura, normaliza
+  la salida de `MetaMarketingClient` (presupuestos de unidad minima -> decimal
+  string; `purchase_roas` lista -> numero). Propaga las excepciones tipadas de la
+  frontera Meta **sin envolver** — cada vista las mapea.
+- `AiMetaCampaignsView` / `AiMetaCampaignDetailView` / `AiMetaInsightsView` /
+  `AiMetaAccountSummaryView` en `api/internal_ai.py`, registradas en
+  `ecommerce/internal_ai_urls.py` bajo `marketing/meta/...`. `IsAdminUser`.
+  `_meta_error_response()`: `MetaConfigError` -> 503, resto -> 502. Consumidas por
+  el ai_engine via `http_bridge.py`, nunca por el frontend.
+- Escrituras (pause/resume/budget/create) NO existen aun — FASE 16-18, detras de
+  Policy Layer + aprobacion humana.
 
 ---
 
