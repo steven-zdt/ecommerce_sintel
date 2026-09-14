@@ -149,7 +149,7 @@ class VerificationDocument(SintelBaseModel):
     # nombre/extension declarados por el cliente.
     file_hash_sha256  = models.CharField(max_length=64, blank=True, default='', db_index=True)
     status = models.CharField(max_length=10, choices=STATUS_CHOICES, default=STATUS_PENDING, db_index=True)
-    scan_status = models.CharField(max_length=10, choices=SCAN_STATUS_CHOICES, default=SCAN_SKIPPED)
+    scan_status = models.CharField(max_length=10, choices=SCAN_STATUS_CHOICES, default=SCAN_SKIPPED, db_index=True)
     uploaded_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, null=True, blank=True,
         on_delete=models.SET_NULL, related_name='uploaded_kyc_docs',
