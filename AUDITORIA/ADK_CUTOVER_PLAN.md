@@ -355,6 +355,76 @@ reasoning leak, verificado con trafico real de esa sala de staging. `sintel_prod
 y con IA deshabilitada por flag (no por fallo). Ningun cliente real de `sintel.net.co` fue
 afectado, positiva ni negativamente, por ningun cambio de esta sesion.
 
+## 4sexies. Migracion real a `sintel_production` -- EJECUTADA (2026-09-14, autorizado
+## explicitamente: "migra el cutover y el fix a sintel_production")
+
+**Ya NO aplica la seccion 4quinquies tal cual** ("todo lo anterior vivio en staging") --
+esta seccion documenta la migracion real del cutover + fix a la produccion real
+(`sintel_production`, `docker-compose.prod.yml`), ejecutada con la MISMA disciplina que
+staging (servicio nuevo desplegado JUNTO al viejo, verificado, recien entonces swap de
+trafico), reusando el mismo codigo fuente `ai_engine_adk/` sin duplicar nada.
+
+**3 bugs reales preexistentes encontrados en el camino, NINGUNO introducido por esta
+migracion, confirmados uno por uno que afectaban IGUAL al `sintel_ai` viejo (nunca
+detectados porque `AI_SUPPORT_CHAT_ENABLED=false` en produccion desde siempre -- ninguna
+Tool ni resolucion de identidad se habia ejecutado ahi hasta hoy):**
+
+1. **`ALLOWED_HOSTS` estricto** rechaza `Host: django:8000` (nombre de servicio Docker)
+   con `DisallowedHost` -- el propio healthcheck de `sintel_prod_django` ya trabajaba
+   alrededor de esto con un Host header explicito (`-H "Host: api.sintel.net.co"`).
+2. **`SECURE_SSL_REDIRECT` + `SECURE_PROXY_SSL_HEADER`**: una llamada interna que bypasea
+   nginx nunca trae `X-Forwarded-Proto`, Django la redirige con 301 a HTTPS (`httpx` no
+   sigue redirects por defecto) -- rompe la llamada silenciosamente (mapeada a un 502 por
+   `auth.py`).
+3. **`host.docker.internal` no resuelve por defecto en la red `sintel-network`** (a
+   diferencia de la red de `docker-compose.yml`/dev, donde si resuelve sola) -- LM Studio
+   quedaba inalcanzable (`ConnectError: Name or service not known`).
+
+**Fix real (commit `74ba8f6`):**
+- `ai_engine/config.py::internal_django_headers()` -- nuevo `DJANGO_INTERNAL_HOST_HEADER`
+  (vacio por defecto, cero cambio de comportamiento en dev/staging), agrega `Host` +
+  `X-Forwarded-Proto: https` (mismo valor que `nginx-common.conf` ya agrega para trafico
+  real) cuando esta seteado. Aplicado en los 3 puntos reales que llaman a Django interno:
+  `auth.py` (`fetch_user_context`, `fetch_company_display_name`),
+  `tools/http_bridge.py` (`django_internal_get`, `django_internal_post` -- usado por las
+  29 tools reales), `retrievers.py` (`retrieve_knowledge_for_chat`).
+- `docker-compose.prod.yml`: `extra_hosts: ["host.docker.internal:host-gateway"]` agregado
+  a `sintel_ai` (OLD, para que el rollback tambien quede sano) y `sintel_ai_adk` (NEW).
+  `DJANGO_INTERNAL_HOST_HEADER: "api.sintel.net.co"` agregado a ambos.
+
+**Servicio nuevo agregado** (`sintel_ai_adk`, imagen `ecommerce_sintel_ai_adk:prod`,
+mismas convenciones ya establecidas del archivo -- sin puertos publicados, Redis con auth,
+DNS explicito, logging rotado, `env_file: .env.production`).
+
+**Verificado con un turno real completo en produccion real**, usuario `ceo@sintel.net.co`
+(la MISMA cuenta que el usuario ya habia usado para sus propias pruebas -- nunca se toco
+un dato de cliente ajeno, nunca se extrajo `JWT_SECRET_KEY` real, el token se emitio con
+`AccessToken.for_user()`, el mismo mecanismo real que usa `ai_bridge.py`): tool calling
+funcionando (`OrderStatusTool` + `RentalStatusTool` disparados correctamente), respuesta
+grounded con datos reales, sin fuga de razonamiento visible. 162/162 tests reales de
+`ai_engine/tests/` sin regresiones (verificado en contenedor desechable antes de tocar
+produccion).
+
+**Hallazgo lateral, no bloqueante:** `docker compose -f docker-compose.prod.yml --env-file
+.env.production up -d <servicios>` recreo tambien `sintel_prod_db` (Postgres) sin haber
+sido listado explicitamente -- Compose recalcula el hash de config de CUALQUIER servicio
+que interpole variables desde `--env-file` cuando ese archivo cambia, aunque los valores
+resueltos de ESE servicio en particular no hayan cambiado. Verificado que no hubo perdida
+de datos (los datos viven en el volumen nombrado externo `sintel_prod_postgres_data`, no
+en el contenedor -- confirmado leyendo usuarios reales, incluido `ceo@sintel.net.co`,
+intactos despues del recreate). Anotar para futuras operaciones sobre este compose: un
+cambio a `.env.production` puede recrear mas contenedores de los listados explicitamente
+en el comando.
+
+**Cutover completado:** `AI_ENGINE_URL` en `.env.production` apunta a
+`http://sintel_ai_adk:8101`; `sintel_ai` (OLD) detenido con `docker compose stop` (NO
+removido -- rollback disponible reiniciandolo + revirtiendo `AI_ENGINE_URL` +
+`up -d django celery_worker celery_beat`, mismo procedimiento que en staging seccion
+4quinquies). **`AI_SUPPORT_CHAT_ENABLED` se dejo SIN TOCAR (sigue en `false`, decision ya
+tomada por el usuario) -- ningun cliente real recibe todavia una respuesta de IA; el
+cutover en si es invisible para clientes hasta que esa activacion se decida por
+separado.**
+
 ## 5. Gate final antes de ejecutar cualquier paso de este plan
 
 Ningun paso de la seccion 3 (Opcion A) se ejecuta sin autorizacion explicita, item por
