@@ -26,7 +26,7 @@ proteccion WS de flood/replay, bloqueo de IPs, CSP/HSTS a nivel nginx.
 ## Modelo
 
 `SecurityEvent(SintelBaseModel)`: `event_type` (LOGIN_SUCCESS/LOGIN_FAILED/KYC_REJECTED/
-KYC_BLOCKED/RATE_LIMIT_HIT/FILE_REJECTED), `severity` (INFO/WARNING/CRITICAL), `user` (FK
+KYC_BLOCKED/RATE_LIMIT_HIT/FILE_REJECTED/AI_ACTION_EXECUTED/...), `severity` (INFO/WARNING/CRITICAL), `user` (FK
 nullable SET_NULL), `ip_address`, `user_agent`, `path`, `metadata` (JSONField). Append-only --
 el admin de Django (`security/admin.py`) es de solo lectura (`has_add_permission`/
 `has_change_permission` retornan `False`).
@@ -48,6 +48,7 @@ el admin de Django (`security/admin.py`) es de solo lectura (`has_add_permission
 | `kyc/services/commands.py::KycCommands.block()` | `KYC_BLOCKED` |
 | `ecommerce/api_exceptions.py::api_exception_handler` (excepcion `Throttled`) | `RATE_LIMIT_HIT` |
 | `accounts/services/commands.py::validate_file()` (al rechazar) | `FILE_REJECTED` |
+| `ecommerce/internal_ai_utils.py::log_ai_action(request, tool, metadata)` -- helper compartido, invocado desde `core`/`kyc`/`renting`/`quotes`/`support` en sus respectivos `api/internal_ai.py` (ej. `support/api/internal_ai.py::AiOpenSupportTicketView`, con `metadata={'tool': 'OpenSupportTicketTool', 'room_uuid': ..., 'attached_context': ...}`) | `AI_ACTION_EXECUTED` — **[AGREGADO 2026-08-01, Fase 3 de AUDITORIA/17]** toda escritura del AI Core queda auditada aca, no solo loggeada |
 
 ## Fixes de validacion de archivos (gap real encontrado en la auditoria)
 

@@ -33,6 +33,23 @@ class SecurityEvent(SintelBaseModel):
     # no dejaban mas rastro que el propio soft-delete. Tipo generico para
     # cualquier borrado admin, en vez de uno especifico por cada recurso.
     ADMIN_RESOURCE_DELETED = 'ADMIN_RESOURCE_DELETED'
+    # C1 (AUDITORIA_INTEGRAL_PRODUCCION_2026-08-04.md): _sync_wompi_status() recibia un
+    # wompi_id arbitrario del cliente (query param `id`) y adoptaba su status sin verificar
+    # que el 'reference'/monto devuelto por Wompi perteneciera a la Transaction propia --
+    # este evento registra cuando esa validacion rechaza un intento real.
+    PAYMENT_SYNC_REFERENCE_MISMATCH = 'PAYMENT_SYNC_REFERENCE_MISMATCH'
+    # Plan "AI Provider Runtime" FASE 34 (2026-08-13): antes de esto, crear/editar/
+    # eliminar/activar/probar un AIProvider o cambiar el modelo primario/fallback de
+    # un canal no dejaba NINGUN rastro de auditoria (gap real, ver
+    # ai_provider/.AGENT/AI_PROVIDER_RUNTIME_AUDIT.md seccion 11). Nunca incluir el
+    # secreto (api_key) en metadata -- ver AIProviderCommands.
+    AI_PROVIDER_CREATED = 'AI_PROVIDER_CREATED'
+    AI_PROVIDER_UPDATED = 'AI_PROVIDER_UPDATED'
+    AI_PROVIDER_ACTIVATED = 'AI_PROVIDER_ACTIVATED'
+    AI_PROVIDER_DEACTIVATED = 'AI_PROVIDER_DEACTIVATED'
+    AI_PROVIDER_TESTED = 'AI_PROVIDER_TESTED'
+    AI_MODEL_CHANGED = 'AI_MODEL_CHANGED'
+    AI_CHANNEL_CHANGED = 'AI_CHANNEL_CHANGED'
     EVENT_CHOICES = [
         (LOGIN_SUCCESS,  'Login exitoso'),
         (LOGIN_FAILED,   'Login fallido'),
@@ -52,6 +69,14 @@ class SecurityEvent(SintelBaseModel):
         (NOTIFICATION_CHANNEL_FAILED, 'Canal de notificacion con fallo permanente'),
         (AI_ACTION_EXECUTED, 'Accion de escritura ejecutada por el AI Core'),
         (ADMIN_RESOURCE_DELETED, 'Recurso eliminado desde el panel administrativo'),
+        (PAYMENT_SYNC_REFERENCE_MISMATCH, 'Reconciliacion de pago rechazada: reference/monto no coincide'),
+        (AI_PROVIDER_CREATED, 'Proveedor de IA creado'),
+        (AI_PROVIDER_UPDATED, 'Proveedor de IA actualizado'),
+        (AI_PROVIDER_ACTIVATED, 'Proveedor de IA activado'),
+        (AI_PROVIDER_DEACTIVATED, 'Proveedor de IA desactivado'),
+        (AI_PROVIDER_TESTED, 'Conexion de proveedor de IA probada'),
+        (AI_MODEL_CHANGED, 'Modelo de IA agregado/eliminado'),
+        (AI_CHANNEL_CHANGED, 'Configuracion de canal de IA modificada (primario/fallback)'),
     ]
 
     SEVERITY_INFO     = 'INFO'
