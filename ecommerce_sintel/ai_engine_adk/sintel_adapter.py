@@ -19,6 +19,10 @@ Mapeo:
                                         (ADK-12, mismo Redis/criterio que la
                                         Policy Layer de action_graph.py) antes
                                         de llamar a la funcion real.
+  ToolMetadata.permissions        -> "IsAdminUser" chequeado en el wrapper via
+                                        permissions.py (ADK-13, mismo criterio
+                                        que la Policy Layer de action_graph.py)
+                                        antes de llamar a la funcion real.
   ToolContext(user, token) de Sintel -> `user` se reconstruye desde
                                         tool_context.state (no sensible,
                                         perfil ya resuelto por Django);
@@ -38,6 +42,7 @@ from typing import Any, Callable, Optional
 from google.adk.tools import FunctionTool
 from google.adk.tools.tool_context import ToolContext as AdkToolContext
 
+from permissions import user_lacks_admin_permission
 from rate_limit import rate_limit_exceeded
 
 logger = logging.getLogger(__name__)
@@ -186,6 +191,16 @@ def adapt_sintel_tool(registered_tool) -> FunctionTool:
         call_kwargs = {
             k: v for k, v in kwargs.items() if k in fixed_names or v is not None
         }
+        # ADK-13, hallazgo real de la auditoria (mismo patron que el rate
+        # limiter de ADK-12): `ToolMetadata.permissions = ["IsAdminUser"]` lo
+        # aplicaba SOLO la Policy Layer de `action_graph.py` (OLD, en DOS
+        # sitios: lectura en node_select_and_execute_tools, escritura en
+        # node_evaluate_policy) -- este runtime nunca lo porto. Mismo mensaje
+        # y status_code que el sistema OLD (node_select_and_execute_tools).
+        if user_lacks_admin_permission(metadata.permissions, sintel_ctx.user):
+            logger.warning("[policy] IsAdminUser requerido para %s, user=%s no es staff",
+                            metadata.name, sintel_ctx.user.get("user_id"))
+            return {"error": "Esta accion es solo para administradores.", "status_code": 403}
         # ADK-12, hallazgo real de la auditoria: `ToolMetadata.rate_limit` lo
         # aplicaba SOLO la Policy Layer de `action_graph.py` (OLD) -- este
         # runtime nunca lo porto, y ya sirve clientes reales (AI_SUPPORT_

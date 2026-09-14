@@ -675,16 +675,15 @@ el estado real de ambos entornos y consolida los riesgos abiertos conocidos.
       extraidos una sola vez, reusados por ambos runtimes -- no reimplementados.
 - [x] Runtime viejo sin consumidor real de chat -- verificado por auditoria de imports antes
       de borrar nada (ADK-12).
-- [ ] Gate `IsAdminUser` de la Policy Layer portado a ADK -- **NO cerrado**, riesgo aceptado
-      documentado (severidad baja, Django es la autoridad final via `http_bridge.py`).
+- [x] Gate `IsAdminUser` de la Policy Layer portado a ADK -- **CERRADO 2026-09-14** (ver
+      6.4 abajo, mismo patron que el rate limiter).
 - [ ] Suite de tests de prompt injection/RAG poisoning -- **NO existe todavia**, gap real
       identificado al auditar el informe externo (seccion previa de este documento), fuera
       del alcance autorizado en esta sesion.
 
 ### 6.3 Riesgos abiertos consolidados (ninguno tocado sin autorizacion explicita)
 
-1. **Gate `IsAdminUser` no portado a `ai_engine_adk`** (severidad baja/media) -- mismo patron
-   que el fix del rate limiter, pendiente de decision del usuario.
+1. ~~Gate `IsAdminUser` no portado a `ai_engine_adk`~~ -- **CERRADO**, ver 6.4.
 2. **`ai_engine/e2e_http/e2e_support_ai_chat_test.ps1` apunta a un endpoint retirado**
    (`localhost:8100/chat`, ahora 404) y esta citado en documentos de certificacion formal
    (`SUPPORT_AI_CERTIFICATION.md` y otros) -- requiere decision explicita antes de tocar esos
@@ -699,13 +698,45 @@ el estado real de ambos entornos y consolida los riesgos abiertos conocidos.
 7. **`ChatResponse.metrics`** -- sigue `None`, `TurnMetrics` de `ai_engine_adk` no
    implementado todavia (paridad incompleta con el `metrics` real del sistema OLD).
 
-### 6.4 Veredicto de cierre
+### 6.4 Gate `IsAdminUser` portado -- EJECUTADO (2026-09-14, "continua con la tarea en
+### proceso")
 
-**El plan original de 13 fases (ADK-00 a ADK-13) queda formalmente cerrado.** Los 9 items del
-checklist de gates de arriba con [x] estan verificados con evidencia real (tests + trafico
-real de produccion), no solo con la ausencia de `<think>` visible -- cumple el GATE FINAL
-heredado de la mision del reasoning leak. Los 2 items sin marcar (`IsAdminUser`, tests de
-prompt injection) y los 5 riesgos de la seccion 6.3 NO son bloqueantes para el estado actual
+Mismo patron exacto que el rate limiter de 4nonies -- "no duplicar": logica pura extraida a
+un modulo compartido, reusada por ambos runtimes, mismo mensaje/codigo de error.
+
+- `ai_engine/permissions.py` (NUEVO): `user_lacks_admin_permission(permissions, user)`,
+  extraido de los DOS sitios de `action_graph.py` que repetian el mismo chequeo
+  (`node_select_and_execute_tools` para lecturas, `node_evaluate_policy` para escrituras).
+  Cero cambio de comportamiento -- mismos tests de `test_policy_layer.py`/
+  `test_tool_policy_matrix.py` siguen pasando sin modificacion.
+- `ai_engine_adk/sintel_adapter.py::adapt_sintel_tool`: el wrapper ahora chequea
+  `metadata.permissions` con `user_lacks_admin_permission()` ANTES del rate limit y de
+  llamar a `real_func` -- mismo mensaje que el sistema OLD
+  (`"Esta accion es solo para administradores."`, `status_code: 403`).
+- `ai_engine_adk/Dockerfile`: agregado `COPY ai_engine/permissions.py .`.
+- `ai_engine_adk/tests/test_permissions.py` (NUEVO, 5 tests: 3 unitarios de
+  `user_lacks_admin_permission`, 2 de `adapt_sintel_tool` con un `RegisteredTool` real --
+  bloqueado para no-staff, permitido para staff, funcion real nunca invocada en el caso
+  bloqueado).
+
+**Verificacion real, ambos entornos:** staging (`ecommerce_sintel_ai_adk` recreado limpio) ->
+**19 passed** (14 previos + 5 nuevos). Regresion del runtime OLD (`ecommerce_sintel_ai`,
+detenido, arrancado temporalmente) -> **104 passed, 16 skipped** (identico a antes) -> vuelto
+a detener. Produccion real (`sintel_prod_ai_adk` recreado limpio, `db` NO tocado) ->
+**8 passed** (`test_permissions.py` + `test_rate_limit.py`) contra la infraestructura real de
+produccion.
+
+Con esto, la Policy Layer completa (confirmacion humana, rate limit, `IsAdminUser`) esta
+portada a `ai_engine_adk` en ambos entornos -- el unico riesgo de "gates de seguridad" que
+quedaba abierto en el checklist de 6.2 se cierra aqui.
+
+### 6.5 Veredicto de cierre (actualizado)
+
+**El plan original de 13 fases (ADK-00 a ADK-13) queda formalmente cerrado, con 10 de 11
+items del checklist de 6.2 verificados con evidencia real** (tests + trafico real de
+produccion), no solo con la ausencia de `<think>` visible -- cumple el GATE FINAL heredado de
+la mision del reasoning leak. El unico item sin marcar (tests de prompt injection) y los 4
+riesgos restantes de la seccion 6.3 NO son bloqueantes para el estado actual
 (IA de soporte funcionando correctamente en produccion real, verificado con trafico real) pero
 quedan como trabajo real pendiente, documentado, para quien retome esta linea de trabajo.
 **No fue necesario cambiar Qwen3.5 ni el runtime elegido (Google ADK) en ningun momento de

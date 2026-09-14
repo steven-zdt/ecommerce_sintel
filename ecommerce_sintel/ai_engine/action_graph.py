@@ -34,6 +34,7 @@ from langgraph.types import interrupt
 
 from config import CHECKPOINTER_REDIS_URL
 from cost_control import DAILY_TURN_LIMIT_PER_USER, check_and_increment_daily_turns
+from permissions import user_lacks_admin_permission
 from rate_limit import rate_limit_exceeded as _rate_limit_exceeded
 from redis_checkpointer import RedisCheckpointSaver
 
@@ -374,7 +375,7 @@ async def node_select_and_execute_tools(state: SintelActionState, config: dict) 
         # segundo gate -- este chequeo generico es el UNICO gate posible para ese
         # caso, se mantiene por cualquier Tool futura con esa forma, aunque el caso
         # original que lo motivo (GraphImpactAnalysisTool) se retiro 2026-08-10.
-        if metadata is not None and "IsAdminUser" in metadata.permissions and not ctx.user.get("is_staff"):
+        if metadata is not None and user_lacks_admin_permission(metadata.permissions, ctx.user):
             results.append({
                 "capability": tc["name"], "args": {},
                 "result": {"error": "Esta accion es solo para administradores.", "status_code": 403},
@@ -458,7 +459,7 @@ async def node_evaluate_policy(state: SintelActionState, config: dict) -> dict:
     if cap is None or metadata is None:
         return {"policy_decision": "deny",
                 "optimized_context": state.get("optimized_context", "") + "\nAviso: accion desconocida, denegada."}
-    if "IsAdminUser" in metadata.permissions and not user.get("is_staff"):
+    if user_lacks_admin_permission(metadata.permissions, user):
         return {"policy_decision": "deny",
                 "optimized_context": state.get("optimized_context", "") + "\nAviso: accion solo para administradores, denegada."}
     if metadata.rate_limit and await _rate_limit_exceeded(user.get("user_id"), metadata.name, metadata.rate_limit):

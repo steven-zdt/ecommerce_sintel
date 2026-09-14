@@ -27,6 +27,7 @@ COPY ai_engine/cost_control.py .
 COPY ai_engine/config.py .
 COPY ai_engine/observability.py .
 COPY ai_engine/rate_limit.py .
+COPY ai_engine/permissions.py .
 
 COPY ai_engine_adk/ .
 
