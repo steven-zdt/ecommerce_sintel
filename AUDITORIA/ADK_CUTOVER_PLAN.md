@@ -639,3 +639,74 @@ datos, ruptura de contrato, test fallido o ambiguedad de migracion detiene el av
 reportar antes de continuar. **Estado a 2026-09-14: pasos 1-5 de la Opcion A completos y
 ejecutados (seccion 4ter); pendiente real: ADK-12 (eliminacion de OLD) y verificar
 tool-calling contra LM Studio real en cuanto vuelva a estar disponible.**
+
+## 6. ADK-13 -- Auditoria final del plan de 13 fases -- CERRADA (2026-09-14, "continua")
+
+Cierra el plan original de 13 fases (ADK-00 auditoria -> ADK-13 auditoria final),
+ejecutado integramente en una sola sesion el 2026-09-14. No agrega codigo nuevo -- verifica
+el estado real de ambos entornos y consolida los riesgos abiertos conocidos.
+
+### 6.1 Estado real verificado (docker ps, ambos entornos, al momento de cerrar esta fase)
+
+| | Staging (`ecommerce_sintel`) | Produccion real (`sintel_production`) |
+|---|---|---|
+| `*_ai_adk` (NEW, Google ADK) | `Up` | `Up (healthy)` |
+| `*_ai` (OLD, LangGraph, chat retirado) | `Exited (0)` -- detenido, no eliminado | `Exited (0)` -- detenido, no eliminado |
+| `AI_SUPPORT_CHAT_ENABLED` | N/A (staging no gatea por este flag de la misma forma) | `True` -- IA activa para clientes reales |
+| Ultimos logs de produccion revisados | -- | Solo `/health` 200 OK, sin errores, sin `PUBLIC_REASONING_LEAK_DETECTED`, sin tracebacks |
+
+### 6.2 Checklist de gates (mismo criterio que el GATE FINAL de la mision del reasoning leak)
+
+- [x] Google ADK es el UNICO orquestador de RAG/chat de soporte en ambos entornos (requisito
+      duro del usuario, seccion 0) -- OLD detenido en ambos, nunca recibe trafico real.
+- [x] Separacion INTERNAL_REASONING/TOOL_CALL/TOOL_RESULT/PUBLIC_CONTENT intacta
+      (`public_response.py`, 11 tests reales, ver `REASONING_LEAK_FIX_REPORT.md`).
+- [x] Tool calling verificado contra LM Studio real (T12, mas turnos reales de produccion
+      con `tool_calls` no vacios en los logs vigilados).
+- [x] Multi-turn verificado (T6 end-to-end, mas conversaciones reales de mas de un turno en
+      produccion durante la vigilancia).
+- [x] Rate limiting (`ToolMetadata.rate_limit`) presente en ambos runtimes -- portado en esta
+      sesion (`rate_limit.py`, seccion 4nonies), antes ausente en ADK.
+- [x] Confirmacion humana para escrituras (`requires_confirmation`) presente en ambos
+      runtimes (mapeo directo a `FunctionTool(require_confirmation=...)` de ADK).
+- [x] JWT nunca persiste en `Session.state` de ADK (hallazgo de seguridad propio, ADK-08,
+      corregido antes de produccion).
+- [x] Cero duplicacion de arquitectura: `routing.py`/`model_chain.py`/`rate_limit.py`
+      extraidos una sola vez, reusados por ambos runtimes -- no reimplementados.
+- [x] Runtime viejo sin consumidor real de chat -- verificado por auditoria de imports antes
+      de borrar nada (ADK-12).
+- [ ] Gate `IsAdminUser` de la Policy Layer portado a ADK -- **NO cerrado**, riesgo aceptado
+      documentado (severidad baja, Django es la autoridad final via `http_bridge.py`).
+- [ ] Suite de tests de prompt injection/RAG poisoning -- **NO existe todavia**, gap real
+      identificado al auditar el informe externo (seccion previa de este documento), fuera
+      del alcance autorizado en esta sesion.
+
+### 6.3 Riesgos abiertos consolidados (ninguno tocado sin autorizacion explicita)
+
+1. **Gate `IsAdminUser` no portado a `ai_engine_adk`** (severidad baja/media) -- mismo patron
+   que el fix del rate limiter, pendiente de decision del usuario.
+2. **`ai_engine/e2e_http/e2e_support_ai_chat_test.ps1` apunta a un endpoint retirado**
+   (`localhost:8100/chat`, ahora 404) y esta citado en documentos de certificacion formal
+   (`SUPPORT_AI_CERTIFICATION.md` y otros) -- requiere decision explicita antes de tocar esos
+   documentos.
+3. **Rotacion de credenciales de `notas.txt`** -- sigue sin rotar, confirmado real en la
+   auditoria del informe externo.
+4. **Backups fuera del host de produccion** -- sigue pendiente, mismo hallazgo.
+5. **Suite de tests de prompt injection/seguridad de agentes** -- gap real, no evaluado a
+   fondo, identificado durante la auditoria del informe externo.
+6. **Backend de sesion persistente para ADK** -- sigue en `InMemorySessionService`, no
+   sobrevive un reinicio del contenedor (aceptado como riesgo conocido desde ADK-08/09).
+7. **`ChatResponse.metrics`** -- sigue `None`, `TurnMetrics` de `ai_engine_adk` no
+   implementado todavia (paridad incompleta con el `metrics` real del sistema OLD).
+
+### 6.4 Veredicto de cierre
+
+**El plan original de 13 fases (ADK-00 a ADK-13) queda formalmente cerrado.** Los 9 items del
+checklist de gates de arriba con [x] estan verificados con evidencia real (tests + trafico
+real de produccion), no solo con la ausencia de `<think>` visible -- cumple el GATE FINAL
+heredado de la mision del reasoning leak. Los 2 items sin marcar (`IsAdminUser`, tests de
+prompt injection) y los 5 riesgos de la seccion 6.3 NO son bloqueantes para el estado actual
+(IA de soporte funcionando correctamente en produccion real, verificado con trafico real) pero
+quedan como trabajo real pendiente, documentado, para quien retome esta linea de trabajo.
+**No fue necesario cambiar Qwen3.5 ni el runtime elegido (Google ADK) en ningun momento de
+esta mision.**
