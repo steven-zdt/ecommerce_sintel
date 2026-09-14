@@ -226,6 +226,34 @@ fases del prompt original:
 
 ---
 
-**Estado:** FASE 0 completa. Sin cambios de codigo realizados. Pendiente aprobacion explicita
-del usuario para iniciar FASE 4a (eliminacion del cluster muerto) antes de continuar con la
-construccion de pgvector.
+## 12. Cierre de la mision (2026-09-14)
+
+Todas las fases se ejecutaron con aprobacion explicita del usuario en cada paso ("si procede"
+/ "procede" / "si" / "decide y continua"). Commits en `fix/audit-p0-remediation`:
+
+| Fase | Commit | Resultado |
+|---|---|---|
+| 0 — Auditoria | (este documento) | Sin cambios de codigo |
+| 4a — Cluster muerto de codegen | `cf50009` | -1,900 lineas (6 modulos + 7 endpoints) |
+| 1 — pgvector desde cero | `aa3dd41` | App `ai_knowledge` nueva, `CREATE EXTENSION vector`, imagen `pgvector/pgvector:pg16` |
+| 3 — Consumidores a RetrievalService | `9957179` | `retrieve_knowledge_for_chat` ya no toca Chroma |
+| 4b — Retiro de ChromaDB | `ae45755` | Servicio Docker + 5 modulos + dependencias + config, todo retirado |
+| 5 — Resto del tooling huerfano + decisiones abiertas | `f3c8638` | -142,684 lineas (4 modulos mas + artefactos JSON generados), `project_knowledge_graph/data/` gitignorado, contenido de prueba fabricado eliminado de la BD |
+
+**Estado final verificado en vivo:**
+- `docker ps -a` / `docker volume ls`: cero rastro de ChromaDB en el proyecto.
+- Arranque de `sintel_ai`: de ~2.5 min (escaneo completo del codebase en cada arranque) a
+  **menos de 1 segundo** (el lifespan ya no pre-construye nada salvo el cliente LLM).
+- `main.py` pasa de 16 rutas FastAPI a **2** (`/chat`, `/health`) + el AI Gateway
+  (`/api/v1/ai/*`, MCP de Meta Ads, feature vigente y sin tocar).
+- Suite de tests de `ai_engine`: 162 passed / 16 skipped / 0 failed.
+- RAG validado end-to-end contra pgvector real (embeddings via Ollama/bge-m3 en dev),
+  incluyendo la llamada real contenedor-a-contenedor `ai_engine -> Django -> Postgres`.
+
+**Pendiente, fuera del alcance de esta mision (no son decisiones tecnicas mias):**
+- Contenido publico real para el RAG (FAQs/politicas de Sintel) -- hoy la tabla
+  `ai_knowledge.AIKnowledgeDocument` esta vacia a proposito, el documento de prueba fabricado
+  durante la validacion se elimino explicitamente para no dejar contenido ficticio sin marcar
+  como tal en un sistema que puede llegar a hablarle a un cliente real.
+- Activar `AI_SUPPORT_CHAT_ENABLED`/el canal de embeddings en produccion -- sigue en `false`,
+  decision de negocio explicita ya documentada en commits anteriores a esta mision.
