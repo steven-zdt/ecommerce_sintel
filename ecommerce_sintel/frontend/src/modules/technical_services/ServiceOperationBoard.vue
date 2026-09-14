@@ -48,6 +48,10 @@
 
       <OperationProgress :status="selected.status" class="mb-3" />
       <OperationSummary :operation="selected" class="mb-3" />
+      <OperationPricingPanel
+        :operation="selected" :saving="saving" class="mb-3"
+        @confirm="confirmPrice" @override="overridePrice"
+      />
 
       <!-- Planear / reprogramar -->
       <div v-if="canPlan || canReschedule" class="mb-3">
@@ -57,7 +61,9 @@
       </div>
 
       <!-- Asignar tecnico -->
-      <div v-if="['PLANNED', 'TECHNICIAN_ASSIGNED'].includes(selected.status)" class="mb-3">
+      <!-- READY_FOR_PLANNING incluido desde FASE 2 (2026-08-14, migracion "autoridad
+           unica de tecnico"): assign_technician() ya permite pre-asignar sin fecha. -->
+      <div v-if="['READY_FOR_PLANNING', 'PLANNED', 'TECHNICIAN_ASSIGNED'].includes(selected.status)" class="mb-3">
         <h6 class="fw-bold">Asignar profesional</h6>
         <TechnicianSelector
           :operation-uuid="selected.uuid"
@@ -134,6 +140,7 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue';
+import { useRoute } from 'vue-router';
 import useApi from '@/composables/useApi';
 import { useToast } from '@/composables/useToast';
 import { useErrorHandler } from '@/composables/useErrorHandler';
@@ -141,6 +148,7 @@ import BaseOperationBoard from '@/components/shared/BaseOperationBoard.vue';
 import OperationStatusBadge from '@/components/customer/services/OperationStatusBadge.vue';
 import OperationProgress from '@/components/customer/services/OperationProgress.vue';
 import OperationSummary from '@/components/customer/services/OperationSummary.vue';
+import OperationPricingPanel from '@/components/customer/services/OperationPricingPanel.vue';
 import OperationTimeline from '@/components/customer/services/OperationTimeline.vue';
 import TechnicianSelector from '@/components/customer/services/TechnicianSelector.vue';
 import ScheduleModal from '@/components/customer/services/ScheduleModal.vue';
@@ -155,7 +163,12 @@ const selected = ref(null);
 const loading = ref(false);
 const saving = ref(false);
 const metrics = ref({});
-const filters = reactive({ status: '', search: '', date_from: '', date_to: '' });
+// Plan "Fachada Administrativa Unificada" (2026-08-14): ServiceRequestActionsPanel.vue
+// enlaza aqui con ?search=<order_uuid> (FASE 12 -- "la fachada enlaza, no
+// duplica"). Sin esto, el link llegaba al board pero el admin tenia que
+// volver a buscar la orden manualmente.
+const route = useRoute();
+const filters = reactive({ status: '', search: route.query.search || '', date_from: '', date_to: '' });
 const incidentNotes = ref('');
 const cancelReason = ref('');
 const showSchedule = ref(false);
@@ -285,6 +298,14 @@ async function reportIncident() {
 
 async function resolveIncident() {
   await execute(() => api.post(`service-operations/${selected.value.uuid}/resolve-incident/`), 'Incidencia resuelta.');
+}
+
+async function confirmPrice() {
+  await execute(() => api.post(`service-operations/${selected.value.uuid}/confirm-price/`), 'Precio confirmado.');
+}
+
+async function overridePrice(payload) {
+  await execute(() => api.post(`service-operations/${selected.value.uuid}/override-price/`, payload), 'Precio actualizado.');
 }
 
 onMounted(load);

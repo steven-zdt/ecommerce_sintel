@@ -130,13 +130,15 @@ export const useTechnicalServicesStore = defineStore('technicalServices', {
 
     // ─── Images ────────────────────────────────────────────────────────────────
 
-    async uploadImage(serviceUuid, file, altText = '', isPrimary = false) {
+    async uploadImage(serviceUuid, file, altText = '', isPrimary = false, caption = '', description = '') {
       this.actionLoading = true;
       try {
         const fd = new FormData();
         fd.append('image', file);
         if (altText) fd.append('alt_text', altText);
         fd.append('is_primary', isPrimary ? 'true' : 'false');
+        if (caption) fd.append('caption', caption);
+        if (description) fd.append('description', description);
         const { data } = await this._api().post(
           `dashboard/services/${serviceUuid}/add_image/`,
           fd,
@@ -145,6 +147,57 @@ export const useTechnicalServicesStore = defineStore('technicalServices', {
         return { ok: true, data };
       } catch (err) {
         return { ok: false, error: err.response?.data?.detail || 'Error al subir imagen.' };
+      } finally {
+        this.actionLoading = false;
+      }
+    },
+
+    // Plan "Rediseno ServiceForm + Content/Media" FASE 4/5 (2026-08-14) --
+    // galeria descriptiva: metadatos sin re-subir, reemplazo de archivo,
+    // reordenamiento manual. Mismo patron BFF que uploadImage() de arriba
+    // (multipart con override explicito de Content-Type solo cuando hay
+    // archivo -- updateImageMetadata es JSON puro, sin ese override).
+    async updateImageMetadata(serviceUuid, imageUuid, payload) {
+      this.actionLoading = true;
+      try {
+        const { data } = await this._api().patch(
+          `dashboard/services/${serviceUuid}/update_image/${imageUuid}/`, payload,
+        );
+        return { ok: true, data };
+      } catch (err) {
+        return { ok: false, error: err.response?.data?.detail || 'Error al actualizar la imagen.' };
+      } finally {
+        this.actionLoading = false;
+      }
+    },
+
+    async replaceImageFile(serviceUuid, imageUuid, file) {
+      this.actionLoading = true;
+      try {
+        const fd = new FormData();
+        fd.append('image', file);
+        const { data } = await this._api().post(
+          `dashboard/services/${serviceUuid}/replace_image/${imageUuid}/`,
+          fd,
+          { headers: { 'Content-Type': 'multipart/form-data' } },
+        );
+        return { ok: true, data };
+      } catch (err) {
+        return { ok: false, error: err.response?.data?.detail || 'Error al reemplazar la imagen.' };
+      } finally {
+        this.actionLoading = false;
+      }
+    },
+
+    async reorderImages(serviceUuid, orderedUuids) {
+      this.actionLoading = true;
+      try {
+        const { data } = await this._api().post(
+          `dashboard/services/${serviceUuid}/reorder_images/`, { ordered_uuids: orderedUuids },
+        );
+        return { ok: true, data };
+      } catch (err) {
+        return { ok: false, error: err.response?.data?.detail || 'Error al reordenar la galeria.' };
       } finally {
         this.actionLoading = false;
       }
@@ -252,6 +305,27 @@ export const useTechnicalServicesStore = defineStore('technicalServices', {
         return [];
       } finally {
         this.loading = false;
+      }
+    },
+
+    /**
+     * Plan "Manual Pricing Engine" (2026-08-13) FASE 9 -- unica accion que
+     * cambia ServiceVariant.pricing_source (POST .../set-pricing/, distinto
+     * del PATCH generico de updateVariant() -- ese ignora pricing_source por
+     * ser read_only_fields en el backend, ver ServiceVariantSerializer).
+     */
+    async setVariantPricing(variantUuid, payload, serviceUuid) {
+      this.actionLoading = true;
+      try {
+        const { data } = await this._api().post(`dashboard/service-variants/${variantUuid}/set-pricing/`, payload);
+        if (serviceUuid) {
+          await this.fetchVariants(serviceUuid);
+        }
+        return { ok: true, data };
+      } catch (err) {
+        return { ok: false, error: err.response?.data?.detail || 'Error al guardar el precio.' };
+      } finally {
+        this.actionLoading = false;
       }
     },
   },

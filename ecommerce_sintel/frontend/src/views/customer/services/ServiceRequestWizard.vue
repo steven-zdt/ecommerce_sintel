@@ -583,7 +583,7 @@
               <div class="srw-process-notice mb-4">
                 <i class="bi bi-info-circle-fill text-primary me-2 flex-shrink-0 mt-1"></i>
                 <div class="small text-muted">
-                  <strong class="text-dark">Despues del pago:</strong> Sintel confirma disponibilidad, asigna el tecnico y te notifica la programacion definitiva. Si no hay cupo en tu jornada preferida, recibiras alternativas.
+                  <strong class="text-dark">Despues del pago:</strong> {{ brandName }} confirma disponibilidad, asigna el tecnico y te notifica la programacion definitiva. Si no hay cupo en tu jornada preferida, recibiras alternativas.
                 </div>
               </div>
 
@@ -622,11 +622,13 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue';
+import { isValidEmail } from '@/utils/validators';
 import { useRoute, RouterLink } from 'vue-router';
 import { servicesService } from '@/services/technical_services/servicesService';
 import { useToast } from '@/composables/useToast';
 import { useErrorHandler } from '@/composables/useErrorHandler';
 import { useAuthStore } from '@/store/auth';
+import { useAppConfigStore } from '@/store/appConfig';
 import { formatCOP } from '@/utils/money';
 import ServiceAttachmentsUploader from '@/components/services/ServiceAttachmentsUploader.vue';
 import ServiceTermsCard from '@/components/customer/services/ServiceTermsCard.vue';
@@ -643,6 +645,9 @@ const route     = useRoute();
 const toast     = useToast();
 const { handleError } = useErrorHandler();
 const authStore = useAuthStore();
+// White-label F7 (2026-08-14): antes 'Sintel' hardcodeado en el texto de "Despues del pago".
+const appConfigStore = useAppConfigStore();
+const brandName = computed(() => appConfigStore.brand.site_name || 'la plataforma');
 const checkoutStore = useServiceCheckoutStore();
 
 // Estado global
@@ -770,7 +775,7 @@ function validateStep2() {
   personalErrors.full_name      = personal.full_name.trim()      ? '' : 'Requerido';
   personalErrors.document_type  = personal.document_type          ? '' : 'Requerido';
   personalErrors.document_number = personal.document_number.trim() ? '' : 'Requerido';
-  personalErrors.email = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(personal.email) ? '' : 'Correo invalido';
+  personalErrors.email = isValidEmail(personal.email) ? '' : 'Correo invalido';
   personalErrors.phone = /^\d{10}$/.test(personal.phone) ? '' : 'Debe tener 10 digitos';
   if (Object.values(personalErrors).some(Boolean)) ok = false;
   locationErrors.department = location.department ? '' : 'Requerido';

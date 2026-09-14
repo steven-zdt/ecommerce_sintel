@@ -261,8 +261,7 @@ async function saveReschedule(form) {
 watch([viewMode, anchorDate], load);
 
 onMounted(async () => {
-  await enums.ensure('service-operation-statuses');
-  await load();
+  await Promise.all([enums.ensure('service-operation-statuses'), load()]);
 });
 </script>
 

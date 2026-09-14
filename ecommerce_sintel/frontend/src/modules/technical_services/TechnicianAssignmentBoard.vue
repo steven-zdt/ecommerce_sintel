@@ -437,8 +437,11 @@ function closeHistoryModal() {
 }
 
 onMounted(async () => {
-  priorities.value = await enums.ensure('service-priorities');
-  await enums.ensure('service-order-statuses');
+  const [servicePriorities] = await Promise.all([
+    enums.ensure('service-priorities'),
+    enums.ensure('service-order-statuses'),
+  ]);
+  priorities.value = servicePriorities;
   loadPage();
   try {
     const { data } = await api.get('services/categories/');

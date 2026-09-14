@@ -11,7 +11,11 @@ export const servicesService = {
     return useApi().get('services/levels/').then(r => r.data);
   },
   detail(uuid) {
-    return useApi().get(`services/services/${uuid}/`).then(r => r.data);
+    // Reingenieria SDP (2026-08-05): .../detail/ trae el catalogo enriquecido +
+    // content_blocks/relaciones (TechnicalServiceDetailSerializer), mismo
+    // patron que shopService.detail(). El retrieve base (sin sufijo) sigue
+    // existiendo con el serializer liviano para otros consumidores.
+    return useApi().get(`services/services/${uuid}/detail/`).then(r => r.data);
   },
   packages(uuid) {
     return useApi().get(`services/services/${uuid}/packages/`).then(r => r.data);

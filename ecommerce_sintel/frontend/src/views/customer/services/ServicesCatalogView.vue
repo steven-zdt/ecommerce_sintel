@@ -2,78 +2,14 @@
   <div class="services-catalog">
 
     <!-- ── Hero premium ─────────────────────────────────────────────────────── -->
-    <section class="catalog-hero">
-      <div class="ch-glow ch-glow-1"></div>
-      <div class="ch-glow ch-glow-2"></div>
-      <div class="container-xl">
-        <div class="ch-inner">
-          <!-- Left: breadcrumb + title -->
-          <div class="ch-left">
-            <nav class="ch-breadcrumb" aria-label="breadcrumb">
-              <RouterLink to="/" class="ch-bc-link">Inicio</RouterLink>
-              <span class="ch-bc-sep">/</span>
-              <span class="ch-bc-current">Servicios</span>
-            </nav>
-            <div class="d-flex align-items-center gap-3 mt-1">
-              <h1 class="ch-title">Servicios Tecnicos</h1>
-              <span v-if="totalCount && !loading" class="ch-count-badge">
-                {{ totalCount.toLocaleString('es-CO') }} servicios
-              </span>
-            </div>
-            <p class="ch-sub">Compra soluciones profesionales con alcance, garantia y equipos certificados.</p>
-            <div class="ch-actions">
-              <a href="#services-marketplace" class="ch-cta-primary">
-                <i class="bi bi-bag-check"></i>
-                Comprar servicio
-              </a>
-              <RouterLink to="/registro-profesional" class="ch-cta-provider">
-                <i class="bi bi-person-workspace"></i>
-                Ofrecer servicios
-              </RouterLink>
-            </div>
-            <div class="ch-trust-row">
-              <span><i class="bi bi-shield-check"></i> Garantia incluida</span>
-              <span><i class="bi bi-credit-card"></i> Pago seguro</span>
-              <span><i class="bi bi-calendar-check"></i> Agenda flexible</span>
-            </div>
-          </div>
+    <ServicesCatalogHero
+      v-model:search="search"
+      :total-count="totalCount"
+      :loading="loading"
+      @clear-search="clearSearch"
+    />
 
-          <!-- Right: search desktop -->
-          <div class="ch-search-wrap d-none d-lg-flex">
-            <i class="bi bi-search ch-search-icon"></i>
-            <input
-              v-model="search"
-              type="text"
-              class="ch-search-input"
-              placeholder="Buscar servicio tecnico..."
-            >
-            <button v-if="search" class="ch-search-clear" @click="clearSearch">
-              <i class="bi bi-x"></i>
-            </button>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <section class="market-home">
-      <div class="container-xl">
-        <div class="mh-grid">
-          <article
-            v-for="category in marketplaceCategories"
-            :key="category.title"
-            class="mh-card"
-          >
-            <div class="mh-icon">
-              <i :class="['bi', category.icon]"></i>
-            </div>
-            <div>
-              <h2>{{ category.title }}</h2>
-              <p>{{ category.copy }}</p>
-            </div>
-          </article>
-        </div>
-      </div>
-    </section>
+    <ServicesMarketplaceStrip />
 
     <div id="services-marketplace" class="container-xl py-4">
 
@@ -304,6 +240,8 @@ import { useToast } from '@/composables/useToast';
 import ServiceCard from '@/components/customer/ui/ServiceCard.vue';
 import FilterPanel from '@/components/customer/ui/FilterPanel.vue';
 import ServiceHorizontalCard from '@/components/services/ServiceHorizontalCard.vue';
+import ServicesCatalogHero from './services-catalog/ServicesCatalogHero.vue';
+import ServicesMarketplaceStrip from './services-catalog/ServicesMarketplaceStrip.vue';
 
 const toast  = useToast();
 const router = useRouter();
@@ -318,16 +256,9 @@ const currentPage      = ref(1);
 const filterFeatured   = ref(false);
 const showFilterMobile = ref(false);
 const search           = ref('');
-const viewMode         = ref('list');
+const viewMode         = ref('grid');
 
 const filterState = reactive({ categorySlug: '', brandSlug: '', minPrice: '', maxPrice: '', isFeatured: null });
-
-const marketplaceCategories = [
-  { icon: 'bi-camera-video', title: 'CCTV y seguridad', copy: 'Instalacion, puesta en marcha, analitica, mantenimiento y soporte.' },
-  { icon: 'bi-router', title: 'Redes y conectividad', copy: 'Cableado, WiFi, switching, routing, segmentacion y pruebas certificadas.' },
-  { icon: 'bi-door-open', title: 'Control de acceso', copy: 'Lectores, biometria, torniquetes, integracion y auditoria operativa.' },
-  { icon: 'bi-hdd-network', title: 'Infraestructura TI', copy: 'Servidores, racks, UPS, respaldo, monitoreo y documentacion tecnica.' },
-];
 
 const industries = [
   { icon: 'bi-buildings', name: 'Empresas' },
@@ -432,174 +363,14 @@ onMounted(() => { fetchFilters(); fetchServices(); });
 </script>
 
 <style scoped>
-/* ── Catalog hero ───────────────────────────────────────────────────────────── */
-.catalog-hero {
-  position: relative;
-  background: linear-gradient(135deg, #1c0a00 0%, #78350f 55%, #d97706 100%);
-  overflow: hidden;
-  padding: 2.5rem 0 2rem;
-}
-.ch-glow {
-  position: absolute;
-  border-radius: 50%;
-  filter: blur(80px);
-  pointer-events: none;
-  opacity: 0.35;
-}
-.ch-glow-1 {
-  width: 420px; height: 420px;
-  background: #f59e0b;
-  top: -120px; right: -80px;
-}
-.ch-glow-2 {
-  width: 300px; height: 300px;
-  background: #fbbf24;
-  bottom: -100px; left: 5%;
-}
-.ch-inner {
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 2rem;
-  flex-wrap: wrap;
-}
-.ch-left { flex: 1; min-width: 0; }
-.ch-breadcrumb {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  font-size: 0.78rem;
-  margin-bottom: 0.35rem;
-}
-.ch-bc-link {
-  color: rgba(255,255,255,.65);
-  text-decoration: none;
-  transition: color 0.18s;
-}
-.ch-bc-link:hover { color: #fff; }
-.ch-bc-sep { color: rgba(255,255,255,.3); font-size: 0.7rem; }
-.ch-bc-current { color: rgba(255,255,255,.8); }
-
-.ch-title {
-  font-size: clamp(1.5rem, 3.5vw, 2.3rem);
-  font-weight: 900;
-  color: #fff;
-  letter-spacing: -0.03em;
-  margin: 0;
-  line-height: 1;
-}
-.ch-count-badge {
-  font-size: 0.72rem;
-  font-weight: 700;
-  background: rgba(255,255,255,.12);
-  backdrop-filter: blur(8px);
-  color: rgba(255,255,255,.9);
-  border: 1px solid rgba(255,255,255,.2);
-  border-radius: 9999px;
-  padding: 0.25rem 0.75rem;
-  white-space: nowrap;
-}
-.ch-sub {
-  font-size: 0.85rem;
-  color: rgba(255,255,255,.55);
-  margin: 0.5rem 0 0;
-}
-.ch-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.75rem;
-  margin-top: 1rem;
-}
-.ch-cta-primary,
-.ch-cta-provider {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.55rem 1.1rem;
-  border-radius: 9999px;
-  font-size: 0.82rem;
-  font-weight: 700;
-  text-decoration: none;
-  transition: background .15s ease, transform .15s ease;
-}
-.ch-cta-primary {
-  background: #fff;
-  color: #0f172a;
-  border: 1.5px solid rgba(255,255,255,.7);
-  box-shadow: 0 14px 30px rgba(15,23,42,.18);
-}
-.ch-cta-provider {
-  background: rgba(255,255,255,.12);
-  backdrop-filter: blur(8px);
-  border: 1.5px solid rgba(255,255,255,.25);
-  color: #fff;
-}
-.ch-cta-primary:hover {
-  background: #f8fafc;
-  color: #0f172a;
-  transform: translateY(-1px);
-}
-.ch-cta-provider:hover {
-  background: rgba(255,255,255,.2);
-  color: #fff;
-  transform: translateY(-1px);
-}
-.ch-trust-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.55rem;
-  margin-top: 1rem;
-  color: rgba(255,255,255,.78);
-  font-size: 0.76rem;
-}
-.ch-trust-row span {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  background: rgba(15,23,42,.2);
-  border: 1px solid rgba(255,255,255,.16);
-  border-radius: 999px;
-  padding: 0.28rem 0.65rem;
-}
-
-/* ── Marketplace home ──────────────────────────────────────────────────────── */
-.market-home {
-  background: linear-gradient(180deg, #f8fafc 0%, #fff 100%);
-  border-bottom: 1px solid #e2e8f0;
-  padding: 1.3rem 0 1.8rem;
-}
-.mh-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 0.9rem;
-  margin-top: -2.35rem;
-  position: relative;
-  z-index: 2;
-}
-.mh-card {
-  min-height: 148px;
-  background: #fff;
-  border: 1px solid #e2e8f0;
-  border-radius: 16px;
-  padding: 1rem;
-  display: flex;
-  gap: 0.85rem;
-  box-shadow: 0 16px 34px rgba(15,23,42,.08);
-}
-.mh-icon {
-  width: 42px;
-  height: 42px;
-  border-radius: 12px;
-  background: #ecfeff;
-  color: #0e7490;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  font-size: 1.15rem;
-}
-.mh-card h2,
+/* ── Catalog hero (ServicesCatalogHero.vue) y ── Marketplace home
+   (ServicesMarketplaceStrip.vue) extraidos (P2-2, 2026-07-30) -- su CSS vive
+   en cada componente hijo. `.section-head h2`/`.technician-panel h2` y
+   `.technician-panel p` seguian aqui compartiendo selector con `.mh-card`
+   antes de la extraccion; se recortaron a solo lo que el padre sigue usando
+   (`.section-head` en "Busquedas relacionadas"). `.technician-panel` es CSS
+   preexistente sin markup asociado (seccion ya removida del template antes
+   de esta descomposicion) -- se deja intacto, no es parte de este cambio. */
 .section-head h2,
 .technician-panel h2 {
   color: #0f172a;
@@ -607,11 +378,6 @@ onMounted(() => { fetchFilters(); fetchServices(); });
   letter-spacing: 0;
   margin: 0;
 }
-.mh-card h2 {
-  font-size: 0.98rem;
-  line-height: 1.2;
-}
-.mh-card p,
 .technician-panel p {
   color: #64748b;
   font-size: 0.82rem;
@@ -732,41 +498,6 @@ onMounted(() => { fetchFilters(); fetchServices(); });
   font-size: 0.78rem;
   font-weight: 700;
 }
-
-/* Search in hero */
-.ch-search-wrap {
-  align-items: center;
-  background: rgba(255,255,255,.1);
-  backdrop-filter: blur(12px);
-  border: 1.5px solid rgba(255,255,255,.2);
-  border-radius: 14px;
-  padding: 0.55rem 1rem;
-  gap: 0.6rem;
-  min-width: 280px;
-  flex-shrink: 0;
-}
-.ch-search-icon { color: rgba(255,255,255,.55); font-size: 0.9rem; flex-shrink: 0; }
-.ch-search-input {
-  background: none;
-  border: none;
-  outline: none;
-  color: #fff;
-  font-size: 0.88rem;
-  flex: 1;
-  min-width: 0;
-}
-.ch-search-input::placeholder { color: rgba(255,255,255,.4); }
-.ch-search-clear {
-  background: none;
-  border: none;
-  color: rgba(255,255,255,.6);
-  cursor: pointer;
-  padding: 0;
-  font-size: 1rem;
-  line-height: 1;
-  flex-shrink: 0;
-}
-.ch-search-clear:hover { color: #fff; }
 
 /* ── Toolbar ────────────────────────────────────────────────────────────────── */
 .toolbar {
@@ -1075,24 +806,14 @@ onMounted(() => { fetchFilters(); fetchServices(); });
 .min-w-0 { min-width: 0; }
 
 @media (max-width: 991px) {
-  .mh-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    margin-top: 1rem;
-  }
   .industry-strip { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .market-split { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 575px) {
-  .catalog-hero { padding-bottom: 1.6rem; }
-  .ch-actions { width: 100%; }
-  .ch-cta-primary,
-  .ch-cta-provider { justify-content: center; flex: 1 1 150px; }
-  .mh-grid,
   .industry-strip,
   .process-line,
   .tech-stats { grid-template-columns: 1fr; }
-  .mh-card { min-height: auto; }
   .section-head {
     align-items: flex-start;
     flex-direction: column;

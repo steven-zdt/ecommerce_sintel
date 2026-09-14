@@ -58,15 +58,14 @@
 import { computed } from 'vue';
 import BaseHorizontalCard from '@/components/base/BaseHorizontalCard.vue';
 import { formatCOP } from '@/utils/money';
+import { resolvePrimaryImage } from '@/utils/media';
 
 const props = defineProps({ service: { type: Object, required: true } });
 const emit = defineEmits(['view', 'quote']);
 
-const primaryImage = computed(() => {
-  const imgs = props.service.images;
-  if (!imgs?.length) return null;
-  return (imgs.find(i => i.is_primary) || imgs[0]).image || null;
-});
+// Auditoria Enterprise de Imagenes (2026-08-04): logica de "elegir imagen principal"
+// centralizada en resolvePrimaryImage() -- antes reimplementada identicamente 4 veces.
+const primaryImage = computed(() => resolvePrimaryImage(props.service.images));
 
 const categoryName = computed(() => props.service.category?.name || null);
 const levelName    = computed(() => props.service.level?.name    || null);
