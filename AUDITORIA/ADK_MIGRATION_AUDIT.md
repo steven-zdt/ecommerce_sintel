@@ -709,11 +709,17 @@ ADK-10 completos. Todo el codigo de adaptacion sigue aislado en `adk_poc/` — n
 de `ai_engine`/`ai_editor`/Django/Docker fue modificado; ADK-10 SI ejecuto contra Redis y
 Ollama reales (infraestructura viva del proyecto), pero con Django mockeado, datos
 sinteticos identificables, y limpieza propia — sin escribir ni leer datos de usuarios
-reales. Usuario autorizo continuar sin pausa entre fases ("continua hasta terminar la
-instruccion anterior", 2026-09-14) — siguiente: ADK-11 (Cutover, con capacidad de rollback
-inmediato). **Nota para ADK-11**: dado que es la fase que modificaria produccion de verdad
-(reemplazar codigo vivo de `ai_engine`), y el propio conflicto de dependencias arriba exige
-una decision de arquitectura de despliegue (procesos separados vs. cutover atomico) — esta
-fase debe tratarse con el mismo criterio de "accion dificil de revertir, confirmar antes de
-proceder" ya establecido, independientemente de la autorizacion de "continuar sin pausa"
-entre fases de analisis/construccion en `adk_poc/`.
+reales.
+
+**ADK-11 (Cutover): PLAN escrito, NADA ejecutado.** El usuario pidio explicitamente
+"disena el plan, sin ejecutarlo" (2026-09-14), y agrego un requisito duro adicional:
+**Google ADK debe quedar como UNICO orquestador de RAG para el chat de atencion al
+cliente/soporte** — no coexistir con el path de RAG de `action_graph.py`
+(`node_retrieve_knowledge`) despues del cutover. El plan completo, con la arquitectura de
+despliegue recomendada (blue-green via swap de `settings.AI_ENGINE_URL`, que resuelve el
+conflicto de dependencias de ADK-10 por construccion al correr OLD/NEW en procesos
+separados) y el checklist de trabajo pendiente antes de poder ejecutarlo, vive en
+`AUDITORIA/ADK_CUTOVER_PLAN.md`. Ningun paso de ese plan se ejecuta sin autorizacion
+explicita, item por item — mismo criterio de "accion dificil de revertir, confirmar antes
+de proceder" ya aplicado a esta fase, independiente de la autorizacion general de
+"continuar sin pausa" entre fases de analisis/construccion en `adk_poc/`.
