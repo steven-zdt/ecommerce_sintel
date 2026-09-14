@@ -654,11 +654,66 @@ probado independientemente del contenido real que produzca el loop).
 
 64/64 tests pasando en `adk_poc/`.
 
+## 8nonies. ADK-10 — Dual run (completado)
+
+**Decision de riesgo deliberada, documentada antes de ejecutar:** `docker ps` confirmo que
+toda la infraestructura real del proyecto esta corriendo (`ecommerce_sintel_redis` puerto
+host 6380, `ecommerce_sintel_ollama` 11434, `ecommerce_sintel_django` 8000,
+`ecommerce_sintel_ai` 8100 — el propio proceso `ai_engine` en vivo). El dual run usa Redis y
+Ollama REALES (el checkpointer del sistema OLD corre contra el Redis real del proyecto, DB
+2, namespace propio). **NO** se extrajo el `JWT_SECRET_KEY` real de produccion ni se golpeo
+el Django real — `fetch_user_context` se mockeo en ambos sistemas (mismo criterio de mocking
+de toda la mision), con un `user_id` sintetico inconfundible (`999999`) y limpieza explicita
+del thread de Redis creado (`RedisCheckpointSaver.adelete_thread`) en un `finally`, para no
+dejar basura en la instancia compartida real.
+
+**Que se compara:** campos ESTRUCTURALES (`intent`, `agent`, si la respuesta vino no vacia)
+— no el texto final palabra por palabra (mismo LLM real en ambos lados, pero la generacion
+no es determinista turno a turno; exigir igualdad textual haria el dual run fragil sin
+probar equivalencia funcional real).
+
+**Resultado, 2/2 tests, CONTRA INFRAESTRUCTURA REAL (no mockeada):**
+- Mensaje de pedido real: OLD y NEW coinciden en `intent=order_status`, `agent=OrderAgent`,
+  ambos generan respuesta grounded (`OrderAgent` real, `django_internal_get` mockeado en
+  ambos). 0 discrepancias.
+- Mensaje de queja real: OLD y NEW coinciden en `agent=SupportAgent` (la regla de
+  escalamiento real, "queja -> SupportAgent", se comporta igual en ambos runtimes — logico,
+  dado que ambos reusan el MISMO `AgentRegistry.apply_escalation` real desde ADK-04). 0
+  discrepancias.
+
+**Hallazgo real importante para ADK-11 (conflicto de dependencias, no de logica):**
+construir `get_llm()` real (OLD system) requiere `langchain-ollama`+`langchain-openai`
+(el `LOCAL_MODEL_CHAIN` real del proyecto encadena ollama + LM Studio como fallback).
+`langchain-openai==0.2.14` exige `openai<2.0.0`; `litellm` (dependencia de ADK, usado por
+`LiteLlm`) exige `openai>=2.20.0` — **rangos que NO se solapan, sin una version de `openai`
+que sirva a ambos stacks en el mismo venv/proceso.** Se evito el conflicto forzando
+`LOCAL_MODEL_CHAIN` a solo el motor `ollama-nativo` para este dual run (no dispara el import
+de `langchain_openai`), dejando el conflicto real DORMIDO, no resuelto — `pip check` lo
+confirma como advertencia activa en el venv de `adk_poc/`.
+
+**Implicacion real, no resuelta aqui, para ADK-11:** mientras el sistema OLD (LangChain)
+siga vivo, NO puede coexistir con el sistema NEW (ADK/LiteLLM) importados en el MISMO
+proceso/venv de produccion — un despliegue de transicion real necesitaria procesos/servicios
+separados (ej. dos contenedores, o un cutover atomico sin ventana de coexistencia en el
+mismo proceso), no simplemente "agregar ADK a `ai_engine`" mientras `action_graph.py` sigue
+activo. Esto desaparece naturalmente despues de ADK-12 (eliminacion del runtime viejo,
+momento en que `langchain-core`/`langchain-ollama`/`langchain-openai`/`langgraph` dejan de
+ser dependencias necesarias de `ai_engine`).
+
+66/67 tests pasando en `adk_poc/` (el unico fallo es el flake pre-existente ya documentado).
+
 ## 9. Estado de este documento
 
-ADK-00 + ADK-01 + ADK-02 + ADK-03 + ADK-04 + ADK-05 + ADK-06 + ADK-07 + ADK-08 + ADK-09
-completos. Todo el codigo sigue aislado en `adk_poc/`, sin tocar
-`ai_engine`/`ai_editor`/Django/Docker — ningun cambio de este documento modifico produccion.
-Usuario autorizo continuar sin pausa entre fases ("continua hasta terminar la instruccion
-anterior", 2026-09-14) — siguiente: ADK-10 (Dual run — comparar el runtime OLD
-`action_graph` contra el NEW ADK Workflow antes de promover cualquiera a produccion).
+ADK-00 + ADK-01 + ADK-02 + ADK-03 + ADK-04 + ADK-05 + ADK-06 + ADK-07 + ADK-08 + ADK-09 +
+ADK-10 completos. Todo el codigo de adaptacion sigue aislado en `adk_poc/` — ningun archivo
+de `ai_engine`/`ai_editor`/Django/Docker fue modificado; ADK-10 SI ejecuto contra Redis y
+Ollama reales (infraestructura viva del proyecto), pero con Django mockeado, datos
+sinteticos identificables, y limpieza propia — sin escribir ni leer datos de usuarios
+reales. Usuario autorizo continuar sin pausa entre fases ("continua hasta terminar la
+instruccion anterior", 2026-09-14) — siguiente: ADK-11 (Cutover, con capacidad de rollback
+inmediato). **Nota para ADK-11**: dado que es la fase que modificaria produccion de verdad
+(reemplazar codigo vivo de `ai_engine`), y el propio conflicto de dependencias arriba exige
+una decision de arquitectura de despliegue (procesos separados vs. cutover atomico) — esta
+fase debe tratarse con el mismo criterio de "accion dificil de revertir, confirmar antes de
+proceder" ya establecido, independientemente de la autorizacion de "continuar sin pausa"
+entre fases de analisis/construccion en `adk_poc/`.

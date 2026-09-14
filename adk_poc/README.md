@@ -483,3 +483,45 @@ gating, no el contenido que produciria el loop real.
 - Flujo de RESUME tras confirmacion real (heredado de ADK-02).
 - Verificar `JSON_SCHEMA_FOR_FUNC_DECL=False` contra LM Studio (heredado de
   ADK-01).
+
+---
+
+# ADK-10 — Dual run, contra infraestructura REAL (completado)
+
+**Decision de riesgo deliberada:** `docker ps` confirmo toda la
+infraestructura real corriendo (`ecommerce_sintel_redis`,
+`ecommerce_sintel_ollama`, `ecommerce_sintel_django`,
+`ecommerce_sintel_ai`). El dual run usa Redis y Ollama REALES -- pero NO
+extrae el `JWT_SECRET_KEY` real ni golpea el Django real (`fetch_user_
+context` mockeado en ambos sistemas, `user_id` sintetico `999999`,
+limpieza explicita del thread de Redis en un `finally`).
+
+Se compara `intent`/`agent`/si la respuesta vino no vacia -- no el texto
+final palabra por palabra (mismo LLM real en ambos lados, no determinista
+turno a turno).
+
+**Resultado, 2/2, CONTRA INFRAESTRUCTURA REAL:** OLD (`action_graph.py`) y
+NEW (`sintel_root_workflow.py`) coinciden en `intent`/`agent` para un
+mensaje de pedido y para una queja con escalamiento real -- 0
+discrepancias en ambos casos.
+
+**Hallazgo real importante para ADK-11 (conflicto de dependencias, no de
+logica):** `langchain-openai==0.2.14` (necesario para `get_llm()` real, el
+`LOCAL_MODEL_CHAIN` real encadena LM Studio como fallback) exige
+`openai<2.0.0`; `litellm` (dependencia de ADK) exige `openai>=2.20.0` --
+rangos que NO se solapan. **Mientras el sistema OLD siga vivo, no puede
+coexistir con ADK/LiteLLM en el MISMO proceso/venv de produccion** -- un
+despliegue de transicion real necesita procesos/servicios separados, no
+solo "agregar ADK a ai_engine". Desaparece despues de ADK-12.
+
+66/67 tests en `adk_poc/`.
+
+## Pendiente para ADK-11+
+
+- Decidir arquitectura de despliegue para la transicion (procesos
+  separados vs. cutover atomico) dado el conflicto de dependencias real.
+- Elegir el backend persistente real para sesiones.
+- El resto del contrato de `ChatResponse`.
+- Flujo de RESUME tras confirmacion real (heredado de ADK-02).
+- Verificar `JSON_SCHEMA_FOR_FUNC_DECL=False` contra LM Studio (heredado de
+  ADK-01).
