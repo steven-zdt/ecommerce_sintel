@@ -16,7 +16,20 @@ FASE 3, consulta el endpoint interno de Django `ai_knowledge`
 (PostgreSQL+pgvector) via retrievers.py::retrieve_knowledge_for_chat. Este
 motor ya no mantiene ningun estado de conocimiento propio en memoria.
 
-Ver AUDITORIA/ARCHITECTURE_SIMPLIFICATION_AUDIT.md para el detalle completo.
+FASE 5 (misma mision, 2026-09-14): se retiraron `/memory`, `/search`,
+`/indices`, `/manifest/{app}`, `/refresh`, `/refresh/detect` y los modulos
+que los sostenian (memory_builder.py, specialized_retrieval.py,
+ai_manifest.py, incremental_updater.py) junto con los artefactos JSON que
+leian/escribian (PROJECT_MAP.json, DEPENDENCY_GRAPH.json,
+KNOWLEDGE_GRAPH.json, GLOBAL_MEMORY.json, AI_MANIFESTS/, APP_MEMORY/,
+MASTER_MANIFEST.json) -- eran indices/memoria/manifiestos construidos
+exclusivamente para alimentar el pipeline de generacion de codigo retirado
+en FASE 4a; sin ese pipeline, no tenian ningun consumidor (confirmado con
+grep global de todo el repo, incluyendo scripts y docs operativos).
+
+Este proceso ahora expone unicamente `/chat`, `/health`, y las rutas del AI
+Gateway (`/api/v1/ai/*`, `gateway.py`). Ver
+AUDITORIA/ARCHITECTURE_SIMPLIFICATION_AUDIT.md para el detalle completo.
 
 Arranque:
     uvicorn main:app --host 0.0.0.0 --port 8100 --reload
@@ -31,10 +44,6 @@ from auth import get_validated_token, decode_django_jwt
 from action_graph import run_action_chat
 
 from llm_factory import get_llm, get_dynamic_llm
-from memory_builder import get_global_memory, get_app_memory
-from specialized_retrieval import retrieve_with_routing, get_registry
-from ai_manifest import build_all_manifests, get_manifest
-from incremental_updater import update_changed_apps, detect_changed_apps
 from gateway import ai_router
 from config import LOCAL_MODEL_CHAIN, OLLAMA_BASE_URL
 from llm_factory import parse_local_model_chain
@@ -95,20 +104,6 @@ async def lifespan(app: FastAPI):
         _STATE["llm"]    = llm
 
         logger.info("[startup] Motor listo.")
-
-        # Pre-build specialized indices (Phase 5/6)
-        try:
-            registry = get_registry()
-            logger.info("[startup] Specialized indices ready: %s", registry.stats())
-        except Exception as exc:
-            logger.warning("[startup] Specialized indices not ready: %s", exc)
-
-        # Pre-build AI manifests (Phase 12)
-        try:
-            manifests = build_all_manifests()
-            logger.info("[startup] AI manifests built: %d apps", len(manifests))
-        except Exception as exc:
-            logger.warning("[startup] AI manifests error: %s", exc)
     except Exception as exc:
         logger.error("[startup] Error critico durante init: %s", exc)
         raise
@@ -126,23 +121,6 @@ app = FastAPI(
 # AI Gateway (Fase 1 AI Core): rutas /api/v1/ai/* con JWT de Django obligatorio.
 # Los endpoints historicos de generacion de codigo de abajo no cambian.
 app.include_router(ai_router)
-
-
-# ─── Schemas de request/response ─────────────────────────────────────────────
-
-class MemoryRequest(BaseModel):
-    app: str | None = None
-
-
-class RefreshRequest(BaseModel):
-    apps: list[str] | None = None
-    frontend: bool = False
-    force_full: bool = False
-
-
-class SearchRequest(BaseModel):
-    query: str
-    index: str | None = None  # optional: force a specific index name
 
 
 # ─── Endpoints ───────────────────────────────────────────────────────────────
@@ -246,78 +224,3 @@ async def health():
         "status": "ok" if llm_ok else "starting",
         "llm_ready": llm_ok,
     }
-
-
-@app.get("/memory")
-async def get_memory(app: str | None = None):
-    """
-    Devuelve la memoria del proyecto.
-    GET /memory          -> global memory
-    GET /memory?app=shop -> per-app memory
-    """
-    if app:
-        return get_app_memory(app)
-    return get_global_memory()
-
-
-@app.post("/search")
-async def specialized_search(req: SearchRequest):
-    """
-    Busca en los indices especializados (Phase 5/6).
-    Ruta automaticamente al mejor indice segun el tipo de query.
-    GET /search {"query": "como funciona ProductSerializer"}
-    """
-    indices = [req.index] if req.index else None
-    result = retrieve_with_routing(req.query)
-    return result
-
-
-@app.get("/indices")
-async def list_indices():
-    """Lista todos los indices especializados y su tamano (numero de documentos)."""
-    try:
-        registry = get_registry()
-        return {"indices": registry.stats()}
-    except Exception as exc:
-        raise HTTPException(500, str(exc))
-
-
-@app.get("/manifest/{app_name}")
-async def app_manifest(app_name: str):
-    """
-    Devuelve el AI_MANIFEST completo de una app.
-    GET /manifest/shop
-    """
-    manifest = get_manifest(app_name)
-    if manifest.get("error"):
-        raise HTTPException(404, manifest["error"])
-    return manifest
-
-
-@app.post("/refresh")
-async def refresh_knowledge_base(req: RefreshRequest):
-    """
-    Actualiza incrementalmente la memoria del motor (APP_MEMORY/indices
-    especializados -- Fases 10 y 12). Detecta cambios automaticamente o acepta
-    lista de apps cambiadas.
-
-    [DEGRADADO 2026-08-10, FASE 0 -- desacoplamiento ai_engine <->
-    project_knowledge_graph] Este endpoint corria ademas gobernanza
-    (`graph_validator.py`) y marcaba documentacion de Nivel 2 a revisar --
-    ambas dependian de project_knowledge_graph, que ai_engine ya no debe
-    importar. Ese analisis sigue existiendo, pero via
-    `python -m project_knowledge_graph.cli validate`, fuera de este servicio.
-    """
-    result = update_changed_apps(
-        app_names=req.apps,
-        frontend=req.frontend,
-        force_full=req.force_full,
-    )
-    return result
-
-
-@app.get("/refresh/detect")
-async def detect_changes():
-    """Detecta que apps han cambiado desde el ultimo refresh."""
-    changed_apps, frontend = detect_changed_apps()
-    return {"changed_apps": changed_apps, "frontend_changed": frontend}

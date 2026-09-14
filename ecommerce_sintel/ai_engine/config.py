@@ -23,15 +23,20 @@ LOCAL_MODEL_CHAIN   = config(
     default=f"ollama|ollama-nativo|{OLLAMA_BASE_URL}|{LLM_MODEL}",
 )
 
-# FASE 4b (mision de simplificacion arquitectonica, 2026-09-14): CHROMA_*/
-# EMBEDDING_*/DOCS_SPECS_PATH/INGESTION_BATCH_SIZE/MAX_RETRIEVER_CHUNKS
-# retirados -- este proceso ya no calcula embeddings ni mantiene un vector
-# store propio (ChromaDB eliminado). El RAG del chat vive en Django/
-# ai_knowledge (PostgreSQL+pgvector); su propia configuracion de embeddings
-# (AIChannelConfig.CHANNEL_EMBEDDINGS) es independiente de este archivo. Ver
+# FASE 4b/5 (mision de simplificacion arquitectonica, 2026-09-14): CHROMA_*/
+# EMBEDDING_*/DOCS_SPECS_PATH/INGESTION_BATCH_SIZE/MAX_RETRIEVER_CHUNKS/
+# CODEBASE_PATH retirados -- este proceso ya no calcula embeddings ni
+# mantiene un vector store propio (ChromaDB eliminado, FASE 4b), y ya no
+# escanea el codigo fuente del repo para memoria/manifiestos/indices
+# (incremental_updater.py/memory_builder.py/ai_manifest.py/
+# specialized_retrieval.py retirados, FASE 5 -- alimentaban exclusivamente
+# el pipeline de generacion de codigo ya retirado en FASE 4a). El RAG del
+# chat vive en Django/ai_knowledge (PostgreSQL+pgvector); su propia
+# configuracion de embeddings (AIChannelConfig.CHANNEL_EMBEDDINGS) es
+# independiente de este archivo. El volumen `.:/workspace:ro` (docker-compose.yml)
+# ya no tiene consumidor -- retirado en el mismo cambio. Ver
 # AUDITORIA/ARCHITECTURE_SIMPLIFICATION_AUDIT.md.
 
-CODEBASE_PATH       = config("CODEBASE_PATH", default="/workspace/ecommerce_sintel")
 # B2 (AUDITORIA/16): checkpointer del Action Graph (redis_checkpointer.py) -- DB separada de
 # Django (Channels=0, Cache=1) para no compartir namespace de claves con nada mas.
 CHECKPOINTER_REDIS_URL = config("CHECKPOINTER_REDIS_URL", default="redis://redis:6379/2")

@@ -1,11 +1,8 @@
-langchain>=0.3.0,<0.4.0
 langchain-core>=0.3.0,<0.4.0
-langchain-community>=0.3.0,<0.4.0
 langchain-ollama>=0.2.0,<0.3.0
 langchain-openai>=0.2.0,<0.3.0
 langchain-anthropic>=0.2.0,<0.3.0
 langgraph>=0.2.0,<0.3.0
-rank-bm25>=0.2.2,<0.3.0
 fastapi>=0.115.0,<0.116.0
 uvicorn[standard]>=0.32.0,<0.33.0
 pydantic>=2.9.0,<3.0.0
@@ -13,11 +10,17 @@ python-multipart>=0.0.12
 httpx>=0.28.0
 python-decouple>=3.8,<4.0
 PyJWT>=2.9.0,<3.0.0
-# FASE 4b (mision de simplificacion arquitectonica, 2026-09-14): chromadb/
+# FASE 4b/5 (mision de simplificacion arquitectonica, 2026-09-14): chromadb/
 # langchain-chroma/unstructured[md] retirados -- ChromaDB eliminado del
 # proyecto (RAG movido a PostgreSQL+pgvector via Django/ai_knowledge, ver
 # AUDITORIA/ARCHITECTURE_SIMPLIFICATION_AUDIT.md). unstructured solo la usaba
-# loaders.py (tambien eliminado) para cargar markdown hacia el vector store.
+# loaders.py (tambien eliminado). langchain (paquete base)/langchain-community/
+# rank-bm25 retirados en FASE 5: solo los usaba specialized_retrieval.py
+# (BM25Retriever/EnsembleRetriever para /search e /indices, tambien
+# eliminados -- sin consumidor real desde que el pipeline de generacion de
+# codigo que alimentaban se retiro en FASE 4a). langchain-core/langchain-
+# ollama/langchain-openai/langchain-anthropic se quedan: siguen sirviendo los
+# clientes de CHAT en llm_factory.py.
 # B2 (AUDITORIA/16): checkpointer propio del Action Graph sobre Redis (redis_checkpointer.py) --
 # NO el paquete langgraph-checkpoint-redis (requiere el modulo RediSearch, no disponible en
 # redis:7.2-alpine ya usado por el proyecto). Cliente redis plano, sync+async.

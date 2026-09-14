@@ -48,7 +48,15 @@ def test_ai_engine_core_modules_import_without_project_knowledge_graph_on_sys_pa
     """Verificacion literal de 'ai_engine puede ejecutarse sin project_
     knowledge_graph': fuerza que el paquete no sea importable (lo saca de
     sys.modules y bloquea su resolucion) y confirma que los modulos que antes
-    dependian de el siguen importando limpio."""
+    dependian de el siguen importando limpio.
+
+    FASE 5 (mision de simplificacion arquitectonica, 2026-09-14): la lista de
+    modulos se actualizo -- planner.py/graph.py (FASE 4a) e
+    incremental_updater.py (FASE 5) ya no existen, este test los importaba
+    igual y quedaba enmascarado por el pytest.skip() de abajo (ModuleNotFoundError
+    "No module named 'planner'" no contiene "project_knowledge_graph", asi que
+    caia siempre al skip sin verificar nada desde FASE 4a). Se reemplazan por
+    los modulos core que SI siguen vivos y en el camino real de /chat."""
     import sys
 
     sys.path = [p for p in sys.path if "project_knowledge_graph" not in p]
@@ -58,7 +66,7 @@ def test_ai_engine_core_modules_import_without_project_knowledge_graph_on_sys_pa
 
     import importlib
 
-    for mod_name in ("planner", "graph", "incremental_updater"):
+    for mod_name in ("action_graph", "retrievers", "main"):
         try:
             importlib.import_module(mod_name)
         except ModuleNotFoundError as exc:

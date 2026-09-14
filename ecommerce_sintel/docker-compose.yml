@@ -198,14 +198,18 @@ services:
     ports:
       - "8100:8100"
     volumes:
-      - .:/workspace:ro
+      # FASE 5 (mision de simplificacion arquitectonica, 2026-09-14): el
+      # bind-mount de solo lectura del repo (`.:/workspace:ro`) se retiro --
+      # ningun modulo de ai_engine escanea codigo fuente del repo desde que
+      # se elimino el pipeline de generacion de codigo (FASE 4a) y sus
+      # consumidores de CODEBASE_PATH (FASE 5). Ver
+      # AUDITORIA/ARCHITECTURE_SIMPLIFICATION_AUDIT.md.
       # FASE 10: tokens OAuth del MCP de Meta Ads (mcp_client/storage.py).
       # Persisten fuera de la imagen y no se versionan.
       - ecommerce_sintel_mcp_tokens:/data/mcp
     env_file: .env
     environment:
       OLLAMA_BASE_URL: "http://sintel_ollama:11434"
-      CODEBASE_PATH: "/workspace"
       MCP_TOKEN_STORE_DIR: "/data/mcp"
       # Fase 1 AI Core: URL interna hacia Django para resolver identidad
       # (JWT_SECRET_KEY ya llega via env_file compartido, no se duplica aqui)

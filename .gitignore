@@ -53,3 +53,12 @@ Thumbs.db
 
 # ── Notas con credenciales en texto plano (hallazgo 2026-07-22) ────────────
 notas.txt
+
+# ── project_knowledge_graph: snapshot generado, regenerable via su propio CLI
+# (python -m project_knowledge_graph.cli ...) -- ~57MB de JSON (DEPENDENCY_GRAPH,
+# KNOWLEDGE_GRAPH, PROJECT_MAP, QUERY_AUDIT_LOG) que nunca se habia commiteado
+# antes de esta decision (2026-09-14, mision de simplificacion arquitectonica) --
+# mismo criterio que cualquier build output: no versionar, cada quien lo regenera
+# localmente. snapshots/ se conserva (pequeno, checkpoints deliberados, no output
+# de cada corrida).
+ecommerce_sintel/project_knowledge_graph/data/

@@ -260,7 +260,10 @@ services:
     # unicamente Django (support/services/ai_bridge.py) le habla, nunca el
     # Customer directo.
     volumes:
-      - .:/workspace:ro
+      # FASE 5 (mision de simplificacion arquitectonica, 2026-09-14): el
+      # bind-mount de solo lectura del repo (`.:/workspace:ro`) se retiro --
+      # sin consumidor desde que se elimino el pipeline de generacion de
+      # codigo (FASE 4a) y sus lectores de CODEBASE_PATH (FASE 5).
       # FASE 10: refresh token OAuth del MCP de Meta Ads (mcp_client/storage.py).
       # Se autoriza una vez con `python -m mcp_client.authorize`; despues el
       # cliente refresca solo. MCP_META_ADS_ENABLED debe ponerse en .env.production.
@@ -279,7 +282,6 @@ services:
       # ai_engine/.AGENT/LM_STUDIO_MIGRATION_2026-08-17.md para el detalle
       # completo (conectividad, hallazgos, concurrencia medida).
       LOCAL_MODEL_CHAIN: "lmstudio|openai-compatible|http://host.docker.internal:1234/v1|qwen/qwen3.5-9b"
-      CODEBASE_PATH: "/workspace"
       DJANGO_INTERNAL_API_URL: "http://django:8000/api/v1"
       # Checkpointer del Action Graph (DB 2 de Redis, separada de Channels/Cache
       # de Django) -- a diferencia de dev, Redis de produccion exige auth
@@ -296,10 +298,11 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-      # El arranque real (carga de documentos/indices desde CODEBASE_PATH) tardo
-      # mas de 90s en una corrida en vivo durante esta auditoria -- start_period
-      # generoso para no marcar "unhealthy" en pleno arranque normal.
-      start_period: 150s
+      # FASE 5 (2026-09-14): el arranque ya no escanea el codebase (retirado el
+      # pipeline que lo necesitaba) -- start_period reducido de 150s a 30s,
+      # midiendo ~15s de arranque real en dev tras el cambio. Sigue con margen
+      # sobre lo medido, no al limite.
+      start_period: 30s
     dns:
       - 1.1.1.1
       - 8.8.8.8
