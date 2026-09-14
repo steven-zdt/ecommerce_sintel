@@ -291,7 +291,7 @@ const totalCount = ref(0);
 const totalPages = ref(0);
 const currentPage = ref(1);
 const showFilterMobile = ref(false);
-const viewMode = ref('list');
+const viewMode = ref('grid');
 
 const filters = reactive({
   search: route.query.q || '',

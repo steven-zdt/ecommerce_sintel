@@ -1,6 +1,6 @@
 <template>
   <BaseHorizontalCard
-    :image="product.image || ''"
+    :image="primaryImage"
     image-fit="contain"
     placeholder-icon="bi-box-seam"
     placeholder-bg="linear-gradient(135deg, #f8fafc, #f1f5f9)"
@@ -62,6 +62,7 @@
 import { ref, computed } from 'vue';
 import BaseHorizontalCard from '@/components/base/BaseHorizontalCard.vue';
 import { formatCOP } from '@/utils/money';
+import { resolvePrimaryImage } from '@/utils/media';
 
 const props = defineProps({
   product: { type: Object, required: true },
@@ -69,6 +70,11 @@ const props = defineProps({
 
 const emit = defineEmits(['add-to-cart', 'view']);
 const adding = ref(false);
+
+// Fix (Auditoria Enterprise de Imagenes, 2026-08-04): esta card leia `product.image`, campo
+// que NUNCA existio en ProductSerializer (solo existe `product.images[]`) -- la vista de lista
+// de /tienda mostraba el placeholder para TODOS los productos, tuvieran o no imagen real.
+const primaryImage = computed(() => resolvePrimaryImage(props.product.images) || '');
 
 const defaultVariant = computed(() =>
   props.product.variants?.find(v => v.is_default) || props.product.variants?.[0] || {}

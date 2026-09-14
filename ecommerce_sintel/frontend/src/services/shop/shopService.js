@@ -11,7 +11,7 @@ export const shopService = {
     return useApi().get('shop/brands/').then(r => r.data);
   },
   detail(uuid) {
-    return useApi().get(`shop/products/${uuid}/`).then(r => r.data);
+    return useApi().get(`shop/products/${uuid}/detail/`).then(r => r.data);
   },
   reviews(uuid) {
     return useApi().get(`shop/products/${uuid}/reviews/`).then(r => r.data);

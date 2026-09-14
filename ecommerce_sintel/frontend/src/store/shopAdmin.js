@@ -298,6 +298,10 @@ export const useShopAdminStore = defineStore('shopAdmin', {
       ));
     },
 
+    deleteCostRule(ruleUuid) {
+      return this._mutate(() => this._api().delete(`dashboard/shop-cost-rules/${ruleUuid}/`));
+    },
+
     assignCostRule(ruleUuid, variantUuid) {
       return this._mutate(() => this._api().post(`dashboard/shop-cost-rules/${ruleUuid}/assign/`, { variant_uuid: variantUuid }));
     },
