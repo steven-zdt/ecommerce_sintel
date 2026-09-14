@@ -22,7 +22,7 @@ docker stats --no-stream sintel_prod_redis sintel_prod_db sintel_prod_django \
 
 echo ""
 echo "=== Health interno de Django (via el contenedor, no expuesto al host) ==="
-docker exec sintel_prod_django curl -sf http://localhost:8000/api/v1/health/ && echo " -> OK" || echo " -> FALLO"
+docker exec sintel_prod_django curl -sf -H "Host: api.sintel.net.co" http://localhost:8000/api/v1/health/ && echo " -> OK" || echo " -> FALLO"
 
 echo ""
 echo "=== Ultimas 10 lineas de logs de Nginx (acceso) ==="

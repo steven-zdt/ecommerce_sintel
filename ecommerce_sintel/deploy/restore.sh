@@ -47,7 +47,11 @@ if [ "$CONFIRM" != "RESTAURAR" ]; then
     exit 1
 fi
 
-echo ">>> [1/3] Restaurando PostgreSQL..."
+echo ">>> [1/4] Creando snapshot preventivo del estado actual..."
+"$SCRIPT_DIR/backup.sh"
+echo "    -> snapshot preventivo completado"
+
+echo ">>> [2/4] Restaurando PostgreSQL..."
 DB_NAME="$(docker exec "$DB_CONTAINER" sh -c 'echo $POSTGRES_DB')"
 DB_USER="$(docker exec "$DB_CONTAINER" sh -c 'echo $POSTGRES_USER')"
 # --clean --if-exists: dropea objetos existentes antes de recrearlos (evita
@@ -56,7 +60,7 @@ docker exec -i "$DB_CONTAINER" pg_restore -U "$DB_USER" -d "$DB_NAME" --clean --
 echo "    -> base de datos restaurada"
 
 if [ -f "$MEDIA_TAR" ]; then
-    echo ">>> [2/3] Restaurando media/ y private_media/..."
+    echo ">>> [3/4] Restaurando media/ y private_media/..."
     docker run --rm \
         --volumes-from "$DJANGO_CONTAINER" \
         -v "$BACKUP_ROOT/media:/backup_in:ro" \
@@ -64,10 +68,10 @@ if [ -f "$MEDIA_TAR" ]; then
         tar -xzf "/backup_in/sintel_media_${TIMESTAMP}.tar.gz" -C /code
     echo "    -> media/private_media restaurados"
 else
-    echo ">>> [2/3] No hay backup de media para $TIMESTAMP, se omite."
+    echo ">>> [3/4] No hay backup de media para $TIMESTAMP, se omite."
 fi
 
-echo ">>> [3/3] Reiniciando django y celery para tomar los datos restaurados..."
+echo ">>> [4/4] Reiniciando django y celery para tomar los datos restaurados..."
 # Uno por uno (no "docker restart A B C" atomico): si un worker esta caido
 # por una razon no relacionada, no debe hacer parecer que la restauracion
 # de BD/media (lo critico, ya confirmado arriba) fallo.

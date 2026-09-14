@@ -7,6 +7,22 @@
 # Es seguro re-ejecutar (idempotente): reconstruye imagenes, aplica
 # migraciones (via entrypoint.sh de cada contenedor django), no duplica el
 # superusuario si ya existe.
+#
+# REGLA OPERATIVA (2026-07-31, confirmada por el usuario): la imagen de
+# produccion NUNCA se edita directamente -- todo cambio se hace en el
+# codigo de desarrollo (ecommerce_sintel_* containers) y se sincroniza a
+# produccion UNICAMENTE via este script. El build usa --no-cache a
+# proposito (solo el servicio `django`, el unico con `build:` en
+# docker-compose.prod.yml -- celery_worker/celery_beat reusan la MISMA
+# imagen `ecommerce_sintel:prod-runtime`, se actualizan solos al recrearse)
+# para garantizar que la imagen de produccion siempre refleja el codigo
+# fuente actual, sin arriesgar una capa de Docker cacheada desactualizada.
+#
+# 2026-08-08: `ecommerce_sintel:prod-runtime` es un tag EXCLUSIVO de
+# produccion (antes se llamaba igual que la imagen de dev,
+# `ecommerce_sintel:runtime` -- un build cualquiera del lado de dev
+# sobreescribia silenciosamente lo que produccion iba a correr en su
+# proximo restart; hallazgo real de auditoria). No renombrar de vuelta.
 # =============================================================================
 set -euo pipefail
 export MSYS_NO_PATHCONV=1
@@ -22,8 +38,8 @@ if [ ! -f ".env.production" ]; then
     exit 1
 fi
 
-echo ">>> [1/5] Construyendo imagenes..."
-$COMPOSE build
+echo ">>> [1/5] Construyendo imagenes (--no-cache, solo django -- ver nota arriba)..."
+$COMPOSE build --no-cache django
 
 echo ">>> [2/5] Levantando el stack..."
 $COMPOSE up -d

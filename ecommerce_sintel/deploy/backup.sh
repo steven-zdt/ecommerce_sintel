@@ -26,6 +26,7 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 BACKUP_ROOT="${SINTEL_BACKUP_ROOT:-/c/Users/Administrator/sintel_backups}"
 RETENTION_DAYS="${SINTEL_BACKUP_RETENTION_DAYS:-14}"
 TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
+LOCK_DIR="$BACKUP_ROOT/.backup.lock"
 
 DB_CONTAINER="sintel_prod_db"
 DJANGO_CONTAINER="sintel_prod_django"
@@ -36,7 +37,23 @@ CLOUDFLARED_DIR="/c/Users/Administrator/.cloudflared/sintel-production"
 
 mkdir -p "$BACKUP_ROOT/db" "$BACKUP_ROOT/media" "$BACKUP_ROOT/config"
 
-echo ">>> [1/4] Respaldo de PostgreSQL..."
+if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+    echo "ERROR: ya existe un backup en ejecucion ($LOCK_DIR). Aborta." >&2
+    exit 1
+fi
+
+DB_DUMP_FINAL="$BACKUP_ROOT/db/sintel_db_${TIMESTAMP}.dump"
+DB_DUMP_TMP="${DB_DUMP_FINAL}.tmp"
+MEDIA_ARCHIVE_FINAL="$BACKUP_ROOT/media/sintel_media_${TIMESTAMP}.tar.gz"
+MEDIA_ARCHIVE_TMP="${MEDIA_ARCHIVE_FINAL}.tmp"
+
+cleanup() {
+    rm -f "$DB_DUMP_TMP" "$MEDIA_ARCHIVE_TMP"
+    rmdir "$LOCK_DIR" 2>/dev/null || true
+}
+trap cleanup EXIT
+
+echo ">>> [1/5] Respaldo de PostgreSQL..."
 if ! docker ps --format '{{.Names}}' | grep -qx "$DB_CONTAINER"; then
     echo "ERROR: el contenedor $DB_CONTAINER no esta corriendo. Aborta." >&2
     exit 1
@@ -45,10 +62,15 @@ fi
 DB_NAME="$(docker exec "$DB_CONTAINER" sh -c 'echo $POSTGRES_DB')"
 DB_USER="$(docker exec "$DB_CONTAINER" sh -c 'echo $POSTGRES_USER')"
 docker exec "$DB_CONTAINER" pg_dump -U "$DB_USER" -d "$DB_NAME" --format=custom \
-    > "$BACKUP_ROOT/db/sintel_db_${TIMESTAMP}.dump"
-echo "    -> $BACKUP_ROOT/db/sintel_db_${TIMESTAMP}.dump"
+    > "$DB_DUMP_TMP"
+if ! docker exec -i "$DB_CONTAINER" pg_restore --list < "$DB_DUMP_TMP" >/dev/null; then
+    echo "ERROR: el dump PostgreSQL no supero la verificacion de integridad. Aborta." >&2
+    exit 1
+fi
+mv "$DB_DUMP_TMP" "$DB_DUMP_FINAL"
+echo "    -> $DB_DUMP_FINAL (integridad verificada)"
 
-echo ">>> [2/4] Respaldo de media/..."
+echo ">>> [2/5] Respaldo de media/..."
 if ! docker ps --format '{{.Names}}' | grep -qx "$DJANGO_CONTAINER"; then
     echo "ERROR: el contenedor $DJANGO_CONTAINER no esta corriendo. Aborta." >&2
     exit 1
@@ -57,10 +79,15 @@ docker run --rm \
     --volumes-from "$DJANGO_CONTAINER" \
     -v "$BACKUP_ROOT/media:/backup_out" \
     alpine:3.20 \
-    tar -czf "/backup_out/sintel_media_${TIMESTAMP}.tar.gz" -C /code media private_media
-echo "    -> $BACKUP_ROOT/media/sintel_media_${TIMESTAMP}.tar.gz"
+    tar -czf "/backup_out/$(basename "$MEDIA_ARCHIVE_TMP")" -C /code media private_media
+if ! tar -tzf "$MEDIA_ARCHIVE_TMP" >/dev/null; then
+    echo "ERROR: el archivo de media no supero la verificacion de integridad. Aborta." >&2
+    exit 1
+fi
+mv "$MEDIA_ARCHIVE_TMP" "$MEDIA_ARCHIVE_FINAL"
+echo "    -> $MEDIA_ARCHIVE_FINAL (integridad verificada)"
 
-echo ">>> [3/4] Respaldo de configuracion (.env.production, certificados, compose)..."
+echo ">>> [3/5] Respaldo de configuracion (.env.production, certificados, compose)..."
 CONFIG_BACKUP_DIR="$BACKUP_ROOT/config/${TIMESTAMP}"
 mkdir -p "$CONFIG_BACKUP_DIR"
 cp "$ENV_FILE" "$CONFIG_BACKUP_DIR/.env.production"
@@ -76,9 +103,10 @@ if [ -d "$CLOUDFLARED_DIR" ]; then
 fi
 echo "    -> $CONFIG_BACKUP_DIR/"
 
-echo ">>> [4/4] Aplicando retencion (${RETENTION_DAYS} dias)..."
+echo ">>> [4/5] Aplicando retencion (${RETENTION_DAYS} dias)..."
 find "$BACKUP_ROOT/db" -name 'sintel_db_*.dump' -mtime "+${RETENTION_DAYS}" -delete
 find "$BACKUP_ROOT/media" -name 'sintel_media_*.tar.gz' -mtime "+${RETENTION_DAYS}" -delete
 find "$BACKUP_ROOT/config" -maxdepth 1 -mindepth 1 -type d -mtime "+${RETENTION_DAYS}" -exec rm -rf {} +
 
+echo ">>> [5/5] Verificacion final completada."
 echo ">>> Backup completo: ${TIMESTAMP}"
