@@ -23,6 +23,35 @@ def _json_safe(value):
     return value
 
 
+# ── Helpers factorizados de CRUD (2026-08-05, Sprint 3 auditoria transversal) ──
+# El "Constructor de Cuestionarios" (Category/Subcategory/Attribute/EquipmentType/
+# Template/Module/Question/Option) repetia el mismo create/update/delete generico
+# en 8 clases -- mismo criterio ya usado en shop/services/catalog.py y
+# renting/services/catalog.py (helpers de modulo en vez de una clase base, porque
+# cada modelo sigue teniendo su propio Commands, sin CRUD generico expuesto). Los
+# metodos con logica propia (codigo autogenerado, clonado profundo, reordenamiento
+# por vecino) NO se tocan -- solo los create/update/delete que ya eran identicos.
+
+@transaction.atomic
+def _create(model, **data):
+    return model.objects.create(**data)
+
+
+@transaction.atomic
+def _update(instance, data: dict, allowed_fields: set = None):
+    for field, value in data.items():
+        if allowed_fields is None or field in allowed_fields:
+            setattr(instance, field, value)
+    instance.save()
+    return instance
+
+
+@transaction.atomic
+def _soft_delete(instance) -> None:
+    instance.is_deleted = True
+    instance.save(update_fields=['is_deleted', 'updated_at'])
+
+
 class QuotationBuilder:
     @staticmethod
     def _create_product_item(quotation, item_data):
@@ -219,6 +248,28 @@ class QuotationBuilder:
 
     @staticmethod
     @transaction.atomic
+    def add_attachment(quotation: Quotation, files: list) -> list:
+        """
+        Adjunta uno o mas archivos a una cotizacion existente (ARCH-M7).
+
+        Aplica la MISMA validacion que los otros caminos de creacion
+        (create_quotation / create_from_template): tamano, extension y
+        magic-bytes. Retorna la lista de QuotationAttachment creados.
+        """
+        from accounts.services.commands import validate_file
+
+        created = []
+        for f in files:
+            validate_file(
+                f, max_size_mb=10,
+                allowed_extensions=['.pdf', '.jpg', '.jpeg', '.png'],
+                magic_bytes_check=True,
+            )
+            created.append(QuotationAttachment.objects.create(quotation=quotation, file=f))
+        return created
+
+    @staticmethod
+    @transaction.atomic
     def create_from_template(applicant_data: dict, template: QuoteTemplate, answers: dict, files: dict = None) -> Quotation:
         """
         Crea una Quotation-solicitud a partir de un cuestionario tecnico
@@ -257,6 +308,24 @@ class QuotationBuilder:
             notes='Solicitud recibida del cliente.',
         )
         return quotation
+
+    @staticmethod
+    @transaction.atomic
+    def delete_quotation(quotation: Quotation, changed_by=None) -> None:
+        """
+        [AGREGADO 2026-08-04, hallazgo A1 de AUDITORIA_INTEGRAL_PRODUCCION_2026-08-04.md]
+        Soft-delete -- antes QuotationViewSet.destroy() usaba el DELETE fisico por
+        defecto de DRF (Quotation nunca sobrescribia perform_destroy), permitiendo a
+        cualquier cliente borrar permanentemente su propia cotizacion (incluido el
+        QuotationTimeline de auditoria append-only en cascada). Mismo patron
+        is_deleted=True que el resto de esta clase (delete_category/delete_template/etc.).
+        """
+        quotation.is_deleted = True
+        quotation.save(update_fields=['is_deleted', 'updated_at'])
+        QuotationTimeline.objects.create(
+            quotation=quotation, status=quotation.status,
+            notes='Cotizacion eliminada por el usuario.', changed_by=changed_by,
+        )
 
 
 class QuotationReviewCommands:
@@ -305,44 +374,30 @@ class QuotationReviewCommands:
 
 class QuoteTemplateCategoryCommands:
     @staticmethod
-    @transaction.atomic
     def create_category(**data) -> QuoteTemplateCategory:
-        return QuoteTemplateCategory.objects.create(**data)
+        return _create(QuoteTemplateCategory, **data)
 
     @staticmethod
-    @transaction.atomic
     def update_category(category: QuoteTemplateCategory, data: dict) -> QuoteTemplateCategory:
-        for field, value in data.items():
-            setattr(category, field, value)
-        category.save()
-        return category
+        return _update(category, data)
 
     @staticmethod
-    @transaction.atomic
     def delete_category(category: QuoteTemplateCategory) -> None:
-        category.is_deleted = True
-        category.save(update_fields=['is_deleted', 'updated_at'])
+        _soft_delete(category)
 
 
 class QuoteTemplateSubcategoryCommands:
     @staticmethod
-    @transaction.atomic
     def create_subcategory(**data) -> QuoteTemplateSubcategory:
-        return QuoteTemplateSubcategory.objects.create(**data)
+        return _create(QuoteTemplateSubcategory, **data)
 
     @staticmethod
-    @transaction.atomic
     def update_subcategory(subcategory: QuoteTemplateSubcategory, data: dict) -> QuoteTemplateSubcategory:
-        for field, value in data.items():
-            setattr(subcategory, field, value)
-        subcategory.save()
-        return subcategory
+        return _update(subcategory, data)
 
     @staticmethod
-    @transaction.atomic
     def delete_subcategory(subcategory: QuoteTemplateSubcategory) -> None:
-        subcategory.is_deleted = True
-        subcategory.save(update_fields=['is_deleted', 'updated_at'])
+        _soft_delete(subcategory)
 
 
 def _generate_template_code(prefix_source) -> str:
@@ -372,18 +427,12 @@ class QuoteTemplateCommands:
         return QuoteTemplate.objects.create(**data)
 
     @staticmethod
-    @transaction.atomic
     def update_template(template: QuoteTemplate, data: dict) -> QuoteTemplate:
-        for field, value in data.items():
-            setattr(template, field, value)
-        template.save()
-        return template
+        return _update(template, data)
 
     @staticmethod
-    @transaction.atomic
     def delete_template(template: QuoteTemplate) -> None:
-        template.is_deleted = True
-        template.save(update_fields=['is_deleted', 'updated_at'])
+        _soft_delete(template)
 
     @staticmethod
     @transaction.atomic
@@ -484,65 +533,44 @@ class QuoteTemplateCommands:
 
 class QuoteTemplateAttributeCommands:
     @staticmethod
-    @transaction.atomic
     def create_attribute(**data) -> QuoteTemplateAttribute:
-        return QuoteTemplateAttribute.objects.create(**data)
+        return _create(QuoteTemplateAttribute, **data)
 
     @staticmethod
-    @transaction.atomic
     def update_attribute(attribute: QuoteTemplateAttribute, data: dict) -> QuoteTemplateAttribute:
-        for field, value in data.items():
-            setattr(attribute, field, value)
-        attribute.save()
-        return attribute
+        return _update(attribute, data)
 
     @staticmethod
-    @transaction.atomic
     def delete_attribute(attribute: QuoteTemplateAttribute) -> None:
-        attribute.is_deleted = True
-        attribute.save(update_fields=['is_deleted', 'updated_at'])
+        _soft_delete(attribute)
 
 
 class QuoteEquipmentTypeCommands:
     @staticmethod
-    @transaction.atomic
     def create_equipment_type(**data) -> QuoteEquipmentType:
-        return QuoteEquipmentType.objects.create(**data)
+        return _create(QuoteEquipmentType, **data)
 
     @staticmethod
-    @transaction.atomic
     def update_equipment_type(equipment_type: QuoteEquipmentType, data: dict) -> QuoteEquipmentType:
-        for field, value in data.items():
-            setattr(equipment_type, field, value)
-        equipment_type.save()
-        return equipment_type
+        return _update(equipment_type, data)
 
     @staticmethod
-    @transaction.atomic
     def delete_equipment_type(equipment_type: QuoteEquipmentType) -> None:
-        equipment_type.is_deleted = True
-        equipment_type.save(update_fields=['is_deleted', 'updated_at'])
+        _soft_delete(equipment_type)
 
 
 class QuoteTemplateModuleCommands:
     @staticmethod
-    @transaction.atomic
     def create_module(**data) -> QuoteTemplateModule:
-        return QuoteTemplateModule.objects.create(**data)
+        return _create(QuoteTemplateModule, **data)
 
     @staticmethod
-    @transaction.atomic
     def update_module(module: QuoteTemplateModule, data: dict) -> QuoteTemplateModule:
-        for field, value in data.items():
-            setattr(module, field, value)
-        module.save()
-        return module
+        return _update(module, data)
 
     @staticmethod
-    @transaction.atomic
     def delete_module(module: QuoteTemplateModule) -> None:
-        module.is_deleted = True
-        module.save(update_fields=['is_deleted', 'updated_at'])
+        _soft_delete(module)
 
     @staticmethod
     @transaction.atomic
@@ -612,23 +640,16 @@ class QuoteTemplateModuleCommands:
 
 class QuoteQuestionCommands:
     @staticmethod
-    @transaction.atomic
     def create_question(**data) -> QuoteQuestion:
-        return QuoteQuestion.objects.create(**data)
+        return _create(QuoteQuestion, **data)
 
     @staticmethod
-    @transaction.atomic
     def update_question(question: QuoteQuestion, data: dict) -> QuoteQuestion:
-        for field, value in data.items():
-            setattr(question, field, value)
-        question.save()
-        return question
+        return _update(question, data)
 
     @staticmethod
-    @transaction.atomic
     def delete_question(question: QuoteQuestion) -> None:
-        question.is_deleted = True
-        question.save(update_fields=['is_deleted', 'updated_at'])
+        _soft_delete(question)
 
     @staticmethod
     @transaction.atomic
@@ -683,25 +704,17 @@ class QuoteQuestionCommands:
 
 
 class QuoteQuestionOptionCommands:
-    @staticmethod
-    @transaction.atomic
-    def create_option(option: "QuoteQuestionOption" = None, **data) -> "QuoteQuestionOption":
-        from quotes.models import QuoteQuestionOption
-        return QuoteQuestionOption.objects.create(**data)
+    ALLOWED_UPDATE_FIELDS = {'label', 'value', 'position', 'is_active', 'metadata'}
 
     @staticmethod
-    @transaction.atomic
+    def create_option(**data) -> "QuoteQuestionOption":
+        from quotes.models import QuoteQuestionOption
+        return _create(QuoteQuestionOption, **data)
+
+    @staticmethod
     def update_option(option, data: dict):
-        from quotes.models import QuoteQuestionOption
-        ALLOWED = {'label', 'value', 'position', 'is_active', 'metadata'}
-        for k, v in data.items():
-            if k in ALLOWED:
-                setattr(option, k, v)
-        option.save()
-        return option
+        return _update(option, data, allowed_fields=QuoteQuestionOptionCommands.ALLOWED_UPDATE_FIELDS)
 
     @staticmethod
-    @transaction.atomic
     def delete_option(option) -> None:
-        option.is_deleted = True
-        option.save(update_fields=['is_deleted', 'updated_at'])
+        _soft_delete(option)

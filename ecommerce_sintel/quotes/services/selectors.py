@@ -22,6 +22,26 @@ class QuotationSelector:
         )
 
     @staticmethod
+    def list_for_user(user) -> QuerySet:
+        """Cotizaciones propias del cliente autenticado (ARCH-M1).
+
+        Q-07 (auditoria enterprise): mismo select_related/annotate que el
+        path admin (list_all_for_admin) -- antes el cliente dueno de sus
+        propias cotizaciones volvia a pagar el N+1 ya resuelto para admin.
+        """
+        return (
+            Quotation.objects
+            .filter(user=user, is_deleted=False)
+            .select_related('template')
+            .annotate(attachments_count=Count('attachments', distinct=True))
+        )
+
+    @staticmethod
+    def none() -> QuerySet:
+        """Queryset vacio para peticiones sin autenticar."""
+        return Quotation.objects.none()
+
+    @staticmethod
     def get_by_uuid(uuid: str) -> Quotation:
         return (
             Quotation.objects

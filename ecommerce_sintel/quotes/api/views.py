@@ -7,7 +7,7 @@ from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from rest_framework.response import Response
 from drf_spectacular.utils import extend_schema
 
-from quotes.models import Quotation, QuotationAttachment
+from quotes.models import Quotation
 from quotes.services import (
     QuotationSelector, QuotationCommands,
     QuoteTemplateCategorySelector, QuoteTemplateSubcategorySelector, QuoteTemplateSelector,
@@ -47,23 +47,23 @@ class QuotationViewSet(viewsets.ModelViewSet):
         if self.request.user.is_authenticated and self.request.user.is_staff:
             return QuotationSelector.list_all_for_admin()
         if self.request.user.is_authenticated:
-            # Q-07 (auditoria enterprise): mismo select_related/annotate que
-            # el path admin (QuotationSelector.list_all_for_admin) -- antes
-            # el cliente dueno de sus propias cotizaciones volvia a pagar el
-            # N+1 que ya se habia resuelto para el path admin.
-            from django.db.models import Count
-            return (
-                Quotation.objects
-                .filter(user=self.request.user, is_deleted=False)
-                .select_related('template')
-                .annotate(attachments_count=Count('attachments', distinct=True))
-            )
-        return Quotation.objects.none()
+            return QuotationSelector.list_for_user(self.request.user)
+        return QuotationSelector.none()
 
     def get_serializer_class(self):
         if self.action == 'list':
             return QuotationListSerializer
         return QuotationSerializer
+
+    def perform_destroy(self, instance):
+        # [CORREGIDO 2026-08-04, hallazgo A1 de AUDITORIA_INTEGRAL_PRODUCCION_2026-08-04.md]:
+        # sin este override, el destroy() por defecto de ModelViewSet llama
+        # instance.delete() -- DELETE fisico, contradice soft-delete del proyecto y
+        # borra en cascada el QuotationTimeline de auditoria append-only.
+        QuotationCommands.delete_quotation(
+            instance,
+            changed_by=self.request.user if self.request.user.is_authenticated else None,
+        )
 
     # Q-06 (auditoria enterprise): from_template (crea una solicitud) y
     # download_pdf (genera un PDF, trabajo real de CPU/IO) no tenian ningun
@@ -214,20 +214,10 @@ class QuotationViewSet(viewsets.ModelViewSet):
         if not files:
             return Response({"detail": "No files provided."}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Validacion de archivo identica a los otros caminos de creacion
-        # (create_from_template / create_quotation): tamano, extension y
-        # magic-bytes. Sin esto, add_attachment aceptaba cualquier binario.
-        from accounts.services.commands import validate_file
-
-        created = []
-        for f in files:
-            validate_file(
-                f, max_size_mb=10,
-                allowed_extensions=['.pdf', '.jpg', '.jpeg', '.png'],
-                magic_bytes_check=True,
-            )
-            att = QuotationAttachment.objects.create(quotation=quotation, file=f)
-            created.append(str(att.uuid))
+        # La validacion de archivo (tamano, extension, magic-bytes) y la
+        # escritura viven en QuotationCommands.add_attachment (ARCH-M7).
+        attachments = QuotationCommands.add_attachment(quotation, files)
+        created = [str(att.uuid) for att in attachments]
 
         return Response({"uploaded": created}, status=status.HTTP_201_CREATED)
 

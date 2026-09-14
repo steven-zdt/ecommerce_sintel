@@ -422,9 +422,18 @@ lógica.
 
 ## 🚀 Fuera de alcance / decisiones explícitas del negocio
 
-- **No hay motor de cálculo automático.** Existió (`QuoteRuleEngine` +
-  `LaborCalculationEngine`) y fue eliminado a pedido explícito — no
-  reintroducir sin que el usuario lo pida de nuevo.
+- **No hay motor de cálculo automático de precios.** Existió (`QuoteRuleEngine` +
+  `LaborCalculationEngine`) y fue eliminado a pedido explícito (migración
+  `0017_remove_calc_engine_models.py`) — no reintroducir sin que el usuario lo
+  pida de nuevo. **[Corregido 2026-08-05, auditoría transversal]** esto NO
+  incluye `services/labor_conditions_evaluator.py::LaborConditionsEvaluator`
+  — un evaluador distinto y más chico, agregado despues (Fase 10, plan
+  "Simplificación Inteligente", 2026-07-23), que NO calcula precio: solo
+  deriva de `installation_height` una bandera informativa
+  (`work_at_height`) para que el asesor la vea en `QuotationSerializer.
+  get_labor_analysis()` (`api/serializers.py`) y en `RequestViewer.vue`
+  (frontend). Se recalcula en cada lectura, nunca se persiste. Sigue activo
+  y en uso — no es código muerto, esta sección no lo mencionaba.
 - **Tipo de Sistema** sigue siendo un catálogo plano, no forma parte de la
   jerarquía Tipo de Servicio → Categoría → Subcategoría → Instalación.
 - No hay máquina de estados estricta para `Quotation.status` (transiciones
@@ -452,4 +461,8 @@ lógica.
 
 ---
 
-**Última actualización:** 2026-07-02
+**Última actualización:** 2026-08-05 (corrección puntual sobre `LaborConditionsEvaluator`,
+auditoría transversal — el resto del documento no se re-verificó línea por línea en esta pasada;
+el cuerpo describe funcionalidad de julio/2026 sin que se haya confirmado que siga vigente en su
+totalidad. Fecha anterior: 2026-07-02, ya inconsistente entonces con las migraciones 0018-0022
+descritas más arriba en este mismo documento.)
