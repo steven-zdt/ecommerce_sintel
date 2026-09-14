@@ -5,10 +5,19 @@
       <!-- Imagen -->
       <div class="col-auto bhc-img-col">
         <div class="bhc-img-wrap">
-          <img v-if="image" :src="image" :alt="title" class="bhc-img" loading="lazy">
-          <div v-else class="bhc-img-placeholder">
-            <slot name="placeholder-icon"><i :class="['bi', placeholderIcon]"></i></slot>
-          </div>
+          <MediaImage
+            :src="image"
+            :alt="title"
+            :image-fit="imageFit"
+            :placeholder-icon="placeholderIcon"
+            :placeholder-bg="placeholderBg"
+            :placeholder-color="placeholderColor"
+            class="bhc-media"
+          >
+            <template #placeholder>
+              <slot name="placeholder-icon"><i :class="['bi', placeholderIcon]"></i></slot>
+            </template>
+          </MediaImage>
           <slot name="image-badge" />
         </div>
       </div>
@@ -49,6 +58,7 @@
  * Services cotiza con paquete, y Shop agrega al carrito con estado async.
  */
 import { computed } from 'vue';
+import MediaImage from '@/components/ui/MediaImage.vue';
 
 const props = defineProps({
   image: { type: String, default: '' },
@@ -65,13 +75,12 @@ const props = defineProps({
 
 const emit = defineEmits(['view']);
 
+// image-fit/placeholder-bg/placeholder-color ya no se pasan como CSS vars -- MediaImage.vue
+// las recibe directamente como props (image-fit/placeholder-bg/placeholder-color) desde 2026-08-04.
 const accentStyle = computed(() => ({
   '--bhc-accent': props.accentColor,
   '--bhc-accent-shadow': props.accentShadow,
   '--bhc-accent-border': props.accentBorder,
-  '--bhc-image-fit': props.imageFit,
-  '--bhc-placeholder-bg': props.placeholderBg,
-  '--bhc-placeholder-color': props.placeholderColor,
 }));
 </script>
 
@@ -96,17 +105,12 @@ const accentStyle = computed(() => ({
   width: 150px; height: 140px;
   position: relative; overflow: hidden; background: #f8fafc;
 }
-.bhc-img {
-  width: 100%; height: 100%; object-fit: var(--bhc-image-fit);
-  padding: 0.75rem; display: block; transition: transform 0.4s ease;
+.bhc-media { width: 100%; height: 100%; display: block; }
+.bhc-media :deep(.mi-img) {
+  padding: 0.75rem; box-sizing: border-box; transition: transform 0.4s ease;
 }
-.bhc-root:hover .bhc-img { transform: scale(1.04); }
-.bhc-img-placeholder {
-  width: 100%; height: 100%; min-height: 140px;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 2rem; color: var(--bhc-placeholder-color);
-  background: var(--bhc-placeholder-bg);
-}
+.bhc-root:hover .bhc-media :deep(.mi-img) { transform: scale(1.04); }
+.bhc-media :deep(.mi-placeholder) { font-size: 2rem; }
 
 .bhc-info { padding: 1rem 1.25rem; min-width: 0; }
 .bhc-name {

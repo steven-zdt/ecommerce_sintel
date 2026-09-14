@@ -3,18 +3,18 @@
 
     <!-- ── Imagen / placeholder ──────────────────────────────────────────────── -->
     <div class="sc-img-wrap">
-      <img
-        v-if="primaryImage"
-        :src="primaryImage"
+      <MediaImage
+        :images="service.images"
         :alt="service.name"
-        class="sc-img"
-        loading="lazy"
+        placeholder-bg="linear-gradient(135deg, #fffbeb, #fef3c7)"
+        class="sc-media"
       >
-      <div v-else class="sc-placeholder">
-        <div class="sc-placeholder-icon">
-          <i :class="['bi', service.icon_class || 'bi-tools']"></i>
-        </div>
-      </div>
+        <template #placeholder>
+          <div class="sc-placeholder-icon">
+            <i :class="['bi', service.icon_class || 'bi-tools']"></i>
+          </div>
+        </template>
+      </MediaImage>
 
       <!-- Badge destacado -->
       <span v-if="service.is_featured" class="sc-badge-star">
@@ -73,18 +73,13 @@
 <script setup>
 import { computed } from 'vue';
 import { formatCOP } from '@/utils/money';
+import MediaImage from '@/components/ui/MediaImage.vue';
 
 const props = defineProps({ service: { type: Object, required: true } });
 defineEmits(['view', 'quote']);
 
 const categoryName = computed(() => props.service.category?.name || null);
 const levelName    = computed(() => props.service.level?.name    || null);
-
-const primaryImage = computed(() => {
-  const imgs = props.service.images;
-  if (!imgs?.length) return null;
-  return (imgs.find(i => i.is_primary) || imgs[0]).image || null;
-});
 
 const minPrice = computed(() => {
   const variants = props.service.variants;
@@ -133,25 +128,13 @@ const fmtCOP = (n) => formatCOP(n, { withSymbol: true });
   background: #fffbeb;
   flex-shrink: 0;
 }
-.sc-img {
+.sc-media {
   position: absolute;
   inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-  transition: transform 0.5s ease;
 }
-.sc-root:hover .sc-img { transform: scale(1.06); }
+.sc-media :deep(.mi-img) { transition: transform 0.5s ease; }
+.sc-root:hover .sc-media :deep(.mi-img) { transform: scale(1.06); }
 
-.sc-placeholder {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: linear-gradient(135deg, #fffbeb, #fef3c7);
-}
 .sc-placeholder-icon {
   width: 60px;
   height: 60px;

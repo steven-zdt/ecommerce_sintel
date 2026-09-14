@@ -3,16 +3,15 @@
 
     <!-- ── Imagen ──────────────────────────────────────────────────────────── -->
     <div class="ic-img-wrap">
-      <img
-        v-if="primaryImageUrl"
-        :src="primaryImageUrl"
+      <MediaImage
+        :images="item.images"
         :alt="item.name"
-        class="ic-img"
-        loading="lazy"
-      >
-      <div v-else class="ic-placeholder">
-        <i :class="['bi', placeholderIcon]"></i>
-      </div>
+        :placeholder-icon="placeholderIcon"
+        placeholder-bg="linear-gradient(135deg, #f8fafc, #f1f5f9)"
+        placeholder-color="#cbd5e1"
+        image-fit="cover"
+        class="ic-media"
+      />
 
       <!-- Badges top-left -->
       <div class="ic-badges-tl">
@@ -119,6 +118,7 @@ import { useWishlistStore } from '@/store/wishlist';
 import { useToast } from '@/composables/useToast';
 import PriceDisplay from './PriceDisplay.vue';
 import StockBadge from './StockBadge.vue';
+import MediaImage from '@/components/ui/MediaImage.vue';
 
 const props = defineProps({
   item: { type: Object, required: true },
@@ -142,12 +142,6 @@ const placeholderIcon = computed(() => ({
 const categoryName = computed(() =>
   props.item.category_name || props.item.category?.name || props.item.service_category_name || null
 );
-
-const primaryImageUrl = computed(() => {
-  const images = props.item.images;
-  if (!images?.length) return null;
-  return (images.find(img => img.is_primary) || images[0]).image;
-});
 
 const defaultVariant = computed(() =>
   props.item.variants?.find(v => v.is_default) || props.item.variants?.[0] || null
@@ -227,27 +221,10 @@ const discountPercent = computed(() => {
   background: #f8fafc;
   flex-shrink: 0;
 }
-.ic-img {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-  transition: transform 0.5s ease;
-}
-.ic-root:hover .ic-img { transform: scale(1.06); }
-
-.ic-placeholder {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 2.5rem;
-  color: #cbd5e1;
-  background: linear-gradient(135deg, #f8fafc, #f1f5f9);
-}
+.ic-media { position: absolute; inset: 0; }
+.ic-media :deep(.mi-img) { transition: transform 0.5s ease; }
+.ic-root:hover .ic-media :deep(.mi-img) { transform: scale(1.06); }
+.ic-media :deep(.mi-placeholder) { font-size: 2.5rem; }
 
 /* ── Badges ─────────────────────────────────────────────────────────────────── */
 .ic-badges-tl {

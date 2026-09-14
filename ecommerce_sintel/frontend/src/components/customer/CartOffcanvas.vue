@@ -36,10 +36,14 @@
         :key="item.uuid"
         class="cart-item d-flex gap-3 align-items-start mb-3 p-3 rounded-3 border"
       >
-        <!-- Icono segun tipo -->
-        <div class="cart-item-img bg-light rounded-2 d-flex align-items-center justify-content-center flex-shrink-0">
-          <i :class="['bi', item.item_type === 'service' ? 'bi-tools' : 'bi-box-seam', 'text-muted']"></i>
-        </div>
+        <!-- Imagen del producto/servicio, con fallback a icono segun tipo -->
+        <MediaImage
+          :src="item.image"
+          :alt="item.product_name || 'Producto'"
+          :placeholder-icon="item.item_type === 'service' ? 'bi-tools' : 'bi-box-seam'"
+          image-fit="cover"
+          class="cart-item-img rounded-2 flex-shrink-0"
+        />
 
         <!-- Info -->
         <div class="flex-grow-1 min-width-0">
@@ -129,6 +133,7 @@ import { useCartStore } from '@/store/cart';
 import { useToast } from '@/composables/useToast';
 import { useErrorHandler } from '@/composables/useErrorHandler';
 import SintelOffcanvas from '@/components/ui/SintelOffcanvas.vue';
+import MediaImage from '@/components/ui/MediaImage.vue';
 import { formatCOP } from '@/utils/money';
 
 const props = defineProps({
@@ -189,9 +194,10 @@ const fmt = (val) => formatCOP(val);
 .cart-item-img {
   width: 50px;
   height: 50px;
-  font-size: 1.1rem;
   flex-shrink: 0;
+  overflow: hidden;
 }
+.cart-item-img :deep(.mi-placeholder) { font-size: 1.1rem; background: var(--bs-light); }
 .min-width-0 { min-width: 0; }
 
 .qty-controls { gap: 4px; }
