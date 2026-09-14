@@ -227,13 +227,18 @@ services:
     networks:
       - ecommerce_sintel_network
 
-  # ADK-11 (Cutover, ver AUDITORIA/ADK_CUTOVER_PLAN.md): servicio NUEVO,
-  # orquestacion via Google ADK -- desplegado JUNTO a `sintel_ai` (arriba),
-  # puerto propio (8101), SIN recibir trafico real todavia
-  # (`support/services/ai_bridge.py` sigue apuntando a `settings.
-  # AI_ENGINE_URL` = http://sintel_ai:8100, sin cambios). El swap de trafico
-  # y el apagado de `sintel_ai` son pasos SEPARADOS, cada uno con su propia
-  # autorizacion explicita -- ver el plan de cutover, seccion 3 "Opcion A".
+  # ADK-11 (Cutover, ver AUDITORIA/ADK_CUTOVER_PLAN.md): servicio que
+  # orquesta via Google ADK -- EN PRODUCCION desde 2026-09-14
+  # (`settings.AI_ENGINE_URL` de Django/.env apunta aqui,
+  # http://sintel_ai_adk:8101; `sintel_ai` -- OLD, LangGraph -- esta
+  # detenido, `docker compose stop sintel_ai`, NO eliminado, para rollback
+  # inmediato: revertir AI_ENGINE_URL en .env a http://sintel_ai:8100,
+  # `docker compose up -d django celery_worker celery_beat` (recrea, no
+  # basta `restart`), `docker compose start sintel_ai`). Definicion del
+  # servicio OLD deliberadamente NO eliminada de este archivo -- esa
+  # limpieza es ADK-12 (eliminacion del runtime viejo), una fase separada
+  # con su propio checklist ("cero consumidores, tests, rollback"), no
+  # parte de ADK-11.
   sintel_ai_adk:
     build:
       context: .

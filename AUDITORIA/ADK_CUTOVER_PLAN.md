@@ -218,6 +218,62 @@ no como autorizacion para el corte de trafico real en si, dado su blast radius d
 (afecta clientes reales) y que el propio plan (seccion 5) declara ese paso sujeto a
 confirmacion explicita item por item.
 
+## 4ter. Swap de trafico y apagado de OLD -- EJECUTADO (2026-09-14, autorizado explicitamente: "continua el swap de trafico y apaga sintel_ai")
+
+**Hallazgo real encontrado justo antes del swap, no bloqueante pero importante:**
+`LOCAL_MODEL_CHAIN` real de produccion (verificado con `printenv`, dato no sensible -- URL/
+nombre de modelo, no un secreto) es `lmstudio|openai-compatible|http://host.docker.internal:
+1234/v1|qwen/qwen3.5-9b` -- **LM Studio, no Ollama**, y SIN entrada de fallback (una sola
+entrada en la cadena). El fix de `JSON_SCHEMA_FOR_FUNC_DECL=False` (ADK-01) solo se habia
+verificado contra Ollama en TODA la mision hasta este punto -- riesgo real, nunca resuelto
+silenciosamente. Se intento verificar tool-calling real contra LM Studio antes del swap:
+**LM Studio no esta corriendo en este momento** (`ConnectError: Connection refused`,
+confirmado igual desde el contenedor OLD y el NEW -- no es un problema de red de este
+servicio, LM Studio simplemente no esta activo ahora mismo en el host). Esto significa que,
+en este momento, NINGUNO de los dos sistemas (OLD ni NEW) puede servir un turno de chat real
+con datos de un LLM -- el swap no empeora esa situacion preexistente, pero el riesgo real
+(`JSON_SCHEMA_FOR_FUNC_DECL` sin verificar contra LM Studio) sigue sin resolverse y se hara
+visible en cuanto LM Studio vuelva a estar disponible. **Accion pendiente real:** verificar
+tool-calling real contra LM Studio en cuanto este disponible, antes de confiar en ese
+proveedor para trafico real de escritura (ver seccion 4, ya lo listaba como pendiente).
+
+**Pasos ejecutados:**
+1. `AI_ENGINE_URL` cambiado en `.env` (`http://sintel_ai:8100` -> `http://sintel_ai_adk:
+   8101`).
+2. `docker compose restart django celery_worker celery_beat` **NO fue suficiente** --
+   `restart` reutiliza el contenedor existente sin releer `env_file` (confirmado: `printenv
+   AI_ENGINE_URL` dentro del contenedor seguia mostrando el valor viejo). Se uso `docker
+   compose up -d django celery_worker celery_beat` (recrea los contenedores con el env
+   actual) -- confirmado con `printenv` que el valor nuevo si quedo cargado.
+3. Verificado que Django alcanza el servicio NEW por la red real:
+   `docker exec ecommerce_sintel_django python -c "requests.get('http://sintel_ai_adk:8101/health')"`
+   -> `200 {'status': 'ok', 'orchestrator': 'google-adk'}`.
+4. Verificado que `nginx/` no tiene ninguna ruta directa a `sintel_ai` (unico punto de
+   integracion real confirmado: `AI_ENGINE_URL`, ya cambiado).
+5. `docker compose stop sintel_ai` (no `rm`/`down` -- el contenedor sigue existiendo,
+   detenido, para rollback inmediato sin rebuild). Confirmado `Exited (0)`, salida limpia.
+6. Django reiniciado sin errores en logs, healthcheck real (`docker ps`) en estado
+   `healthy`.
+
+**Estado final:** `sintel_ai_adk` (Google ADK) es ahora el UNICO orquestador de RAG/chat de
+atencion al cliente en produccion -- requisito duro del usuario (seccion 0) cumplido.
+`sintel_ai` (OLD, LangGraph) esta detenido, no eliminado.
+
+**Rollback (si hiciera falta), pasos exactos:**
+1. En `.env`: revertir `AI_ENGINE_URL=http://sintel_ai:8100`.
+2. `docker compose up -d django celery_worker celery_beat` (recrea con el env revertido --
+   `restart` NO basta, ver hallazgo del paso 2 arriba).
+3. `docker compose start sintel_ai` (revive el contenedor detenido, misma imagen, sin
+   rebuild).
+4. Verificar `docker exec ecommerce_sintel_django printenv AI_ENGINE_URL` -> debe mostrar
+   `http://sintel_ai:8100` de nuevo.
+
+**No ejecutado, deliberadamente, fuera de alcance de esta instruccion:** ADK-12
+(eliminacion del runtime viejo -- borrar `ai_engine/action_graph.py`/`llm_factory.py`/
+`redis_checkpointer.py`/`main.py`/el servicio `sintel_ai` de `docker-compose.yml`) es una
+fase separada, con su propio checklist ("cero consumidores verificados, tests, rollback",
+seccion 12 del plan original) -- no se borro nada del sistema OLD, solo se detuvo.
+
 ## 5. Gate final antes de ejecutar cualquier paso de este plan
 
 Ningun paso de la seccion 3 (Opcion A) se ejecuta sin autorizacion explicita, item por
@@ -225,4 +281,6 @@ item -- consistente con el criterio ya aplicado en esta mision para acciones dif
 revertir o que afectan sistemas compartidos. El checkpoint obligatorio de la mision
 (seccion 24 del plan original) sigue vigente: cualquier regresion de seguridad, perdida de
 datos, ruptura de contrato, test fallido o ambiguedad de migracion detiene el avance para
-reportar antes de continuar.
+reportar antes de continuar. **Estado a 2026-09-14: pasos 1-5 de la Opcion A completos y
+ejecutados (seccion 4ter); pendiente real: ADK-12 (eliminacion de OLD) y verificar
+tool-calling contra LM Studio real en cuanto vuelva a estar disponible.**
