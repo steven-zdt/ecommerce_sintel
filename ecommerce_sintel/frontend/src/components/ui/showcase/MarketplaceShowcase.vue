@@ -32,6 +32,7 @@
           :items-desktop="carouselCfg.items_desktop"
           :items-tablet="carouselCfg.items_tablet"
           :items-mobile="carouselCfg.items_mobile"
+          :gap="carouselCfg.gap"
           :autoplay="carouselCfg.autoplay"
           :loop="carouselCfg.loop"
           :speed="carouselCfg.speed"
@@ -95,12 +96,23 @@ function firstConfig(key) {
   return (withCfg?.layout_config || {})[key] || {};
 }
 
+// Fallback en cascada: si el modulo no configuro su propia pestana "Carrusel"
+// (`layout_config.carousel.*`), se usan las columnas/gap de las pestanas
+// "Distribucion"/"Responsive" (`layout_config.columns/columns_tablet/
+// columns_mobile/gap`) -- mismo patron `firstConfig()`, sin pisar ningun
+// modulo que ya tenga la pestana Carrusel configurada explicitamente.
+const columnsCfg = computed(() => {
+  const l = visibleModules.value.find((m) => m.layout_config && m.layout_config.columns != null);
+  return l?.layout_config || {};
+});
+
 const carouselCfg = computed(() => {
   const c = firstConfig('carousel');
   return {
-    items_desktop:   c.items_desktop ?? 6,
-    items_tablet:    c.items_tablet ?? 3,
-    items_mobile:    c.items_mobile ?? 1.2,
+    items_desktop:   c.items_desktop ?? columnsCfg.value.columns ?? 6,
+    items_tablet:    c.items_tablet ?? columnsCfg.value.columns_tablet ?? 3,
+    items_mobile:    c.items_mobile ?? columnsCfg.value.columns_mobile ?? 1.2,
+    gap:             c.gap ?? columnsCfg.value.gap ?? 1.25,
     autoplay:        c.autoplay ?? false,
     loop:            c.loop ?? true,
     speed:           c.speed ?? 40,

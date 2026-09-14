@@ -32,6 +32,7 @@
           :data-bs-slide-to="i"
           :class="{ active: i === 0 }"
           :aria-current="i === 0 ? 'true' : undefined"
+          :aria-label="`Mostrar banner ${i + 1} de ${banners.length}`"
         ></button>
       </div>
 
@@ -54,6 +55,7 @@
           type="button"
           data-bs-target="#heroBannerCarousel"
           data-bs-slide="prev"
+          aria-label="Banner anterior"
         >
           <div class="hs-ctrl-btn"><i class="bi bi-chevron-left"></i></div>
         </button>
@@ -62,6 +64,7 @@
           type="button"
           data-bs-target="#heroBannerCarousel"
           data-bs-slide="next"
+          aria-label="Banner siguiente"
         >
           <div class="hs-ctrl-btn"><i class="bi bi-chevron-right"></i></div>
         </button>

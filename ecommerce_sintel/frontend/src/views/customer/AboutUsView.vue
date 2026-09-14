@@ -10,7 +10,7 @@
       <button class="btn btn-outline-primary btn-sm" @click="fetchContent">Reintentar</button>
     </div>
 
-    <template v-else-if="config">
+    <template v-else-if="config?.is_visible">
       <!-- Hero -->
       <section class="abu-hero" :style="heroStyle">
         <div class="container">

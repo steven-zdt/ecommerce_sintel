@@ -11,7 +11,7 @@
         <!-- Texto principal -->
         <div class="col-lg-7">
           <div class="hsl-text">
-            <span class="hsl-eyebrow">{{ banner.eyebrow || 'Sintel Technology' }}</span>
+            <span class="hsl-eyebrow">{{ banner.eyebrow || appConfigStore.brand.site_name }}</span>
             <!-- El carrusel monta todos los slides en el DOM a la vez (Bootstrap solo
                  oculta los inactivos con CSS) -- solo el primero debe ser <h1>, el resto
                  <h2>, o la pagina termina con varios <h1> simultaneos (hallazgo F10). -->
@@ -55,6 +55,11 @@
 import { computed } from 'vue';
 import HeroBackground from './HeroBackground.vue';
 import HeroCTA from './HeroCTA.vue';
+import { useAppConfigStore } from '@/store/appConfig';
+
+// White-label F7 (2026-08-14): antes 'Sintel Technology' hardcodeado como
+// fallback del eyebrow -- ver AUDITORIA/WHITE_LABEL/WHITE_LABEL_FRONTEND_AUDIT.md.
+const appConfigStore = useAppConfigStore();
 
 const props = defineProps({
   banner:   { type: Object,  required: true },

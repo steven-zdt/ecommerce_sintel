@@ -3,6 +3,16 @@
 
     <!-- ── IMAGE_BG variant ───────────────────────────────────────────────── -->
     <template v-if="card.card_type === 'image_bg'">
+      <video
+        v-if="card.video"
+        class="ci-bg-video"
+        :src="card.video"
+        :poster="card.image || undefined"
+        muted
+        loop
+        autoplay
+        playsinline
+      ></video>
       <div class="ci-bg-img" :style="bgImgStyle"></div>
       <div class="ci-overlay"></div>
       <div class="ci-body ci-body--bg">
@@ -98,8 +108,27 @@
       <div v-if="card.description" class="ci-desc">{{ card.description }}</div>
     </template>
 
+    <!-- Stats (chips genericos [{label,value}]) -- solo en variantes con espacio para texto -->
+    <div v-if="showExtras && stats.length" class="ci-stats">
+      <div v-for="(s, i) in stats" :key="i" class="ci-stat">
+        <strong>{{ s.value }}</strong>
+        <span>{{ s.label }}</span>
+      </div>
+    </div>
+
+    <!-- Boton secundario -- solo en variantes con espacio para texto (vertical/horizontal/premium) -->
+    <a
+      v-if="showExtras && card.secondary_label && card.secondary_url"
+      href="#"
+      class="ci-secondary-btn"
+      @click.stop.prevent="navigateSecondary"
+    >
+      <i v-if="card.secondary_icon" :class="['bi', card.secondary_icon]"></i>
+      {{ card.secondary_label }}
+    </a>
+
     <!-- Badge -->
-    <span v-if="card.badge_text" class="ci-badge-featured">{{ card.badge_text }}</span>
+    <span v-if="card.badge_text" class="ci-badge-featured" :style="{ background: card.badge_color || '#2563eb' }">{{ card.badge_text }}</span>
   </div>
 </template>
 
@@ -107,6 +136,7 @@
 import { computed } from 'vue';
 import { useRouter } from 'vue-router';
 import { resolveRevealClass } from '@/composables/useScrollReveal';
+import { resolveUrlNavigation } from '@/utils/urlNavigation';
 import IconRenderer from '@/components/ui/IconRenderer.vue';
 
 const props = defineProps({
@@ -144,14 +174,17 @@ const bgImgStyle = computed(() => {
   return { background: props.card.background_color };
 });
 
+// Stats/boton secundario solo en variantes con espacio de texto -- agregarlos a
+// compact/glass/dark/gradient/image_bg/logo rompería su composición minimalista.
+const showExtras = computed(() => ['vertical', 'horizontal', 'premium'].includes(props.card.card_type || 'vertical'));
+const stats = computed(() => Array.isArray(props.card.stats) ? props.card.stats.filter(s => s && s.value) : []);
+
 function navigate() {
-  if (props.card.redirect_url) {
-    if (props.card.redirect_url.startsWith('http')) {
-      window.open(props.card.redirect_url, '_blank');
-    } else {
-      router.push(props.card.redirect_url);
-    }
-  }
+  resolveUrlNavigation(props.card.redirect_url, props.card.url_type || 'INTERNA', router, props.card.url_target);
+}
+
+function navigateSecondary() {
+  resolveUrlNavigation(props.card.secondary_url, props.card.secondary_url_type || 'INTERNA', router, props.card.secondary_target);
 }
 </script>
 
@@ -297,6 +330,13 @@ function navigate() {
   background-size: cover; background-position: center;
   transition: transform 400ms ease;
 }
+.ci-bg-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
 .ci-root--clickable:hover .ci-bg-img { transform: scale(1.04); }
 .ci-overlay { position: absolute; inset: 0; background: linear-gradient(to top, rgba(0,0,0,.65) 0%, transparent 60%); }
 .ci-body--bg { position: relative; z-index: 1; padding: 1.25rem; }
@@ -309,4 +349,19 @@ function navigate() {
   font-size: .65rem; font-weight: 700; padding: .2rem .5rem;
   border-radius: 6px; text-transform: uppercase; letter-spacing: .05em;
 }
+
+/* ── Stats / boton secundario (Card Group Section, 2026-08-06) ─────────────── */
+.ci-stats { display: flex; gap: 1.1rem; flex-wrap: wrap; margin-top: .6rem; }
+.ci-stat { display: flex; flex-direction: column; }
+.ci-stat strong { font-size: 1rem; font-weight: 800; color: #0f172a; }
+.ci-stat span { font-size: .7rem; color: #94a3b8; }
+.ci-root--dark .ci-stat strong, .ci-root--gradient .ci-stat strong { color: #fff; }
+.ci-root--dark .ci-stat span, .ci-root--gradient .ci-stat span { color: rgba(255,255,255,.65); }
+
+.ci-secondary-btn {
+  display: inline-flex; align-items: center; gap: .35rem;
+  font-size: .78rem; font-weight: 700; color: #2563eb;
+  margin-top: .6rem; text-decoration: none;
+}
+.ci-secondary-btn:hover { text-decoration: underline; }
 </style>

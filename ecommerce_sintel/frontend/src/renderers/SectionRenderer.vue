@@ -18,6 +18,10 @@
         :is="layoutComponent"
         :cards="visibleCards"
         :columns="group.columns || 3"
+        :columns-tablet="group.columns_tablet || 2"
+        :columns-mobile="group.columns_mobile || 1"
+        :gap="Number(group.gap ?? 1)"
+        :group="group"
       />
     </div>
 

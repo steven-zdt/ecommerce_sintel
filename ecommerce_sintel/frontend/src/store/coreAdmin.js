@@ -56,6 +56,9 @@ export const useCoreAdminStore = defineStore('coreAdmin', {
     cardGroups: [],
     cardGroupsLoading: false,
 
+    featureBannerSections: [],
+    featureBannerSectionsLoading: false,
+
     footerLinks: [],
     footerContact: null,
     footerLoading: false,
@@ -248,6 +251,47 @@ export const useCoreAdminStore = defineStore('coreAdmin', {
 
     deleteCardGroup(uuid) {
       return this._mutate(() => this._api().delete(`dashboard/home-card-groups/${uuid}/delete/`));
+    },
+
+    // ── Feature Banner (secciones + bloques) ─────────────────────────────────
+    async fetchFeatureBannerSections() {
+      this.featureBannerSectionsLoading = true;
+      try {
+        const { data } = await this._api().get('dashboard/feature-banner-sections/');
+        this.featureBannerSections = data;
+      } catch {
+        this.error = 'Error al cargar las secciones de Feature Banner.';
+      } finally {
+        this.featureBannerSectionsLoading = false;
+      }
+    },
+
+    createFeatureBannerSection(payload) {
+      return this._mutateData(() => this._api().post('dashboard/feature-banner-sections/create/', payload, this._headersFor(payload)));
+    },
+
+    updateFeatureBannerSection(uuid, payload) {
+      return this._mutateData(() => this._api().patch(`dashboard/feature-banner-sections/${uuid}/`, payload, this._headersFor(payload)));
+    },
+
+    deleteFeatureBannerSection(uuid) {
+      return this._mutate(() => this._api().delete(`dashboard/feature-banner-sections/${uuid}/delete/`));
+    },
+
+    createFeatureBannerBlock(payload) {
+      return this._mutateData(() => this._api().post('dashboard/feature-banner-blocks/create/', payload, this._headersFor(payload)));
+    },
+
+    updateFeatureBannerBlock(uuid, payload) {
+      return this._mutateData(() => this._api().patch(`dashboard/feature-banner-blocks/${uuid}/`, payload, this._headersFor(payload)));
+    },
+
+    deleteFeatureBannerBlock(uuid) {
+      return this._mutate(() => this._api().delete(`dashboard/feature-banner-blocks/${uuid}/delete/`));
+    },
+
+    reorderFeatureBannerBlocks(sectionUuid, orderedUuids) {
+      return this._mutate(() => this._api().post('dashboard/feature-banner-blocks/reorder/', { section: sectionUuid, ordered_uuids: orderedUuids }));
     },
 
     // ── Footer (contacto + enlaces) ──────────────────────────────────────────

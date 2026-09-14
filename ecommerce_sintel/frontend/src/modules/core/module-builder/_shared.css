@@ -1,0 +1,82 @@
+/* ─────────────────────────────────────────────────────────────────────────────
+ * Primitivas de formulario compartidas por las 13 pestanas de ModuleBuilder.
+ * Se importa en cada hijo con <style scoped src="./_shared.css"> para que
+ * conserve el aislamiento por componente (mismo comportamiento que el
+ * <style scoped> unico que tenia ModuleBuilderModal.vue antes de dividirse).
+ * ───────────────────────────────────────────────────────────────────────────*/
+
+/* ── Section shell ───────────────────────────────────────────────────────── */
+.mb-section { display: flex; flex-direction: column; gap: 0.75rem; }
+.mb-section-title {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #1e293b;
+  padding-bottom: 0.5rem;
+  border-bottom: 2px solid #e2e8f0;
+}
+.mb-section-sub { font-size: 0.8rem; color: #64748b; margin: -0.25rem 0 0.5rem; }
+.mb-subsection  { font-size: 0.75rem; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: .06em; }
+
+/* ── Fields ──────────────────────────────────────────────────────────────── */
+.mb-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+.mb-field { display: flex; flex-direction: column; gap: 0.3rem; }
+.mb-field--full { grid-column: 1 / -1; }
+.mb-label  { font-size: 0.75rem; font-weight: 600; color: #374151; }
+.mb-hint   { font-size: 0.7rem; color: #94a3b8; }
+.mb-input  {
+  border: 1px solid #d1d5db; border-radius: 6px; padding: 0.4rem 0.6rem;
+  font-size: 0.82rem; color: #1e293b; background: #fff;
+  outline: none; transition: border-color .15s;
+}
+.mb-input:focus  { border-color: #2563eb; box-shadow: 0 0 0 2px rgba(37,99,235,.1); }
+textarea.mb-input { resize: vertical; }
+.mb-select {
+  border: 1px solid #d1d5db; border-radius: 6px; padding: 0.4rem 0.6rem;
+  font-size: 0.82rem; color: #1e293b; background: #fff; outline: none;
+  cursor: pointer;
+}
+.mb-color-input {
+  width: 36px; height: 32px; border: 1px solid #d1d5db; border-radius: 6px;
+  padding: 2px; cursor: pointer; background: none;
+}
+.mb-range-val { font-size: 0.75rem; color: #64748b; min-width: 42px; text-align: right; }
+
+/* ── Boton generico (usado tambien por el footer del shell) ──────────────── */
+.mb-btn {
+  padding: 0.45rem 1.1rem; border: 1px solid #d1d5db; border-radius: 7px;
+  background: #fff; font-size: 0.82rem; font-weight: 500; color: #374151;
+  cursor: pointer; transition: background .15s;
+}
+.mb-btn:hover { background: #f1f5f9; }
+
+/* ── Column picker (layout / responsive / carousel) ──────────────────────── */
+.mb-cols-picker { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+.mb-col-btn {
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  padding: 0.5rem 0.6rem; border: 2px solid #e2e8f0; border-radius: 8px;
+  background: #f8fafc; cursor: pointer; font-size: 0.7rem; color: #64748b;
+  transition: border-color .15s;
+}
+.mb-col-btn:hover  { border-color: #93c5fd; }
+.mb-col-btn.active { border-color: #2563eb; background: #eff6ff; color: #2563eb; }
+.mb-col-vis { display: flex; gap: 2px; }
+.mb-col-bar { width: 8px; height: 20px; background: #cbd5e1; border-radius: 2px; }
+.mb-col-btn.active .mb-col-bar { background: #93c5fd; }
+.mb-cols-picker--sm { gap: 0.35rem; }
+.mb-col-btn--sm {
+  width: 30px; height: 28px; padding: 0; border: 2px solid #e2e8f0;
+  border-radius: 6px; background: #f8fafc; cursor: pointer; font-size: 0.75rem;
+  color: #64748b; transition: border-color .15s;
+  display: flex; align-items: center; justify-content: center;
+}
+.mb-col-btn--sm:hover  { border-color: #93c5fd; }
+.mb-col-btn--sm.active { border-color: #2563eb; background: #eff6ff; color: #2563eb; }
+
+/* ── Responsive device rows (responsive / carousel) ──────────────────────── */
+.mb-responsive-grid { display: flex; flex-direction: column; gap: 1.25rem; }
+.mb-responsive-device { display: flex; flex-direction: column; gap: 0.5rem; }
+.mb-responsive-device__label { font-size: 0.8rem; font-weight: 600; color: #374151; display: flex; align-items: center; gap: 0.4rem; }

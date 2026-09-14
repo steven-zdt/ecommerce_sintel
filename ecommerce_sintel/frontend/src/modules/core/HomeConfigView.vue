@@ -40,6 +40,9 @@
       <!-- ── TARJETAS ────────────────────────────────────────────────────── -->
       <CardsSection v-if="currentSection === 'cards'" />
 
+      <!-- ── FEATURE BANNER ──────────────────────────────────────────────── -->
+      <FeatureBannerSection v-if="currentSection === 'feature_banner'" />
+
       <!-- ── FOOTER ──────────────────────────────────────────────────────── -->
       <FooterSection v-if="currentSection === 'footer'" v-model:contact-form="contactForm" />
 
@@ -92,6 +95,7 @@
             :home-cards="cards"
             :card-groups="previewCardGroups"
             :card-group-titles="groupTitlesMap"
+            :feature-banner-sections="featureBannerSections"
             :footer-cta="ctaForm"
             :brand-slider="{ config: brandConfigForm, items: brandItems }"
             :loading="false"
@@ -127,6 +131,7 @@ import ModulesSection from './home-builder/ModulesSection.vue';
 import BannersSection from './home-builder/BannersSection.vue';
 import NavbarSection from './home-builder/NavbarSection.vue';
 import CardsSection from './home-builder/CardsSection.vue';
+import FeatureBannerSection from './home-builder/FeatureBannerSection.vue';
 import FooterSection from './home-builder/FooterSection.vue';
 import BrandSection from './home-builder/BrandSection.vue';
 import CtaSection from './home-builder/CtaSection.vue';
@@ -143,6 +148,7 @@ const {
   banners,
   cards,
   cardGroups,
+  featureBannerSections,
   footerLinks, footerContact,
   footerGroups,
   brand,
@@ -159,6 +165,7 @@ const sections = computed(() => [
   { id: 'modules', label: 'Modulos',  icon: 'bi-grid',          count: modules.value.length || null },
   { id: 'banners', label: 'Banners',  icon: 'bi-images',         count: banners.value.length || null },
   { id: 'cards',   label: 'Tarjetas', icon: 'bi-grid-1x2',       count: cards.value.length || null },
+  { id: 'feature_banner', label: 'Feature Banner', icon: 'bi-window-stack', count: featureBannerSections.value.length || null },
   { id: 'footer',  label: 'Footer',   icon: 'bi-layout-text-window', count: footerGroups.value.length || null },
   { id: 'brand',   label: 'Marca',    icon: 'bi-building',       count: null },
   { id: 'navbar',  label: 'Navbar',   icon: 'bi-list',           count: navbarLinks.value.length || null },
@@ -174,7 +181,7 @@ const previewDevice = ref('desktop');
 // 'footer'/'brand'/'navbar' no son parte del cuerpo de Home (viven en
 // CustomerLayout) y se resuelven aparte, mas abajo en el template, con los
 // componentes reales CustomerNavbar/CustomerFooter.
-const SECTION_TO_RENDERER = { banners: 'hero', modules: 'modules', cards: 'cards', cta: 'cta', brand_slider: 'brand_slider' };
+const SECTION_TO_RENDERER = { banners: 'hero', modules: 'modules', cards: 'cards', feature_banner: 'feature_banner', cta: 'cta', brand_slider: 'brand_slider' };
 const sectionRendererKey = computed(() => SECTION_TO_RENDERER[currentSection.value] || null);
 
 // groupTitlesMap/groupConfigMap propios del padre (copia independiente de los
@@ -324,6 +331,7 @@ onMounted(() => {
   store.fetchBanners();
   store.fetchCards();
   store.fetchCardGroups();
+  store.fetchFeatureBannerSections();
   store.fetchFooter();
   store.fetchFooterGroups();
   store.fetchSiteBrand();
@@ -412,6 +420,10 @@ onMounted(() => {
 .hcb-empty { text-align: center; color: #94a3b8; padding: 2rem; background: #fff; border-radius: 12px; }
 .hcb-empty--sm { display: flex; align-items: center; justify-content: center; gap: .75rem; padding: 1.25rem; font-size: .85rem; }
 .hcb-hint { font-size: .72rem; color: #94a3b8; }
+.hcb-subheading {
+  font-size: .78rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em;
+  color: #94a3b8; margin: .5rem 0 -.25rem; padding-top: .5rem; border-top: 1px solid #e2e8f0;
+}
 
 /* Buttons */
 .hcb-btn {

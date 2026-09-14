@@ -2,6 +2,7 @@
   <HomeRenderer
     :banners="banners"
     :modules="modules"
+    :feature-banner-sections="featureBannerSections"
     :flash-offers="flashOffers"
     :featured-products="featuredProducts"
     :featured-equipment="featuredEquipment"
@@ -29,6 +30,7 @@ const loading = ref(true);
 const footerCta         = ref({});
 const banners           = ref([]);
 const modules           = ref([]);
+const featureBannerSections = ref([]);
 const flashOffers       = ref([]);
 const featuredProducts  = ref([]);
 const featuredEquipment = ref([]);
@@ -47,6 +49,7 @@ onMounted(async () => {
     const { data } = await api.get('core/home-feed/');
     banners.value           = data.banners            || [];
     modules.value           = data.modules            || [];
+    featureBannerSections.value = data.feature_banner_sections || [];
     flashOffers.value       = data.flash_offers       || [];
     featuredProducts.value  = data.featured_products  || [];
     featuredEquipment.value = data.featured_equipment || [];

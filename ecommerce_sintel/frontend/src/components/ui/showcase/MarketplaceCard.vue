@@ -41,9 +41,9 @@
 
           <MarketplaceStats v-if="show.counter && stats.length" :stats="stats" />
 
-          <span v-if="show.button" class="mps-cta" :style="ctaStyle">
+          <span v-if="show.button" class="mps-cta" :class="{ 'mps-cta--top': button.position === 'top' }" :style="ctaStyle">
             {{ button.text || 'Ver más' }}
-            <i class="bi bi-arrow-right mps-cta-icon"></i>
+            <i :class="['bi', button.icon || 'bi-arrow-right', 'mps-cta-icon']"></i>
           </span>
         </div>
       </MarketplaceOverlay>
@@ -107,12 +107,20 @@ const stats  = computed(() => Array.isArray(layoutConfig.value.stats) ? layoutCo
 const animation = computed(() => layoutConfig.value.animation || {});
 
 // ── Fondo multimedia (Fase 3/10) ──────────────────────────────────────────────
-// Sin config nueva -> se comporta como antes: imagen de fondo si existe, o
-// color solido (MarketplaceBackground ya resuelve ese fallback).
+// [CORREGIDO 2026-08-06] `m.type` casi siempre tiene un valor real ('color' es
+// el default de fabrica de ModuleBuilderModal.vue -- se guarda en CADA save(),
+// no solo cuando el admin elige video/imagen a proposito), asi que `m.type ||
+// fallback` nunca caia al fallback: un modulo con `background_image` subida
+// (tab "Imagen") pero `media.type` congelado en 'color' desde antes de subirla
+// mostraba igual el color solido, con la imagen real huerfana en el backend.
+// Regla: solo 'video' es una eleccion inequivoca (trae su propia URL); si no
+// es video y hay background_image, esa imagen gana sobre el default 'color'.
 const media = computed(() => {
   const m = layoutConfig.value.media || {};
+  const hasBgImage = !!props.module.background_image;
+  const type = m.type === 'video' ? 'video' : (hasBgImage ? 'image' : (m.type || 'color'));
   return {
-    type: m.type || (props.module.background_image ? 'image' : 'color'),
+    type,
     image: m.image || '',
     video_url: m.video_url || '',
     video_url_webm: m.video_url_webm || '',
@@ -149,11 +157,26 @@ const cardStyle = computed(() => ({
   transitionDelay: `${animation.value.delay || 0}ms`,
 }));
 
-const ctaStyle = computed(() => ({
-  background: button.value.style === 'outline' || button.value.style === 'ghost' ? 'transparent' : (button.value.color || '#2563eb'),
-  color: button.value.style === 'outline' ? (button.value.color || '#2563eb') : '#fff',
-  border: button.value.style === 'outline' ? `1px solid ${button.value.color || '#2563eb'}` : 'none',
-}));
+// button.style (ButtonsTab.vue): filled (default) / outline / ghost / minimal.
+// filled y outline ya funcionaban -- ghost y minimal antes colapsaban en esas
+// dos ramas (sin distincion visual real). Ahora las 4 quedan distinguibles:
+// outline = borde solido, ghost = sin borde ni fondo (solo texto+icono con
+// color de acento), minimal = igual que ghost pero sin el padding de pildora
+// (texto inline, mas discreto).
+const ctaStyle = computed(() => {
+  const style = button.value.style || 'filled';
+  const color = button.value.color || '#2563eb';
+  if (style === 'outline') {
+    return { background: 'transparent', color, border: `1px solid ${color}` };
+  }
+  if (style === 'ghost') {
+    return { background: 'transparent', color, border: 'none' };
+  }
+  if (style === 'minimal') {
+    return { background: 'transparent', color, border: 'none', padding: '0', borderRadius: '0' };
+  }
+  return { background: color, color: '#fff', border: 'none' };
+});
 </script>
 
 <style scoped>
@@ -276,6 +299,10 @@ const ctaStyle = computed(() => ({
 }
 .mps-cta-icon { transition: transform 0.25s cubic-bezier(0.16,1,0.3,1); }
 .mps-card-root:hover .mps-cta-icon { transform: translateX(3px); }
+
+/* button.position === 'top' (ButtonsTab.vue) -- reordena dentro del mismo
+   flex column, sin duplicar markup ni tocar el resto del layout. */
+.mps-cta--top { order: -1; margin-top: 0; margin-bottom: 0.3rem; }
 
 /* ── Responsive ───────────────────────────────────────────────────────────── */
 @media (min-width: 992px) {

@@ -138,6 +138,21 @@
               <input v-model="cardForm.redirect_url" class="hcb-input" placeholder="/pagina">
             </div>
             <div class="hcb-field">
+              <label class="hcb-label">Tipo de URL</label>
+              <select v-model="cardForm.url_type" class="hcb-select">
+                <option value="INTERNA">Interna</option>
+                <option value="EXTERNA">Externa</option>
+                <option value="ANCHOR">Ancla</option>
+              </select>
+            </div>
+            <div class="hcb-field" v-if="cardForm.url_type === 'EXTERNA'">
+              <label class="hcb-label">Abrir en</label>
+              <select v-model="cardForm.url_target" class="hcb-select">
+                <option value="_self">Misma pestaña</option>
+                <option value="_blank">Nueva pestaña</option>
+              </select>
+            </div>
+            <div class="hcb-field">
               <label class="hcb-label">Orden</label>
               <input v-model.number="cardForm.display_order" type="number" class="hcb-input" min="0">
             </div>
@@ -155,6 +170,13 @@
               <label class="hcb-label">Texto del badge</label>
               <input v-model="cardForm.badge_text" class="hcb-input" placeholder="Nuevo, Popular...">
             </div>
+            <div class="hcb-field">
+              <label class="hcb-label">Color del badge</label>
+              <div class="d-flex gap-2 align-items-center">
+                <input type="color" v-model="cardForm.badge_color" class="hcb-color-input">
+                <input v-model="cardForm.badge_color" class="hcb-input" style="flex:1" placeholder="#2563eb">
+              </div>
+            </div>
             <div class="hcb-field d-flex gap-3">
               <div class="form-check form-switch">
                 <input v-model="cardForm.is_active" class="form-check-input" type="checkbox">
@@ -164,6 +186,49 @@
                 <input v-model="cardForm.is_featured" class="form-check-input" type="checkbox">
                 <label class="form-check-label small">Destacada</label>
               </div>
+            </div>
+
+            <div class="hcb-field hcb-field--full hcb-subheading">Estadisticas (chips)</div>
+            <div class="hcb-field hcb-field--full">
+              <div v-for="(s, i) in cardForm.stats" :key="i" class="d-flex gap-2 mb-2">
+                <input v-model="s.value" class="hcb-input" placeholder="Valor (ej. 8 semanas)">
+                <input v-model="s.label" class="hcb-input" placeholder="Etiqueta (ej. Duracion)">
+                <button type="button" class="hcb-icon-btn hcb-icon-btn--sm hcb-icon-btn--danger" @click="cardForm.stats.splice(i, 1)">
+                  <i class="bi bi-trash"></i>
+                </button>
+              </div>
+              <button type="button" class="hcb-btn hcb-btn--sm" @click="cardForm.stats.push({ value: '', label: '' })">
+                <i class="bi bi-plus-lg"></i> Agregar estadistica
+              </button>
+            </div>
+
+            <div class="hcb-field hcb-field--full hcb-subheading">Boton secundario (opcional)</div>
+            <div class="hcb-field">
+              <label class="hcb-label">Texto</label>
+              <input v-model="cardForm.secondary_label" class="hcb-input" placeholder="Ver mas">
+            </div>
+            <div class="hcb-field">
+              <label class="hcb-label">Icono Bootstrap</label>
+              <input v-model="cardForm.secondary_icon" class="hcb-input" placeholder="bi-arrow-right">
+            </div>
+            <div class="hcb-field hcb-field--full">
+              <label class="hcb-label">URL</label>
+              <input v-model="cardForm.secondary_url" class="hcb-input" placeholder="/pagina">
+            </div>
+            <div class="hcb-field">
+              <label class="hcb-label">Tipo de URL</label>
+              <select v-model="cardForm.secondary_url_type" class="hcb-select">
+                <option value="INTERNA">Interna</option>
+                <option value="EXTERNA">Externa</option>
+                <option value="ANCHOR">Ancla</option>
+              </select>
+            </div>
+            <div class="hcb-field" v-if="cardForm.secondary_url_type === 'EXTERNA'">
+              <label class="hcb-label">Abrir en</label>
+              <select v-model="cardForm.secondary_target" class="hcb-select">
+                <option value="_self">Misma pestaña</option>
+                <option value="_blank">Nueva pestaña</option>
+              </select>
             </div>
           </div>
           <!-- Imagen de fondo de la tarjeta -->
@@ -285,6 +350,55 @@
               <label class="form-check-label small">Glass</label>
             </div>
           </div>
+
+          <div class="hcb-field hcb-field--full hcb-subheading">Responsive</div>
+          <div class="hcb-field">
+            <label class="hcb-label">Columnas tablet</label>
+            <select v-model.number="groupForm.columns_tablet" class="hcb-select">
+              <option :value="1">1</option>
+              <option :value="2">2</option>
+              <option :value="3">3</option>
+              <option :value="4">4</option>
+            </select>
+          </div>
+          <div class="hcb-field">
+            <label class="hcb-label">Columnas mobile</label>
+            <select v-model.number="groupForm.columns_mobile" class="hcb-select">
+              <option :value="1">1</option>
+              <option :value="2">2</option>
+            </select>
+          </div>
+          <div class="hcb-field">
+            <label class="hcb-label">Espaciado (gap, rem)</label>
+            <input v-model.number="groupForm.gap" type="number" step="0.25" min="0" class="hcb-input">
+          </div>
+
+          <template v-if="groupForm.layout_type === 'slider'">
+            <div class="hcb-field hcb-field--full hcb-subheading">Carrusel</div>
+            <div class="hcb-field d-flex gap-3">
+              <div class="form-check form-switch">
+                <input v-model="groupForm.carousel_autoplay" class="form-check-input" type="checkbox">
+                <label class="form-check-label small">Auto scroll</label>
+              </div>
+              <div class="form-check form-switch">
+                <input v-model="groupForm.carousel_loop" class="form-check-input" type="checkbox">
+                <label class="form-check-label small">Loop</label>
+              </div>
+              <div class="form-check form-switch">
+                <input v-model="groupForm.show_arrows" class="form-check-input" type="checkbox">
+                <label class="form-check-label small">Flechas</label>
+              </div>
+              <div class="form-check form-switch">
+                <input v-model="groupForm.show_indicators" class="form-check-input" type="checkbox">
+                <label class="form-check-label small">Indicadores</label>
+              </div>
+            </div>
+            <div class="hcb-field" v-if="groupForm.carousel_autoplay">
+              <label class="hcb-label">Velocidad (px/s)</label>
+              <input v-model.number="groupForm.carousel_speed" type="number" min="1" class="hcb-input">
+            </div>
+          </template>
+
           <div class="hcb-field hcb-field--full">
             <label class="hcb-label">Imagen de fondo (opcional)</label>
             <div v-if="groupBgImagePreview && !groupRemoveBgImage" class="hcb-media-current">
@@ -353,7 +467,10 @@ const defaultCardForm = () => ({
   group_name: '', icon_class: 'bi-star', background_color: '#3b82f6',
   redirect_url: '', display_order: 0, is_active: true,
   card_type: 'vertical', animation: '', is_featured: false, priority: 0,
-  badge_text: '',
+  badge_text: '', badge_color: '#2563eb',
+  url_type: 'INTERNA', url_target: '_self', stats: [],
+  secondary_label: '', secondary_icon: '', secondary_url: '',
+  secondary_url_type: 'INTERNA', secondary_target: '_self',
 });
 const cardForm = ref(defaultCardForm());
 
@@ -414,6 +531,13 @@ async function saveGroupTitle(gName) {
     bg_color: current.bg_color || '', layout_type: current.layout_type || 'grid',
     columns: current.columns || 3, padding: current.padding || 'normal',
     divider: current.divider || false, glass: current.glass || false, hover: current.hover || 'lift',
+    columns_tablet: current.columns_tablet || 2, columns_mobile: current.columns_mobile || 1,
+    gap: current.gap != null ? Number(current.gap) : 1.25,
+    carousel_autoplay: current.carousel_autoplay || false,
+    carousel_loop: current.carousel_loop !== false,
+    carousel_speed: current.carousel_speed || 40,
+    show_arrows: current.show_arrows !== false,
+    show_indicators: current.show_indicators !== false,
   });
   if (res.ok) {
     editingGroupName.value = null;
@@ -442,6 +566,9 @@ const defaultGroupForm = () => ({
   subtitle: '', description: '', bg_color: '',
   layout_type: 'grid', columns: 3, padding: 'normal',
   divider: false, glass: false, hover: 'lift',
+  columns_tablet: 2, columns_mobile: 1, gap: 1.25,
+  carousel_autoplay: false, carousel_loop: true, carousel_speed: 40,
+  show_arrows: true, show_indicators: true,
 });
 const groupForm = ref(defaultGroupForm());
 const isNewGroup = computed(() => editingGroupData.value === null);
@@ -468,6 +595,13 @@ function openGroupForm(gName = null) {
     bg_color: cfg.bg_color || '', layout_type: cfg.layout_type || 'grid',
     columns: cfg.columns || 3, padding: cfg.padding || 'normal',
     divider: cfg.divider || false, glass: cfg.glass || false, hover: cfg.hover || 'lift',
+    columns_tablet: cfg.columns_tablet || 2, columns_mobile: cfg.columns_mobile || 1,
+    gap: cfg.gap != null ? Number(cfg.gap) : 1.25,
+    carousel_autoplay: cfg.carousel_autoplay || false,
+    carousel_loop: cfg.carousel_loop !== false,
+    carousel_speed: cfg.carousel_speed || 40,
+    show_arrows: cfg.show_arrows !== false,
+    show_indicators: cfg.show_indicators !== false,
   };
   showGroupModal.value = true;
 }
@@ -553,6 +687,13 @@ function openCardForm(card = null, presetGroupName = '') {
     is_active: card.is_active, card_type: card.card_type || 'vertical',
     animation: card.animation || '', is_featured: card.is_featured || false,
     priority: card.priority || 0, badge_text: card.badge_text || '',
+    badge_color: card.badge_color || '#2563eb',
+    url_type: card.url_type || 'INTERNA', url_target: card.url_target || '_self',
+    stats: Array.isArray(card.stats) ? card.stats.map(s => ({ ...s })) : [],
+    secondary_label: card.secondary_label || '', secondary_icon: card.secondary_icon || '',
+    secondary_url: card.secondary_url || '',
+    secondary_url_type: card.secondary_url_type || 'INTERNA',
+    secondary_target: card.secondary_target || '_self',
   } : { ...defaultCardForm(), group_name: presetGroupName };
   showCardModal.value = true;
 }
@@ -584,7 +725,9 @@ async function saveCard() {
   let sendPayload = cardForm.value;
   if (hasMedia) {
     const fd = new FormData();
-    Object.entries(cardForm.value).forEach(([k, v]) => fd.append(k, v));
+    Object.entries(cardForm.value).forEach(([k, v]) => {
+      fd.append(k, k === 'stats' ? JSON.stringify(v) : v);
+    });
     if (cardImageFile.value) fd.append('image', cardImageFile.value);
     if (cardRemoveImage.value) fd.append('remove_image', 'true');
     sendPayload = fd;

@@ -1,6 +1,6 @@
 <template>
   <div ref="el" class="cg-root">
-    <div :class="gridClass">
+    <div class="cg-grid" :style="gridStyle">
       <CardItem
         v-for="(card, i) in visibleCards"
         :key="card.uuid"
@@ -18,9 +18,13 @@ import CardItem from './CardItem.vue';
 import { useScrollReveal } from '@/composables/useScrollReveal';
 
 const props = defineProps({
-  cards:   { type: Array,  default: () => [] },
-  columns: { type: Number, default: 3 },
-  limit:   { type: Number, default: 0 },
+  cards:         { type: Array,  default: () => [] },
+  columns:       { type: Number, default: 3 },
+  columnsTablet: { type: Number, default: 2 },
+  columnsMobile: { type: Number, default: 1 },
+  gap:           { type: Number, default: 1 }, // rem
+  limit:         { type: Number, default: 0 },
+  group:         { type: Object, default: () => ({}) }, // no usado aqui -- evita fallthrough attr
 });
 
 const { el, visible: sectionVisible } = useScrollReveal({ threshold: 0.05 });
@@ -31,28 +35,27 @@ const visibleCards = computed(() => {
   return props.limit > 0 ? active.slice(0, props.limit) : active;
 });
 
-const gridClass = computed(() => {
-  const col = Math.min(Math.max(props.columns, 1), 6);
-  return ['cg-grid', `cg-grid--cols-${col}`];
-});
+const clamp = (n, fallback) => Math.min(Math.max(Number(n) || fallback, 1), 6);
+
+const gridStyle = computed(() => ({
+  '--cg-cols-desktop': clamp(props.columns, 3),
+  '--cg-cols-tablet':  clamp(props.columnsTablet, 2),
+  '--cg-cols-mobile':  clamp(props.columnsMobile, 1),
+  '--cg-gap':          `${props.gap}rem`,
+}));
 </script>
 
 <style scoped>
 .cg-grid {
   display: grid;
-  gap: 1rem;
+  gap: var(--cg-gap, 1rem);
+  grid-template-columns: repeat(var(--cg-cols-mobile, 1), 1fr);
 }
-.cg-grid--cols-1 { grid-template-columns: 1fr; }
-.cg-grid--cols-2 { grid-template-columns: repeat(2, 1fr); }
-.cg-grid--cols-3 { grid-template-columns: repeat(3, 1fr); }
-.cg-grid--cols-4 { grid-template-columns: repeat(4, 1fr); }
-.cg-grid--cols-5 { grid-template-columns: repeat(5, 1fr); }
-.cg-grid--cols-6 { grid-template-columns: repeat(6, 1fr); }
 
-@media (max-width: 767px) {
-  .cg-grid { grid-template-columns: repeat(2, 1fr); }
+@media (min-width: 576px) {
+  .cg-grid { grid-template-columns: repeat(var(--cg-cols-tablet, 2), 1fr); }
 }
-@media (max-width: 480px) {
-  .cg-grid { grid-template-columns: 1fr; }
+@media (min-width: 992px) {
+  .cg-grid { grid-template-columns: repeat(var(--cg-cols-desktop, 3), 1fr); }
 }
 </style>

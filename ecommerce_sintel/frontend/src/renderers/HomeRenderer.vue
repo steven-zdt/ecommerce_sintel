@@ -30,6 +30,11 @@
       </div>
     </template>
 
+    <!-- ── FEATURE BANNER (secciones promocionales genericas) ─────────────────── -->
+    <template v-if="showSection('feature_banner')">
+      <FeatureBannerRenderer :sections="featureBannerSections" :loading="loading" />
+    </template>
+
     <!-- ── FLASH OFFERS ─────────────────────────────────────────────────────── -->
     <template v-if="showSection('flash') && (loading || flashOffers.length)">
       <DividerWave from="#ffffff" fill="#080d1a" />
@@ -41,33 +46,10 @@
     <div v-if="showSection('featured')" class="home-featured-belt">
       <div class="container-xl home-featured-inner">
         <FeaturedSection
-          v-if="loading || featuredProducts.length"
-          eyebrow="Tienda"
-          title="*Productos* destacados"
-          link="/tienda"
-          link-label="Ver tienda completa"
-          :items="featuredProducts"
-          type="product"
-          :loading="loading"
-        />
-        <FeaturedSection
-          v-if="loading || featuredEquipment.length"
-          eyebrow="Alquiler"
-          title="Equipos *disponibles*"
-          link="/alquiler"
-          link-label="Ver catalogo de equipos"
-          :items="featuredEquipment"
-          type="rental"
-          :loading="loading"
-        />
-        <FeaturedSection
-          v-if="loading || featuredServices.length"
-          eyebrow="Servicios"
-          title="Servicios *tecnicos*"
-          link="/servicios"
-          link-label="Ver todos los servicios"
-          :items="featuredServices"
-          type="service"
+          v-for="section in featuredSections"
+          :key="section.type"
+          v-show="loading || section.items.length"
+          v-bind="section"
           :loading="loading"
         />
 
@@ -143,6 +125,7 @@ import { RouterLink } from 'vue-router';
 import HeroSection     from '@/components/ui/landing/HeroSection.vue';
 import DividerWave     from '@/components/ui/landing/DividerWave.vue';
 import MarketplaceShowcase from '@/components/ui/showcase/MarketplaceShowcase.vue';
+import FeatureBannerRenderer from '@/components/ui/showcase/FeatureBannerRenderer.vue';
 import AnimatedCounter from '@/components/ui/landing/AnimatedCounter.vue';
 import FlashOffers     from '@/components/ui/landing/FlashOffers.vue';
 import FeaturedSection from '@/components/ui/landing/FeaturedSection.vue';
@@ -166,6 +149,7 @@ import SectionRenderer from './SectionRenderer.vue';
 const props = defineProps({
   banners:           { type: Array,   default: () => [] },
   modules:           { type: Array,   default: () => [] },
+  featureBannerSections: { type: Array, default: () => [] },
   flashOffers:       { type: Array,   default: () => [] },
   featuredProducts:  { type: Array,   default: () => [] },
   featuredEquipment: { type: Array,   default: () => [] },
@@ -207,6 +191,25 @@ const ungroupedCards = computed(() => {
   return groups;
 });
 
+// Una sola definicion de la familia de secciones destacadas. El contenido de
+// sus items sigue viniendo integramente de Core; esta configuracion solo
+// expresa la navegacion propia de cada catalogo publico y evita tres bloques
+// de markup identico.
+const featuredSections = computed(() => [
+  {
+    eyebrow: 'Tienda', title: '*Productos* destacados', link: '/tienda',
+    linkLabel: 'Ver tienda completa', items: props.featuredProducts, type: 'product',
+  },
+  {
+    eyebrow: 'Alquiler', title: 'Equipos *disponibles*', link: '/alquiler',
+    linkLabel: 'Ver catalogo de equipos', items: props.featuredEquipment, type: 'rental',
+  },
+  {
+    eyebrow: 'Servicios', title: 'Servicios *tecnicos*', link: '/servicios',
+    linkLabel: 'Ver todos los servicios', items: props.featuredServices, type: 'service',
+  },
+]);
+
 const stats = computed(() => {
   const total = props.featuredProducts.length + props.featuredEquipment.length + props.featuredServices.length;
   if (!total) return [];
@@ -221,28 +224,18 @@ const stats = computed(() => {
 
 <style scoped>
 .home-root {
-  --c-primary:      #2563eb;
-  --c-primary-d:    #1d4ed8;
-  --c-bg:           #ffffff;
-  --c-bg-subtle:    #f8fafc;
-  --c-bg-dark:      #080d1a;
-  --t-900: #0a0f1e;
-  --t-700: #1e293b;
-  --t-500: #475569;
-  --t-300: #94a3b8;
-  --shadow-md: 0 4px 20px rgba(0,0,0,.08);
-  background: var(--c-bg);
+  background: var(--landing-surface);
   min-height: 100vh;
 }
-.home-stats-belt { background: var(--c-bg); padding-bottom: clamp(1.5rem, 3vw, 2.5rem); }
+.home-stats-belt { background: var(--landing-surface); padding-bottom: clamp(1.5rem, 3vw, 2.5rem); }
 .home-stats-row {
   display: flex; justify-content: center; flex-wrap: wrap; gap: 0;
-  border: 1px solid rgba(0,0,0,.07); border-radius: 18px;
-  background: var(--c-bg-subtle); overflow: hidden;
+  border: 1px solid var(--landing-border); border-radius: var(--landing-radius-lg);
+  background: var(--landing-surface-subtle); overflow: hidden;
 }
-.home-stats-row > * { flex: 1 1 160px; border-right: 1px solid rgba(0,0,0,.07); }
+.home-stats-row > * { flex: 1 1 160px; border-right: 1px solid var(--landing-border); }
 .home-stats-row > *:last-child { border-right: none; }
-.home-featured-belt { background: var(--c-bg-subtle); padding: clamp(3rem, 6vw, 5rem) 0; }
+.home-featured-belt { background: var(--landing-surface-subtle); padding: clamp(3rem, 6vw, 5rem) 0; }
 .home-featured-inner { display: flex; flex-direction: column; gap: 3rem; }
 .home-empty { text-align: center; padding: 4rem 1rem; color: #64748b; }
 .home-empty-icon { font-size: 3.5rem; display: block; margin-bottom: 1rem; opacity: .45; }
