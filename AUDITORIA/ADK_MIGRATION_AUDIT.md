@@ -1,0 +1,191 @@
+# ADK_MIGRATION_AUDIT.md — ADK-00
+
+**Fecha:** 2026-09-14. Mision "ADK-SINTEL": migracion controlada de la orquestacion de
+agentes hacia Google Agent Development Kit (ADK) Python. Este documento es **ADK-00**
+unicamente — auditoria de solo lectura, **cero codigo modificado**, tal como exige la
+propia mision (seccion 6: "No modificar codigo en esta fase").
+
+Ubicacion: se genera en `AUDITORIA/` (convencion ya establecida en este repo para
+auditorias de arquitectura, ver `AUDITORIA/ARCHITECTURE_SIMPLIFICATION_AUDIT.md`,
+completada hoy mismo unas horas antes de esta mision) en vez de `docs/ai/` (el path que
+pedia el prompt original) — `docs/ai/` no existe en este repo y no hay otra convencion
+que lo use; se prioriza consistencia con lo que ya existe sobre el path literal pedido.
+
+## 0. Guardrail obligatorio: ADK 2.x vs ejemplos legacy
+
+**Verificado contra el repositorio real `google/adk-python` (no contra blogs ni memoria):**
+
+- **`SequentialAgent`, `ParallelAgent`, `LoopAgent` estan oficialmente DEPRECADOS.**
+  Confirmado leyendo los docstrings reales del codigo fuente actual: los tres llevan
+  `.. deprecated::` explicito ("deprecated in favor of Workflow and will be removed in a
+  future version"), `LoopAgent` ademas con decorador `@deprecated` en la clase. **Cualquier
+  ejemplo historico (blog, doc antigua, entrenamiento del modelo) que use estas tres clases
+  como arquitectura de referencia esta desactualizado.** No copiar esos ejemplos sin
+  verificar primero contra el codigo real bajo `src/google/adk/`.
+- La API vigente es un **motor de grafo `Workflow`** (`src/google/adk/workflow/`):
+  `Workflow(BaseNode)` compila `edges: list[EdgeItem]` en un `Graph` y lo ejecuta
+  START → nodos listos (via `NodeRunner`) → nodos terminales. Tipos de nodo: funcion, tool,
+  join, parallel-worker, retry, wrapper de `LlmAgent`.
+- **Limitacion real y actual, relevante para el diseno de Root Agent → Support/Sales/Ops
+  (seccion 4/6 del plan):** el propio codigo indica que `Workflow` **todavia no puede
+  usarse como sub-agente de un `LlmAgent`** ("Workflow cannot yet be used as an LlmAgent
+  sub-agent"). Esto condiciona como se implementa la delegacion Root → Agentes de dominio
+  en ADK-03/05 — hay que validarlo explicitamente en el POC (ADK-01), no asumir que la
+  composicion anidada funciona igual que con agentes simples.
+- `LlmAgent`/`BaseAgent` siguen siendo los primitivos de agente vigentes (no deprecados).
+- **Paquete real:** `pip install google-adk` (PyPI, no `adk-python` ni otro nombre),
+  ultima version publicada verificada: **2.9.0** (2026-09-10). Requiere **Python 3.10+**
+  (compatible con Python 3.12 de `ai_engine` y 3.13 de Django en este proyecto).
+- **Model-agnostico, confirmado:** `src/google/adk/models/` incluye `lite_llm.py`
+  (wrapper LiteLLM — el camino generico no-Gemini), `anthropic_llm.py`, `gemma_llm.py`,
+  ademas de `google_llm.py`. La pagina oficial (adk.dev) lista soporte explicito para
+  Claude/OpenAI/**Ollama**/vLLM/LiteLLM — compatible con el stack actual de Sintel
+  (Ollama en dev, LM Studio OpenAI-compatible en prod), **no ata el proyecto a Gemini**.
+  No verificado en esta pasada: la firma exacta de `LiteLlm.__init__()` y un snippet
+  literal de uso con Ollama (el fetch se corto antes de esa clase) — pendiente para
+  ADK-01.
+- **HITL / aprobacion humana, confirmado nativo:** `FunctionTool(fn,
+  require_confirmation=True)` (bool o predicado async) pausa la ejecucion de una tool
+  hasta confirmacion; `ToolContext.requestConfirmation(hint=..., payload=...)` para el
+  flujo mas rico (pausa/resume via UI o API REST). Esto es un candidato real para envolver
+  (no reemplazar) el gate de `ai_editor.repository.promote_to_workspace()` — ver seccion 4.
+- No verificado en esta pasada (marcar como pendiente, no asumir): version exacta en la
+  que Sequential/Parallel/Loop se eliminan de verdad (el docstring dice "a future version",
+  sin numero); si siguen funcionando hoy o solo emiten warning (la redaccion sugiere que
+  si funcionan, con warning).
+
+## 1. Inventario real de Sintel — 5 sistemas, confirmados existentes y separados
+
+Coincide con la separacion que propone el usuario (seccion 1/3 de su mensaje) — **confirmado
+correcto**, con los paths reales (no `apps/tenant/ai_knowledge/` ni `apps/services/ai/`,
+que no existen en este repo):
+
+| Sistema | Path real | Responsabilidad | Corre como |
+|---|---|---|---|
+| AI Engine | `ecommerce_sintel/ai_engine/` | Chatbot de soporte al cliente: routing de intents, agentes, tools, RAG-consumer | Microservicio FastAPI propio, contenedor `sintel_ai` |
+| AI Provider | `ecommerce_sintel/ai_provider/` | Config de que proveedor/modelo LLM (chat) y de embeddings usar, runtime, editable desde panel | App Django |
+| AI Knowledge | `ecommerce_sintel/ai_knowledge/` | RAG semantico: `AIKnowledgeDocument`/`AIKnowledgeChunk`, `EmbeddingService`, `RetrievalService` sobre pgvector (construido hoy mismo, ver `AUDITORIA/ARCHITECTURE_SIMPLIFICATION_AUDIT.md`) | App Django |
+| AI Editor | `ecommerce_sintel/ai_editor/` | Propuestas de cambio de codigo seguras (intent→resolver→planner→sandbox→validacion→aprobacion→promocion→rollback) | **Sin Dockerfile, sin entrypoint CLI, sin servicio en docker-compose** — no corre hoy como proceso persistente, se invoca via tests/management (confirmar mecanismo real exacto en ADK-01/02, es un hueco de este audit) |
+| Project Knowledge Graph (EKG) | `ecommerce_sintel/project_knowledge_graph/` | Conocimiento estructural del codigo: scanner, Project Map, Knowledge Graph, Dependency Graph, deteccion incremental, `graph_sdk`, CLI | Libreria Python pura, sin servicio propio, consumida por `ai_editor` via `graph_client` y por su propio `cli/` |
+
+**Correccion importante al plan del usuario:** `ai_editor` NO tiene Dockerfile ni esta
+declarado en `docker-compose.yml`/`docker-compose.prod.yml` (verificado, cero
+coincidencias). Cualquier diseno de "donde vive el ADK Runner de ai_editor" (ADK-11) debe
+partir de que hoy no hay un proceso persistente al que atarlo — es un hallazgo nuevo, no
+mencionado en el plan original, y cambia el orden de riesgo: ai_editor no tiene trafico de
+produccion que proteger de una migracion a medias, a diferencia de `ai_engine`.
+
+## 2. AI Engine — estado real HOY (post-simplificacion de hoy mismo)
+
+El plan del usuario cita "29 capabilities y 9 agent profiles" y "31 endpoints internos" —
+**verificado en el codigo real, actualizado a la fecha de este documento:**
+
+- Agent profiles: **9** (`ai_engine/agents/profiles/*.yaml`) — coincide.
+- Capabilities registradas: **30** (`capabilities/registry.py`) — cercano, no exacto (30 no 29;
+  diferencia menor, no material).
+- Endpoints internos `/api/v1/internal/ai/*`: **36** (`ecommerce/internal_ai_urls.py`,
+  contados hoy) — el plan dice 31; la cifra crecio con trabajo de esta misma sesion (Meta
+  Business, `ai_knowledge/retrieve/`). Usar 36 como cifra vigente, no 31.
+- `action_graph.py` (923 lineas) sigue siendo el unico orquestador real de `/chat` —
+  confirmado que hace routing de intent, seleccion de agente, ejecucion de tools, policy
+  layer (limite diario de turnos, rate limit), y generacion de respuesta. Esto SI es
+  candidato directo a reemplazo por `Workflow`/`Runner` de ADK (coincide con el analisis
+  del usuario, seccion 3).
+- **Importante, y NO mencionado en el plan: `ai_engine` ya fue objeto de una limpieza
+  arquitectonica completa HOY MISMO** (sesion previa, mismo dia, commits `cf50009` →
+  `f3c8638` en esta misma branch `fix/audit-p0-remediation`): se elimino por completo el
+  pipeline de generacion de codigo que antes vivia dentro de `ai_engine` (`/generate`,
+  `/plan`, `/impact`, etc. — 6 modulos, ~1900 lineas) y ChromaDB (5 modulos mas, servicio
+  Docker, dependencias). `ai_engine` hoy expone **exactamente 2 rutas propias**: `POST
+  /chat` y `GET /health`, mas el AI Gateway (`/api/v1/ai/*`, MCP de Meta Ads, sin tocar).
+  Cualquier documentacion o ejemplo que mencione `/generate`/`/plan`/ChromaDB/embeddings
+  locales en `ai_engine` describe el estado **anterior a hoy**, no el actual.
+
+## 3. Correcciones a supuestos del plan que no coinciden con el codigo real
+
+| Supuesto del plan | Estado real verificado | Accion recomendada |
+|---|---|---|
+| `AIEmbeddingProvider` (seccion 12: "Mantener EmbeddingService, AIEmbeddingProvider, AIKnowledgeDocument, AIKnowledgeChunk") | **No existe y NUNCA se construyo a proposito** — se reutilizo `ai_provider.AIChannelConfig` con un canal nuevo `CHANNEL_EMBEDDINGS` en vez de duplicar `AIProvider`/`AIModel` en un modelo paralelo (decision explicita de esta misma sesion, documentada en el commit `aa3dd41`, exactamente para cumplir la regla de "no duplicar" que el propio plan pide en su seccion 5) | No crear `AIEmbeddingProvider` en ninguna fase futura. Seguir usando `AIChannelConfig.CHANNEL_EMBEDDINGS` |
+| `AIContext` (seccion 10 y 14 del plan: SSoT de contexto operacional usuario/tenant/sede/area/permisos) | **No existe en absoluto** — cero coincidencias en todo el repo. Es una propuesta de disenar-desde-cero, no algo a "mantener" | Si se decide construirlo (ADK-08), es trabajo NUEVO, no una migracion de algo existente. Antes de crearlo, mapear que de "tenant/sede/area" aplica de verdad (ver fila siguiente) |
+| Multi-tenancy / tenant isolation / tenant scope (mencionado repetidamente en secciones 3, 11, 15, 16, 22, 26 del plan) | **No existe ningun concepto de tenant en `ai_editor`/`project_knowledge_graph`, y el proyecto completo es deliberadamente single-tenant** (decision registrada 2026-08-14 en `AUDITORIA/WHITE_LABEL/WHITE_LABEL_DECISION_RECORD.md`, reconfirmada explicitamente por el usuario en vivo el 2026-09-14: "no apliques multitenant a este proyecto") | **Eliminar toda mencion a tenant/multi-tenant del prompt de ejecucion** — no es un guardrail a preservar, es una feature que no existe y no se va a construir. Cualquier "tenant isolation test" de la seccion 22 del plan no tiene contra que probar |
+| `apps/tenant/ai_knowledge/`, `apps/services/ai/` (seccion 6 del plan, rutas a auditar) | No existen — este proyecto no usa un prefijo `apps/`. Los paths reales ya estan en la tabla de la seccion 1 de este documento | Corregir la lista de paths en cualquier prompt de ejecucion futuro |
+| `resolve_change()`, `calculate_change_impact()`, `build_graph_context_packet()` como API publica de `graph_sdk` (seccion 13 del plan) | Los tres existen como implementacion real en `project_knowledge_graph/knowledge_graph/query.py`, PERO la superficie publica de `graph_sdk`/`ai_editor.graph_client` (el unico punto de entrada permitido, por regla arquitectonica ya existente) expone `resolve_change()` igual, mas `calculate_impact()` (no `calculate_change_impact`) y `build_context_packet()` (no `build_graph_context_packet`) | Usar los nombres publicos reales: `calculate_impact()`, `build_context_packet()`. `graph_client` expone 16 operaciones en total (ver seccion 4) |
+| Pipeline de `ai_editor` como 11 pasos lineales incluyendo `graph_client` como etapa propia (secciones 5, 19 del plan) | El pipeline real (`ai_editor/.AGENT/CHANGE_FLOW.md`) es mas granular (12 pasos) y `graph_client` **no es una etapa independiente** — es una dependencia interna de `resolver.resolve_change_context()`. Ademas hay una etapa explicita de `repository.create_sandbox()` que el plan omite de su lista aunque la menciona sueltamente en otras secciones | Usar el pipeline real (seccion 4 de este documento) al disenar el ADK Workflow de ADK-11, no la version simplificada del plan |
+| IMPLEMENTATION_SUMMARY.md describe la arquitectura vigente | El propio usuario ya lo identifico correctamente en su mensaje: ese documento describe el estado anterior a la migracion de hoy (ChromaDB). Documentos afectados por la migracion de hoy (`ai_engine/.AGENT/FLIJO_COMPLETO_IA_ENGINE.md`, `GUIA_USO.md`) ya quedaron marcados explicitamente como HISTORICOS en el commit `ae45755` | Tratar `IMPLEMENTATION_SUMMARY.md` con la misma cautela — no esta corregido todavia, queda pendiente si se decide seguir con esta mision |
+
+## 4. `ai_editor` + `project_knowledge_graph` — pipeline y API reales (para ADK-06/07/11)
+
+**`graph_client`** (`ai_editor/graph_client/__init__.py`) es, confirmado, el UNICO punto de
+entrada permitido hacia `project_knowledge_graph` (re-exporta `graph_sdk` por identidad de
+objeto; ningun otro submodulo de `ai_editor` puede importar
+`project_knowledge_graph.knowledge_graph.*`/`.internal.*` directo — regla ya verificada por
+AST en los tests existentes, mismo patron que la regla "AI Engine nunca importa Postgres
+directo"). 16 operaciones publicas: `resolve_change`, `find_symbol`, `find_file`,
+`find_endpoint`, `find_consumers`, `trace_data_flow`, `trace_execution`, `find_tests`,
+`find_docs`, `calculate_impact`, `build_change_plan`, `build_context_packet`,
+`find_configuration`, `find_node`, `get_app_summary`, `get_graph_status`.
+
+**Pipeline real de `ai_editor`** (`ai_editor/.AGENT/CHANGE_FLOW.md`), 12 pasos:
+
+```
+intent.interpret_request
+  -> resolver.resolve_change_context()          [usa graph_client.resolve_change internamente]
+  -> planner.build_change_plan() + validate_plan()
+  -> repository.create_sandbox()                 [etapa explicita de sandbox, copia aislada]
+  -> patch.apply_operation()
+  -> validation.run_validation() + build_test_validation_report()
+  -> approval.build_change_summary() + record_decision()   [gate humano]
+  -> repository.promote_to_workspace() (+ rollback_promotion() si falla)
+  -> audit.audit_pipeline_run()
+```
+
+**`promote_to_workspace()`** (`ai_editor/repository/promote.py:83`) — confirmado, 4 gates
+independientes, cualquiera bloquea: (a) `approval.decision == APPROVE`; (b) `confirm=True`
+explicito, separado de la aprobacion; (c) si viene `validation_report`, exige
+`level_1_passed` (sintaxis); (d) chequeo de fingerprint por archivo contra el workspace real
+antes de escribir (todo o nada). `rollback_promotion()` existe en paralelo
+(`ai_editor/repository/rollback.py`).
+
+**Modulo real de `ai_editor`** (66 archivos .py): `agent/`, `approval/`, `audit/`, `data/`,
+`generation/`, `graph_client/`, `intent/`, `llm/`, `patch/`, `planner/`, `repository/`,
+`resolver/`, `validation/`, mas `workspace.py`. 28 docs bajo `.AGENT/`.
+
+**Modulo real de `project_knowledge_graph`** (93 archivos .py): `audit/`, `cli/`, `data/`,
+`dependency_graph/`, `graph_sdk/`, `incremental/`, `knowledge_graph/` (+`enrichers/`),
+`project_map/`, `scanner/`, `snapshots/`, `tests/` (49 archivos — la suite real de
+`ai_editor` vive AQUI, no dentro de `ai_editor/`, salvo 1 archivo inline). Ultima medicion
+documentada: 9.575 nodos / 20.335 aristas (cifra del plan del usuario, no re-verificada en
+esta pasada — pendiente confirmar via `graph_client.get_graph_status()` en ADK-01).
+
+**Sandbox real, confirmado:** `ai_editor/repository/sandbox.py` (`create_sandbox`) — copia
+aislada de archivos, el workspace real nunca se toca hasta `promote_to_workspace`.
+Documentado en `ai_editor/.AGENT/FASE61_12_SANDBOX.md`.
+
+## 5. Riesgos identificados para las fases siguientes
+
+1. **`Workflow` no puede ser sub-agente de un `LlmAgent` todavia** (seccion 0) — el diseno
+   Root Agent → Support/Sales/Operations/Engineering Agent (seccion 6/4 del plan) asume
+   composicion anidada fluida; hay que validar en ADK-01 si esto se resuelve con
+   `LlmAgent.sub_agents` normal (sin pasar por `Workflow` en cada nivel) o si requiere un
+   patron distinto al propuesto.
+2. **`ai_editor` no corre como servicio hoy** — antes de ADK-11 (orquestacion de AI Editor)
+   hace falta decidir DONDE corre el ADK Runner que lo invoque (nuevo proceso? dentro de
+   `sintel_ai`? management command de Django?). No es una decision tecnica que corresponda
+   tomar en este documento.
+3. **Mezcla de Python 3.12 (`ai_engine`) y 3.13 (Django)** — ADK exige 3.10+, ambos
+   cumplen, pero si se decide correr ADK del lado Django (para acceso directo a
+   Commands/Selectors sin cruzar el bridge HTTP) es una decision de imagen/dependencias
+   nueva, no trivial.
+4. **El propio plan reconoce (seccion 26) "ADK nunca debe convertirse en autoridad de
+   negocio"** — esto ya es consistente con la arquitectura actual (AI Engine llama a
+   Django via HTTP interno, nunca al reves) y no requiere cambio de diseno, solo
+   preservarlo explicitamente en cada fase.
+5. **`LiteLlm` (integracion Ollama/LM Studio) no se verifico a nivel de firma/uso real** —
+   pendiente confirmar antes de escribir cualquier codigo de ADK-01 que dependa de esto,
+   dado que el stack de Sintel es 100% Ollama/LM Studio, nunca Gemini.
+
+## 6. Estado de este documento
+
+ADK-00 completo. Sin cambios de codigo. Pendiente instruccion explicita del usuario para
+iniciar ADK-01 (POC aislado, sin tocar `ai_engine` productivo) — el propio plan (seccion 24,
+"checkpoint obligatorio") exige no continuar automaticamente entre fases.
