@@ -11,8 +11,8 @@ class CartSelector:
         return (
             Cart.objects
             .prefetch_related(
-                'items__variant__product',
-                'items__service_variant__service'
+                'items__variant__product__images',
+                'items__service_variant__service__images'
             )
             .get(id=cart.id)
         )

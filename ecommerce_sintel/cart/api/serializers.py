@@ -13,12 +13,13 @@ class CartItemSerializer(serializers.ModelSerializer):
     variant_uuid = serializers.SerializerMethodField()
     unit_price_with_tax = serializers.SerializerMethodField()
     final_price         = serializers.SerializerMethodField()
+    image                = serializers.SerializerMethodField()
 
     class Meta:
         model = CartItem
         fields = [
             'uuid', 'item_type', 'variant_uuid',
-            'product_name', 'variant_sku',
+            'product_name', 'variant_sku', 'image',
             'quantity', 'unit_price', 'subtotal',
             'unit_price_with_tax', 'final_price',
             'created_at',
@@ -52,6 +53,20 @@ class CartItemSerializer(serializers.ModelSerializer):
         if obj.service_variant:
             return str(obj.service_variant.uuid)
         return None
+
+    def get_image(self, obj):
+        """Imagen principal: is_primary si existe, si no la primera disponible, si no None."""
+        images = None
+        if obj.variant:
+            images = list(obj.variant.product.images.all())
+        elif obj.service_variant:
+            images = list(obj.service_variant.service.images.all())
+        if not images:
+            return None
+        primary = next((img for img in images if img.is_primary), images[0])
+        request = self.context.get('request')
+        url = primary.image.url
+        return request.build_absolute_uri(url) if request else url
 
     def get_item_type(self, obj):
         if obj.variant:

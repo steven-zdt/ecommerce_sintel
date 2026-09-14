@@ -4,26 +4,20 @@ from django.core.exceptions import ValidationError
 from cart.models import Cart, CartItem, WishlistItem
 from shop.models import ProductVariant
 from technical_services.models import ServiceVariant
-from inventory.services.selectors import InventorySelector
+from inventory.services.selectors import InventorySelector, check_variant_or_service_availability
 
 
 def _check_availability(variant, service_variant, quantity_requested, existing_qty=0):
     """
     Returns available stock (int) for products, or raises ValidationError for services.
     Services use is_active as availability signal (stock is unlimited when active).
-    """
-    if service_variant is not None:
-        if not service_variant.is_active or not service_variant.service.is_active:
-            raise ValidationError("El servicio no esta disponible en este momento.")
-        return 9999  # servicios no tienen stock fisico
 
-    stock = InventorySelector.get_current_stock(variant)
-    total_requested = existing_qty + quantity_requested
-    if total_requested > stock:
-        raise ValidationError(
-            f"Stock insuficiente. Stock disponible: {stock}, solicitado: {total_requested}."
-        )
-    return stock
+    DUP-B4 (auditoria, doc 03): delega a inventory.services.selectors.
+    check_variant_or_service_availability() -- mismo comportamiento/mensajes de
+    error exactos que antes, solo se movio el calculo compartido con
+    orders.services.commands._check_item_stock() a un solo lugar.
+    """
+    return check_variant_or_service_availability(variant, service_variant, quantity_requested, existing_qty)
 
 
 class CartCommands:

@@ -49,7 +49,7 @@ class CartViewSet(viewsets.ViewSet):
     def list(self, request):
         """Returns the current user's cart details."""
         cart = self.get_cart()
-        serializer = CartSerializer(cart)
+        serializer = CartSerializer(cart, context={'request': request})
         return Response(serializer.data)
 
     @extend_schema(
@@ -86,7 +86,7 @@ class CartViewSet(viewsets.ViewSet):
         except (ValidationError, ValueError) as e:
             raise serializers.ValidationError({"detail": str(e)})
 
-        output_serializer = CartItemSerializer(item)
+        output_serializer = CartItemSerializer(item, context={'request': request})
         return Response(output_serializer.data, status=status.HTTP_201_CREATED)
 
     @extend_schema(
@@ -126,7 +126,7 @@ class CartViewSet(viewsets.ViewSet):
         if item is None:
             return Response({"detail": "Item eliminado del carrito."}, status=status.HTTP_200_OK)
 
-        output_serializer = CartItemSerializer(item)
+        output_serializer = CartItemSerializer(item, context={'request': request})
         return Response(output_serializer.data, status=status.HTTP_200_OK)
 
     @action(detail=False, methods=['post'])
@@ -165,11 +165,21 @@ class WishlistViewSet(viewsets.ViewSet):
     permission_classes = [IsBuyerOrAdmin]
     lookup_field = 'uuid'
 
+    @staticmethod
+    def _primary_image_url(request, product):
+        images = list(product.images.all())
+        if not images:
+            return None
+        primary = next((img for img in images if img.is_primary), images[0])
+        url = primary.image.url
+        return request.build_absolute_uri(url) if request else url
+
     def list(self, request):
         items = (
             WishlistItem.objects
             .filter(user=request.user, is_deleted=False)
             .select_related('variant__product')
+            .prefetch_related('variant__product__images')
             .order_by('-created_at')
         )
         data = [
@@ -179,6 +189,7 @@ class WishlistViewSet(viewsets.ViewSet):
                 'sku': item.variant.sku,
                 'product_name': item.variant.product.name,
                 'price': str(item.variant.price),
+                'image': self._primary_image_url(request, item.variant.product),
                 'added_at': item.created_at.isoformat(),
             }
             for item in items
@@ -201,6 +212,7 @@ class WishlistViewSet(viewsets.ViewSet):
                 'sku': variant.sku,
                 'product_name': variant.product.name,
                 'price': str(variant.price),
+                'image': self._primary_image_url(request, variant.product),
             },
             status=status.HTTP_201_CREATED,
         )

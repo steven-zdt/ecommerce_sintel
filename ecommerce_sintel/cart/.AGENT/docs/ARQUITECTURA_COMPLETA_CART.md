@@ -364,11 +364,19 @@ originalmente aqui (no usan `depth=1` ni un campo `total_price` simple) -- corre
 1. **CartItemSerializer** (ModelSerializer, todos los campos via `SerializerMethodField`)
    - **Modelo**: CartItem
    - **Campos reales**: `uuid`, `item_type` ('product'|'service'|'unknown'), `variant_uuid`,
-     `product_name`, `variant_sku`, `quantity`, `unit_price`, `subtotal`,
+     `product_name`, `variant_sku`, `image`, `quantity`, `unit_price`, `subtotal`,
      `unit_price_with_tax`, `final_price`, `created_at`
    - `unit_price_with_tax` usa `PricingService.calculate_variant_price(variant, include_active_taxes=True)`
      para productos; para servicios usa `fixed_price` o `ServiceSelector.get_variant_quotation()`
    - `final_price = unit_price_with_tax * quantity`
+   - **`image`** (Auditoria Enterprise de Imagenes, 2026-08-04): URL absoluta de la imagen
+     principal (`is_primary` si existe, si no la primera disponible, si no `null`), leida de
+     `variant.product.images`/`service_variant.service.images` segun `item_type`. Requiere que el
+     `context` del serializer traiga `request` (`GenericAPIView` lo agrega solo; en este ViewSet,
+     que no hereda de ahi, se pasa explicito en `list()`/`add_item()`/`update_item()`) para que
+     `request.build_absolute_uri()` pueda resolver la URL absoluta -- sin `request` en contexto
+     cae a la URL relativa (`/media/...`). `CartSelector.get_for_user()` prefetchea
+     `items__variant__product__images`/`items__service_variant__service__images` para evitar N+1.
    - **Uso**: Respuesta en `add_item()`/`update_item()`, lista en `CartSerializer`
 
 2. **CartSerializer** (ModelSerializer)
@@ -766,15 +774,26 @@ Retorna la lista de `WishlistItem` activos del usuario (no eliminados).
 [
   {
     "uuid": "...",
+    "variant_uuid": "...",
     "product_name": "Alarma Paradox HD88",
     "sku": "ELEC-SKU-001",
     "price": "450000.00",
-    "created_at": "2026-06-26T10:00:00Z"
+    "image": "https://sintel.net.co/media/products/alarma-hd88.jpg",
+    "added_at": "2026-06-26T10:00:00Z"
   }
 ]
 ```
 
 Los campos `product_name`, `sku`, `price` se leen desde `item.variant.product.name`, `item.variant.sku`, `item.variant.price`.
+
+**`image`** (Auditoria Enterprise de Imagenes, 2026-08-04): URL absoluta de la imagen principal
+del producto (`item.variant.product.images` -- primero la marcada `is_primary`, si no la primera
+disponible, si no `null`). Construida manualmente con `request.build_absolute_uri()` en
+`WishlistViewSet._primary_image_url()` porque esta vista no usa un `ModelSerializer` (arma el
+dict de respuesta a mano). El mismo patron "primary-first" se aplica en
+`CartItemSerializer.get_image()` para `GET /api/v1/cart/` y las respuestas de `add_item`/
+`update_item` (ver seccion siguiente) -- antes de esta fase ningun endpoint de `cart` exponia
+imagen alguna; Cart/Wishlist en el frontend mostraban un icono fijo siempre.
 
 #### POST /api/v1/cart/wishlist/
 Body: `{ "variant_uuid": "<uuid>" }`
