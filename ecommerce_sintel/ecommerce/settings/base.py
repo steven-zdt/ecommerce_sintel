@@ -56,7 +56,9 @@ INSTALLED_APPS = [
     'kyc',
     'security',
     'organization',
+    'seo',
     'shared',
+    'ai_provider',
     'django_vite',
 ]
 
@@ -121,6 +123,16 @@ CHANNEL_LAYERS = {
         'BACKEND': 'channels_redis.core.RedisChannelLayer',
         'CONFIG': {
             "hosts": [config('REDIS_URL', default='redis://localhost:6379/0')],
+            # Repaso de backlog (AUDITORIA/18_AUDITORIA_PRODUCCION_RESILIENCIA_WS.md B3,
+            # 2026-08-03): antes sin declarar -- defaults de channels_redis (capacity=100,
+            # expiry=60) nunca evaluados a proposito. Al superar capacity, el mensaje
+            # simplemente NO se encola (solo un log INFO de la libreria, sin excepcion ni senal
+            # a nadie). 'support_admins' es el grupo de mayor riesgo real: cada agente conectado
+            # + cada broadcast de chat consume cupo de la MISMA cola. capacity=1000 da margen
+            # real ante una rafaga (varios admins conectados durante un pico de mensajes) sin
+            # cambiar el comportamiento observable hoy (muy por debajo del limite actual).
+            "capacity": 1000,
+            "expiry": 60,
         },
     },
 }
@@ -224,11 +236,16 @@ REST_FRAMEWORK = {
         'register_verify': '20/hour',
         'register_resend': '5/hour',
         # F-03 (auditoria enterprise): endpoints de payment sin ningun
-        # throttle -- webhook/transaction_status/confirmation quedan sin
-        # scope a proposito (lectura/publico, ver payment/online/api/views.py).
+        # throttle -- webhook queda sin scope a proposito (publico, firma
+        # HMAC verificada aparte). transaction_status/confirmation SI
+        # necesitan uno: [CORREGIDO 2026-08-04, hallazgo C1 de
+        # AUDITORIA_INTEGRAL_PRODUCCION_2026-08-04.md] la premisa de F-03
+        # ("son de lectura") era incorrecta -- internamente disparan
+        # _sync_wompi_status(), que puede mutar el estado de la Transaction.
         'payment_initialize': '30/hour',
         'payment_card_create': '10/hour',
         'payment_nequi_initialize': '10/hour',
+        'payment_reconciliation': '60/hour',
         # Q-06 (auditoria enterprise): endpoints de quotes sin throttle.
         'quote_from_template': '30/hour',
         'quote_download_pdf': '60/hour',
@@ -238,6 +255,10 @@ REST_FRAMEWORK = {
         # D-03 (auditoria enterprise): AiOpenSupportTicketView invoca un LLM
         # con costo real por mensaje y no tenia scope propio registrado.
         'ai_support_ticket': '30/hour',
+        # Centro de Comunicacion (2026-07-31): endpoint publico (AllowAny,
+        # visitantes anonimos incluidos) que solo escribe telemetria -- limite
+        # generoso para uso legitimo normal, pero con tope real contra abuso.
+        'communication_event': '60/hour',
     },
 }
 
@@ -251,7 +272,11 @@ DJANGO_TABLES2_PAGE_RANGE = 10
 
 # SimpleJWT
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),
+    # QW-17 (quick win, auditoria 2026-07-16): 60min era una ventana demasiado
+    # larga para un access token robado -- el frontend ya hace refresh
+    # silencioso automatico en 401 (ver interceptor de useApi.js), asi que
+    # acortar esto es transparente para el usuario.
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=15),
     'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
     'ROTATE_REFRESH_TOKENS': True,
     'BLACKLIST_AFTER_ROTATION': True,
@@ -302,6 +327,13 @@ CELERY_TASK_SOFT_TIME_LIMIT = 240
 
 # CORS
 CORS_ALLOWED_ORIGINS = config('CORS_ALLOWED_ORIGINS', default='').split(',')
+# SEC-M2 (auditoria, doc 06): guard explicito -- development.py fija
+# CORS_ALLOW_ALL_ORIGINS=True; sin este False explicito aqui, un
+# DJANGO_SETTINGS_MODULE mal configurado en produccion (que solo cargue
+# base.py sin production.py) heredaria el default de django-cors-headers,
+# que es False, pero dejar la intencion explicita evita depender de ese
+# default implicito si la libreria cambia su comportamiento en el futuro.
+CORS_ALLOW_ALL_ORIGINS = False
 
 # ── AI Core (Fase 7 — multicanal) ────────────────────────────────────────────
 # sintel_ai NUNCA se expone a Internet: todos los canales (widget web,
@@ -312,8 +344,21 @@ AI_SUPPORT_CHAT_ENABLED = config('AI_SUPPORT_CHAT_ENABLED', default=False, cast=
 # Usuario bot que firma los mensajes del asistente en ChatMessage (FK sender
 # NOT NULL). Inactivo y sin password utilizable -- jamas puede autenticarse.
 AI_BOT_EMAIL = config('AI_BOT_EMAIL', default='asistente.ia@sintel.internal')
+# Clave dedicada para cifrar en reposo AIProvider.api_key (shared/fields.py::
+# EncryptedTextField, plan "CONFIGURACION DINAMICA DE MODELOS LOCALES", FASE 1,
+# 2026-08-13). Si no se configura, el campo cae a derivar la clave de SECRET_KEY
+# (funciona en dev sin configuracion extra) -- en produccion se recomienda fijar
+# esta variable de forma independiente para poder rotarla sin tocar SECRET_KEY.
+AI_PROVIDER_ENCRYPTION_KEY = config('AI_PROVIDER_ENCRYPTION_KEY', default='')
 # Verify token del webhook entrante de WhatsApp (Meta Cloud API).
 WHATSAPP_WEBHOOK_VERIFY_TOKEN = config('WHATSAPP_WEBHOOK_VERIFY_TOKEN', default='')
+# FASE 2 (auditoria WS/consumer/AI bridge, 2026-08-07): las trazas [WS]/[CHAT] de
+# support/consumers.py, support/channels_auth.py y support/services/ai_bridge.py corren
+# siempre a nivel INFO (conexion, sala, latencia, tools, status) sin contenido de mensajes.
+# Con este flag en True, ademas incluyen el texto (truncado) del mensaje del cliente y de la
+# respuesta del AI Engine -- para diagnosticar un recorrido completo puntual sin dejar
+# contenido de conversaciones en logs de produccion por defecto.
+SUPPORT_DEBUG_MODE = config('SUPPORT_DEBUG_MODE', default=False, cast=bool)
 # Event Bus (Componente 8): slugs de NotificationTemplate que ademas de sus
 # canales normales generan un mensaje proactivo del bot en la sala del cliente.
 AI_PROACTIVE_SLUGS = [s.strip() for s in config('AI_PROACTIVE_SLUGS', default='').split(',') if s.strip()]
@@ -332,7 +377,15 @@ LOGGING = {
     'disable_existing_loggers': False,
     'formatters': {
         'verbose': {
-            'format': '{levelname} {asctime} {module} {process:d} {thread:d} {message}',
+            # Fase 15 (AUDITORIA/29_AUDITORIA_OBSERVABILIDAD.md, 2026-08-03): {module} solo da
+            # el nombre de archivo (ej. "tasks") -- 9 apps distintas tienen su propio tasks.py
+            # (support/notifications/marketing/orders/payment/quotes/renting/accounts/
+            # operations), todas indistinguibles entre si en los logs crudos de produccion.
+            # {name} es el logger completo (logging.getLogger(__name__)), ej.
+            # "support.tasks"/"notifications.tasks" -- ya usado consistentemente en todo el
+            # proyecto via ese mismo patron, sin cambio de codigo necesario mas alla del
+            # formatter.
+            'format': '{levelname} {asctime} {name} {process:d} {thread:d} {message}',
             'style': '{',
         },
     },
@@ -349,14 +402,23 @@ LOGGING = {
 }
 
 # ─── Marketing Channels ──────────────────────────────────────────────────────
-# Email (SMTP — configurado para Gmail con contrasena de aplicacion)
+# Email (SMTP). EMAIL_USE_TLS (STARTTLS, tipico puerto 587) y EMAIL_USE_SSL
+# (SSL implicito, tipico puerto 465) son mutuamente excluyentes -- smtplib
+# lanza ValueError si ambos son True. Configurar solo uno de los dos en True
+# segun el puerto real del proveedor (ver EMAIL_PORT).
 EMAIL_BACKEND    = config('EMAIL_BACKEND',    default='django.core.mail.backends.console.EmailBackend')
 DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default='noreply@sintel.co')
 EMAIL_HOST       = config('EMAIL_HOST',       default='smtp.gmail.com')
 EMAIL_PORT       = config('EMAIL_PORT',       default=587, cast=int)
 EMAIL_USE_TLS    = config('EMAIL_USE_TLS',    default=True, cast=bool)
+EMAIL_USE_SSL    = config('EMAIL_USE_SSL',    default=False, cast=bool)
 EMAIL_HOST_USER  = config('EMAIL_HOST_USER',  default='')
 EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD', default='')
+# SERVER_EMAIL: remitente de los correos internos de Django (errores 500 a
+# ADMINS/MANAGERS, si se configuran). Sin esto, Django usa 'root@localhost'
+# por defecto -- misma clase de problema de alineacion SPF/DKIM que tener un
+# DEFAULT_FROM_EMAIL ajeno al dominio real.
+SERVER_EMAIL     = config('SERVER_EMAIL',     default=DEFAULT_FROM_EMAIL)
 
 # Base URL del frontend, usada para armar enlaces en emails (ej. verificacion de cuenta)
 FRONTEND_BASE_URL = config('FRONTEND_BASE_URL', default='http://localhost:5173')
@@ -373,6 +435,24 @@ META_APP_SECRET = config('META_APP_SECRET', default='')
 WHATSAPP_PHONE_NUMBER_ID = config('WHATSAPP_PHONE_NUMBER_ID', default='')
 FACEBOOK_PAGE_ID = config('FACEBOOK_PAGE_ID', default='')
 INSTAGRAM_BUSINESS_ACCOUNT_ID = config('INSTAGRAM_BUSINESS_ACCOUNT_ID', default='')
+
+# Meta Business -- inventario de activos (FASE 1 del plan de integracion Meta
+# Business, ver Documentacion/Arquitectura_general/META_BUSINESS_INTEGRATION_MASTER_PLAN.md).
+# Todos son IDs publicos de activos, NO secretos -- pero siguen la misma regla
+# que el resto de credenciales de integracion: viven en .env / secret manager,
+# nunca en BD (decision de organization confirmada 2026-07-12). El unico punto
+# de lectura sancionado es OrganizationSelector.get_integration_settings().
+# Vacio por defecto: MetaGraphClient levanta MetaConfigError con un mensaje
+# claro cuando una operacion necesita un id que no esta configurado.
+META_GRAPH_API_VERSION = config('META_GRAPH_API_VERSION', default='v20.0')
+META_BUSINESS_ID = config('META_BUSINESS_ID', default='')
+META_WABA_ID = config('META_WABA_ID', default='')
+# ID numerico de la cuenta publicitaria, SIN el prefijo "act_" (el cliente lo
+# antepone cuando arma la ruta de Graph API).
+META_AD_ACCOUNT_ID = config('META_AD_ACCOUNT_ID', default='')
+META_CATALOG_ID = config('META_CATALOG_ID', default='')
+META_PIXEL_ID = config('META_PIXEL_ID', default='')
+META_DATASET_ID = config('META_DATASET_ID', default='')
 
 # SMS (modem GSM SIM5360 fisico, SIM Movistar Colombia -- ver sms_bridge/bridge.py).
 # Django corre en un contenedor Linux y no puede abrir un puerto COM de
@@ -427,3 +507,12 @@ NEQUI_CLIENT_ID     = config('NEQUI_CLIENT_ID',     default='')
 NEQUI_CLIENT_SECRET = config('NEQUI_CLIENT_SECRET', default='')
 NEQUI_API_KEY       = config('NEQUI_API_KEY',       default='')
 NEQUI_ENVIRONMENT   = config('NEQUI_ENVIRONMENT',   default='')
+
+# ─── SEO / Metaetiquetas ──────────────────────────────────────────────────────
+# Override explicito del entorno usado por seo.services.environment para
+# filtrar SiteMetaTag.environment ('development'/'testing'/'staging'/
+# 'production'). Vacio por defecto: se infiere de DEBUG (solo distingue
+# development/production, ya que hoy no existen settings/testing.py ni
+# settings/staging.py). Seteando esta env var, un contenedor de testing o
+# staging puede declararse sin tocar codigo.
+SEO_ACTIVE_ENVIRONMENT = config('SEO_ACTIVE_ENVIRONMENT', default='')

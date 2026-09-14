@@ -20,9 +20,29 @@ from users.api.admin_password_reset import (
 )
 from users.api.internal import AiContextView
 from users.api.permissions import IsAdminUser
+from seo import views as seo_views
 
 def health_check(request):
-    return JsonResponse({'status': 'ok'})
+    """
+    Fase 15 (AUDITORIA/29_AUDITORIA_OBSERVABILIDAD.md, 2026-08-03): antes devolvia
+    {"status": "ok"} incondicionalmente -- el HEALTHCHECK de docker-compose.prod.yml para el
+    servicio `django` (que hace curl -f contra este endpoint) era un falso positivo total: podia
+    reportar el contenedor como "healthy" (sin reiniciarlo) mientras Postgres/Redis eran
+    inalcanzables DESDE Django (ej. credenciales rotas, pool agotado), aunque los contenedores
+    de Postgres/Redis en si mismos estuvieran sanos por su propio healthcheck independiente.
+    Reusa SecuritySelector.get_health_snapshot() (ya existia, ya probado, solo expuesto antes
+    detras de auth de admin) -- curl -f interpreta un status >=400 como fallo, lo que hace que
+    Docker reinicie el contenedor via su politica `restart: unless-stopped` cuando corresponde.
+    Celery se reporta mas no bloquea (el servicio celery_worker ya tiene su propio HEALTHCHECK
+    independiente -- acoplarlo aqui duplicaria esa responsabilidad).
+    """
+    from security.services.selectors import SecuritySelector
+    snapshot = SecuritySelector.get_health_snapshot()
+    healthy = snapshot['db'] and snapshot['redis']
+    return JsonResponse(
+        {'status': 'ok' if healthy else 'degraded', **snapshot},
+        status=200 if healthy else 503,
+    )
 
 urlpatterns = [
     # ── HEALTH CHECK ───────────────────────────────────────────────────────────
@@ -75,6 +95,12 @@ urlpatterns = [
 
     # ── SILENCER (Chrome DevTools 404) ────────────────────────────────────────
     path('.well-known/appspecific/com.chrome.devtools.json', lambda r: JsonResponse({})),
+
+    # ── SEO — archivos de verificacion en la raiz del dominio ─────────────────
+    # Debe ir ANTES del catch-all de la SPA: sirve seo.SiteVerificationFile
+    # (metodo "Subir archivo HTML" de Meta Business Suite / Google Search
+    # Console / etc.), o 404 si el filename no esta registrado/activo.
+    path('<str:filename>.html', seo_views.serve_verification_file, name='seo-verification-file'),
 
     # ── SPA (Vue) — catch-all, debe ir al final ───────────────────────────────
     # Sirve el shell HTML (src/apps/admin/main.js, monta en #shop-spa-root)

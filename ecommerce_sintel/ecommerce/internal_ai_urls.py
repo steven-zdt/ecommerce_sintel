@@ -8,6 +8,7 @@ Selectors/Commands ya existentes. Nginx no proxea /internal/ hacia afuera.
 from django.urls import path
 
 from accounts.api.internal_ai import AiCustomerContextView
+from ai_provider.api.internal_ai import AiProviderConfigView
 from core.api.internal_ai import (
     AiCoreHomeConfigView,
     AiCoreNavbarView,
@@ -27,6 +28,10 @@ from marketing.api.internal_ai import (
     AiStaleStockAlertsView,
     AiCampaignTargetsView,
     AiPersonalRecommendationView,
+    AiMetaCampaignsView,
+    AiMetaCampaignDetailView,
+    AiMetaInsightsView,
+    AiMetaAccountSummaryView,
 )
 from orders.api.internal_ai import AiOrderStatusView
 from payment.api.internal_ai import AiPaymentStatusView
@@ -57,6 +62,8 @@ urlpatterns = [
     path("marketing/promos/",     AiActivePromosView.as_view(),        name="ai-marketing-promos"),
     # Fase 5 - CRM Context
     path("customer-context/",     AiCustomerContextView.as_view(),     name="ai-customer-context"),
+    # Config dinamica de modelos locales, FASE 2 (2026-08-13)
+    path("provider-config/",      AiProviderConfigView.as_view(),      name="ai-provider-config"),
     # Fase 4 - escritura (permission classes reales + SecurityEvent audit)
     path("rentals/create/",       AiCreateRentalRequestView.as_view(), name="ai-rentals-create"),
     path("rentals/cancel/",       AiCancelRentalView.as_view(),        name="ai-rentals-cancel"),
@@ -69,6 +76,11 @@ urlpatterns = [
     path("marketing/stale-stock/",      AiStaleStockAlertsView.as_view(),        name="ai-marketing-stale-stock"),
     path("marketing/campaign-targets/", AiCampaignTargetsView.as_view(),         name="ai-marketing-campaign-targets"),
     path("marketing/recommendation/",   AiPersonalRecommendationView.as_view(),  name="ai-marketing-recommendation"),
+    # Meta Ads READ (FASE 9 integracion Meta Business) -- admin-only
+    path("marketing/meta/campaigns/",              AiMetaCampaignsView.as_view(),      name="ai-marketing-meta-campaigns"),
+    path("marketing/meta/campaign/<str:campaign_id>/", AiMetaCampaignDetailView.as_view(), name="ai-marketing-meta-campaign-detail"),
+    path("marketing/meta/insights/",               AiMetaInsightsView.as_view(),       name="ai-marketing-meta-insights"),
+    path("marketing/meta/account-summary/",        AiMetaAccountSummaryView.as_view(), name="ai-marketing-meta-account-summary"),
     path("renting/maintenance/",        AiEquipmentMaintenanceView.as_view(),    name="ai-renting-maintenance"),
     path("core/home/",                  AiCoreHomeConfigView.as_view(),          name="ai-core-home"),
     path("core/navbar/",                AiCoreNavbarView.as_view(),              name="ai-core-navbar"),

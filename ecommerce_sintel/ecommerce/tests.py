@@ -16,7 +16,7 @@ import os
 import subprocess
 import sys
 import django
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, TestCase
 
 
 class ProductionSettingsDebugFailSafeTestCase(SimpleTestCase):
@@ -43,3 +43,41 @@ class ProductionSettingsDebugFailSafeTestCase(SimpleTestCase):
     def test_debug_false_loads_production_settings_normally(self):
         result = self._run_in_subprocess('False')
         self.assertEqual(result.returncode, 0, msg=result.stderr)
+
+
+class HealthCheckEndpointTestCase(TestCase):
+    """
+    Fase 15 (AUDITORIA/29_AUDITORIA_OBSERVABILIDAD.md, 2026-08-03): antes /api/v1/health/
+    (consultado por el HEALTHCHECK de docker-compose.prod.yml para el servicio `django`)
+    devolvia {"status": "ok"} incondicionalmente -- falso positivo total, no verificaba nada.
+    Ahora reusa SecuritySelector.get_health_snapshot() y responde 503 si db/redis fallan, para
+    que `curl -f` (usado por el HEALTHCHECK) falle y Docker reinicie el contenedor.
+    """
+
+    def test_status_ok_cuando_db_y_redis_estan_sanos(self):
+        response = self.client.get('/api/v1/health/')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['status'], 'ok')
+        self.assertTrue(response.json()['db'])
+        self.assertTrue(response.json()['redis'])
+
+    def test_status_degraded_503_si_redis_falla(self):
+        from unittest.mock import patch
+        with patch('security.services.selectors.SecuritySelector.get_health_snapshot') as mock_snapshot:
+            mock_snapshot.return_value = {'db': True, 'redis': False, 'celery': True}
+            response = self.client.get('/api/v1/health/')
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json()['status'], 'degraded')
+
+    def test_status_degraded_503_si_db_falla(self):
+        from unittest.mock import patch
+        with patch('security.services.selectors.SecuritySelector.get_health_snapshot') as mock_snapshot:
+            mock_snapshot.return_value = {'db': False, 'redis': True, 'celery': True}
+            response = self.client.get('/api/v1/health/')
+        self.assertEqual(response.status_code, 503)
+
+    def test_no_requiere_autenticacion(self):
+        # El curl del HEALTHCHECK de Docker no envia credenciales -- debe seguir siendo publico.
+        response = self.client.get('/api/v1/health/')
+        self.assertNotEqual(response.status_code, 401)
+        self.assertNotEqual(response.status_code, 403)
