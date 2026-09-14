@@ -425,6 +425,29 @@ tomada por el usuario) -- ningun cliente real recibe todavia una respuesta de IA
 cutover en si es invisible para clientes hasta que esa activacion se decida por
 separado.**
 
+## 4septies. Activacion real de IA de soporte en produccion -- EJECUTADA (2026-09-14,
+## autorizado explicitamente: "activa el flag en produccion")
+
+`AI_SUPPORT_CHAT_ENABLED=True` agregado explicitamente a `.env.production` (antes
+dependia del default `False` de `settings/base.py`). `django`/`celery_worker`/
+`celery_beat` recreados (`up -d`, no `restart`) para cargarlo. Confirmado via Django
+shell: `settings.AI_SUPPORT_CHAT_ENABLED == True`, `settings.AI_ENGINE_URL ==
+"http://sintel_ai_adk:8101"`. Los 8 servicios del stack real, saludables.
+
+**A partir de este momento, cualquier cliente real que escriba al chat de soporte
+(`sintel.net.co`) recibe una respuesta generada por Google ADK (`sintel_ai_adk`, con el
+fix del leak de razonamiento de Qwen3.5 ya aplicado y verificado) -- esto ya NO es un
+cambio invisible para clientes.** Monitor en vivo armado sobre `sintel_prod_ai_adk` desde
+antes de esta activacion (pedido del usuario: "reactiva la vigilancia en ambos") para
+observar el primer trafico real.
+
+**Rollback si hiciera falta (mas rapido que revertir todo el cutover):** revertir
+`AI_SUPPORT_CHAT_ENABLED=True` a `False` en `.env.production` (o eliminar la linea, cae al
+default) + `docker compose -f docker-compose.prod.yml --env-file .env.production up -d
+django celery_worker celery_beat` -- deja de invocarse la IA sin tocar el resto del
+cutover (`sintel_ai_adk` puede seguir corriendo o detenerse, indistinto para el cliente
+una vez el flag esta en `False`).
+
 ## 5. Gate final antes de ejecutar cualquier paso de este plan
 
 Ningun paso de la seccion 3 (Opcion A) se ejecuta sin autorizacion explicita, item por
