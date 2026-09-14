@@ -1,7 +1,38 @@
 from django.db.models import QuerySet
 from django.core.cache import cache
 from django.contrib.contenttypes.models import ContentType
+from django.core.exceptions import ValidationError
 from inventory.models import InventoryTransaction, StockRecord
+
+
+def check_variant_or_service_availability(variant, service_variant, quantity_requested, existing_qty=0):
+    """
+    DUP-B4 (auditoria, doc 03): logica compartida que antes vivia duplicada como
+    cart.services.commands._check_availability() y orders.services.commands.
+    _check_item_stock() -- mismo chequeo (stock de producto vs. is_active de
+    servicio), cada caller reimplementaba su propio mensaje de error. Ambos
+    delegan aqui ahora; los mensajes de error propios de cada caller NO
+    cambiaron (siguen viviendo en cart/orders, este helper solo centraliza el
+    calculo/comparacion, no el texto que ve el usuario).
+
+    Retorna el stock disponible (int) para productos. Para servicios no hay
+    "stock" real -- retorna un valor grande (9999) una vez confirmado
+    is_active, igual que hacia cart._check_availability() originalmente.
+    Lanza ValidationError si no hay disponibilidad suficiente.
+    """
+    if service_variant is not None:
+        if not service_variant.is_active or not service_variant.service.is_active:
+            raise ValidationError("El servicio no esta disponible en este momento.")
+        return 9999
+
+    stock = InventorySelector.get_current_stock(variant)
+    total_requested = existing_qty + quantity_requested
+    if total_requested > stock:
+        raise ValidationError(
+            f"Stock insuficiente. Stock disponible: {stock}, solicitado: {total_requested}."
+        )
+    return stock
+
 
 class StockRecordSelector:
     LIST_FIELDS = ('id', 'uuid', 'sku', 'stock', 'is_active', 'created_at')
