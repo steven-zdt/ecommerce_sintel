@@ -31,9 +31,11 @@ Retrieval no es una decision del LLM -- el Root Workflow decide SI hacerlo
 ## Contrato HTTP completo y flujo de RESUME (ADK-11, cerrado en este cutover)
 
 Pendiente desde ADK-03/ADK-02 respectivamente, ahora resuelto:
-- `tool_calls`/`tool_results`: extraidos de los eventos reales de ADK
-  (`event.get_function_calls()`/`get_function_responses()`), excluyendo la
-  llamada sintetica `adk_request_confirmation` (no es una tool de negocio).
+- `response`/`tool_calls`/`tool_results`: construidos por
+  `public_response.extract_public_response()` -- UNICO punto de conversion
+  de eventos reales de ADK al payload publico (ver ese modulo para la
+  correccion arquitectonica del leak de razonamiento de Qwen3.5/LM Studio,
+  2026-09-14: `Part.thought` se filtra ANTES de armar `response`).
 - `needs_confirmation`/`confirmation`: un turno queda pausado cuando algun
   evento trae `long_running_tool_ids` no vacio (hallazgo real, verificado
   empiricamente contra Ollama real en `adk_poc/test_sintel_hitl_resume.py`
@@ -74,11 +76,9 @@ from sintel_adapter import (
     set_ephemeral_token,
 )
 from sintel_rag_adapter import SINTEL_KNOWLEDGE_CONTEXT_STATE_KEY, build_knowledge_context
+from public_response import REQUEST_CONFIRMATION_FUNCTION_CALL_NAME, extract_public_response
 
 APP_NAME = "sintel_ai_adk"
-
-# Confirmacion sintetica que emite ADK al pausar (ver docstring del modulo).
-_REQUEST_CONFIRMATION_FUNCTION_CALL_NAME = "adk_request_confirmation"
 
 
 def _build_litellm_model():
@@ -255,7 +255,7 @@ async def run_sintel_turn(
         adk_message = types.Content(
             role="user",
             parts=[types.Part(function_response=types.FunctionResponse(
-                id=pending_fc_id, name=_REQUEST_CONFIRMATION_FUNCTION_CALL_NAME,
+                id=pending_fc_id, name=REQUEST_CONFIRMATION_FUNCTION_CALL_NAME,
                 response=confirmation_payload.model_dump(),
             ))],
         )
@@ -305,22 +305,12 @@ async def run_sintel_turn(
             hint = tc.hint
         confirmation = {"hint": hint}
 
-    tool_calls: list[dict] = []
-    tool_results: list[dict] = []
-    for event in events:
-        for fc in event.get_function_calls():
-            if fc.name != _REQUEST_CONFIRMATION_FUNCTION_CALL_NAME:
-                tool_calls.append({"name": fc.name, "args": dict(fc.args or {})})
-        for fr in event.get_function_responses():
-            if fr.name != _REQUEST_CONFIRMATION_FUNCTION_CALL_NAME:
-                tool_results.append({"name": fr.name, "response": fr.response})
-
-    final_text = "".join(
-        part.text or ""
-        for event in events
-        if event.content and event.content.parts
-        for part in event.content.parts
-        if part.text
+    # UNICO punto de conversion Event -> payload publico (ver
+    # public_response.py) -- filtra Part.thought (razonamiento interno de
+    # Qwen3.5/LM Studio, u otro proveedor) ANTES de construir `response`.
+    # `internal_reasoning` es solo para logging interno, nunca se devuelve.
+    final_text, _internal_reasoning, tool_calls, tool_results = extract_public_response(
+        events, conversation_id=conversation_id,
     )
 
     return {
