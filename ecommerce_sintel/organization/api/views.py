@@ -7,10 +7,14 @@ madura (ver MIGRACION_CORE_V4_DOMINIOS_FASE1_AUDITORIA.md, hallazgo 4.D).
 Todos los agregados salvo SocialLink son singletons -- mismo patron list()+update() que
 AdminSiteBrandViewSet en dashboard/api/views.py.
 """
+import logging
+
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
+from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
+from rest_framework.throttling import ScopedRateThrottle
 
 from users.api.permissions import IsAdminUser
 
@@ -25,7 +29,11 @@ from organization.api.serializers import (
     DomainSettingsSerializer, DomainSettingsInputSerializer,
     SeoSettingsSerializer, SeoSettingsInputSerializer,
     LegalEntityInfoSerializer, LegalEntityInfoInputSerializer,
+    LegalDocumentSerializer, LegalDocumentInputSerializer,
+    CommunicationEventInputSerializer,
 )
+
+logger = logging.getLogger(__name__)
 
 ADMIN_PERMISSIONS = [IsAdminUser]
 
@@ -150,6 +158,10 @@ class EmailSettingsViewSet(viewsets.ViewSet):
     def update_settings(self, request):
         s = EmailSettingsInputSerializer(data=request.data, partial=True)
         s.is_valid(raise_exception=True)
+        # Fase 10 (AUDITORIA/25_AUDITORIA_ORGANIZATION.md, 2026-08-01): la invalidacion del
+        # cache vive en OrganizationCommands.upsert_email_settings(), no aqui -- es el unico
+        # punto de escritura real, a diferencia de Company/Branding/ContactInfo (cuyo cache
+        # vive en el endpoint PUBLICO core.api.views, un concepto distinto al selector interno).
         settings_obj = OrganizationCommands.upsert_email_settings(s.validated_data)
         return Response(EmailSettingsSerializer(settings_obj).data)
 
@@ -202,3 +214,74 @@ class LegalEntityInfoViewSet(viewsets.ViewSet):
         s.is_valid(raise_exception=True)
         info = OrganizationCommands.upsert_legal_entity_info(s.validated_data)
         return Response(LegalEntityInfoSerializer(info).data)
+
+
+class LegalDocumentViewSet(viewsets.ViewSet):
+    """
+    /api/v1/organization/legal-documents/ -- White-label F5 (2026-08-14).
+    Lectura publica a proposito (AllowAny en list/retrieve): el usuario debe
+    poder leer Terminos/Privacidad antes de registrarse, sin estar
+    autenticado -- mismo criterio que el resto de la plataforma expone
+    catalogo/contenido publico sin auth. Escritura admin-only (mismo patron
+    que el resto de esta app). `pk` es el `doc_type` (natural key: 'terminos'/
+    'politica'/'garantia'/'devoluciones'/'autorizacion'/'privacidad'), no un
+    uuid -- este ViewSet no es un ModelViewSet, asi que no requiere
+    `lookup_field` especial.
+    """
+
+    def get_permissions(self):
+        if self.action in ('list', 'retrieve'):
+            return [AllowAny()]
+        return [p() for p in ADMIN_PERMISSIONS]
+
+    def list(self, request):
+        docs = OrganizationSelector.list_legal_documents()
+        return Response(LegalDocumentSerializer(docs, many=True).data)
+
+    def retrieve(self, request, pk=None):
+        doc = OrganizationSelector.get_legal_document(pk)
+        if not doc:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        return Response(LegalDocumentSerializer(doc).data)
+
+    @action(detail=True, methods=['post', 'patch'], url_path='update')
+    def update_document(self, request, pk=None):
+        s = LegalDocumentInputSerializer(data=request.data, partial=True)
+        s.is_valid(raise_exception=True)
+        doc = OrganizationCommands.upsert_legal_document(pk, s.validated_data)
+        return Response(LegalDocumentSerializer(doc).data)
+
+
+class CommunicationEventViewSet(viewsets.ViewSet):
+    """
+    /api/v1/organization/communication-events/ -- endpoint 100% publico
+    (AllowAny en todas las acciones, no solo lectura como LegalDocumentViewSet
+    arriba). El Centro de Comunicacion del frontend lo dispara para
+    visitantes anonimos y autenticados por igual (mismo patron AllowAny que
+    notifications/api/whatsapp_webhook.py). Solo `create()` -- sin
+    list/retrieve, no hay panel de lectura publico para estos eventos.
+    """
+    permission_classes = [AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'communication_event'
+
+    def create(self, request):
+        s = CommunicationEventInputSerializer(data=request.data)
+        s.is_valid(raise_exception=True)
+        d = s.validated_data
+        try:
+            event = OrganizationCommands.log_communication_event(
+                event_type=d['event_type'],
+                channel=d.get('channel', ''),
+                module=d.get('module', ''),
+                user=request.user,
+                metadata=d.get('metadata') or {},
+            )
+        except Exception:
+            # Nunca debe romper la experiencia real del boton de contacto por
+            # un fallo de logging -- se registra y se responde 201 igual
+            # (mismo espiritu que el webhook de WhatsApp: la telemetria no es
+            # el camino critico).
+            logger.exception('[communication-events] fallo al registrar evento')
+            return Response(status=status.HTTP_201_CREATED)
+        return Response({'uuid': str(event.uuid)}, status=status.HTTP_201_CREATED)

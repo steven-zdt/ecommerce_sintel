@@ -10,6 +10,7 @@ from django.db import transaction
 from organization.models import (
     Company, Branding, ContactInfo, SocialLink,
     EmailSettings, DomainSettings, SeoSettings, LegalEntityInfo,
+    CommunicationEvent, LegalDocument,
 )
 from organization.services.selectors import OrganizationSelector
 
@@ -40,7 +41,7 @@ class OrganizationCommands:
             branding.logo = None
         if data.pop('remove_favicon', False):
             branding.favicon = None
-        for field in ('logo', 'favicon', 'tagline'):
+        for field in ('logo', 'favicon', 'tagline', 'primary_color', 'accent_color'):
             if field in data:
                 setattr(branding, field, data[field])
         branding.save()
@@ -101,6 +102,15 @@ class OrganizationCommands:
             if field in data:
                 setattr(settings_obj, field, data[field])
         settings_obj.save()
+        # Fase 10 (AUDITORIA/25_AUDITORIA_ORGANIZATION.md, 2026-08-01): invalidar aqui, no solo
+        # en el ViewSet -- OrganizationSelector.get_email_settings() (llamado arriba para
+        # encontrar la fila a actualizar) cachea la version PRE-update; si la invalidacion solo
+        # viviera en la vista, cualquier otro caller de este command (management commands,
+        # otros services, tests) dejaria el cache envenenado con datos viejos sin que nada lo
+        # limpie despues. El command es el unico punto de escritura real -- invalida aqui.
+        from django.core.cache import cache
+        from organization.services.selectors import EMAIL_SETTINGS_CACHE_KEY
+        cache.delete(EMAIL_SETTINGS_CACHE_KEY)
         return settings_obj
 
     # ── Dominios ─────────────────────────────────────────────────────────
@@ -131,6 +141,23 @@ class OrganizationCommands:
         settings_obj.save()
         return settings_obj
 
+    # ── Centro de Comunicacion ───────────────────────────────────────────
+    @staticmethod
+    def log_communication_event(*, event_type, channel='', module='', user=None, metadata=None):
+        """
+        Sin @transaction.atomic: un solo INSERT, no hay nada mas que
+        coordinar. Nunca debe tumbar la request del visitante -- el caller
+        (la vista) es responsable de no dejar que un fallo aqui rompa la
+        experiencia real del boton de contacto.
+        """
+        return CommunicationEvent.objects.create(
+            event_type=event_type,
+            channel=channel,
+            module=module,
+            user=user if (user is not None and user.is_authenticated) else None,
+            metadata=metadata or {},
+        )
+
     # ── Informacion Legal ────────────────────────────────────────────────
     @staticmethod
     @transaction.atomic
@@ -147,3 +174,20 @@ class OrganizationCommands:
                 setattr(info, field, data[field])
         info.save()
         return info
+
+    # ── Documentos legales ───────────────────────────────────────────────
+    @staticmethod
+    @transaction.atomic
+    def upsert_legal_document(doc_type, data):
+        """White-label F5 -- doc_type es la clave natural (unique=True), no
+        hay concepto de singleton is_active como en el resto de la app: cada
+        doc_type es su propio documento independiente."""
+        doc, _ = LegalDocument.objects.get_or_create(
+            doc_type=doc_type, defaults={'title': data.get('title', doc_type)},
+        )
+        allowed = ('title', 'updated_label', 'sections', 'is_active')
+        for field in allowed:
+            if field in data:
+                setattr(doc, field, data[field])
+        doc.save()
+        return doc

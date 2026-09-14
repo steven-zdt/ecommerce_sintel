@@ -44,7 +44,7 @@ Fase 1/2.
 | 5 | Crear `OrganizationSelector`/`OrganizationCommands` (unico punto de lectura/escritura) | **Completa** — 8 metodos get_*, upserts para los 7 singletons + CRUD de SocialLink, fachada de solo lectura sobre `settings` para Integraciones |
 | 6 | Migracion por consumidor, orden: Notifications -> Core -> Marketing -> Payment -> Quotes -> Dashboard -> Frontend SPA | **`core` completo** (adelantado por pedido explicito del usuario, antes que Notifications). Resto pendiente. |
 | 7 | Eliminacion de redundancias (borrar duplicados de otras apps) | **Completa para `core`**: `SiteBrandConfig`/`CompanyContactInfo` eliminados, filas sociales de `FooterLink` borradas. Resto de apps sin auditar todavia (Notifications/Marketing/Payment/Quotes no tenian duplicados reales segun la auditoria Fase 1). |
-| 8 | Panel administrativo en `/panel/organization` | Pendiente — hoy la edicion sigue pasando por `/panel/home-config` (dashboard), que internamente ya escribe en `organization` |
+| 8 | Panel administrativo en `/panel/organization` | **Completa** (2026-07-12, adelantada) — `organization/api/views.py` (8 ViewSets) + `frontend/src/modules/organization/OrganizationView.vue` en `/panel/organizacion`. Ver nota de cabecera. |
 | 9 | Validacion final (owner unico, sin copias, todo via `OrganizationService`, regresion) | Pendiente para el alcance completo; para `core` especificamente: owner unico OK, sin copias OK, `manage.py check`+tests OK |
 
 ## Estructura de directorios (Fase 3)
@@ -103,6 +103,7 @@ Todos heredan `SintelBaseModel`. Los singletons (todos salvo `SocialLink`) usan 
 | `DomainSettings` | Dominios | `primary_domain`, `admin_panel_domain`, `api_domain` | Nuevo, sin precedente previo |
 | `SeoSettings` | SEO | `meta_title`, `meta_description`, `og_image` | Nuevo, sin precedente previo |
 | `LegalEntityInfo` | Informacion Legal | `legal_name`, `tax_id`, `fiscal_address`, `legal_representative`, `city`, `department` | Nuevo — no existia en ningun lugar del backend (confirmado en auditoria Fase 1) |
+| `CommunicationEvent` | Centro de Comunicacion | `event_type`, `channel`, `module`, `user` (nullable), `metadata` (JSONField) | Nuevo (2026-07-31) — **NO es singleton, NO usa `SingletonMixin`**: cada interaccion real es una fila append-only. Unico modelo de esta app escrito desde un endpoint publico (`AllowAny`) |
 
 **Decisiones confirmadas por el usuario (2026-07-12), no reabrir sin instruccion explicita:**
 
@@ -127,6 +128,25 @@ Todos heredan `SintelBaseModel`. Los singletons (todos salvo `SocialLink`) usan 
   modulo (sincronizado el mismo dia que se creo esta app).
 
 ## Cambios Recientes
+
+### 2026-07-31 — Centro de Comunicacion: primer endpoint publico de esta app
+
+Consumidor nuevo: `CommunicationCenter.vue` (widget flotante de contacto, portal cliente, ver
+`frontend/.AGENT/doc/ARQUITECTURA_COMPLETAFRONEND.md` §5.1). Dos cambios:
+
+1. **Numero institucional**: se reusa `ContactInfo.phone` (SSoT ya existente, ya publico via
+   `core/footer/`) — NO se creo un campo nuevo. Seteado a `+57 314 460 1878` via
+   `OrganizationCommands.upsert_contact_info()` (mismo camino de escritura que el panel admin usa).
+2. **`CommunicationEvent`** (modelo nuevo, migracion `0003_communicationevent`): log append-only de
+   interacciones con el widget (`panel_open`/`channel_click`). Primer y unico modelo de esta app que
+   se escribe desde un endpoint **publico** (`CommunicationEventViewSet`, `AllowAny`,
+   `ScopedRateThrottle` scope `communication_event: 60/hour`) — visitantes anonimos disparan estos
+   eventos igual que usuarios autenticados (`user` queda `null` para anonimos,
+   `OrganizationCommands.log_communication_event()` lo resuelve). Todo el resto de esta app sigue
+   siendo admin-only (`IsAdminUser`), esto es una excepcion deliberada, no un relajamiento general
+   de permisos. Sin `list()`/`retrieve()` — solo `create()`, no hay panel de lectura publico para
+   estos eventos todavia. 11/11 tests en `organization/tests.py` (incluye 5 nuevos para este
+   modelo/endpoint).
 
 ### 2026-07-12 (g) — Panel administrativo propio (adelanta Fase 8)
 
