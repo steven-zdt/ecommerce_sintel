@@ -248,9 +248,68 @@ RESUME tras confirmacion real (solo se probo la mitad "pausa"); generalizar el a
 tools con `**kwargs` reales (ej. `CreateRentalRequestTool`); fix de `JSON_SCHEMA_FOR_FUNC_DECL`
 sin probar contra LM Studio (proveedor real de produccion).
 
-## 8. Estado de este documento
+## 8bis. ADK-03 — Root Workflow (completado)
 
-ADK-00 + ADK-01 + ADK-02 completos. Todo el codigo sigue aislado en `adk_poc/`, sin tocar
-`ai_engine`/Django/Docker. Pendiente instruccion explicita del usuario para iniciar ADK-03
-(Root Workflow) — el propio plan (seccion 24, "checkpoint obligatorio") exige no continuar
-automaticamente entre fases.
+**Hallazgo central: la limitacion "`Workflow` no puede usarse aun como sub-agente de
+`LlmAgent`" (ADK-00, ADK-01) NO aplica al patron Root -> Support/Sales/Operations del plan
+de migracion.** Ese patron no necesita `Workflow` en absoluto — usa
+`BaseAgent.sub_agents: list[BaseAgent]` + `LlmAgent.disallow_transfer_to_parent/
+disallow_transfer_to_peers`, un mecanismo de delegacion LLM-driven (`transfer_to_agent`)
+propio de `LlmAgent`, real y NO deprecado, distinto y mas simple que el motor de grafo
+`Workflow` (candidato, sin decidir todavia, para el pipeline mas rigido de `ai_editor` en
+fases posteriores, no para el routing de negocio).
+
+**Verificado en vivo (`adk_poc/test_root_workflow.py`, 2/2, contra Ollama real, sin mocks
+de LLM):** un Root Agent con `sub_agents=[support_agent, sales_agent]` delega la pregunta
+de pedidos a `support_agent` y la pregunta de catalogo a `sales_agent`, sin cruces —
+routing real decidido por el LLM segun la instruccion del Root, no hardcodeado por regex/
+intent-matching propio.
+
+**Hallazgo arquitectonico no anticipado: el sistema "AIContext" que el plan de migracion
+proponia crear como pieza NUEVA ya existe, con otro nombre.** `ai_engine/auth.py` ya
+resuelve identidad completa en dos pasos reales: `decode_django_jwt()` (verifica firma
+HS256 + expiracion localmente, misma `SIGNING_KEY` de SimpleJWT) y `fetch_user_context()`
+(reenvia el token al endpoint interno de Django `/internal/ai-context/`, que es la unica
+autoridad real de perfil — `ProfileResolver` vive solo ahi). ADK-03 reutiliza este boundary
+tal cual (`adk_poc/sintel_root_workflow.py::resolve_identity()`), sin duplicarlo. No se
+necesita construir un "AIContext" nuevo — falta, como mucho, decidir si se le pone ese
+nombre al que ya existe.
+
+**Sesion:** el patron real de `action_graph.run_action_chat` (`thread_id =
+f"{user_id}:{conversation_id}"`, namespaced por usuario para que nadie retome la
+conversacion de otro adivinando el conversation_id) se replico 1:1 como `session_id` de
+ADK (`build_session_id()`). Verificado que un segundo turno con el mismo
+`conversation_id` reusa la misma sesion de ADK (no se recrea, no se pierde estado) via el
+guard `get_session()` antes de `create_session()`.
+
+**`adk_poc/sintel_root_workflow.py` — alcance deliberado:** solo se construyo UN agente de
+dominio real, `support_agent`, envolviendo las 2 tools ya probadas en ADK-02
+(`OrderStatusTool`, `KycStatusTool`). El registro real de `ai_engine` tiene ~28 tools
+repartidas en 10 dominios (core, inventory, kyc, marketing, orders, payment, quotes,
+renting, services, support) — migrarlas y separar Sales/Operations/Engineering como
+sub-agentes reales es explicitamente trabajo de ADK-04 (Support Agents) y ADK-05
+(migracion de tools 1 a 1), no de ADK-03, para no inventar logica de dominio antes de
+tener las tools reales migradas (regla de cambio minimo, seccion 2 del plan).
+
+**Verificado end-to-end (`adk_poc/test_sintel_root_workflow.py`, 3/3):** JWT real firmado
+con PyJWT (no mockeado) -> `decode_django_jwt` real lo valida -> `fetch_user_context`
+(mockeado, unico punto de red) resuelve contexto -> Root Agent enruta a `support_agent` ->
+`OrderStatusTool` real ejecuta (`django_internal_get` mockeado) -> respuesta final
+coherente. Incluye un test negativo: JWT firmado con la clave incorrecta falla cerrado
+(`IdentityResolutionError`), nunca degrada a turno anonimo.
+
+**Pendiente para ADK-04+ (no resuelto aqui, fuera de alcance de ADK-03):** el resto del
+contrato de `ChatResponse` (`intent`, `tool_calls`, `needs_confirmation`, `metrics`) — este
+runtime solo cubre identidad/sesion/routing/eventos, no reemplaza `/chat` todavia; eso se
+decide en ADK-10 (dual run) comparando ambos runtimes antes de exponer nada. Tambien sigue
+pendiente: flujo de RESUME tras confirmacion real, generalizar el adapter a tools
+`**kwargs`, y verificar el fix de `JSON_SCHEMA_FOR_FUNC_DECL` contra LM Studio (heredado de
+ADK-01/02, todavia sin probar).
+
+## 9. Estado de este documento
+
+ADK-00 + ADK-01 + ADK-02 + ADK-03 completos. Todo el codigo sigue aislado en `adk_poc/`,
+sin tocar `ai_engine`/Django/Docker — ningun cambio de este documento modifico produccion.
+Pendiente instruccion explicita del usuario para iniciar ADK-04 (Support Agents) — el
+propio plan (seccion 24, "checkpoint obligatorio") exige no continuar automaticamente
+entre fases.

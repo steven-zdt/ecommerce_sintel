@@ -82,6 +82,7 @@ migracion.
 - Confirmar si `Workflow` puede envolver un `LlmAgent` con sub-agentes
   anidados (la limitacion "Workflow cannot yet be used as an LlmAgent
   sub-agent" documentada en ADK-00 sigue sin probarse en la practica).
+  **Resuelto en ADK-03 abajo -- no aplica al patron de routing de Sintel.**
 
 ---
 
@@ -145,7 +146,7 @@ No asumir estabilidad de API entre versiones de ADK para este mecanismo.
 - Resolucion de identidad real (que llena `tool_context.state` con el JWT
   real del usuario autenticado) -- aqui se sembro a mano en
   `create_session(state=...)`, en el Root Workflow real vendria de Django/
-  WebSocket/WhatsApp.
+  WebSocket/WhatsApp. **Resuelto en ADK-03 abajo.**
 - Probar el flujo de RESUME tras una confirmacion real (enviar la
   `ToolConfirmation(confirmed=True)` de vuelta y confirmar que
   `django_internal_post` SI se ejecuta entonces) -- este POC solo probo la
@@ -161,3 +162,60 @@ No asumir estabilidad de API entre versiones de ADK para este mecanismo.
 - Confirmar si `Workflow` puede envolver un `LlmAgent` con sub-agentes
   anidados (la limitacion "Workflow cannot yet be used as an LlmAgent
   sub-agent" documentada en ADK-00 sigue sin probarse en la practica).
+  **Resuelto en ADK-03 abajo -- no aplica al patron de routing de Sintel.**
+
+---
+
+# ADK-03 — Root Workflow (completado)
+
+**Hallazgo central: la limitacion "`Workflow` no puede usarse aun como
+sub-agente de `LlmAgent`" NO aplica al patron Root -> Support/Sales/
+Operations.** Ese patron usa `BaseAgent.sub_agents: list[BaseAgent]` +
+`LlmAgent.disallow_transfer_to_parent/disallow_transfer_to_peers` --
+delegacion LLM-driven (`transfer_to_agent`) real, no deprecada, y separada
+del motor de grafo `Workflow`.
+
+**Verificado en vivo (`test_root_workflow.py`, 2/2, Ollama real, sin mocks
+de LLM):** un Root Agent con `sub_agents=[support_agent, sales_agent]`
+enruta la pregunta de pedidos a `support_agent` y la de catalogo a
+`sales_agent`, sin cruces -- routing real decidido por el LLM.
+
+**Hallazgo arquitectonico: el "AIContext" que el plan proponia crear como
+pieza nueva ya existe, con otro nombre.** `ai_engine/auth.py` ya resuelve
+identidad completa: `decode_django_jwt()` (JWT HS256 local) +
+`fetch_user_context()` (reenvia el token a Django
+`/internal/ai-context/`, unica autoridad real de perfil).
+`sintel_root_workflow.py::resolve_identity()` reutiliza ese boundary tal
+cual, no lo duplica.
+
+**Sesion:** el patron real de `action_graph.run_action_chat` (`thread_id =
+f"{user_id}:{conversation_id}"`) se replico 1:1 como `session_id` de ADK
+(`build_session_id()`). Verificado que un segundo turno con el mismo
+`conversation_id` reusa la misma sesion (no se recrea).
+
+`sintel_root_workflow.py::run_sintel_turn()` -- alcance deliberado: solo
+`support_agent` (envolviendo `OrderStatusTool` + `KycStatusTool`, ya
+probadas en ADK-02). El resto de las ~28 tools reales de `ai_engine`
+(10 dominios) y los agentes Sales/Operations/Engineering quedan para
+ADK-04/ADK-05 -- no se inventa logica de dominio antes de tener tools
+reales migradas.
+
+**Verificado end-to-end (`test_sintel_root_workflow.py`, 3/3):** JWT real
+firmado con PyJWT (sin mock) -> `decode_django_jwt` real -> Django
+mockeado (`fetch_user_context`) -> Root Agent enruta a `support_agent` ->
+`OrderStatusTool` real ejecuta (bridge HTTP mockeado) -> respuesta final
+coherente. Test negativo: JWT con firma invalida falla cerrado
+(`IdentityResolutionError`), nunca degrada a turno anonimo.
+
+## Pendiente para ADK-04+
+
+- El resto del contrato de `ChatResponse` (`intent`, `tool_calls`,
+  `needs_confirmation`, `metrics`) -- este runtime solo cubre identidad/
+  sesion/routing/eventos, no reemplaza `/chat` todavia (eso es ADK-10,
+  dual run).
+- Flujo de RESUME tras confirmacion real (heredado de ADK-02).
+- Generalizar el adapter a tools `**kwargs` reales (heredado de ADK-02).
+- Verificar `JSON_SCHEMA_FOR_FUNC_DECL=False` contra LM Studio, no solo
+  Ollama (heredado de ADK-01).
+- Migrar el resto del registro real de tools (~28, 10 dominios) y separar
+  Sales/Operations/Engineering como sub-agentes reales.
