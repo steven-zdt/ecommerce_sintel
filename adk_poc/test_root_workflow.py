@@ -1,22 +1,38 @@
 """
-ADK-03 -- Root Workflow de SINTEL (POC, sigue aislado).
+ADK-03 -- prueba de la CAPACIDAD `sub_agents`/transfer de ADK (POC, sigue
+aislado). Ver AUDITORIA/ADK_MIGRATION_AUDIT.md seccion 8ter -- este mecanismo
+quedo confirmado como funcional, pero el usuario decidio explicitamente NO
+usarlo para el routing de produccion (ADK-04): el routing real de Sintel es
+100% deterministico (`action_graph.detect_business_intents` + `AgentRegistry.
+route/apply_escalation`, regex-based, con reglas de seguridad como "una queja
+SIEMPRE escala a soporte humano"), y delegar esa decision a un LLM violaria
+la regla de la mision "ADK ORQUESTA. SINTEL EJECUTA Y CONTROLA". El runtime
+real vive en `sintel_root_workflow.py::resolve_turn_agent()`, que usa el
+router deterministico, NO `sub_agents`.
 
-Hallazgo clave a verificar: la limitacion real de ADK 2.9.0 "Workflow cannot
-yet be used as an LlmAgent sub-agent" (ver AUDITORIA/ADK_MIGRATION_AUDIT.md
-seccion 0/5) -- NO aplica al patron Root -> Support/Sales/Operations del plan
-de migracion, porque ese patron usa `LlmAgent.sub_agents` (delegacion
-LLM-driven via transfer_to_agent), un mecanismo distinto y NO deprecado de
-BaseAgent, separado del motor de grafo `Workflow`. `Workflow` es candidato
-para el pipeline mas rigido de AI Editor (ADK-11), no para esto.
+Este archivo se conserva porque prueba algo real y distinto: que
+`LlmAgent.sub_agents` + transferencia LLM-driven via `transfer_to_agent`
+funciona en ADK 2.9.0 (routing correcto sin cruces de dominio) -- una
+capacidad del framework que podria ser util en otro punto de la mision
+(ej. dentro de un unico agente de dominio con matices, no como router
+principal), documentada aqui para no tener que re-descubrirla despues.
 
-Este POC construye un Root Agent minimo con 2 sub-agentes de dominio
-(support, sales) y confirma que el LLM real (Ollama) delega al sub-agente
-correcto segun la intencion del usuario -- routing real, no hardcodeado.
-`support_agent` envuelve la tool REAL OrderStatusTool via sintel_adapter
-(mismo mecanismo de ADK-02); `sales_agent` usa una tool sintetica minima
-(no existe un dominio "sales"/product-search equivalente en ai_engine hoy,
-ver AUDITORIA/ADK_MIGRATION_AUDIT.md -- Sales es un agente PROPUESTO por el
-plan de migracion, no uno que exista ya en ai_engine).
+Hallazgo original que motivo este POC: la limitacion real de ADK 2.9.0
+"Workflow cannot yet be used as an LlmAgent sub-agent" (ver
+AUDITORIA/ADK_MIGRATION_AUDIT.md seccion 0/5) NO aplica a este patron, porque
+`sub_agents` es un mecanismo distinto y NO deprecado de `BaseAgent`, separado
+del motor de grafo `Workflow` (candidato, sin decidir, para el pipeline mas
+rigido de AI Editor en ADK-11, no para routing de negocio).
+
+Construye un Root Agent minimo con 2 sub-agentes de dominio (support, sales)
+y confirma que el LLM real (Ollama) delega al sub-agente correcto segun la
+intencion del usuario. `support_agent` envuelve la tool REAL OrderStatusTool
+via sintel_adapter (mismo mecanismo de ADK-02); `sales_agent` usa una tool
+sintetica minima (no existe un dominio "sales"/product-search equivalente en
+ai_engine hoy -- ver AUDITORIA/ADK_MIGRATION_AUDIT.md seccion 1, los 9
+perfiles reales son AccountAgent/AdminAgent/MarketingAgent/OrderAgent/
+PaymentAgent/RentalAgent/SalesAgent/ServiceAgent/SupportAgent, y el
+SalesAgent real no tiene busqueda de catalogo -- tiene promos/cotizaciones).
 """
 import sys
 from pathlib import Path

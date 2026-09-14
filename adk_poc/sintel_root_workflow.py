@@ -1,41 +1,52 @@
 """
-ADK-03 -- Root Workflow de SINTEL.
+ADK-03/04 -- Root Workflow de SINTEL.
 
 Runtime real (todavia aislado en adk_poc/, NO integrado a ai_engine/main.py
 -- eso es responsabilidad de ADK-11 Cutover, no de esta fase) que cumple el
-checklist del plan de migracion para ADK-03: recibe una peticion, resuelve
-identidad, obtiene contexto, selecciona el agente, enruta, mantiene sesion,
-emite eventos.
+checklist del plan de migracion: recibe una peticion, resuelve identidad,
+obtiene contexto, selecciona el agente, enruta, mantiene sesion, emite
+eventos.
 
-Reutiliza el boundary REAL de identidad de ai_engine (no lo reinventa):
+## Decision de arquitectura ADK-04 (confirmada por el usuario, ver
+## AUDITORIA/ADK_MIGRATION_AUDIT.md seccion 8ter)
 
-- `auth.decode_django_jwt` / `auth.fetch_user_context` (JWT HS256 local +
-  resolucion de perfil via `/internal/ai-context/`) -- este ES, de hecho, el
-  sistema "AIContext" que el plan de migracion (seccion de arquitectura
-  propuesta) pedia crear como algo NUEVO. Ya existe, con otro nombre.
-  ADK-03 lo consume tal cual, no lo duplica.
-- El patron de sesion de `action_graph.run_action_chat`
-  (`thread_id = f"{user_id}:{conversation_id}"`, namespaced por usuario para
-  que nadie retome la conversacion de otro adivinando el conversation_id) se
-  replica 1:1 como `session_id` de ADK.
+ADK-03 probo (test_root_workflow.py) que `LlmAgent.sub_agents` +
+transferencia LLM-driven FUNCIONA. Pero el routing REAL de `ai_engine` hoy
+es 100% deterministico: `detect_business_intents()` (regex) ->
+`AgentRegistry.route()` (dict) -> `AgentRegistry.apply_escalation()` (regex
+de seguridad -- ej. una queja SIEMPRE escala a SupportAgent, un cambio de
+fecha de alquiler SIEMPRE es no-self-service, decision del usuario
+2026-07-16 "gap #1"). El propio `action_graph.py` lo declara como regla
+dura: "Ninguna regla de negocio vive en el prompt: las Tools/Selectors
+deciden."
 
-Alcance deliberado de ADK-03 (no de ADK-04/05): solo se construye UN agente
-de dominio real, `support_agent`, envolviendo tools YA probadas en ADK-02
-(`OrderStatusTool`, `KycStatusTool` -- ambas de lectura, sin
-require_confirmation). Migrar el resto del registro de ~28 tools reales
-(inventory/marketing/payment/quotes/renting/services/support/core) y separar
-Sales/Operations/Engineering es trabajo de ADK-04 (Support Agents) y ADK-05
-(migracion de tools 1 a 1) -- no de esta fase, para respetar la regla de
-cambio minimo y no inventar logica de dominio que todavia no tiene tools
-reales migradas.
+Delegar esa decision a un LLM (via sub_agents) violaria la regla de la
+mision "ADK ORQUESTA. SINTEL EJECUTA Y CONTROLA" -- por eso, con
+confirmacion explicita del usuario, este modulo NO usa sub_agents/transfer
+para el routing de produccion. `resolve_turn_agent()` reutiliza las
+funciones REALES de `action_graph.py` (no las copia) para decidir; ADK solo
+ejecuta al agente ya elegido por Sintel. El mecanismo `sub_agents` queda
+validado como capacidad real del framework (ADK-03), sin uso en este flujo.
 
-"Seleccionar workflow" (item del checklist del plan) se resuelve aqui con el
-MISMO mecanismo probado en ADK-03 (ver test_root_workflow.py):
-`LlmAgent.sub_agents` + transferencia LLM-driven. No existe today un segundo
-sub-agente real con el que comparar routing -- por eso no se agrega un
-segundo agente sintetico a este modulo (a diferencia del POC de test, donde
-un "sales_agent" con una tool falsa SOLO sirve para probar que el routing no
-cruza dominios, no para simular logica de negocio real).
+## Identidad y sesion (sin cambios desde ADK-03)
+
+- `auth.decode_django_jwt` / `auth.fetch_user_context` -- boundary real de
+  identidad, YA es el "AIContext" que el plan pedia crear de cero.
+- `session_id = f"{user_id}:{conversation_id}"` -- mismo patron que
+  `action_graph.run_action_chat`'s `thread_id`.
+
+## Los 9 agentes de dominio (ADK-04)
+
+`get_domain_agent(profile_name)` construye un `LlmAgent` real por cada
+`AgentProfile` YAML (`ai_engine/agents/profiles/*.yaml`, cargados por el
+`AgentRegistry` real) -- mismo nombre, mismas tools (adaptadas 1:1 via
+`sintel_adapter.adapt_sintel_tool`, ADK-02), mismo tono/objetivo/
+personalidad como instruccion (texto real del YAML, no inventado). Un
+`Runner` explicito (no `InMemoryRunner`, que crea su propio
+`InMemorySessionService` AISLADO por instancia -- verificado que rompe la
+continuidad de sesion entre turnos si el agente activo cambia de un turno a
+otro) comparte un unico `InMemorySessionService` a nivel de modulo, para que
+la sesion sobreviva aunque el agente cambie turno a turno.
 """
 import sys
 from pathlib import Path
@@ -52,15 +63,14 @@ from google.genai import types
 
 from google.adk.agents import LlmAgent
 from google.adk.models.lite_llm import LiteLlm
-from google.adk.runners import InMemoryRunner
+from google.adk.runners import Runner
+from google.adk.sessions.in_memory_session_service import InMemorySessionService
 
 from sintel_adapter import SINTEL_TOKEN_STATE_KEY, SINTEL_USER_STATE_KEY, adapt_sintel_tool
 
 OLLAMA_BASE_URL = "http://localhost:11434"
 OLLAMA_MODEL = "llama3.1:8b"
 APP_NAME = "sintel_root_workflow"
-
-SINTEL_CONTEXT_STATE_KEY = "sintel_context"
 
 
 class IdentityResolutionError(Exception):
@@ -70,11 +80,7 @@ class IdentityResolutionError(Exception):
 
 async def resolve_identity(token: str) -> dict:
     """Reutiliza el boundary real de auth.py -- no reimplementa validacion
-    de JWT ni resolucion de perfil. `decode_django_jwt` valida firma/
-    expiracion localmente (HS256, misma SIGNING_KEY que Django);
-    `fetch_user_context` reenvia el token a Django
-    (`/internal/ai-context/`), que es la unica autoridad de perfil real
-    (ProfileResolver vive solo ahi)."""
+    de JWT ni resolucion de perfil."""
     from auth import decode_django_jwt, fetch_user_context
     from fastapi import HTTPException
 
@@ -88,81 +94,100 @@ async def resolve_identity(token: str) -> dict:
 
 
 def build_session_id(user_id, conversation_id: str) -> str:
-    """Mismo patron que `action_graph.run_action_chat`'s `thread_id` --
-    namespaced por user_id para que nadie retome la conversacion de otro
-    usuario adivinando el conversation_id."""
+    """Mismo patron que `action_graph.run_action_chat`'s `thread_id`."""
     return f"{user_id}:{conversation_id}"
 
 
-_root_agent_singleton: LlmAgent | None = None
+def resolve_turn_agent(message: str) -> tuple[str, str, str | None]:
+    """Router REAL de Sintel -- reutiliza `action_graph.py::
+    detect_business_intents` y `agents.AgentRegistry.route/
+    apply_escalation` tal cual, replicando exactamente la logica de
+    `action_graph.py::node_detect_intent` (mismo codigo, no una copia).
+    Devuelve (intent, agent_name, handoff)."""
+    from action_graph import detect_business_intents, INTENT_CAPABILITIES
+    from agents import AgentRegistry
+
+    intents = detect_business_intents(message)
+    data_intents = [i for i in intents if i in INTENT_CAPABILITIES]
+    intent = data_intents[0] if data_intents else ("knowledge" if "knowledge" in intents else "unknown")
+
+    agent = AgentRegistry.route(intent)
+    escalated = AgentRegistry.apply_escalation(agent, message)
+    handoff = None
+    if escalated.name != agent.name:
+        handoff = f"{agent.name}->{escalated.name}"
+        agent = escalated
+    return intent, agent.name, handoff
 
 
-def get_root_agent() -> LlmAgent:
-    """Construye (una sola vez) el Root Agent con sus sub-agentes de
-    dominio reales. Ver docstring del modulo para el alcance deliberado
-    (solo support_agent en ADK-03)."""
-    global _root_agent_singleton
-    if _root_agent_singleton is not None:
-        return _root_agent_singleton
+_domain_agent_cache: dict[str, LlmAgent] = {}
 
+
+def get_domain_agent(profile_name: str) -> LlmAgent:
+    """Construye (una sola vez por perfil) el `LlmAgent` real correspondiente
+    a un `AgentProfile` YAML -- mismas tools, mismo tono/objetivo/
+    personalidad declarados, sin inventar nada nuevo."""
+    if profile_name in _domain_agent_cache:
+        return _domain_agent_cache[profile_name]
+
+    from agents import AgentRegistry
     from tools.registry import get_tool
 
-    order_status_tool = adapt_sintel_tool(get_tool("OrderStatusTool"))
-    kyc_status_tool = adapt_sintel_tool(get_tool("KycStatusTool"))
+    profile = AgentRegistry.get(profile_name)
+    if profile is None:
+        raise ValueError(f"Perfil desconocido: {profile_name}")
 
-    support_agent = LlmAgent(
-        name="support_agent",
-        model=LiteLlm(model=f"ollama_chat/{OLLAMA_MODEL}", api_base=OLLAMA_BASE_URL),
-        description=(
-            "Atiende consultas de soporte al cliente sobre pedidos existentes "
-            "y estado de verificacion KYC."
-        ),
-        instruction=(
-            "Eres el agente de soporte de Sintel. Usa OrderStatusTool para "
-            "consultar pedidos y KycStatusTool para consultar el estado de "
-            "verificacion del cliente. Nunca inventes datos que no vengan de "
-            "una tool."
-        ),
-        tools=[order_status_tool, kyc_status_tool],
+    tools = [adapt_sintel_tool(get_tool(name)) for name in profile.herramientas]
+    instruction = (
+        f"Objetivo: {profile.objetivo}\n"
+        f"Personalidad: {profile.personalidad}\n"
+        f"Tono: {profile.tono}\n"
+        "Usa siempre una tool para responder con datos reales -- nunca "
+        "inventes informacion que no venga de una tool."
     )
+    agent = LlmAgent(
+        name=profile.name,
+        model=LiteLlm(model=f"ollama_chat/{OLLAMA_MODEL}", api_base=OLLAMA_BASE_URL),
+        description=profile.description,
+        instruction=instruction,
+        tools=tools,
+    )
+    _domain_agent_cache[profile_name] = agent
+    return agent
 
-    root_agent = LlmAgent(
-        name="sintel_root_agent",
-        model=LiteLlm(model=f"ollama_chat/{OLLAMA_MODEL}", api_base=OLLAMA_BASE_URL),
-        description="Root agent de Sintel -- enruta cada turno al agente de dominio correcto.",
-        instruction=(
-            "Eres el enrutador principal de Sintel. NUNCA respondas preguntas "
-            "de negocio tu mismo -- SIEMPRE transfiere la conversacion al "
-            "sub-agente apropiado. Hoy solo existe support_agent (pedidos y "
-            "KYC); transferele cualquier consulta de ese tipo."
-        ),
-        sub_agents=[support_agent],
-    )
-    _root_agent_singleton = root_agent
-    return root_agent
+
+# InMemoryRunner crea su propio InMemorySessionService AISLADO por instancia
+# (verificado leyendo InMemoryRunner.__init__) -- si se creara un Runner por
+# turno con InMemoryRunner, la sesion se perderia en cuanto el agente activo
+# cambiara de un turno a otro. Un unico session_service a nivel de modulo,
+# compartido entre Runners, resuelve esto sin tocar la API publica de ADK.
+_session_service = InMemorySessionService()
 
 
 async def run_sintel_turn(*, message: str, token: str, conversation_id: str | None = None) -> dict:
-    """Punto de entrada del Root Workflow -- equivalente de ADK a
-    `action_graph.run_action_chat`, pero SOLO cubre el boundary de
-    identidad/sesion/routing/eventos (checklist de ADK-03). No replica
-    todavia el contrato completo de ChatResponse (intent, tool_calls,
-    needs_confirmation, metrics) -- eso se decide en ADK-10 (dual run),
-    comparando este runtime contra el real antes de exponerlo.
+    """Punto de entrada del Root Workflow -- checklist de ADK-03/04:
+    identidad -> contexto -> seleccion de agente (router REAL de Sintel,
+    no LLM) -> routing -> sesion -> eventos. No replica todavia el
+    contrato completo de ChatResponse (tool_calls, needs_confirmation,
+    metrics) -- eso se decide en ADK-10 (dual run).
     """
     context = await resolve_identity(token)
     user_id = context["user_id"]
     conversation_id = conversation_id or "adk-root-default"
     session_id = build_session_id(user_id, conversation_id)
 
-    root_agent = get_root_agent()
-    runner = InMemoryRunner(agent=root_agent, app_name=APP_NAME)
+    intent, agent_name, handoff = resolve_turn_agent(message)
+    domain_agent = get_domain_agent(agent_name)
 
-    existing = await runner.session_service.get_session(
+    runner = Runner(
+        app_name=APP_NAME, agent=domain_agent, session_service=_session_service,
+    )
+
+    existing = await _session_service.get_session(
         app_name=APP_NAME, user_id=str(user_id), session_id=session_id,
     )
     if existing is None:
-        await runner.session_service.create_session(
+        await _session_service.create_session(
             app_name=APP_NAME, user_id=str(user_id), session_id=session_id,
             state={SINTEL_USER_STATE_KEY: context, SINTEL_TOKEN_STATE_KEY: token},
         )
@@ -181,12 +206,13 @@ async def run_sintel_turn(*, message: str, token: str, conversation_id: str | No
         for part in event.content.parts
         if part.text
     )
-    routed_to = next((e.author for e in events if e.author != "sintel_root_agent"), None)
 
     return {
         "conversation_id": conversation_id,
         "session_id": session_id,
-        "routed_to": routed_to,
+        "intent": intent,
+        "agent": agent_name,
+        "handoff": handoff,
         "response": final_text,
         "events": events,
     }

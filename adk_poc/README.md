@@ -219,3 +219,60 @@ coherente. Test negativo: JWT con firma invalida falla cerrado
   Ollama (heredado de ADK-01).
 - Migrar el resto del registro real de tools (~28, 10 dominios) y separar
   Sales/Operations/Engineering como sub-agentes reales.
+  **Resuelto en ADK-04 abajo.**
+
+---
+
+# ADK-04 — Support Agents, los 9 perfiles reales (completado)
+
+**Decision de arquitectura (confirmada por el usuario tras una pregunta
+explicita, ver AUDITORIA/ADK_MIGRATION_AUDIT.md seccion 8ter):** el routing
+real de `ai_engine` es 100% deterministico
+(`action_graph.detect_business_intents` + `AgentRegistry.route/
+apply_escalation`, regex-based, con reglas de seguridad como "queja SIEMPRE
+escala a SupportAgent"). Usar `sub_agents`/transfer LLM-driven (ADK-03) como
+router de produccion violaria "ADK ORQUESTA. SINTEL EJECUTA Y CONTROLA" --
+**el router deterministico de Sintel decide, ADK solo ejecuta.** El
+mecanismo `sub_agents` queda validado como capacidad real (`test_root_workflow.py`,
+conservado), sin uso en el runtime de produccion.
+
+`sintel_root_workflow.py` (reescrito):
+- `resolve_turn_agent(message)` reutiliza tal cual las funciones reales de
+  `action_graph.py`/`agents.AgentRegistry` -- no las copia.
+- `get_domain_agent(profile_name)` construye un `LlmAgent` real por cada uno
+  de los **9 perfiles reales** (`AccountAgent`, `AdminAgent`,
+  `MarketingAgent`, `OrderAgent`, `PaymentAgent`, `RentalAgent`,
+  `SalesAgent`, `ServiceAgent`, `SupportAgent`), con sus tools reales
+  adaptadas (ADK-02) y su objetivo/personalidad/tono real como instruccion.
+- `Runner` explicito + `InMemorySessionService` compartido a nivel de
+  modulo, en vez de `InMemoryRunner` -- **hallazgo real**: `InMemoryRunner`
+  crea su PROPIO `InMemorySessionService` aislado por instancia (verificado
+  leyendo el codigo fuente), lo que romperia la sesion si el agente activo
+  cambia de un turno a otro (caso real, no hipotetico, dado el routing
+  determinista).
+
+**Bug real encontrado (no sintetico) construyendo los 9 agentes:**
+`sintel_adapter.py` no soportaba tools con `**kwargs` real -- 5 tools reales
+de `AdminAgent` (`CoreBannerUpdateTool`, `CoreBannerCreateTool`,
+`CoreNavbarLinkUpdateTool`, `CoreNavbarLinkCreateTool`,
+`CoreBrandSliderUpdateTool`) fallaban con `ValueError: wrong parameter
+order`, y arreglado eso, exponian CERO campos opcionales al LLM (bug de
+correctness silencioso). Fix: cuando la funcion real tiene `**kwargs`, el
+adapter sintetiza parametros keyword-only desde `ToolMetadata.args_schema.
+properties` -- la fuente REAL que ya declara esos campos. Ver
+`test_sintel_adapter_kwargs.py` (2/2).
+
+**Verificado:** los 9 perfiles construyen correctamente sus `LlmAgent` (33
+instancias de tool adaptadas, con reuso real entre perfiles). 16/16 tests
+pasando salvo el flake ya documentado de ADK-01 (variabilidad de muestreo
+de `llama3.1:8b` local, reproducido 3/3 en aislado -- no una regresion).
+
+## Pendiente para ADK-05+
+
+- El resto del contrato de `ChatResponse` (`tool_calls`, `needs_confirmation`,
+  `metrics`) -- ADK-10, dual run.
+- Flujo de RESUME tras confirmacion real (heredado de ADK-02).
+- Verificar `JSON_SCHEMA_FOR_FUNC_DECL=False` contra LM Studio, y si es mas
+  o menos confiable que Ollama dado el flake observado (heredado de ADK-01).
+- Revisar que quede realmente pendiente de "migrar tools 1 a 1" -- ADK-04 ya
+  adapto las 33 instancias de tools reales de los 9 perfiles.

@@ -306,10 +306,77 @@ pendiente: flujo de RESUME tras confirmacion real, generalizar el adapter a tool
 `**kwargs`, y verificar el fix de `JSON_SCHEMA_FOR_FUNC_DECL` contra LM Studio (heredado de
 ADK-01/02, todavia sin probar).
 
+## 8ter. ADK-04 — Support Agents (completado)
+
+**Hallazgo previo a escribir codigo, reportado al usuario antes de continuar (checkpoint
+de "ambiguedad de migracion"):** el routing real de `ai_engine` NO es una decision del LLM
+— es 100% deterministico. `ai_engine/agents/` (`AgentRegistry`, cargado desde
+`agents/profiles/*.yaml`) declara **9 perfiles reales**: `AccountAgent`, `AdminAgent`,
+`MarketingAgent`, `OrderAgent`, `PaymentAgent`, `RentalAgent`, `SalesAgent`, `ServiceAgent`,
+`SupportAgent` (coincide con "9 agent profiles" de la seccion 2). Cada uno declara sus
+tools, permisos, intents y `reglas_escalamiento` (regex de seguridad — ej. una queja SIEMPRE
+escala a `SupportAgent`; un cambio de fecha de alquiler SIEMPRE es no-self-service, decision
+del usuario 2026-07-16 "gap #1"). `action_graph.py` lo declara como regla dura: *"Ninguna
+regla de negocio vive en el prompt: las Tools/Selectors deciden."*
+
+Esto entra en tension directa con el mecanismo `sub_agents`/transfer validado en ADK-03 (LLM
+decide a quien transferir). Usar ese mecanismo como router de produccion violaria "ADK
+ORQUESTA. SINTEL EJECUTA Y CONTROLA" — dejaria decisiones de seguridad de negocio (ej.
+escalar una queja a un humano) al juicio de un LLM en vez de una regex ya probada en
+produccion. **Se pregunto al usuario explicitamente y decidio: el router deterministico de
+Sintel decide, ADK solo ejecuta al agente ya elegido.** El mecanismo `sub_agents` queda
+confirmado como una capacidad real y funcional de ADK 2.9.0 (ver `test_root_workflow.py`,
+conservado con docstring actualizado aclarando que no se usa para routing de produccion),
+sin uso en el runtime real.
+
+**`sintel_root_workflow.py` (reescrito):**
+- `resolve_turn_agent(message)` reutiliza tal cual `action_graph.detect_business_intents` +
+  `agents.AgentRegistry.route/apply_escalation` (mismas funciones reales, no una copia) —
+  replica exactamente la logica de `action_graph.py::node_detect_intent`.
+- `get_domain_agent(profile_name)` construye un `LlmAgent` real por cada uno de los 9
+  perfiles YAML — mismas tools (adaptadas con `sintel_adapter.adapt_sintel_tool`, ADK-02),
+  mismo objetivo/personalidad/tono como instruccion (texto real, no inventado).
+- Cambio de `InMemoryRunner` a `Runner` explicito con un `InMemorySessionService`
+  compartido a nivel de modulo — **hallazgo real, verificado leyendo el codigo fuente**:
+  `InMemoryRunner.__init__` crea su PROPIO `InMemorySessionService` aislado por instancia:
+  si el agente activo cambia de un turno a otro (routing real, no hipotetico) y se creara
+  un `InMemoryRunner` por turno, la sesion se perderia. `Runner` acepta `session_service`
+  como argumento explicito — se comparte uno solo entre turnos.
+
+**Bug real encontrado construyendo los 9 agentes (no sintetico, con las tools reales):**
+`sintel_adapter.py::adapt_sintel_tool` no soportaba tools con `**kwargs` real — 5 tools
+reales (`CoreBannerUpdateTool`, `CoreBannerCreateTool`, `CoreNavbarLinkUpdateTool`,
+`CoreNavbarLinkCreateTool`, `CoreBrandSliderUpdateTool`, todas de `AdminAgent`) fallaban con
+`ValueError: wrong parameter order` al construir la firma del wrapper (un
+`KEYWORD_ONLY` despues de `VAR_KEYWORD` es invalido en Python). Arreglado ese error de
+orden, quedaba un bug de correctness mas serio y silencioso: un `**kwargs` puro no expone
+NINGUN campo opcional al LLM (subtitle, link_url, link_label, display_order...) aunque la
+tool real si los acepta. **Fix:** cuando la funcion real tiene `VAR_KEYWORD`, el adapter
+sintetiza parametros keyword-only adicionales leyendo `ToolMetadata.args_schema.properties`
+— la fuente REAL que ya declara esos campos (`core_tools.py`), no una inferencia inventada.
+Verificado con `test_sintel_adapter_kwargs.py` (2/2): el LLM ve todos los campos reales, y
+el wrapper filtra `None` antes de reenviar al `real_func`, mismo criterio que la tool
+original.
+
+**Verificado:** los 9 perfiles reales construyen sus `LlmAgent` correctamente (33
+instancias de tool adaptadas en total, contando reuso entre perfiles — ej. `OrderStatusTool`
+aparece en `OrderAgent`/`ServiceAgent`/`SupportAgent`). 16/16 tests pasando en `adk_poc/`
+salvo un flake ya documentado y confirmado pre-existente (`test_agent_runner_tool_session_event_async_e2e`
+de ADK-01 — reproducido 3/3 en aislado tras el fallo, es variabilidad de muestreo de
+`llama3.1:8b` local, no una regresion de ADK-04).
+
+**Pendiente para ADK-05+:** el resto del contrato de `ChatResponse` (`tool_calls`,
+`needs_confirmation`, `metrics`) sigue sin replicarse (ADK-10). El flujo de RESUME tras
+confirmacion real sigue sin probarse (heredado de ADK-02). El fix de
+`JSON_SCHEMA_FOR_FUNC_DECL` sigue sin verificarse contra LM Studio (heredado de ADK-01) —
+dado el flake de arriba, verificar tambien si LM Studio (proveedor real de produccion) es
+mas o menos confiable que Ollama para tool-calling con este modelo/tamano.
+
 ## 9. Estado de este documento
 
-ADK-00 + ADK-01 + ADK-02 + ADK-03 completos. Todo el codigo sigue aislado en `adk_poc/`,
-sin tocar `ai_engine`/Django/Docker — ningun cambio de este documento modifico produccion.
-Pendiente instruccion explicita del usuario para iniciar ADK-04 (Support Agents) — el
-propio plan (seccion 24, "checkpoint obligatorio") exige no continuar automaticamente
-entre fases.
+ADK-00 + ADK-01 + ADK-02 + ADK-03 + ADK-04 completos. Todo el codigo sigue aislado en
+`adk_poc/`, sin tocar `ai_engine`/Django/Docker — ningun cambio de este documento modifico
+produccion. Pendiente instruccion explicita del usuario para iniciar ADK-05 (migracion de
+tools 1 a 1 -- en gran parte ya cubierto por ADK-04, que adapto las 33 instancias de tools
+reales de los 9 perfiles; revisar alcance real restante antes de empezar) — el propio plan
+(seccion 24, "checkpoint obligatorio") exige no continuar automaticamente entre fases.
