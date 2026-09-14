@@ -109,9 +109,9 @@ def test_retrieve_knowledge_for_chat_nunca_devuelve_doc_interno_aunque_sea_markd
 
 
 def test_retrieve_knowledge_for_chat_no_incluye_reglas_globales_fijas():
-    """A diferencia de retrieve_context_for_task (usado por chains.py), esta
-    funcion NO debe inyectar el bloque fijo de reglas globales de arquitectura
-    backend en cada respuesta -- ese bloque es irrelevante para un cliente."""
+    """Esta funcion NO debe inyectar el bloque fijo de reglas globales de
+    arquitectura backend en cada respuesta -- ese bloque es irrelevante para
+    un cliente."""
     vectorstore = _FakeVectorStore(_corpus())
     docs = retrieve_knowledge_for_chat(
         "como funciona la garantia del renting", vectorstore, _corpus(), apps=["renting"],

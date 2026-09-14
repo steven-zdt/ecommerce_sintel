@@ -1,10 +1,11 @@
 """
 Action Graph del AI Core (Fase 3) — orquestacion de Tools de negocio.
 
-Grafo PARALELO al de generacion de codigo: no importa nada de graph.py ni
-comparte su estado (SintelCodeState); solo reusa la infraestructura ya
-existente (llm_factory via _STATE, retrievers.retrieve_context_for_task
-para conocimiento/FAQ, planner-style regex para intencion).
+Unico grafo activo del motor (FASE 4a, 2026-09-14: se retiro el pipeline de
+generacion de codigo -- graph.py/chains.py/planner.py y equivalentes ya no
+existen, ver AUDITORIA/ARCHITECTURE_SIMPLIFICATION_AUDIT.md). Reusa
+llm_factory via _STATE y retrievers.retrieve_knowledge_for_chat para
+conocimiento/FAQ.
 
 Flujo:
     resolve_customer_context -> detect_intent -> optimize_context

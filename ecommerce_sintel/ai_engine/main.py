@@ -1,6 +1,13 @@
 """
-API REST del motor cognitivo Sintel AI Engine.
-Expone endpoints para generacion de codigo validado y validacion directa.
+API REST del motor cognitivo Sintel AI Engine (chatbot de soporte + RAG).
+
+FASE 4a (mision de simplificacion arquitectonica, 2026-09-14): se retiro el
+pipeline de generacion/validacion de codigo (`/generate`, `/validate`,
+`/plan`, `/impact`, `/breakage`, `/graph/node`, `/graph/impact` y los
+modulos graph.py/chains.py/chains_frontend.py/guardrails.py/
+guardrails_frontend.py/planner.py) -- confirmado sin ningun consumidor
+externo (grep global) y superseded por `ai_editor/` + `project_knowledge_graph/`,
+ya construidos y certificados (FASE61). Ver AUDITORIA/ARCHITECTURE_SIMPLIFICATION_AUDIT.md.
 
 Arranque:
     uvicorn main:app --host 0.0.0.0 --port 8100 --reload
@@ -19,11 +26,7 @@ from vectorstore_factory import get_vectorstore
 from llm_factory import get_llm, get_dynamic_llm
 from loaders import load_all_documents
 from splitters import split_all
-from guardrails import SintelArchitectureGuard, ValidationReport
-from graph import run_code_generation
-from retrievers import detect_task_type
 from memory_builder import get_global_memory, get_app_memory
-from planner import build_plan
 from specialized_retrieval import retrieve_with_routing, get_registry
 from ai_manifest import build_all_manifests, get_manifest
 from incremental_updater import update_changed_apps, detect_changed_apps
@@ -38,33 +41,6 @@ logging.basicConfig(
 logger = logging.getLogger("main")
 
 _STATE: dict = {}
-
-
-# ---------------------------------------------------------------------------
-# Stubs de project_knowledge_graph (FASE 0, 2026-08-10) -- ai_engine ya no
-# importa project_knowledge_graph ("AI Engine no conoce ni importa
-# project_knowledge_graph", separacion Site Knowledge Graph / AI Editor
-# Runtime). /impact y /breakage devuelven estructura vacia valida en vez de
-# fallar; su version real debe reconstruirse en el futuro AI Editor Runtime.
-# ---------------------------------------------------------------------------
-
-def build_impact_report(task: str, extra_apps: list[str] | None = None) -> dict:
-    return {
-        "apps": [], "models": [], "serializers": [], "viewsets": [],
-        "endpoints": [], "frontend_files": [], "stores": [], "services": [],
-    }
-
-
-def build_impact_context(task: str, extra_apps: list[str] | None = None) -> str:
-    return ""
-
-
-def what_breaks_if_i_change(entity: str) -> dict:
-    return {}
-
-
-def build_impact_analysis_text(entity: str) -> str:
-    return ""
 
 
 async def _ensure_ollama_models() -> None:
@@ -166,48 +142,8 @@ app.include_router(ai_router)
 
 # ─── Schemas de request/response ─────────────────────────────────────────────
 
-class GenerateRequest(BaseModel):
-    task: str
-    apps: list[str] | None = None
-    task_type: str | None = None   # "frontend" | "backend" | None (auto-detect)
-
-
-class GenerateResponse(BaseModel):
-    final_code: str
-    escalated: bool
-    escalation_reason: str
-    iterations: int
-    apps_detected: list[str]
-    task_type: str
-    validation_report: dict
-    impact_context: str
-    plan_steps: list
-    plan_warnings: list
-
-
-class PlanRequest(BaseModel):
-    task: str
-    apps: list[str] | None = None
-
-
-class PlanResponse(BaseModel):
-    intent: list[str]
-    task_type: str
-    apps: list[str]
-    plan_steps: list[str]
-    warnings: list[str]
-    enriched_context: str
-    affected_models: list
-    affected_endpoints: list
-    affected_frontend: list
-
-
 class MemoryRequest(BaseModel):
     app: str | None = None
-
-
-class BreakageRequest(BaseModel):
-    entity: str   # e.g. "shop.Product", "ProductSerializer"
 
 
 class RefreshRequest(BaseModel):
@@ -219,34 +155,6 @@ class RefreshRequest(BaseModel):
 class SearchRequest(BaseModel):
     query: str
     index: str | None = None  # optional: force a specific index name
-
-
-class ImpactRequest(BaseModel):
-    task: str
-    apps: list[str] | None = None
-
-
-class ImpactResponse(BaseModel):
-    apps: list[str]
-    models: list[dict]
-    serializers: list[dict]
-    viewsets: list[dict]
-    endpoints: list[dict]
-    frontend_files: list[dict]
-    stores: list[dict]
-    services: list[dict]
-    impact_summary: str
-
-
-class ValidateRequest(BaseModel):
-    code: str
-    app_context: str = ""
-
-
-class ValidateResponse(BaseModel):
-    passed: bool
-    violations: list[dict]
-    warnings: list[dict]
 
 
 # ─── Endpoints ───────────────────────────────────────────────────────────────
@@ -354,90 +262,6 @@ async def health():
     }
 
 
-@app.post("/generate", response_model=GenerateResponse)
-async def generate_code(req: GenerateRequest):
-    if not _STATE.get("vectorstore"):
-        raise HTTPException(503, "Motor no inicializado. Esperar al lifespan startup.")
-
-    resolved_type = req.task_type or detect_task_type(req.task)
-    result = run_code_generation(
-        task=req.task,
-        vectorstore=_STATE["vectorstore"],
-        all_docs=_STATE["all_docs"],
-        llm=_STATE["llm"],
-        apps=req.apps,
-        task_type=resolved_type,
-    )
-    result["task_type"] = resolved_type
-    result.setdefault("impact_context", "")
-    result.setdefault("plan_steps", [])
-    result.setdefault("plan_warnings", [])
-    return GenerateResponse(**result)
-
-
-@app.post("/validate", response_model=ValidateResponse)
-async def validate_code(req: ValidateRequest):
-    report: ValidationReport = SintelArchitectureGuard.validate(req.code, req.app_context)
-    return ValidateResponse(
-        passed=report.passed,
-        violations=[v.model_dump() for v in report.violations],
-        warnings=[w.model_dump() for w in report.warnings],
-    )
-
-
-@app.post("/impact", response_model=ImpactResponse)
-async def analyze_impact(req: ImpactRequest):
-    """
-    Analiza que componentes del proyecto (modelos, viewsets, endpoints, frontend)
-    se ven afectados por una tarea dada. No genera codigo — solo devuelve el mapa.
-    Util para que el AI copilot frontend muestre al usuario el impacto ANTES de generar.
-    """
-    report = build_impact_report(req.task, extra_apps=req.apps)
-    summary = build_impact_context(req.task, extra_apps=req.apps)
-    return ImpactResponse(
-        apps=report["apps"],
-        models=report["models"],
-        serializers=report["serializers"],
-        viewsets=report["viewsets"],
-        endpoints=report["endpoints"],
-        frontend_files=report["frontend_files"],
-        stores=report["stores"],
-        services=report["services"],
-        impact_summary=summary,
-    )
-
-
-@app.post("/plan", response_model=PlanResponse)
-async def plan_code(req: PlanRequest):
-    """
-    Ejecuta el pipeline de 17 pasos de razonamiento y devuelve el plan.
-    NO genera codigo — devuelve el plan para revision antes de generar.
-    """
-    plan = build_plan(req.task, apps_hint=req.apps)
-    return PlanResponse(
-        intent=plan.intent,
-        task_type=plan.task_type,
-        apps=plan.apps,
-        plan_steps=plan.plan_steps,
-        warnings=plan.warnings,
-        enriched_context=plan.enriched_context,
-        affected_models=plan.affected_models,
-        affected_endpoints=plan.affected_endpoints,
-        affected_frontend=plan.affected_frontend,
-    )
-
-
-@app.post("/breakage")
-async def analyze_breakage(req: BreakageRequest):
-    """
-    Responde: que se rompe si cambio la entidad X?
-    Ej: POST /breakage {"entity": "shop.Product"}
-    """
-    blast = what_breaks_if_i_change(req.entity)
-    text = build_impact_analysis_text(req.entity)
-    return {"entity": req.entity, "blast_radius": blast, "summary": text}
-
-
 @app.get("/memory")
 async def get_memory(app: str | None = None):
     """
@@ -448,28 +272,6 @@ async def get_memory(app: str | None = None):
     if app:
         return get_app_memory(app)
     return get_global_memory()
-
-
-@app.get("/graph/node/{entity_name}")
-async def graph_node(entity_name: str, depth: int = 2):
-    """
-    [RETIRADO 2026-08-10, FASE 0] ai_engine ya no importa project_knowledge_graph
-    -- esta consulta debe hacerse via `python -m project_knowledge_graph.cli node
-    <entidad>` o el futuro AI Editor Runtime, no desde este servicio.
-    """
-    raise HTTPException(501, "Retirado: ai_engine ya no depende de project_knowledge_graph. "
-                              "Usar `python -m project_knowledge_graph.cli node <entidad>`.")
-
-
-@app.get("/graph/impact/{entity_name}")
-async def graph_impact(entity_name: str):
-    """
-    [RETIRADO 2026-08-10, FASE 0] ai_engine ya no importa project_knowledge_graph
-    -- esta consulta debe hacerse via `python -m project_knowledge_graph.cli
-    impact <entidad>` o el futuro AI Editor Runtime, no desde este servicio.
-    """
-    raise HTTPException(501, "Retirado: ai_engine ya no depende de project_knowledge_graph. "
-                              "Usar `python -m project_knowledge_graph.cli impact <entidad>`.")
 
 
 @app.post("/search")
