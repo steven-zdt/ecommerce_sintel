@@ -320,3 +320,54 @@ por ADK-04+ADK-05 combinados, sin trabajo pendiente adicional en ese frente.
 - Flujo de RESUME tras confirmacion real (heredado de ADK-02).
 - Verificar `JSON_SCHEMA_FOR_FUNC_DECL=False` contra LM Studio (heredado de
   ADK-01).
+
+---
+
+# ADK-06 — RAG adapter (completado)
+
+Regla dura: reusar `RetrievalService`/pgvector via `ai_knowledge`, nunca
+reintroducir ChromaDB/FAISS. `sintel_rag_adapter.py` reutiliza tal cual
+`ai_engine/retrievers.py::retrieve_knowledge_for_chat` -- la misma funcion
+real que ya usa `action_graph.py::node_retrieve_knowledge` desde la
+migracion ChromaDB->pgvector. Cero logica de retrieval nueva.
+
+**Decision consistente con ADK-04:** retrieval NO es una Tool que el LLM
+decide invocar -- es una rama determinista del grafo real
+(`intent == "knowledge"`, clasificado por regex). El Root Workflow decide
+SI hace retrieval (reusando el router ya determinista) y le INYECTA el
+resultado al agente. Routing real: `AgentRegistry` asigna `"knowledge"` a
+**SalesAgent** -- verificado en vivo.
+
+**Gobernanza real replicada (Fase 17, hallazgo ya documentado en el codigo):**
+sin chunks, se inyecta el marcador EXPLICITO "NINGUNO -- no se encontro
+informacion verificada sobre este tema." -- el comentario real documenta el
+incidente que lo motivo: sin el, el LLM alucino una respuesta (horario de
+atencion) con un chunk irrelevante. `build_knowledge_context()` replica ese
+marcador BIT a BIT.
+
+**Mecanismo de inyeccion (API real de ADK):** `LlmAgent.instruction` acepta
+un CALLABLE `(ReadonlyContext) -> str`, evaluado por turno. Se setea via
+`Runner.run_async(state_delta=...)` -- en turnos que NO son "knowledge" se
+limpia explicitamente a `""` para no filtrar RAG de un turno anterior a un
+agente de otro dominio en la misma sesion.
+
+**Verificado:** `test_sintel_rag_adapter.py` (3/3, sin Ollama) + 3 tests
+nuevos en `test_sintel_root_workflow.py` -- incluye un test con **Ollama
+real** que confirma la respuesta queda basada en el hecho inyectado (horario
+7:00am-4:30pm), regresion directa del incidente real de Fase 17. 54/54
+tests pasando.
+
+**Gotcha real de mocking encontrado:** mockear `retrievers.httpx.AsyncClient`
+rompe cualquier test que en el MISMO turno tambien llame a Ollama real --
+`retrievers.py` hace `import httpx` (no `from httpx import AsyncClient`),
+asi que parcha el modulo `httpx` COMPARTIDO globalmente, incluyendo el
+`AsyncClient` interno de litellm. Fix: mockear
+`retrievers.retrieve_knowledge_for_chat` directo, no su transporte.
+
+## Pendiente para ADK-07+
+
+- El resto del contrato de `ChatResponse` (`tool_calls`, `needs_confirmation`,
+  `metrics`) -- ADK-10, dual run.
+- Flujo de RESUME tras confirmacion real (heredado de ADK-02).
+- Verificar `JSON_SCHEMA_FOR_FUNC_DECL=False` contra LM Studio (heredado de
+  ADK-01).

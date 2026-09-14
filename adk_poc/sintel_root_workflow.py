@@ -1,5 +1,5 @@
 """
-ADK-03/04 -- Root Workflow de SINTEL.
+ADK-03/04/06 -- Root Workflow de SINTEL.
 
 Runtime real (todavia aislado en adk_poc/, NO integrado a ai_engine/main.py
 -- eso es responsabilidad de ADK-11 Cutover, no de esta fase) que cumple el
@@ -47,6 +47,29 @@ personalidad como instruccion (texto real del YAML, no inventado). Un
 continuidad de sesion entre turnos si el agente activo cambia de un turno a
 otro) comparte un unico `InMemorySessionService` a nivel de modulo, para que
 la sesion sobreviva aunque el agente cambie turno a turno.
+
+## RAG (ADK-06)
+
+Retrieval NO es una decision del LLM en el sistema real -- es una rama
+determinista del grafo (`node_route_after_context`, solo si
+`intent == "knowledge"`). Mismo principio que ADK-04: el Root Workflow
+decide SI hace retrieval (via `resolve_turn_agent()`, ya determinista) y le
+INYECTA el resultado al agente -- nunca se expone como una Tool que el LLM
+pueda invocar por su cuenta. `sintel_rag_adapter.build_knowledge_context()`
+reutiliza `retrievers.retrieve_knowledge_for_chat` real (pgvector via
+`ai_knowledge`, ver `project_chromadb_to_pgvector_migration` en memoria) y
+replica el marcador de gobernanza real de Fase 17 (sin el, el LLM alucina
+cuando no hay conocimiento -- incidente real ya documentado en
+`action_graph.py`).
+
+La inyeccion usa `LlmAgent.instruction` como CALLABLE
+(`(ReadonlyContext) -> str`, campo real de ADK, evaluado por turno) que lee
+`SINTEL_KNOWLEDGE_CONTEXT_STATE_KEY` del state de la sesion -- el state se
+setea por turno via `Runner.run_async(state_delta=...)` (parametro real de
+`Runner`), nunca queda "pegado" de un turno anterior: en turnos con
+`intent != "knowledge"` se limpia explicitamente a cadena vacia, replicando
+que `action_graph.py::node_optimize_context` reconstruye `optimized_context`
+desde cero cada turno, nunca lo acumula entre turnos.
 """
 import sys
 from pathlib import Path
@@ -67,6 +90,7 @@ from google.adk.runners import Runner
 from google.adk.sessions.in_memory_session_service import InMemorySessionService
 
 from sintel_adapter import SINTEL_TOKEN_STATE_KEY, SINTEL_USER_STATE_KEY, adapt_sintel_tool
+from sintel_rag_adapter import SINTEL_KNOWLEDGE_CONTEXT_STATE_KEY, build_knowledge_context
 
 OLLAMA_BASE_URL = "http://localhost:11434"
 OLLAMA_MODEL = "llama3.1:8b"
@@ -138,18 +162,30 @@ def get_domain_agent(profile_name: str) -> LlmAgent:
         raise ValueError(f"Perfil desconocido: {profile_name}")
 
     tools = [adapt_sintel_tool(get_tool(name)) for name in profile.herramientas]
-    instruction = (
+    base_instruction = (
         f"Objetivo: {profile.objetivo}\n"
         f"Personalidad: {profile.personalidad}\n"
         f"Tono: {profile.tono}\n"
         "Usa siempre una tool para responder con datos reales -- nunca "
         "inventes informacion que no venga de una tool."
     )
+
+    # Callable (no string fijo): LlmAgent.instruction acepta
+    # (ReadonlyContext) -> str, evaluado por turno -- necesario para
+    # inyectar el bloque de conocimiento RAG (ADK-06) solo en los turnos
+    # que lo traen via state_delta, igual que optimized_context en el
+    # sistema real se reconstruye turno a turno, nunca queda fijo.
+    async def instruction_provider(ctx) -> str:
+        knowledge = ctx.state.get(SINTEL_KNOWLEDGE_CONTEXT_STATE_KEY, "")
+        if knowledge:
+            return f"{base_instruction}\n\nConocimiento relevante:\n{knowledge}"
+        return base_instruction
+
     agent = LlmAgent(
         name=profile.name,
         model=LiteLlm(model=f"ollama_chat/{OLLAMA_MODEL}", api_base=OLLAMA_BASE_URL),
         description=profile.description,
-        instruction=instruction,
+        instruction=instruction_provider,
         tools=tools,
     )
     _domain_agent_cache[profile_name] = agent
@@ -179,6 +215,14 @@ async def run_sintel_turn(*, message: str, token: str, conversation_id: str | No
     intent, agent_name, handoff = resolve_turn_agent(message)
     domain_agent = get_domain_agent(agent_name)
 
+    # ADK-06: retrieval SOLO si el router determinista clasifico "knowledge"
+    # (mismo criterio que node_route_after_context real) -- nunca a
+    # discrecion del LLM. En cualquier otro intent se limpia explicitamente
+    # a "" para no arrastrar el conocimiento de un turno anterior de la
+    # MISMA sesion (mismo criterio que optimized_context, reconstruido
+    # desde cero cada turno en el sistema real).
+    knowledge_context = await build_knowledge_context(message) if intent == "knowledge" else ""
+
     runner = Runner(
         app_name=APP_NAME, agent=domain_agent, session_service=_session_service,
     )
@@ -196,6 +240,7 @@ async def run_sintel_turn(*, message: str, token: str, conversation_id: str | No
     events = []
     async for event in runner.run_async(
         user_id=str(user_id), session_id=session_id, new_message=adk_message,
+        state_delta={SINTEL_KNOWLEDGE_CONTEXT_STATE_KEY: knowledge_context},
     ):
         events.append(event)
 

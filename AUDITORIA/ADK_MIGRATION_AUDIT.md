@@ -413,11 +413,73 @@ mas alla de lo ya cubierto por ADK-04+ADK-05 combinados. 48/48 tests pasando en 
 confirmacion real sigue sin probarse (ADK-02). El fix de `JSON_SCHEMA_FOR_FUNC_DECL` sigue
 sin verificarse contra LM Studio (ADK-01).
 
+## 8quinquies. ADK-06 — RAG adapter (completado)
+
+Regla dura del plan (seccion 6): reusar `RetrievalService`/pgvector via `ai_knowledge`,
+nunca reintroducir ChromaDB/FAISS/un segundo vector store. Verificado: `sintel_rag_adapter.py`
+no habla con pgvector ni con Django directo — reutiliza tal cual
+`ai_engine/retrievers.py::retrieve_knowledge_for_chat`, la MISMA funcion real que ya usa
+`action_graph.py::node_retrieve_knowledge` desde la migracion ChromaDB->pgvector (mision
+anterior, ver `project_chromadb_to_pgvector_migration` en memoria). Cero logica de retrieval
+nueva.
+
+**Decision de arquitectura consistente con ADK-04 (mismo principio, no una decision nueva):**
+en el sistema real, retrieval NO es una Tool que el LLM decide invocar — es una rama
+determinista del grafo (`node_route_after_context`, activa SOLO si `intent == "knowledge"`,
+clasificado por regex). El Root Workflow decide SI hace retrieval (reusando
+`resolve_turn_agent()`, ya determinista desde ADK-04) y le INYECTA el resultado al agente —
+nunca se expone como FunctionTool. Routing real: `AgentRegistry` asigna el intent
+`"knowledge"` a **SalesAgent** (`sales_agent.yaml`: `intents: [promos, quote, knowledge]`,
+`memoria: conversacion + cliente + empresarial (RAG)`) — verificado en vivo con
+`resolve_turn_agent("Cual es la politica de garantia de ustedes?")` -> `("knowledge",
+"SalesAgent", None)`.
+
+**Hallazgo real de gobernanza que este adapter debia replicar (Fase 17, ya documentado en el
+codigo real):** `node_retrieve_knowledge` inyecta un marcador EXPLICITO ("NINGUNO -- no se
+encontro informacion verificada sobre este tema.") cuando no hay chunks — el comentario real
+documenta el incidente que lo motivo: sin el, el LLM alucino una respuesta (horario de
+atencion) rellenando el hueco con un chunk irrelevante (mismo incidente que
+`project_support_agent_separation_plan` en memoria del agente). `build_knowledge_context()`
+replica ese marcador BIT a BIT.
+
+**Mecanismo de inyeccion (hallazgo de API real de ADK):** `LlmAgent.instruction` acepta un
+CALLABLE `(ReadonlyContext) -> str`, evaluado por turno (no solo un string fijo) —
+confirmado via `LlmAgent.model_fields['instruction'].annotation`. `get_domain_agent()` ahora
+construye la instruccion asi, leyendo `SINTEL_KNOWLEDGE_CONTEXT_STATE_KEY` del state de la
+sesion. Ese state se setea por turno via `Runner.run_async(state_delta=...)` (parametro real
+de `Runner`, confirmado por introspeccion) — en turnos con `intent != "knowledge"` se limpia
+explicitamente a `""`, replicando que `optimized_context` se reconstruye desde cero cada
+turno en el sistema real (sin este cuidado, el conocimiento de una pregunta de FAQ se
+filtraria a un turno posterior no relacionado de otro agente, dentro de la misma sesion).
+
+**Verificado:** `test_sintel_rag_adapter.py` (3/3, sin Ollama): union/truncado real de
+chunks, marcador de gobernanza exacto cuando no hay resultados, degradacion con gracia si
+Django no responde. `test_sintel_root_workflow.py` (+3 tests): el contexto recuperado
+(mockeado en el unico punto de red real) queda sembrado en el state de la sesion de ADK; con
+**Ollama real**, la respuesta del LLM queda basada en el hecho inyectado (horario 7:00am-
+4:30pm), regresion directa del incidente real de Fase 17; y el contexto NO sobrevive a un
+turno posterior de otro intent en la misma sesion (verificado leyendo el state despues).
+54/54 tests pasando en `adk_poc/`.
+
+**Gotcha real de mocking encontrado (no un bug del adapter):** mockear
+`retrievers.httpx.AsyncClient` rompe cualquier test que en el MISMO turno tambien haga una
+llamada real a Ollama — `retrievers.py` hace `import httpx` (no `from httpx import
+AsyncClient`), asi que `retrievers.httpx` ES el modulo `httpx` compartido globalmente;
+parchear `AsyncClient` ahi lo parcha para TODO el proceso, incluyendo el `httpx.AsyncClient`
+interno de litellm, y el turno explota al hablar con Ollama. Fix: mockear
+`retrievers.retrieve_knowledge_for_chat` directo (la funcion real, no su transporte) en
+cualquier test que combine RAG + un LLM real en el mismo turno.
+
+**Pendiente heredado (sin cambios):** el resto del contrato de `ChatResponse` (`tool_calls`,
+`needs_confirmation`, `metrics`) sigue sin replicarse (ADK-10). El flujo de RESUME tras
+confirmacion real sigue sin probarse (ADK-02). El fix de `JSON_SCHEMA_FOR_FUNC_DECL` sigue
+sin verificarse contra LM Studio (ADK-01).
+
 ## 9. Estado de este documento
 
-ADK-00 + ADK-01 + ADK-02 + ADK-03 + ADK-04 + ADK-05 completos. Todo el codigo sigue
-aislado en `adk_poc/`, sin tocar `ai_engine`/Django/Docker — ningun cambio de este
+ADK-00 + ADK-01 + ADK-02 + ADK-03 + ADK-04 + ADK-05 + ADK-06 completos. Todo el codigo
+sigue aislado en `adk_poc/`, sin tocar `ai_engine`/Django/Docker — ningun cambio de este
 documento modifico produccion. Pendiente instruccion explicita del usuario para iniciar
-ADK-06 (RAG adapter — reusar `ai_knowledge`/`RetrievalService`/pgvector, nunca reintroducir
-ChromaDB/FAISS) — el propio plan (seccion 24, "checkpoint obligatorio") exige no continuar
-automaticamente entre fases.
+ADK-07 (Knowledge Graph adapter via `graph_sdk`/`ai_editor.graph_client`, nunca serializar
+el grafo completo al LLM) — el propio plan (seccion 24, "checkpoint obligatorio") exige no
+continuar automaticamente entre fases.
