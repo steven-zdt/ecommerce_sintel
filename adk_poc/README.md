@@ -74,7 +74,7 @@ migracion.
   todavia, pero no deben usarse como arquitectura de referencia para
   Sintel.
 
-## Pendiente para ADK-02+ (no resuelto en este POC, fuera de su alcance)
+## Pendiente para ADK-02+ (no resuelto en el POC de ADK-01, resuelto abajo)
 
 - Verificar el mismo fix (`JSON_SCHEMA_FOR_FUNC_DECL=False`) contra LM Studio
   (el proveedor real de produccion, `openai-compatible`, no Ollama) -- no
@@ -82,5 +82,82 @@ migracion.
 - Confirmar si `Workflow` puede envolver un `LlmAgent` con sub-agentes
   anidados (la limitacion "Workflow cannot yet be used as an LlmAgent
   sub-agent" documentada en ADK-00 sigue sin probarse en la practica).
-- Probar el flujo completo de `ToolContext.requestConfirmation()` (pausa +
-  resume real), no solo que la API existe.
+
+---
+
+# ADK-02 — SINTEL Tool Adapter (completado)
+
+`sintel_adapter.py`: `adapt_sintel_tool(registered_tool) -> FunctionTool`.
+Toma una `RegisteredTool` REAL de `ai_engine.tools.registry` (ToolMetadata +
+funcion async `(ctx, **args) -> dict`) y produce una `FunctionTool` de ADK
+real, **sin reescribir la logica de la tool** -- el adapter importa
+`ai_engine/tools/*` via `sys.path` (no copia ni un archivo) y llama a la
+funcion original tal cual.
+
+Mapeo: `ToolMetadata.name/description` -> nombre/descripcion de la
+`FunctionTool`; `ToolMetadata.requires_confirmation` -> `FunctionTool(...,
+require_confirmation=...)` (mapeo 1:1 directo); `ToolContext(user, token)` de
+Sintel se reconstruye desde `tool_context.state` de ADK (sembrado en la
+sesion -- la resolucion de identidad real completa es responsabilidad de
+ADK-03, aqui solo se demuestra el mecanismo de paso de contexto).
+
+## Verificado end-to-end, con Tools REALES de ai_engine (sin mocks salvo el bridge HTTP)
+
+**`test_sintel_adapter.py`** -- adapta `OrderStatusTool` (real,
+`ai_engine/tools/orders_tools.py`, sin `requires_confirmation`). Flujo
+completo: Ollama decide llamar la tool -> ADK invoca el wrapper del adapter
+-> el wrapper reconstruye `ToolContext(token="fake-jwt-para-el-poc", ...)`
+-> llama a `orders_tools.order_status_tool()` REAL -> esta llama a
+`django_internal_get()` (unico punto mockeado, mismo criterio que la propia
+suite de `ai_engine`) -> el resultado mockeado vuelve al LLM -> respuesta
+final coherente con los datos reales devueltos. Se verifico explicitamente
+que `registered.func is orders_tools.order_status_tool` (la funcion
+invocada es la real, no una copia) y que el token de la sesion de ADK llego
+intacto hasta la llamada HTTP simulada.
+
+**`test_sintel_adapter_hitl.py`** -- adapta `RequestKycUpgradeTool` (real,
+`side_effects=True`, `requires_confirmation=True`,
+`ai_engine/tools/kyc_tools.py` -- una tool de ESCRITURA real). Confirma que
+`require_confirmation=True` **efectivamente pausa la ejecucion**: el LLM
+decide llamar la tool, ADK emite un evento con
+`requested_tool_confirmations` (`ToolConfirmation(hint="Please approve or
+reject...", confirmed=False)`) **y la escritura real
+(`django_internal_post`) nunca se ejecuta** -- verificado con
+`mock_write.assert_not_called()`-equivalente. Este es el mismo principio
+estructural que `ai_editor.repository.promote_to_workspace()` ya exige del
+lado Sintel (ver `AUDITORIA/ADK_MIGRATION_AUDIT.md` seccion 4) -- ADK puede
+sostener ese mismo gate para tools normales de `ai_engine`.
+
+**Gotcha de mocking real encontrado (no un bug del adapter):** parchear
+`tools.http_bridge.django_internal_get` NO tiene efecto -- `orders_tools.py`
+hace `from tools.http_bridge import django_internal_get`, asi que tiene su
+propia referencia local vinculada en tiempo de import. Hay que parchear
+donde se USA (`tools.orders_tools.django_internal_get`), no donde se define.
+Aplica igual a cualquier mock futuro de las tools reales de `ai_engine`.
+
+**Nota de riesgo:** el mecanismo de confirmacion completo
+(`FeatureName.TOOL_CONFIRMATION`) tambien esta marcado **EXPERIMENTAL** en
+ADK 2.9.0 (warning propio del framework) -- igual que `JSON_SCHEMA_FOR_FUNC_DECL`.
+No asumir estabilidad de API entre versiones de ADK para este mecanismo.
+
+## Pendiente para ADK-03+
+
+- Resolucion de identidad real (que llena `tool_context.state` con el JWT
+  real del usuario autenticado) -- aqui se sembro a mano en
+  `create_session(state=...)`, en el Root Workflow real vendria de Django/
+  WebSocket/WhatsApp.
+- Probar el flujo de RESUME tras una confirmacion real (enviar la
+  `ToolConfirmation(confirmed=True)` de vuelta y confirmar que
+  `django_internal_post` SI se ejecuta entonces) -- este POC solo probo la
+  mitad "pausa", no el resume.
+- Generalizar el adapter a tools con `**kwargs` reales (ej.
+  `CreateRentalRequestTool`, que ya usa `**kwargs` del lado Sintel segun
+  `tools/registry.py::invoke()`) -- el adapter actual asume que
+  `inspect.signature(tool.func)` da parametros concretos, no verificado
+  contra una tool `**kwargs`.
+- Verificar el mismo fix (`JSON_SCHEMA_FOR_FUNC_DECL=False`) contra LM Studio
+  (el proveedor real de produccion, `openai-compatible`, no Ollama) -- no
+  probado aqui.
+- Confirmar si `Workflow` puede envolver un `LlmAgent` con sub-agentes
+  anidados (la limitacion "Workflow cannot yet be used as an LlmAgent
+  sub-agent" documentada en ADK-00 sigue sin probarse en la practica).

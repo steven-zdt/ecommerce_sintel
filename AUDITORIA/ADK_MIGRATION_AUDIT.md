@@ -216,8 +216,41 @@ LlmAgent" sigue sin probarse en la practica; el flujo completo de
 `ToolContext.requestConfirmation()` (pausa+resume real) no se ejecuto, solo se confirmo que
 la API existe.
 
-## 7. Estado de este documento
+## 7. ADK-02 — SINTEL Tool Adapter (completado)
 
-ADK-00 + ADK-01 completos. Codigo del POC aislado, sin tocar `ai_engine`/Django/Docker.
-Pendiente instruccion explicita del usuario para iniciar ADK-02 (Adapter Layer) — el propio
-plan (seccion 24, "checkpoint obligatorio") exige no continuar automaticamente entre fases.
+`adk_poc/sintel_adapter.py::adapt_sintel_tool()` — toma una `RegisteredTool` REAL de
+`ai_engine.tools.registry` (importada via `sys.path`, sin copiar ni un archivo) y produce
+una `FunctionTool` de ADK real. Mapeo directo `ToolMetadata.requires_confirmation` ->
+`FunctionTool(require_confirmation=...)`.
+
+**Verificado end-to-end con dos Tools reales de `ai_engine`, sin duplicar logica:**
+
+- `OrderStatusTool` (lectura): Ollama decide llamar la tool -> adapter -> funcion real
+  `order_status_tool()` -> `django_internal_get()` (unico punto mockeado) -> respuesta
+  final coherente con el dato real devuelto. Confirmado explicitamente que la funcion
+  invocada es `is` la funcion original (no una copia), y que el token de la sesion de ADK
+  llega intacto hasta la llamada HTTP.
+- `RequestKycUpgradeTool` (escritura real, `side_effects=True`,
+  `requires_confirmation=True`): confirmado que el gate **efectivamente pausa** la
+  ejecucion — ADK emite `requested_tool_confirmations` y `django_internal_post` **nunca se
+  ejecuta** sin confirmacion. Mismo principio estructural que
+  `ai_editor.repository.promote_to_workspace()` ya exige del lado Sintel — ADK puede
+  sostener ese gate tambien para tools normales de `ai_engine`.
+
+**Riesgo nuevo encontrado:** el mecanismo de confirmacion (`FeatureName.TOOL_CONFIRMATION`)
+tambien esta marcado EXPERIMENTAL en ADK 2.9.0 (mismo estado que
+`JSON_SCHEMA_FOR_FUNC_DECL` de ADK-01) — no asumir estabilidad de API entre versiones de
+ADK para HITL.
+
+**Pendiente para ADK-03 (no resuelto aqui, fuera de alcance de ADK-02):** resolucion de
+identidad real (aqui se sembro el token a mano en `create_session(state=...)`); el flujo de
+RESUME tras confirmacion real (solo se probo la mitad "pausa"); generalizar el adapter a
+tools con `**kwargs` reales (ej. `CreateRentalRequestTool`); fix de `JSON_SCHEMA_FOR_FUNC_DECL`
+sin probar contra LM Studio (proveedor real de produccion).
+
+## 8. Estado de este documento
+
+ADK-00 + ADK-01 + ADK-02 completos. Todo el codigo sigue aislado en `adk_poc/`, sin tocar
+`ai_engine`/Django/Docker. Pendiente instruccion explicita del usuario para iniciar ADK-03
+(Root Workflow) — el propio plan (seccion 24, "checkpoint obligatorio") exige no continuar
+automaticamente entre fases.
