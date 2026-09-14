@@ -1,0 +1,113 @@
+/**
+ * aiProviderAdmin.js — Pinia store del panel de Proveedores de IA
+ * (/panel/soporte/ia-config, plan maestro "CONFIGURACION DINAMICA DE MODELOS
+ * LOCALES PARA CHAT SUPPORT", FASE 5, 2026-08-13). Mismo patron que
+ * marketingAdmin.js (loading/actionLoading, _mutate helper, delega en la capa
+ * de servicio).
+ */
+import { defineStore } from 'pinia';
+import { aiProviderService } from '@/services/aiProvider/aiProviderService';
+
+export const useAIProviderAdminStore = defineStore('aiProviderAdmin', {
+  state: () => ({
+    providers: [],
+    channelConfig: null,
+    loading: false,
+    actionLoading: false,
+    error: null,
+  }),
+
+  actions: {
+    async fetchAll() {
+      this.loading = true;
+      try {
+        const [providers, channelConfig] = await Promise.all([
+          aiProviderService.listProviders(),
+          aiProviderService.getChannelConfig(),
+        ]);
+        this.providers = providers;
+        this.channelConfig = channelConfig;
+      } catch {
+        this.error = 'Error al cargar proveedores de IA.';
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    async _mutate(action) {
+      this.actionLoading = true;
+      try {
+        const data = await action();
+        return { ok: true, data };
+      } catch (err) {
+        return { ok: false, error: err };
+      } finally {
+        this.actionLoading = false;
+      }
+    },
+
+    async createProvider(payload) {
+      const res = await this._mutate(() => aiProviderService.createProvider(payload));
+      if (res.ok) this.providers.push(res.data);
+      return res;
+    },
+
+    async updateProvider(uuid, payload) {
+      const res = await this._mutate(() => aiProviderService.updateProvider(uuid, payload));
+      if (res.ok) {
+        const idx = this.providers.findIndex((p) => p.uuid === uuid);
+        if (idx !== -1) this.providers[idx] = res.data;
+      }
+      return res;
+    },
+
+    async deleteProvider(uuid) {
+      const res = await this._mutate(() => aiProviderService.deleteProvider(uuid));
+      if (res.ok) this.providers = this.providers.filter((p) => p.uuid !== uuid);
+      return res;
+    },
+
+    async testConnection(uuid) {
+      const res = await this._mutate(() => aiProviderService.testConnection(uuid));
+      if (res.ok) {
+        const idx = this.providers.findIndex((p) => p.uuid === uuid);
+        if (idx !== -1) this.providers[idx] = res.data;
+      }
+      return res;
+    },
+
+    async discoverModels(uuid) {
+      return this._mutate(() => aiProviderService.discoverModels(uuid));
+    },
+
+    async addModel(providerUuid, payload) {
+      const res = await this._mutate(() => aiProviderService.addModel(providerUuid, payload));
+      if (res.ok) {
+        const provider = this.providers.find((p) => p.uuid === providerUuid);
+        if (provider) provider.models.push(res.data);
+      }
+      return res;
+    },
+
+    async deleteModel(providerUuid, modelUuid) {
+      const res = await this._mutate(() => aiProviderService.deleteModel(providerUuid, modelUuid));
+      if (res.ok) {
+        const provider = this.providers.find((p) => p.uuid === providerUuid);
+        if (provider) provider.models = provider.models.filter((m) => m.uuid !== modelUuid);
+      }
+      return res;
+    },
+
+    async setPrimary(modelUuid) {
+      const res = await this._mutate(() => aiProviderService.setPrimary(modelUuid));
+      if (res.ok) this.channelConfig = res.data;
+      return res;
+    },
+
+    async setFallbackChain(modelUuids) {
+      const res = await this._mutate(() => aiProviderService.setFallbackChain(modelUuids));
+      if (res.ok) this.channelConfig = res.data;
+      return res;
+    },
+  },
+});
