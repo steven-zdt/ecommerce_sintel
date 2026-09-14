@@ -203,11 +203,15 @@
 <script setup>
 import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue';
 import { useAuthStore } from '@/store/auth';
+import { useAuth } from '@/composables/useAuth';
+import { useToast } from '@/composables/useToast';
 import useApi from '@/composables/useApi';
 import Customer360Panel from '@/components/support/Customer360Panel.vue';
 
 const authStore = useAuthStore();
 const api       = useApi();
+const { refreshAccessToken } = useAuth();
+const toast = useToast();
 
 const rooms        = ref([]);
 const selectedRoom = ref(null);
@@ -230,10 +234,52 @@ const analyticsKpis = computed(() => {
     { label: 'Tasa de escalamiento', value: a.handoff_rate != null ? `${Math.round(a.handoff_rate * 100)}%` : '--', icon: 'bi-person-lines-fill', color: 'linear-gradient(135deg,#8b5cf6,#5b21b6)' },
     { label: 'Tokens promedio (in/out)', value: a.avg_tokens_in != null ? `${a.avg_tokens_in}/${a.avg_tokens_out}` : '--', icon: 'bi-cpu-fill', color: 'linear-gradient(135deg,#2563eb,#1e3a8a)' },
     { label: 'Duracion promedio', value: a.avg_duration_ms != null ? `${(a.avg_duration_ms / 1000).toFixed(1)}s` : '--', icon: 'bi-stopwatch-fill', color: 'linear-gradient(135deg,#d97706,#b45309)' },
+    // C2 (auditoria enterprise, 2026-07-31): antes una caida del AI Engine era invisible
+    // aca -- ChatAnalyticsSelector ahora cuenta los marcadores de degradacion aparte.
+    { label: 'Motor IA no disponible', value: a.engine_unavailable_rate != null ? `${Math.round(a.engine_unavailable_rate * 100)}%` : '--', icon: 'bi-cloud-slash-fill', color: 'linear-gradient(135deg,#dc2626,#7f1d1d)' },
   ];
 });
 
 let ws = null;
+
+// A1 (AUDITORIA/18, 2026-08-01): ver el comentario equivalente en
+// SupportChatWidget.vue::connectWs() -- backoff exponencial con techo + jitter en vez de un
+// setTimeout fijo de 3s, para no sumar carga sincronizada de todos los admins reconectando a la
+// vez justo cuando el servidor recien se recupera de un deploy/reinicio.
+let reconnectAttempts = 0;
+const RECONNECT_BASE_MS = 3000;
+const RECONNECT_MAX_MS = 30000;
+
+function nextReconnectDelayMs() {
+  const exp = Math.min(RECONNECT_BASE_MS * (2 ** reconnectAttempts), RECONNECT_MAX_MS);
+  reconnectAttempts += 1;
+  return exp * (0.5 + Math.random() * 0.5);
+}
+
+// A2 (AUDITORIA/18_AUDITORIA_PRODUCCION_RESILIENCIA_WS.md, 2026-08-03): antes no habia ningun
+// heartbeat de aplicacion -- una conexion zombie (TCP vivo pero muerta de un lado, comun detras
+// de proxies) podia quedar mostrando "en linea" indefinidamente. Ping cada 25s; si no llega
+// pong en 10s, se fuerza el cierre y el reconnect existente (con backoff+jitter) toma el relevo.
+let heartbeatInterval = null;
+let heartbeatTimeoutId = null;
+const HEARTBEAT_INTERVAL_MS = 25000;
+const HEARTBEAT_TIMEOUT_MS = 10000;
+
+function stopHeartbeat() {
+  if (heartbeatInterval) clearInterval(heartbeatInterval);
+  if (heartbeatTimeoutId) clearTimeout(heartbeatTimeoutId);
+  heartbeatInterval = null;
+  heartbeatTimeoutId = null;
+}
+
+function startHeartbeat() {
+  stopHeartbeat();
+  heartbeatInterval = setInterval(() => {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify({ type: 'ping' }));
+    heartbeatTimeoutId = setTimeout(() => ws?.close(), HEARTBEAT_TIMEOUT_MS);
+  }, HEARTBEAT_INTERVAL_MS);
+}
 
 const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1/';
 const wsBase  = apiBase
@@ -282,14 +328,49 @@ async function selectRoom(room) {
   } catch (_) {}
 }
 
-function connectWs() {
+async function connectWs() {
+  // Ver el comentario equivalente en SupportChatWidget.vue::connectWs() -- mismo bug
+  // real de produccion (2026-07-31): el WS solo se autentica al conectar, y sin
+  // refrescar aqui se reutilizaba un access token vencido (15 min) en cada
+  // reintento, para siempre ("Desconectado" permanente en el dashboard admin).
+  try {
+    await refreshAccessToken();
+  } catch (_) {
+    // Refresh token TAMBIEN vencido -- sesion admin realmente muerta. Conectar
+    // igual solo repite "Token is expired" para siempre (confirmado en logs de
+    // produccion, 2026-07-31). Mismo patron que SupportChatWidget.vue: avisar y
+    // dejar de reintentar, en vez de loop infinito silencioso.
+    authStore.logout();
+    toast.info('Tu sesión expiró. Inicia sesión de nuevo.');
+    return;
+  }
   const url = `${wsBase}/ws/support/chat/?token=${authStore.accessToken}`;
   ws = new WebSocket(url);
 
-  ws.onopen = () => { wsReady.value = true; };
+  ws.onopen = () => {
+    wsReady.value = true;
+    reconnectAttempts = 0;
+    // A3 (AUDITORIA/18, 2026-08-01): a diferencia de SupportChatWidget.vue (que SI recibe el
+    // historial completo en cada conexion/reconexion via el evento 'history'), este consumer
+    // nunca envia historial a la rama admin -- si el admin se desconecto brevemente (WiFi,
+    // laptop en suspension) y algun mensaje llego durante el corte, antes quedaba invisible
+    // hasta reseleccionar la sala a mano o recargar la pagina. Resincroniza ambas fuentes al
+    // reconectar: la lista de salas (last_message/unread_count) y, si hay una sala abierta, su
+    // historial completo -- mismo endpoint REST que selectRoom(), sin riesgo de duplicar (
+    // reemplaza el array, no hace push).
+    fetchRooms();
+    if (selectedRoom.value) {
+      selectRoom(selectedRoom.value);
+    }
+    startHeartbeat();
+  };
 
   ws.onmessage = (evt) => {
     const data = JSON.parse(evt.data);
+    if (data.type === 'pong') {
+      if (heartbeatTimeoutId) { clearTimeout(heartbeatTimeoutId); heartbeatTimeoutId = null; }
+      return;
+    }
     if (data.type !== 'chat_message') return;
 
     const idx = rooms.value.findIndex(r => r.uuid === data.room_uuid);
@@ -311,7 +392,8 @@ function connectWs() {
   ws.onclose = () => {
     wsReady.value = false;
     ws = null;
-    setTimeout(connectWs, 3000);
+    stopHeartbeat();
+    setTimeout(connectWs, nextReconnectDelayMs());
   };
 
   ws.onerror = () => { ws?.close(); };

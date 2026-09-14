@@ -41,6 +41,18 @@
       </div>
       <p v-else class="text-muted small">Sin alquileres.</p>
 
+      <h6 class="c360-section-title">Cotizaciones recientes</h6>
+      <div v-if="data.quotations.length" class="c360-cards">
+        <QuotationContextCard v-for="q in data.quotations.slice(0, 3)" :key="q.uuid" :quotation="q" />
+      </div>
+      <p v-else class="text-muted small">Sin cotizaciones.</p>
+
+      <h6 class="c360-section-title">Ordenes de operación</h6>
+      <div v-if="data.operations.length" class="c360-cards">
+        <OperationContextCard v-for="t in data.operations.slice(0, 3)" :key="t.uuid" :operation="t" />
+      </div>
+      <p v-else class="text-muted small">Sin ordenes de operación.</p>
+
       <h6 class="c360-section-title">Timeline</h6>
       <UnifiedTimeline :events="data.timeline" />
     </template>
@@ -55,6 +67,8 @@ import { useEnums } from '@/composables/useEnums';
 import OrderContextCard from './OrderContextCard.vue';
 import RentalContextCard from './RentalContextCard.vue';
 import PaymentContextCard from './PaymentContextCard.vue';
+import QuotationContextCard from './QuotationContextCard.vue';
+import OperationContextCard from './OperationContextCard.vue';
 import UnifiedTimeline from './UnifiedTimeline.vue';
 
 const props = defineProps({
@@ -105,6 +119,9 @@ enums.ensure('kyc-verification-statuses');
 enums.ensure('order-statuses');
 enums.ensure('order-payment-methods');
 enums.ensure('rental-statuses');
+enums.ensure('quote-statuses');
+enums.ensure('operation-statuses');
+enums.ensure('operation-types');
 </script>
 
 <style scoped>
