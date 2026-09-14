@@ -199,8 +199,42 @@ class OperationCommands:
             ).first()
             if not dp or not dp.is_available or not dp.is_active:
                 raise ValueError("El transportista no esta disponible.")
-            dp.is_available = False
-            dp.save(update_fields=['is_available', 'updated_at'])
+            # Cross-domain audit FASE B (2026-08-14, ver
+            # CROSS_DOMAIN_ASSIGNMENT_AUDIT_FINAL.md): para tickets RENTAL y
+            # SHOP_DELIVERY, ya no se escribe DispatcherProfile.is_available
+            # directamente aqui -- se delega en el escritor real de cada
+            # dominio (RentalOperationCommands.assign_dispatcher() /
+            # orders.FulfillmentCommands.assign_dispatcher()), evitando que
+            # este panel deje al despachador "ocupado" sin que
+            # RentalOperation/Shipment se enteren.
+            shipment_for_delegation = None
+            if ticket.operation_type == OperationTicket.SHOP_DELIVERY and ticket.source_order_id:
+                from orders.services.fulfillment.commands import FulfillmentCommands
+                shipment_for_delegation = FulfillmentCommands.ensure_shipment_for_order(
+                    ticket.source_order, actor=assigned_by,
+                )
+
+            if ticket.operation_type == OperationTicket.RENTAL and ticket.source_rental_request_id:
+                from renting.services.operations import RentalOperationCommands
+                rental_operation = RentalOperationCommands.ensure_for_request(
+                    ticket.source_rental_request, actor=assigned_by,
+                )
+                RentalOperationCommands.assign_dispatcher(
+                    rental_operation, dispatcher=dp, actor=assigned_by,
+                )
+            elif shipment_for_delegation is not None:
+                # shipment_for_delegation is None either when the ticket is not
+                # SHOP_DELIVERY, or (edge case) when ensure_tickets_for_order()
+                # fell back to SHOP_DELIVERY for an order with no physical
+                # product items -- ensure_shipment_for_order() returns None in
+                # that case, so we fall through to the direct-flag write below,
+                # same as before this delegation existed.
+                FulfillmentCommands.assign_dispatcher(
+                    ticket.source_order, dispatcher_profile_uuid=str(dp.uuid), assigned_by=assigned_by,
+                )
+            else:
+                dp.is_available = False
+                dp.save(update_fields=['is_available', 'updated_at'])
 
         if role == OperationAssignment.ROLE_TECHNICIAN:
             from accounts.models import TechnicianProfile
@@ -209,8 +243,22 @@ class OperationCommands:
             ).first()
             if not technician or not technician.is_available:
                 raise ValueError("El tecnico no esta disponible.")
-            technician.is_available = False
-            technician.save(update_fields=['is_available', 'updated_at'])
+            # Cross-domain audit FASE B (2026-08-14): para tickets SERVICE, ya
+            # no se escribe TechnicianProfile.is_available directamente aqui --
+            # se delega en ServiceOperationCommands.assign_technician(), el
+            # escritor real del dominio (mismo motivo que el bloque de
+            # dispatcher arriba).
+            if ticket.operation_type == OperationTicket.SERVICE and ticket.source_order_id:
+                from technical_services.services.operations import ServiceOperationCommands
+                service_operation = ServiceOperationCommands.ensure_for_order(
+                    ticket.source_order, actor=assigned_by,
+                )
+                ServiceOperationCommands.assign_technician(
+                    service_operation, technician=assignee, actor=assigned_by,
+                )
+            else:
+                technician.is_available = False
+                technician.save(update_fields=['is_available', 'updated_at'])
 
         if role == OperationAssignment.ROLE_CONTRACTOR:
             from accounts.services.profile_resolver import ProfileResolver

@@ -42,7 +42,7 @@ class OperationReviewSerializer(serializers.ModelSerializer):
 class OperationTicketListSerializer(serializers.ModelSerializer):
     # [2026-07-12] CORE v4 Fase 5 Paso 2 -- estado derivado del satelite especifico cuando
     # existe (ver OperationTicket.get_effective_status()). Aditivo: `status` (el campo real)
-    # sigue igual, sin romper OperationTicketSelector.list_all(status=...). El frontend sigue
+    # sigue igual, sin romper OperationSelector.list_for_board(status=...). El frontend sigue
     # leyendo `status` hasta que se conecte a `effective_status` en Fase 6.
     effective_status = serializers.CharField(source='get_effective_status', read_only=True)
 

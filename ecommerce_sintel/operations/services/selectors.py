@@ -125,3 +125,63 @@ class DispatcherSelector:
             .select_related('user')
             .order_by('user__email')
         )
+
+    @staticmethod
+    def get_by_uuid(uuid: str) -> DispatcherProfile:
+        """Lanza DispatcherProfile.DoesNotExist si no existe (ARCH-M2)."""
+        return DispatcherProfile.objects.get(uuid=uuid)
+
+
+class OperationStaffSelector:
+    """
+    Lectura del personal asignable a un OperationTicket (ARCH-M2).
+
+    Centraliza las queries que la accion available_staff hacia inline sobre
+    TechnicianProfile / UserProfile / DispatcherProfile.
+    """
+
+    @staticmethod
+    def get_user(user_id):
+        """Usuario por pk. Lanza User.DoesNotExist si no existe."""
+        from django.contrib.auth import get_user_model
+        return get_user_model().objects.get(pk=user_id)
+
+    @staticmethod
+    def get_active_user(user_id):
+        """Usuario ACTIVO por pk. Lanza User.DoesNotExist si no existe o esta inactivo."""
+        from django.contrib.auth import get_user_model
+        return get_user_model().objects.get(pk=user_id, is_active=True)
+
+    @staticmethod
+    def list_available_technicians():
+        from accounts.models import TechnicianProfile
+        return TechnicianProfile.objects.filter(
+            is_available=True,
+            is_deleted=False,
+            user__is_active=True,
+        ).select_related('user__profile')
+
+    @staticmethod
+    def list_assignable_contractors():
+        from accounts.models import UserProfile
+        from accounts.services.profile_registry import CONTRACTOR_ASSIGNABLE_TYPES
+        return UserProfile.objects.filter(
+            user_type__in=CONTRACTOR_ASSIGNABLE_TYPES,
+            user__is_active=True,
+            is_deleted=False,
+        ).select_related('user')
+
+    @staticmethod
+    def list_field_ops_dispatchers():
+        """
+        Dispatchers FIELD_OPS -- tambien elegibles como ROLE_CONTRACTOR (ver
+        OperationCommands.assign_resource) sin depender de que su
+        UserProfile.user_type haya sido mutado: DispatcherProfile es su
+        propia fuente de verdad.
+        """
+        return DispatcherProfile.objects.filter(
+            dispatcher_type=DispatcherProfile.FIELD_OPS,
+            is_active=True,
+            is_deleted=False,
+            user__is_active=True,
+        ).select_related('user')

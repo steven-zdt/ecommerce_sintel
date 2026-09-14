@@ -6,7 +6,9 @@ from rest_framework.response import Response
 from users.api.permissions import IsAuthenticatedActiveUser, IsAdminUser, IsOperationalUser
 from operations.models import OperationTicket, OperationDocument
 from operations.services.commands import OperationCommands, DispatcherCommands
-from operations.services.selectors import OperationSelector, DispatcherSelector
+from operations.services.selectors import (
+    OperationSelector, DispatcherSelector, OperationStaffSelector,
+)
 from operations.api.serializers import (
     OperationTicketListSerializer,
     OperationTicketDetailSerializer,
@@ -177,7 +179,7 @@ class AdminOperationViewSet(viewsets.GenericViewSet):
         ser = AdminAssignSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
         try:
-            assignee = User.objects.get(pk=ser.validated_data['assignee_id'], is_active=True)
+            assignee = OperationStaffSelector.get_active_user(ser.validated_data['assignee_id'])
             OperationCommands.assign_resource(
                 ticket=ticket,
                 assignee=assignee,
@@ -195,36 +197,16 @@ class AdminOperationViewSet(viewsets.GenericViewSet):
         ticket = _get_ticket(pk)
         staff = []
         if ticket.operation_type == OperationTicket.SERVICE:
-            from accounts.models import TechnicianProfile, UserProfile
-            from accounts.services.profile_registry import CONTRACTOR_ASSIGNABLE_TYPES
-            from operations.models import DispatcherProfile
-            technicians = TechnicianProfile.objects.filter(
-                is_available=True,
-                is_deleted=False,
-                user__is_active=True,
-            ).select_related('user__profile')
+            technicians = OperationStaffSelector.list_available_technicians()
             staff.extend(_staff_item(item.user, 'TECHNICIAN') for item in technicians)
 
             contractor_user_ids = set()
-            contractors = UserProfile.objects.filter(
-                user_type__in=CONTRACTOR_ASSIGNABLE_TYPES,
-                user__is_active=True,
-                is_deleted=False,
-            ).select_related('user')
+            contractors = OperationStaffSelector.list_assignable_contractors()
             for item in contractors:
                 contractor_user_ids.add(item.user_id)
                 staff.append(_staff_item(item.user, 'CONTRACTOR'))
 
-            # Los dispatchers FIELD_OPS tambien son elegibles como ROLE_CONTRACTOR
-            # (ver operations.services.commands.assign_resource) sin depender de que su
-            # UserProfile.user_type haya sido mutado -- DispatcherProfile es su propia fuente
-            # de verdad.
-            field_ops = DispatcherProfile.objects.filter(
-                dispatcher_type=DispatcherProfile.FIELD_OPS,
-                is_active=True,
-                is_deleted=False,
-                user__is_active=True,
-            ).select_related('user')
+            field_ops = OperationStaffSelector.list_field_ops_dispatchers()
             for item in field_ops:
                 if item.user_id not in contractor_user_ids:
                     staff.append(_staff_item(item.user, 'CONTRACTOR'))
@@ -313,7 +295,7 @@ class AdminDispatcherViewSet(
         user_id = request.data.get('user_id')
         if not user_id:
             return Response({'user_id': 'Requerido.'}, status=status.HTTP_400_BAD_REQUEST)
-        user    = User.objects.get(pk=user_id)
+        user    = OperationStaffSelector.get_user(user_id)
         profile = DispatcherCommands.create(
             user=user,
             dispatcher_type=request.data.get('dispatcher_type', 'DRIVER'),
@@ -324,8 +306,7 @@ class AdminDispatcherViewSet(
         return Response(DispatcherProfileSerializer(profile).data, status=status.HTTP_201_CREATED)
 
     def partial_update(self, request, pk=None):
-        from operations.models import DispatcherProfile
-        profile = DispatcherProfile.objects.get(uuid=pk)
+        profile = DispatcherSelector.get_by_uuid(pk)
         allowed = ('dispatcher_type', 'vehicle_plate', 'vehicle_type',
                    'coverage_cities', 'is_available', 'is_active')
         fields = {k: v for k, v in request.data.items() if k in allowed}
@@ -333,8 +314,7 @@ class AdminDispatcherViewSet(
         return Response(DispatcherProfileSerializer(profile).data)
 
     def destroy(self, request, pk=None):
-        from operations.models import DispatcherProfile
-        profile = DispatcherProfile.objects.get(uuid=pk)
+        profile = DispatcherSelector.get_by_uuid(pk)
         DispatcherCommands.delete(profile)
         return Response(status=status.HTTP_204_NO_CONTENT)
 

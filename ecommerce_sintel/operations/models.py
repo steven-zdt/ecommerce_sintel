@@ -167,7 +167,7 @@ class OperationTicket(SintelBaseModel):
         return self.source_order or self.source_rental_request
 
     # [2026-07-12] CORE v4, Fase 5, Opcion B, Paso 2. `status` (arriba) SIGUE siendo un campo
-    # real de BD -- no se convierte en property porque OperationTicketSelector ya lo usa en
+    # real de BD -- no se convierte en property porque OperationSelector ya lo usa en
     # `.filter(status=...)` y romperia esa query. En vez de eso, `get_effective_status()` es un
     # metodo ADITIVO de solo lectura que deriva el estado del satelite especifico
     # (ServiceOperation/RentalOperation/Shipment) cuando existe, usando los mapas de traduccion

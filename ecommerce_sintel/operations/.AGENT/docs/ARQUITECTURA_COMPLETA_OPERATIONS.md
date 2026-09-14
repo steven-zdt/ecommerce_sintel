@@ -22,7 +22,7 @@ asignaciones, documentos y trazabilidad operativa.
   `Documentacion/Arquitectura_general/MIGRACION_CORE_V4_DOMINIOS_FASE5_PROPUESTA_OPERACIONES.md`.
   **[2026-07-12, Paso 2]** `get_effective_status()` implementado (metodo aditivo -- `status`
   real de BD NO se toco, convertirlo en `@property` habria roto
-  `OperationTicketSelector`'s `.filter(status=...)`). Estados terminales propios
+  `OperationSelector`'s `.filter(status=...)`). Estados terminales propios
   (`CANCELLED`/`COMPLETED`) tienen prioridad sobre el satelite -- encontrado con un caso REAL
   de divergencia en este ambiente (`OP-2026-7C215EE1`: ticket `CANCELLED`, `ServiceOperation`
   vinculado seguia en `READY_FOR_PLANNING`). Expuesto como campo aditivo `effective_status` en
