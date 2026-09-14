@@ -14,24 +14,17 @@
  */
 import axios from 'axios';
 import { useAuthStore } from '@/store/auth';
+import { refreshAccessTokenShared } from '@/composables/useTokenRefresh';
 
 const NETWORK_RETRY_DELAYS_MS = [500, 1500]; // maximo 2 reintentos, backoff corto
 
 // Los tokens viven en localStorage por defecto, o en sessionStorage si el
-// usuario desmarco "Recordarme" en el login (ver store/auth.js). Estos
-// helpers leen/escriben en el storage correcto sin que este archivo necesite
-// saber cual fue la eleccion.
+// usuario desmarco "Recordarme" en el login (ver store/auth.js). Este
+// helper lee del storage correcto sin que este archivo necesite saber cual
+// fue la eleccion (escribir tokens ya lo centraliza useTokenRefresh.js via
+// authStore.setTokens).
 function storageGet(key) {
   return localStorage.getItem(key) ?? sessionStorage.getItem(key);
-}
-function storageSet(key, value) {
-  // Escribe en el mismo storage donde ya vivia el valor (respeta "Recordarme");
-  // si no existe en ninguno todavia, localStorage por defecto.
-  if (sessionStorage.getItem(key) !== null && localStorage.getItem(key) === null) {
-    sessionStorage.setItem(key, value);
-  } else {
-    localStorage.setItem(key, value);
-  }
 }
 
 const api = axios.create({
@@ -51,17 +44,10 @@ api.interceptors.request.use((config) => {
 });
 
 // --- Response interceptor: maneja 401 → refresh → reintento ---
-let isRefreshing = false;
-let failedQueue = [];
-
-const processQueue = (error, token = null) => {
-  failedQueue.forEach((prom) => {
-    if (error) prom.reject(error);
-    else prom.resolve(token);
-  });
-  failedQueue = [];
-};
-
+// El refresh en si vive en useTokenRefresh.js (single-flight, compartido con
+// useAuth.js) -- await sobre esa MISMA promesa es lo que reemplaza la cola
+// manual que habia antes: cualquier 401 concurrente espera el mismo refresh
+// en vuelo, sin importar quien lo haya disparado primero.
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
@@ -91,23 +77,9 @@ api.interceptors.response.use(
 
     if (status === 401) {
       console.warn(`[API] 401 Unauthorized detected on: ${url}`);
-      
-      if (!originalRequest._retry) {
-        if (isRefreshing) {
-          console.log(`[API] Token refresh already in progress, queuing request: ${url}`);
-          return new Promise((resolve, reject) => {
-            failedQueue.push({ resolve, reject });
-          })
-            .then((token) => {
-              originalRequest.headers.Authorization = `Bearer ${token}`;
-              return api(originalRequest);
-            })
-            .catch((err) => Promise.reject(err));
-        }
 
+      if (!originalRequest._retry) {
         originalRequest._retry = true;
-        isRefreshing = true;
-        console.log('[API] Attempting token refresh...');
 
         const refreshToken = storageGet('sintel_refresh');
         if (!refreshToken) {
@@ -120,30 +92,18 @@ api.interceptors.response.use(
           return Promise.reject(error);
         }
 
+        console.log('[API] Attempting token refresh...');
         try {
-          const baseURL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1/';
-          const { data } = await axios.post(`${baseURL}auth/token/refresh/`, {
-            refresh: refreshToken,
-          });
-          const newToken = data.access;
+          const newToken = await refreshAccessTokenShared();
           console.log('[API] Token refreshed successfully.');
-          storageSet('sintel_access', newToken);
-          // ROTATE_REFRESH_TOKENS=True: guardar el nuevo refresh token o el siguiente refresh fallara
-          if (data.refresh) {
-            storageSet('sintel_refresh', data.refresh);
-          }
-          processQueue(null, newToken);
           originalRequest.headers.Authorization = `Bearer ${newToken}`;
           return api(originalRequest);
         } catch (refreshError) {
           console.error('[API] Token refresh failed:', refreshError);
-          processQueue(refreshError, null);
           useAuthStore().logout();
           // Redirigir al login para que el usuario se autentique de nuevo
           window.location.href = '/login';
           return Promise.reject(refreshError);
-        } finally {
-          isRefreshing = false;
         }
       } else {
         console.error(`[API] 401 repeated after retry on: ${url}. Aborting.`);

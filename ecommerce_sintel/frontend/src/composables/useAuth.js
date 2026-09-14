@@ -7,6 +7,7 @@
 import { computed } from 'vue';
 import { useRouter } from 'vue-router';
 import { useAuthStore } from '@/store/auth';
+import { refreshAccessTokenShared } from '@/composables/useTokenRefresh';
 import axios from 'axios';
 
 // Cliente dedicado para operaciones de auth (sin interceptor circular)
@@ -58,16 +59,13 @@ export function useAuth() {
 
   /**
    * Refresh: POST /api/v1/auth/token/refresh/
-   * Renueva el access token usando el refresh token persisitdo.
+   * Renueva el access token usando el refresh token persistido.
+   * Delega en useTokenRefresh.js (single-flight, compartido con el
+   * interceptor de useApi.js) -- ver ese archivo para el por que.
    * @returns {string} nuevo access token
    */
   async function refreshAccessToken() {
-    const { data } = await authClient.post('auth/token/refresh/', {
-      refresh: authStore.refreshToken,
-    });
-    // data.refresh contiene el token rotado cuando ROTATE_REFRESH_TOKENS=True
-    authStore.setTokens({ access: data.access, refresh: data.refresh || authStore.refreshToken });
-    return data.access;
+    return refreshAccessTokenShared();
   }
 
   /**
