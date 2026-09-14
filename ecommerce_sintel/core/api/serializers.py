@@ -3,6 +3,7 @@ from rest_framework import serializers
 from core.models import (
     HomeBanner, HomeModuleConfig, HomeCard, HomeCardGroup, FooterLink, FooterGroup, NavbarLink, FooterCTAConfig,
     BrandSliderItem, BrandSliderConfig, AboutUsConfig, AboutUsValue,
+    FeatureBannerSection, FeatureBannerBlock,
 )
 
 
@@ -366,7 +367,9 @@ class HomeCardSerializer(serializers.ModelSerializer):
             'group_name', 'icon_class', 'background_color',
             'image', 'video',
             'redirect_url', 'display_order', 'is_active', 'created_at',
-            'card_type', 'animation', 'is_featured', 'priority', 'badge_text',
+            'card_type', 'animation', 'is_featured', 'priority', 'badge_text', 'badge_color',
+            'url_type', 'url_target', 'stats',
+            'secondary_label', 'secondary_icon', 'secondary_url', 'secondary_url_type', 'secondary_target',
         ]
 
 
@@ -387,11 +390,29 @@ class HomeCardInputSerializer(serializers.Serializer):
     is_featured      = serializers.BooleanField(required=False, default=False)
     priority         = serializers.IntegerField(required=False, default=0, min_value=0)
     badge_text       = serializers.CharField(max_length=50, required=False, allow_blank=True, default='')
+    badge_color      = serializers.CharField(max_length=30, required=False, allow_blank=True, default='#2563eb')
     remove_image     = serializers.BooleanField(required=False, default=False)
     remove_video     = serializers.BooleanField(required=False, default=False)
 
+    url_type    = serializers.CharField(max_length=10, required=False, default='INTERNA')
+    url_target  = serializers.CharField(max_length=10, required=False, default='_self')
+    stats       = serializers.JSONField(required=False, default=list)
+
+    secondary_label    = serializers.CharField(max_length=100, required=False, allow_blank=True, default='')
+    secondary_icon     = serializers.CharField(max_length=100, required=False, allow_blank=True, default='')
+    secondary_url      = serializers.CharField(max_length=500, required=False, allow_blank=True, default='')
+    secondary_url_type = serializers.CharField(max_length=10, required=False, default='INTERNA')
+    secondary_target   = serializers.CharField(max_length=10, required=False, default='_self')
+
     def validate(self, attrs):
-        return _strip_html_fields(attrs)
+        attrs = _strip_html_fields(attrs)
+        if isinstance(attrs.get('stats'), list):
+            attrs['stats'] = [
+                {**s, 'label': strip_tags(s.get('label', '')).strip(), 'value': strip_tags(s.get('value', '')).strip()}
+                if isinstance(s, dict) else s
+                for s in attrs['stats']
+            ]
+        return attrs
 
 
 # ── Home Card Group serializers ──────────────────────────────────────────────
@@ -403,6 +424,9 @@ class HomeCardGroupSerializer(serializers.ModelSerializer):
             'uuid', 'name', 'title', 'display_order', 'is_visible',
             'subtitle', 'description', 'bg_color', 'bg_image',
             'layout_type', 'padding', 'divider', 'columns', 'glass', 'hover',
+            'columns_tablet', 'columns_mobile', 'gap',
+            'carousel_autoplay', 'carousel_loop', 'carousel_speed',
+            'show_arrows', 'show_indicators',
         ]
 
 
@@ -422,6 +446,19 @@ class HomeCardGroupInputSerializer(serializers.Serializer):
     columns       = serializers.IntegerField(required=False, default=3, min_value=1, max_value=6)
     glass         = serializers.BooleanField(required=False, default=False)
     hover         = serializers.CharField(max_length=20, required=False, default='lift')
+
+    columns_tablet = serializers.IntegerField(required=False, default=2, min_value=1, max_value=6)
+    columns_mobile = serializers.IntegerField(required=False, default=1, min_value=1, max_value=6)
+    gap            = serializers.DecimalField(max_digits=4, decimal_places=2, required=False, default=1.25, min_value=0)
+
+    carousel_autoplay = serializers.BooleanField(required=False, default=False)
+    carousel_loop     = serializers.BooleanField(required=False, default=True)
+    carousel_speed    = serializers.IntegerField(required=False, default=40, min_value=1)
+    show_arrows       = serializers.BooleanField(required=False, default=True)
+    show_indicators   = serializers.BooleanField(required=False, default=True)
+
+    def validate(self, attrs):
+        return _strip_html_fields(attrs)
 
     def validate(self, attrs):
         return _strip_html_fields(attrs)
@@ -684,6 +721,100 @@ class BrandSliderConfigInputSerializer(serializers.Serializer):
     padding_top      = serializers.ChoiceField(choices=BrandSliderConfig.PADDING_CHOICES, required=False)
     padding_bottom   = serializers.ChoiceField(choices=BrandSliderConfig.PADDING_CHOICES, required=False)
     is_visible       = serializers.BooleanField(required=False)
+
+    def validate(self, attrs):
+        return _strip_html_fields(attrs)
+
+
+# ── Feature Banner serializers (2026-08-06) ────────────────────────────────────
+
+class FeatureBannerBlockSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = FeatureBannerBlock
+        fields = [
+            'uuid', 'layout_type', 'title', 'title_highlighted', 'description',
+            'image', 'image_alt', 'benefits', 'stats', 'badge_text', 'badge_color',
+            'btn_primary_text', 'btn_primary_icon', 'btn_primary_color', 'btn_primary_style',
+            'btn_primary_url', 'btn_primary_url_type', 'btn_primary_target',
+            'btn_secondary_text', 'btn_secondary_icon', 'btn_secondary_color', 'btn_secondary_style',
+            'btn_secondary_url', 'btn_secondary_url_type', 'btn_secondary_target',
+            'display_order', 'is_active',
+        ]
+
+
+class FeatureBannerBlockInputSerializer(serializers.Serializer):
+    layout_type       = serializers.ChoiceField(choices=FeatureBannerBlock.LAYOUT_CHOICES, required=False, default=FeatureBannerBlock.LAYOUT_IMAGE_LEFT)
+    title             = serializers.CharField(max_length=255, required=False, allow_blank=True, default='')
+    title_highlighted = serializers.CharField(max_length=255, required=False, allow_blank=True, default='')
+    description       = serializers.CharField(required=False, allow_blank=True, default='')
+    image             = serializers.ImageField(required=False, allow_null=True)
+    image_alt         = serializers.CharField(max_length=255, required=False, allow_blank=True, default='')
+    benefits          = serializers.JSONField(required=False, default=list)
+    stats             = serializers.JSONField(required=False, default=list)
+    badge_text        = serializers.CharField(max_length=50, required=False, allow_blank=True, default='')
+    badge_color       = serializers.CharField(max_length=30, required=False, allow_blank=True, default='#f59e0b')
+
+    btn_primary_text     = serializers.CharField(max_length=100, required=False, allow_blank=True, default='')
+    btn_primary_icon     = serializers.CharField(max_length=100, required=False, allow_blank=True, default='')
+    btn_primary_color    = serializers.CharField(max_length=30, required=False, allow_blank=True, default='#2563eb')
+    btn_primary_style    = serializers.ChoiceField(choices=FeatureBannerBlock.BTN_STYLE_CHOICES, required=False, default=FeatureBannerBlock.BTN_STYLE_FILLED)
+    btn_primary_url      = serializers.CharField(max_length=500, required=False, allow_blank=True, default='')
+    btn_primary_url_type = serializers.ChoiceField(choices=FeatureBannerBlock.URL_TYPE_CHOICES, required=False, default=FeatureBannerBlock.URL_TYPE_INTERNA)
+    btn_primary_target   = serializers.ChoiceField(choices=FeatureBannerBlock.TARGET_CHOICES, required=False, default=FeatureBannerBlock.TARGET_SELF)
+
+    btn_secondary_text     = serializers.CharField(max_length=100, required=False, allow_blank=True, default='')
+    btn_secondary_icon     = serializers.CharField(max_length=100, required=False, allow_blank=True, default='')
+    btn_secondary_color    = serializers.CharField(max_length=30, required=False, allow_blank=True, default='#2563eb')
+    btn_secondary_style    = serializers.ChoiceField(choices=FeatureBannerBlock.BTN_STYLE_CHOICES, required=False, default=FeatureBannerBlock.BTN_STYLE_OUTLINE)
+    btn_secondary_url      = serializers.CharField(max_length=500, required=False, allow_blank=True, default='')
+    btn_secondary_url_type = serializers.ChoiceField(choices=FeatureBannerBlock.URL_TYPE_CHOICES, required=False, default=FeatureBannerBlock.URL_TYPE_INTERNA)
+    btn_secondary_target   = serializers.ChoiceField(choices=FeatureBannerBlock.TARGET_CHOICES, required=False, default=FeatureBannerBlock.TARGET_SELF)
+
+    display_order = serializers.IntegerField(required=False, default=0, min_value=0)
+    is_active     = serializers.BooleanField(required=False, default=True)
+    remove_image  = serializers.BooleanField(required=False, default=False)
+
+    def validate(self, attrs):
+        attrs = _strip_html_fields(attrs)
+        if isinstance(attrs.get('benefits'), list):
+            attrs['benefits'] = [
+                {**b, 'text': strip_tags(b.get('text', '')).strip()} if isinstance(b, dict) else b
+                for b in attrs['benefits']
+            ]
+        return attrs
+
+
+class FeatureBannerSectionSerializer(serializers.ModelSerializer):
+    blocks = FeatureBannerBlockSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = FeatureBannerSection
+        fields = [
+            'uuid', 'title', 'subtitle', 'description', 'is_visible', 'display_order', 'theme',
+            'background_type', 'background_color', 'background_gradient_from',
+            'background_gradient_to', 'background_image', 'overlay_enabled', 'overlay_opacity',
+            'padding', 'blocks',
+        ]
+
+
+class FeatureBannerSectionInputSerializer(serializers.Serializer):
+    title       = serializers.CharField(max_length=255, required=False, allow_blank=True, default='')
+    subtitle    = serializers.CharField(max_length=500, required=False, allow_blank=True, default='')
+    description = serializers.CharField(required=False, allow_blank=True, default='')
+    is_visible    = serializers.BooleanField(required=False, default=True)
+    display_order = serializers.IntegerField(required=False, default=0, min_value=0)
+    theme = serializers.ChoiceField(choices=FeatureBannerSection.THEME_CHOICES, required=False, default=FeatureBannerSection.THEME_LIGHT)
+
+    background_type          = serializers.ChoiceField(choices=FeatureBannerSection.BACKGROUND_TYPE_CHOICES, required=False, default=FeatureBannerSection.BG_COLOR)
+    background_color         = serializers.CharField(max_length=30, required=False, allow_blank=True, default='')
+    background_gradient_from = serializers.CharField(max_length=30, required=False, allow_blank=True, default='')
+    background_gradient_to   = serializers.CharField(max_length=30, required=False, allow_blank=True, default='')
+    background_image         = serializers.ImageField(required=False, allow_null=True)
+    remove_background_image  = serializers.BooleanField(required=False, default=False)
+    overlay_enabled = serializers.BooleanField(required=False, default=False)
+    overlay_opacity = serializers.IntegerField(required=False, default=45, min_value=0, max_value=100)
+
+    padding = serializers.ChoiceField(choices=HomeCardGroup.PADDING_CHOICES, required=False, default=HomeCardGroup.PADDING_NORMAL)
 
     def validate(self, attrs):
         return _strip_html_fields(attrs)

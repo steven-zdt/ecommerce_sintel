@@ -33,6 +33,8 @@ from core.models import (
     BrandSliderConfig,
     AboutUsConfig,
     AboutUsValue,
+    FeatureBannerSection,
+    FeatureBannerBlock,
 )
 
 # Cache keys (must match values in views.py)
@@ -90,6 +92,20 @@ def invalidate_home_feed_on_brand_slider_item_change(sender, instance, **kwargs)
 @receiver(post_delete, sender=BrandSliderConfig)
 def invalidate_home_feed_on_brand_slider_config_change(sender, instance, **kwargs):
     """Invalida home-feed cuando se edita la configuracion del slider de marcas."""
+    cache.delete(HOME_FEED_CACHE_KEY)
+
+
+@receiver(post_save, sender=FeatureBannerSection)
+@receiver(post_delete, sender=FeatureBannerSection)
+def invalidate_home_feed_on_feature_banner_section_change(sender, instance, **kwargs):
+    """Invalida home-feed cuando se edita/elimina una seccion de Feature Banner."""
+    cache.delete(HOME_FEED_CACHE_KEY)
+
+
+@receiver(post_save, sender=FeatureBannerBlock)
+@receiver(post_delete, sender=FeatureBannerBlock)
+def invalidate_home_feed_on_feature_banner_block_change(sender, instance, **kwargs):
+    """Invalida home-feed cuando se edita/elimina un bloque de Feature Banner."""
     cache.delete(HOME_FEED_CACHE_KEY)
 
 

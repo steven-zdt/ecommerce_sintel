@@ -6,6 +6,7 @@ from django.db.models import Prefetch
 from core.models import (
     HomeBanner, HomeModuleConfig, HomeCard, HomeCardGroup, FooterLink, FooterGroup, NavbarLink, FooterCTAConfig,
     BrandSliderItem, BrandSliderConfig, AboutUsConfig, AboutUsValue,
+    FeatureBannerSection, FeatureBannerBlock,
 )
 from core.services.selectors import HomeConfigSelector
 
@@ -139,6 +140,9 @@ class HomeCardGroupCommands:
         extra_fields = (
             'subtitle', 'description', 'bg_color', 'bg_image',
             'layout_type', 'padding', 'divider', 'columns', 'glass', 'hover',
+            'columns_tablet', 'columns_mobile', 'gap',
+            'carousel_autoplay', 'carousel_loop', 'carousel_speed',
+            'show_arrows', 'show_indicators',
         )
         if group:
             group.title         = title
@@ -170,6 +174,9 @@ class HomeCardGroupCommands:
             'title', 'display_order', 'is_visible',
             'subtitle', 'description', 'bg_color', 'bg_image',
             'layout_type', 'padding', 'divider', 'columns', 'glass', 'hover',
+            'columns_tablet', 'columns_mobile', 'gap',
+            'carousel_autoplay', 'carousel_loop', 'carousel_speed',
+            'show_arrows', 'show_indicators',
         )
         for field in allowed:
             if field in data:
@@ -186,28 +193,19 @@ class HomeCardGroupCommands:
 
 class HomeCardCommands:
 
+    _ALLOWED_FIELDS = (
+        'title', 'subtitle', 'description', 'group_name', 'icon_class',
+        'background_color', 'image', 'video', 'redirect_url', 'display_order', 'is_active',
+        'card_type', 'animation', 'is_featured', 'priority', 'badge_text', 'badge_color',
+        'url_type', 'url_target', 'stats',
+        'secondary_label', 'secondary_icon', 'secondary_url', 'secondary_url_type', 'secondary_target',
+    )
+
     @staticmethod
     @transaction.atomic
-    def create_card(title, subtitle='', description='', group_name='', icon_class='bi-star',
-                    background_color='#3b82f6', redirect_url='', display_order=0,
-                    image=None, video=None, card_type='vertical', animation='',
-                    is_featured=False, priority=0, badge_text=''):
+    def create_card(**data):
         return HomeCard.objects.create(
-            title=title,
-            subtitle=subtitle,
-            description=description,
-            group_name=group_name,
-            icon_class=icon_class,
-            background_color=background_color,
-            redirect_url=redirect_url,
-            display_order=display_order,
-            image=image,
-            video=video,
-            card_type=card_type,
-            animation=animation,
-            is_featured=is_featured,
-            priority=priority,
-            badge_text=badge_text,
+            **{k: v for k, v in data.items() if k in HomeCardCommands._ALLOWED_FIELDS}
         )
 
     @staticmethod
@@ -217,12 +215,7 @@ class HomeCardCommands:
             card.image = None
         if data.pop('remove_video', False):
             card.video = None
-        allowed = (
-            'title', 'subtitle', 'description', 'group_name', 'icon_class',
-            'background_color', 'image', 'video', 'redirect_url', 'display_order', 'is_active',
-            'card_type', 'animation', 'is_featured', 'priority', 'badge_text',
-        )
-        for field in allowed:
+        for field in HomeCardCommands._ALLOWED_FIELDS:
             if field in data:
                 setattr(card, field, data[field])
         card.save()
@@ -234,6 +227,143 @@ class HomeCardCommands:
         card.is_active = False
         card.is_deleted = True
         card.save(update_fields=['is_active', 'is_deleted'])
+
+
+class FeatureBannerSectionSelector:
+
+    @staticmethod
+    def list_all():
+        """Admin: todas las secciones (visibles u ocultas), con sus bloques activos precargados."""
+        return (
+            FeatureBannerSection.objects.filter(is_deleted=False)
+            .prefetch_related(
+                Prefetch(
+                    'blocks',
+                    queryset=FeatureBannerBlock.objects.filter(is_deleted=False).order_by('display_order', 'created_at'),
+                )
+            )
+            .order_by('display_order', 'created_at')
+        )
+
+    @staticmethod
+    def list_active_with_blocks():
+        """
+        Publico: solo secciones visibles, con solo bloques activos -- el filtrado real
+        ocurre aqui en el backend (a diferencia de HomeFeedSelector.get_module_configs(),
+        que delega el filtro de visibilidad al frontend).
+        """
+        return (
+            FeatureBannerSection.objects.filter(is_deleted=False, is_visible=True)
+            .prefetch_related(
+                Prefetch(
+                    'blocks',
+                    queryset=FeatureBannerBlock.objects.filter(is_deleted=False, is_active=True).order_by('display_order', 'created_at'),
+                )
+            )
+            .order_by('display_order', 'created_at')
+        )
+
+    @staticmethod
+    def get_by_uuid(uuid):
+        from django.shortcuts import get_object_or_404
+        return get_object_or_404(FeatureBannerSection, uuid=uuid, is_deleted=False)
+
+
+class FeatureBannerSectionCommands:
+
+    @staticmethod
+    @transaction.atomic
+    def create(**data):
+        allowed = (
+            'title', 'subtitle', 'description', 'is_visible', 'display_order', 'theme',
+            'background_type', 'background_color', 'background_gradient_from',
+            'background_gradient_to', 'background_image', 'overlay_enabled',
+            'overlay_opacity', 'padding',
+        )
+        return FeatureBannerSection.objects.create(**{k: v for k, v in data.items() if k in allowed})
+
+    @staticmethod
+    @transaction.atomic
+    def update(section, data):
+        if data.pop('remove_background_image', False):
+            section.background_image = None
+        allowed = (
+            'title', 'subtitle', 'description', 'is_visible', 'display_order', 'theme',
+            'background_type', 'background_color', 'background_gradient_from',
+            'background_gradient_to', 'background_image', 'overlay_enabled',
+            'overlay_opacity', 'padding',
+        )
+        for field in allowed:
+            if field in data:
+                setattr(section, field, data[field])
+        section.save()
+        return section
+
+    @staticmethod
+    @transaction.atomic
+    def delete(section):
+        section.is_deleted = True
+        section.save(update_fields=['is_deleted'])
+
+
+class FeatureBannerBlockSelector:
+
+    @staticmethod
+    def list_for_section(section_uuid):
+        return FeatureBannerBlock.objects.filter(
+            section__uuid=section_uuid, is_deleted=False
+        ).order_by('display_order', 'created_at')
+
+    @staticmethod
+    def get_by_uuid(uuid):
+        from django.shortcuts import get_object_or_404
+        return get_object_or_404(FeatureBannerBlock, uuid=uuid, is_deleted=False)
+
+
+class FeatureBannerBlockCommands:
+
+    _ALLOWED_FIELDS = (
+        'layout_type', 'title', 'title_highlighted', 'description', 'image', 'image_alt',
+        'benefits', 'stats', 'badge_text', 'badge_color',
+        'btn_primary_text', 'btn_primary_icon', 'btn_primary_color', 'btn_primary_style',
+        'btn_primary_url', 'btn_primary_url_type', 'btn_primary_target',
+        'btn_secondary_text', 'btn_secondary_icon', 'btn_secondary_color', 'btn_secondary_style',
+        'btn_secondary_url', 'btn_secondary_url_type', 'btn_secondary_target',
+        'display_order', 'is_active',
+    )
+
+    @staticmethod
+    @transaction.atomic
+    def create(section, **data):
+        return FeatureBannerBlock.objects.create(
+            section=section,
+            **{k: v for k, v in data.items() if k in FeatureBannerBlockCommands._ALLOWED_FIELDS},
+        )
+
+    @staticmethod
+    @transaction.atomic
+    def update(block, data):
+        if data.pop('remove_image', False):
+            block.image = None
+        for field in FeatureBannerBlockCommands._ALLOWED_FIELDS:
+            if field in data:
+                setattr(block, field, data[field])
+        block.save()
+        return block
+
+    @staticmethod
+    @transaction.atomic
+    def delete(block):
+        block.is_deleted = True
+        block.save(update_fields=['is_deleted'])
+
+    @staticmethod
+    @transaction.atomic
+    def reorder(section_id, ordered_uuids):
+        for index, block_uuid in enumerate(ordered_uuids):
+            FeatureBannerBlock.objects.filter(
+                uuid=block_uuid, section_id=section_id, is_deleted=False
+            ).update(display_order=index)
 
 
 class HomeFeedSelector:
@@ -550,7 +680,9 @@ class BrandSliderSelector:
 
     @staticmethod
     def get_config():
-        return BrandSliderConfig.objects.filter(is_deleted=False).first()
+        # [2026-08-05, Sprint 2] filtra por is_active=True (antes solo is_deleted=False,
+        # sin proteccion de singleton -- ver docstring de BrandSliderConfig.is_active).
+        return BrandSliderConfig.objects.filter(is_active=True, is_deleted=False).first()
 
     @staticmethod
     def get_or_create_config():
@@ -632,7 +764,9 @@ class AboutUsSelector:
 
     @staticmethod
     def get_config():
-        return AboutUsConfig.objects.filter(is_deleted=False).first()
+        # [2026-08-05, Sprint 2] filtra por is_active=True (antes solo is_deleted=False,
+        # sin proteccion de singleton -- ver docstring de AboutUsConfig.is_active).
+        return AboutUsConfig.objects.filter(is_active=True, is_deleted=False).first()
 
     @staticmethod
     def get_or_create_config():

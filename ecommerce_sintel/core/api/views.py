@@ -16,6 +16,7 @@ from core.services.commands import (
     HomeFeedSelector, HomeConfigCommands,
     HomeCardSelector, HomeCardGroupSelector, FooterSelector, NavbarLinkSelector,
     FooterCTASelector, BrandSliderSelector, AboutUsSelector,
+    FeatureBannerSectionSelector,
 )
 from core.api.serializers import (
     FlashOfferCardSerializer,
@@ -36,6 +37,7 @@ from core.api.serializers import (
     FooterGroupPublicSerializer,
     AboutUsConfigSerializer,
     AboutUsValueSerializer,
+    FeatureBannerSectionSerializer,
 )
 from organization.services.selectors import OrganizationSelector
 from organization.api.serializers import ContactInfoSerializer
@@ -44,7 +46,7 @@ HOME_FEED_CACHE_KEY    = 'sintel_home_feed_v1'
 HOME_FEED_CACHE_TTL    = 60 * 5
 FOOTER_CACHE_KEY       = 'sintel_footer_v1'
 FOOTER_CACHE_TTL       = 60 * 5
-SITE_CONFIG_CACHE_KEY  = 'sintel_site_config_v1'
+SITE_CONFIG_CACHE_KEY  = 'sintel_site_config_v3'
 SITE_CONFIG_CACHE_TTL  = 60 * 5
 ABOUT_US_CACHE_KEY     = 'sintel_about_us_v1'
 ABOUT_US_CACHE_TTL     = 60 * 5
@@ -77,6 +79,8 @@ class HomeFeedView(GenericViewSet):
         card_group_titles = HomeCardGroupSelector.get_titles_map()
         card_groups       = HomeCardGroupSelector.list_all()
 
+        feature_banner_sections = FeatureBannerSectionSelector.list_active_with_blocks()
+
         footer_cta = FooterCTASelector.get_active()
 
         brand_slider_items  = BrandSliderSelector.list_items_active()
@@ -93,6 +97,7 @@ class HomeFeedView(GenericViewSet):
             'home_cards':         HomeCardSerializer(cards, many=True, context=ctx).data,
             'card_group_titles':  card_group_titles,
             'card_groups':        HomeCardGroupSerializer(card_groups, many=True, context=ctx).data,
+            'feature_banner_sections': FeatureBannerSectionSerializer(feature_banner_sections, many=True, context=ctx).data,
             'footer_cta':         FooterCTAConfigSerializer(footer_cta).data if footer_cta else None,
             'brand_slider': {
                 'config': BrandSliderConfigSerializer(brand_slider_config).data,
@@ -131,6 +136,7 @@ class HomeFeedView(GenericViewSet):
         branding = OrganizationSelector.get_branding()
         navbar_links = NavbarLinkSelector.list_visible()
         seo = OrganizationSelector.get_seo_settings()
+        modules = HomeConfigSelector.get_or_create_default_modules()
 
         ctx = {'request': request}
         logo_url = None
@@ -150,10 +156,18 @@ class HomeFeedView(GenericViewSet):
             # usuario, ver ARQUITECTURA_COMPLETA_ORGANIZATION.md).
             'brand': {
                 'uuid': str(company.uuid) if company else None,
-                'site_name': company.trade_name if company else 'Sintel',
+                'site_name': OrganizationSelector.get_display_name(),
                 'logo': logo_url,
                 'tagline': branding.tagline if branding else '',
                 'updated_at': company.updated_at if company else None,
+            },
+            # White-label F4 (2026-08-14): tokens de tema minimos (ver
+            # organization.Branding.primary_color/accent_color). '' = sin
+            # override, el frontend se queda con los defaults estaticos de
+            # landing-design-system.css -- ver WHITE_LABEL_ARCHITECTURE_TARGET.md Fase 28.
+            'theme': {
+                'primary_color': branding.primary_color if branding else '',
+                'accent_color': branding.accent_color if branding else '',
             },
             'navbar_links': NavbarLinkSerializer(navbar_links, many=True).data,
             'seo': {
@@ -161,6 +175,20 @@ class HomeFeedView(GenericViewSet):
                 'meta_description': seo.meta_description if seo else '',
                 'og_image':         seo_og_image_url,
             },
+            # White-label F3 (2026-08-14): expone is_visible/module_url por modulo para que
+            # el router del frontend pueda ocultar verticales (tienda/renting/servicios/
+            # cotizaciones) sin tocar codigo -- antes solo se exponia en home-feed (util para
+            # la home, pero el router necesita el dato ANTES de navegar, no solo al visitar
+            # '/'). Reusa HomeModuleConfigSerializer para no duplicar el merge custom_*/MODULE_META.
+            'modules': [
+                {
+                    'module_key':  m['module_key'],
+                    'is_visible':  m['is_visible'],
+                    'module_url':  m['module_url'],
+                    'module_label': m['module_label'],
+                }
+                for m in HomeModuleConfigSerializer(modules, many=True).data
+            ],
         }
         cache.set(SITE_CONFIG_CACHE_KEY, data, SITE_CONFIG_CACHE_TTL)
         return Response(data)

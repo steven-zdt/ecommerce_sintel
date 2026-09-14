@@ -1,10 +1,10 @@
 # ARQUITECTURA COMPLETA — APP core
 
-**Ultima actualizacion:** 2026-07-15
+**Ultima actualizacion:** 2026-08-06 (auditoria de alineacion — ver seccion "Cambios Recientes")
 
 ## Responsabilidad
 
-Gestiona el contenido publico del sitio: landing page, home feed agregado, grupos de tarjetas editables (con Constructor Visual), navegacion (navbar/footer nav), banners, CTA final y modulos. Expone 4 endpoints publicos sin autenticacion:
+Gestiona el contenido publico del sitio: landing page, home feed agregado, grupos de tarjetas editables (con Constructor Visual), navegacion (navbar/footer nav), banners, CTA final y modulos. Expone 5 endpoints publicos sin autenticacion **[CORREGIDO 2026-08-06 — decia "4" pero la lista de abajo ya tenia 5 items desde que se agrego `about-us` en 2026-07-19]**:
 
 **[CAMBIO 2026-07-12] `core` ya NO es dueno de datos institucionales de la empresa.**
 `SiteBrandConfig` (marca), `CompanyContactInfo` (contacto) y las filas de
@@ -12,7 +12,7 @@ Gestiona el contenido publico del sitio: landing page, home feed agregado, grupo
 (`Company`, `Branding`, `ContactInfo`, `SocialLink`) — ver
 `Documentacion/Arquitectura_general/MIGRACION_ORGANIZATION_FASE1_AUDITORIA.md`
 y `organization/.AGENT/docs/ARQUITECTURA_COMPLETA_ORGANIZATION.md`. `core`
-sigue exponiendo los mismos 4 endpoints publicos y los mismos endpoints de
+sigue exponiendo los mismos endpoints publicos y los mismos endpoints de
 `dashboard/`, pero ahora **consume** esos datos vía `OrganizationSelector`/
 `OrganizationCommands` en vez de poseerlos. `core` retiene unicamente
 contenido de la propia pagina de inicio (banners, tarjetas, modulos, CTA) y
@@ -20,58 +20,46 @@ navegacion del sitio (`NavbarLink`, `FooterLink` solo `category='nav'`).
 
 1. `home-feed` — Contenido destacado (productos, servicios, equipos, flash offers, tarjetas, grupos de tarjetas, titulos de grupos, CTA final, slider de marcas/clientes)
 2. `footer` — Columnas de navegacion (`FooterGroup` + `FooterLink`), redes sociales, contacto
-3. `site-config` — Marca, logo, navbar
+3. `site-config` — Marca, logo, navbar, bloque `seo` para meta/JSON-LD client-side *(bloque `seo` no documentado hasta 2026-08-06)*
 4. `about-us` *(nuevo 2026-07-19)* — Filosofia institucional: historia, mision, vision, valores (`AboutUsConfig` + `AboutUsValue`)
 5. `enums/{name}` — Catalogo contract-first de enums compartidos (badges/labels) consumido por todo el frontend, no solo por landing/home
 
-Cada endpoint de contenido (1-3) usa **cache manual con claves conocidas** (5 min TTL). `enums/{name}` NO usa cache (es estatico en memoria por request, de costo insignificante). La invalidacion de cache se realiza por dos vias:
-- **Signals automaticos** — `core/signals.py` (registrado en `apps.py`) invalida por `post_save`/`post_delete`. Cubre 8 modelos; **NO cubre `HomeCardGroup`** (decision de diseno intencional, ver seccion Cache Strategy).
-- **Invalidacion explicita** — `dashboard/api/views.py` llama `_invalidate_home_feed_cache()` / `_invalidate_footer_cache()` / `_invalidate_site_config_cache()` en cada write de los ViewSets admin, incluyendo los 2 modelos sin signal.
+Cada endpoint de contenido (1-4) usa **cache manual con claves conocidas** (5 min TTL). `enums/{name}` NO usa cache (es estatico en memoria por request, de costo insignificante). La invalidacion de cache se realiza por dos vias, redundantes entre si:
+- **Signals automaticos** — `core/signals.py` (registrado en `apps.py`) invalida por `post_save`/`post_delete`. **[CORREGIDO 2026-08-06]** Cubre los 12 modelos con cache (incluido `HomeCardGroup` — la seccion de este documento que decia lo contrario estaba desactualizada, ver Cache Strategy).
+- **Invalidacion explicita** — `dashboard/api/views.py` llama `_invalidate_home_feed_cache()` / `_invalidate_footer_cache()` / `_invalidate_site_config_cache()` / `_invalidate_about_us_cache()` en cada write de los ViewSets admin, de forma redundante con el signal (no hay ningun modelo que dependa solo de esto).
 
 ---
 
 ## Estructura de Directorios
 
+**[CORREGIDO 2026-08-06]** Las migraciones 0001-0026 individuales que este documento
+listaba ya **no existen como archivos** en este checkout -- fueron squasheadas
+(DT-M18, migration squashing, 2026-07-30) en un unico archivo autocontenido.
+Ver seccion "Migraciones" mas abajo. `api/internal_ai.py` (fachada del AI Engine)
+y `services/commands.py` (donde vive hoy la mayoria de Selectors/Commands, no en
+`selectors.py`) tampoco estaban documentados.
+
 ```
 core/
-├── models.py                          # 10 modelos (2026-07-15: +BrandSliderItem/BrandSliderConfig/FooterGroup)
+├── models.py                          # 12 modelos (HomeBanner, HomeModuleConfig, HomeCard, HomeCardGroup,
+│                                       # FooterCTAConfig, FooterGroup, FooterLink, NavbarLink, BrandSliderItem,
+│                                       # BrandSliderConfig, AboutUsConfig, AboutUsValue -- verificado por grep 2026-08-06)
 ├── apps.py                            # CoreConfig.ready() importa core.signals
-├── signals.py                         # Signal handlers para invalidacion de cache (10 modelos)
+├── signals.py                         # Signal handlers para invalidacion de cache -- 12 modelos, todos con post_save+post_delete
 ├── urls.py                            # router.register(r'', HomeFeedView)
-├── audit_queries.py                   # Queries de auditoria ad-hoc
+├── audit_queries.py                   # Script ad-hoc de auditoria de queries N+1 (correr manual via `manage.py shell`, no es un test)
 ├── api/
-│   ├── views.py                       # HomeFeedView (3 endpoints publicos + enums/{name})
+│   ├── views.py                       # HomeFeedView (4 endpoints de contenido + enums/{name} = 5 publicos)
+│   ├── internal_ai.py                 # [NUEVO, no documentado antes] Fachada AI Engine -- ver seccion propia mas abajo
 │   └── serializers.py                 # serializers (lectura y entrada) + normalize_icon_class()/ICON_SHORTHAND_MAP
 ├── services/
-│   └── selectors.py                   # Selector/Commands classes (incluye FooterGroup*, BrandSlider*)
+│   ├── selectors.py                   # Solo HomeConfigSelector (ver nota de "Sprint 1" en seccion Selectores)
+│   └── commands.py                    # Todo el resto de Selectors/Commands (HomeConfigCommands, HomeCard*, FooterGroup*, etc.)
 ├── migrations/
-│   ├── 0001_initial.py                # HomeBanner, HomeModuleConfig
-│   ├── 0002_...                       # UUID index fix
-│   ├── 0003_homebanner_video.py
-│   ├── 0004_homecard.py
-│   ├── 0005_homecard_media.py
-│   ├── 0006_footer_models.py          # FooterLink, CompanyContactInfo
-│   ├── 0007_homemoduleconfig_custom_fields.py
-│   ├── 0008_homemoduleconfig_background_image.py
-│   ├── 0009_sitebrandconfig_navbarlink.py
-│   ├── 0010_alter_navbarlink_updated_at_and_more.py
-│   ├── 0011_homecardgroup.py          # HomeCardGroup (2026-06-30)
-│   ├── 0012_visual_builder.py         # HomeModuleConfig.display_type/layout_config (2026-06-30)
-│   ├── 0013_homebanner_visual_fields.py # HomeBanner.eyebrow/background_color/cta_ghost_* (2026-06-30)
-│   ├── 0014_footer_cta_config.py      # FooterCTAConfig nuevo modelo (2026-06-30)
-│   ├── 0015_expand_display_choices.py # Amplia DISPLAY_CHOICES a 18 tipos + ajustes de indices (2026-06-30)
-│   ├── 0016_alter_companycontactinfo_address_and_more.py # Ampliacion de max_length (2026-07-01)
-│   ├── 0017_migrate_company_data_to_organization.py # Data migration -> organization (2026-07-12)
-│   ├── 0018_delete_companycontactinfo_delete_sitebrandconfig.py # Elimina los 2 modelos migrados (2026-07-12)
-│   ├── 0019_seed_renting_home_cards.py
-│   ├── 0020_homecard_badge_text_homecardgroup_glass_and_more.py
-│   ├── 0021_alter_homecardgroup_layout_type.py
-│   ├── 0022_brandsliderconfig_brandslideritem.py # Slider de Marcas/Clientes (2026-07-15)
-│   ├── 0023_footergroup.py            # FooterGroup + FooterLink.group FK (nullable) + open_new_tab (2026-07-15)
-│   ├── 0024_backfill_footer_groups.py # Data migration: FooterLink.group_name -> FooterGroup (2026-07-15)
-│   └── 0025_footerlink_finalize_group.py # FooterLink.group NOT NULL + elimina group_name (2026-07-15)
+│   ├── 0001_initial_squashed_0026_aboutusconfig_aboutusvalue.py  # Squash de 0001-0026 (DT-M18, 2026-07-30)
+│   └── 0027_aboutusconfig_is_active_brandsliderconfig_is_active.py  # AboutUsConfig/BrandSliderConfig.is_active (2026-08-05, Sprint 2)
 └── tests/
-    └── test_models_and_signals.py
+    └── test_models_and_signals.py     # Solo cubre HomeBanner/HomeModuleConfig (validacion) + HomeBanner/FooterLink (signals) -- ver Gaps conocidos
 ```
 
 ---
@@ -170,10 +158,15 @@ class HomeCard(SintelBaseModel):
     # Constructor Visual (2026-06-30, migr. 0012)
     card_type   = CharField(max_length=30, default='vertical', choices=CARD_TYPE_CHOICES)  # vertical, horizontal,
                                                                                               # premium, compact, glass,
-                                                                                              # dark, gradient, image_bg
+                                                                                              # dark, gradient, image_bg,
+                                                                                              # logo [CORREGIDO 2026-08-06,
+                                                                                              # 9no tipo, no documentado antes]
     animation   = CharField(max_length=30, blank=True, default='')
     is_featured = BooleanField(default=False, db_index=True)
     priority    = PositiveIntegerField(default=0)
+    badge_text  = CharField(max_length=50, blank=True, default='')  # [CORREGIDO 2026-08-06] existe desde migr. 0020
+                                                                       # (2026-06-30), nunca se documento -- texto corto de
+                                                                       # badge sobre la tarjeta (ej. "Nuevo", "-20%")
 
     class Meta:
         ordering = ['group_name', 'display_order']
@@ -190,16 +183,20 @@ class HomeCardGroup(SintelBaseModel):
     display_order = PositiveIntegerField(default=0, db_index=True)
     is_visible    = BooleanField(default=True, db_index=True)
 
-    # Constructor Visual (2026-06-30, migr. 0012)
+    # Constructor Visual (2026-06-30, migr. 0012; glass/hover [CORREGIDO 2026-08-06] existen
+    # desde migr. 0020, nunca se documentaron)
     subtitle     = CharField(max_length=500, blank=True, default='')
     description  = TextField(blank=True, default='')
     bg_color     = CharField(max_length=30, blank=True, default='')
     bg_image     = ImageField(upload_to='home_groups/', null=True, blank=True)
-    layout_type  = CharField(max_length=30, default='grid', choices=LAYOUT_CHOICES)      # grid, slider, cards,
-                                                                                            # timeline, tabs, accordion
+    layout_type  = CharField(max_length=30, default='grid', choices=LAYOUT_CHOICES)      # grid, slider, cards, timeline,
+                                                                                            # tabs, accordion, logos, marquee
+                                                                                            # (8 tipos -- logos/marquee nuevos)
     padding      = CharField(max_length=20, default='normal', choices=PADDING_CHOICES)   # none, sm, normal, lg, xl
     divider      = BooleanField(default=False)
     columns      = PositiveSmallIntegerField(default=3)
+    glass        = BooleanField(default=False)                                           # [NUEVO, no doc.] efecto glassmorphism
+    hover        = CharField(max_length=20, default='lift', choices=HOVER_CHOICES)       # [NUEVO, no doc.] lift, scale, glow, none
 
     class Meta:
         ordering = ['display_order', 'name']
@@ -209,12 +206,17 @@ class HomeCardGroup(SintelBaseModel):
 
 **[CORREGIDO 2026-07-09]** `PATCH dashboard/home-card-groups/{uuid}/` (`update_group` en `dashboard/api/views.py`) solo aceptaba `title`, `display_order`, `is_visible` — los campos Visual Builder (`subtitle`, `description`, `bg_color`, `bg_image`, `layout_type`, `padding`, `divider`, `columns`) solo se podian setear via `upsert/`, no via el PATCH por uuid. Corregido: `update_group` ahora acepta el mismo set de campos que `upsert`.
 
-**Sin signal propio:** la invalidacion de cache se hace explicitamente en `AdminHomeCardGroupViewSet` (`_invalidate_home_feed_cache()`), no via signal.
+**[CORREGIDO 2026-08-06]** Esta linea decia "sin signal propio" pero
+`core/signals.py` SI registra `invalidate_home_feed_on_card_group_change`
+(`post_save`+`post_delete` → `HOME_FEED_CACHE_KEY`) para este modelo — ver
+seccion Cache Strategy. `AdminHomeCardGroupViewSet` sigue llamando
+`_invalidate_home_feed_cache()` de forma explicita tambien, pero es redundante
+con el signal, no la unica via.
 
 ### 5. FooterCTAConfig *(nuevo — migr. 0014, 2026-06-30)*
 
 ```python
-class FooterCTAConfig(SintelBaseModel):
+class FooterCTAConfig(SingletonMixin, SintelBaseModel):  # [CORREGIDO 2026-08-06] SingletonMixin, no SintelBaseModel solo
     """Bloque CTA final antes del footer. Singleton (solo un registro activo)."""
     eyebrow           = CharField(max_length=150, blank=True, default='Empieza hoy')
     title_prefix      = CharField(max_length=255, blank=True, default='Impulsa tu empresa con')
@@ -228,7 +230,14 @@ class FooterCTAConfig(SintelBaseModel):
     is_active         = BooleanField(default=True)
 ```
 
-**Patron singleton:** `save()` desactiva todos los demas registros cuando `is_active=True`.
+**Patron singleton:** `SingletonMixin.save()` desactiva todos los demas registros
+cuando `is_active=True`. **[CORREGIDO 2026-08-06]** Ya no es un `save()` propio del
+modelo -- desde el 2026-08-05 (Sprint 2, auditoria transversal) esas 3 lineas se
+**consolidaron en `shared.models.SingletonMixin`** (antes habia 4 copias identicas
+del mismo codigo: `organization` original, `core.FooterCTAConfig`,
+`payment.PaymentFeatureFlags`, y la ausencia total del patron en
+`AboutUsConfig`/`BrandSliderConfig`, ver mas abajo). `core` ya no define `save()`
+para este modelo, solo hereda el mixin.
 
 **[CORREGIDO 2026-07-09]** Ahora tiene signal propio en `core/signals.py` (`invalidate_home_feed_on_footer_cta_change`, `post_save`+`post_delete` → invalida `HOME_FEED_CACHE_KEY`, no un cache propio, porque `footer_cta` viaja dentro de la respuesta de `home-feed`, no de `footer`). Antes solo se invalidaba manualmente en `AdminFooterCTAViewSet.update_cta()` — la manual sigue ahi tambien (redundante pero inofensiva, mismo patron que los otros 6 modelos con signal).
 
@@ -294,15 +303,30 @@ class BrandSliderItem(SintelBaseModel):
     is_active     = BooleanField(default=True, db_index=True)
     open_new_tab  = BooleanField(default=True)
 
-class BrandSliderConfig(SintelBaseModel):
-    """Singleton -- una unica fila (mismo criterio que FooterCTAConfig, sin el
-    truco de 'desactivar hermanos en save()': Commands.upsert nunca crea una
-    segunda fila)."""
+class BrandSliderConfig(SingletonMixin, SintelBaseModel):  # [CORREGIDO 2026-08-06]
+    """Singleton -- una unica fila."""
     title = CharField(max_length=255, blank=True, default='Marcas y clientes')
     subtitle, autoplay, speed, direction('left'|'right'), loop, pause_on_hover,
     items_desktop(6), items_tablet(4), items_mobile(2), background_color,
-    padding_top, padding_bottom (choices de HomeCardGroup.PADDING_CHOICES), is_visible
+    padding_top, padding_bottom (choices de HomeCardGroup.PADDING_CHOICES),
+    is_visible, is_active  # is_active agregado 2026-08-05, ver nota abajo
 ```
+
+**[CORREGIDO 2026-08-06]** El comentario anterior de este documento decia
+"sin el truco de desactivar hermanos en save(): `Commands.upsert` nunca crea
+una segunda fila" -- eso era **exactamente el hueco real** que se cerro el
+2026-08-05 (Sprint 2, auditoria transversal): `BrandSliderSelector.get_config()`
+hacia `.filter(is_deleted=False).first()` sin ningun campo que distinguiera "la
+fila vigente", y `get_or_create_config()` creaba una fila nueva si no encontraba
+ninguna, sin lock. Dos requests concurrentes (2 pestanas del panel admin
+guardando la config del slider por primera vez a la vez) podian cada uno ver
+"no existe fila" y crear la suya, dejando 2 filas sin ninguna señal de cual
+usar. Fix: se agrego `is_active` (migr. `0027`, default `True`) + el modelo
+ahora hereda `SingletonMixin` (`shared.models`, ver nota en `FooterCTAConfig`
+arriba) + `BrandSliderSelector.get_config()`/`get_or_create_config()` ahora
+filtran por `is_active=True` ademas de `is_deleted=False`. `is_visible` sigue
+siendo la decision de negocio de mostrar/ocultar el slider en el sitio
+publico -- ambos campos coexisten con significados independientes.
 
 Slider de marcas/clientes con scroll horizontal continuo, CSS puro (sin
 Swiper/Embla — decision explicita del usuario). Viaja dentro de
@@ -312,7 +336,7 @@ Swiper/Embla — decision explicita del usuario). Viaja dentro de
 ### 6d. AboutUsConfig / AboutUsValue *(nuevo — migr. 0026, 2026-07-19)*
 
 ```python
-class AboutUsConfig(SintelBaseModel):
+class AboutUsConfig(SingletonMixin, SintelBaseModel):  # [CORREGIDO 2026-08-06]
     """Contenido de la pagina publica 'Sobre Nosotros'. Singleton (una unica fila)."""
     title      = CharField(max_length=255, blank=True, default='Sobre Nosotros')
     subtitle   = CharField(max_length=500, blank=True, default='')
@@ -321,19 +345,28 @@ class AboutUsConfig(SintelBaseModel):
     mission    = TextField(blank=True, default='')
     vision     = TextField(blank=True, default='')
     is_visible = BooleanField(default=True)
+    is_active  = BooleanField(default=True)  # agregado 2026-08-05, ver nota abajo
 
 class AboutUsValue(SintelBaseModel):
     """Valor/pilar de la filosofia institucional mostrado en 'Sobre Nosotros'."""
     title, description, icon_class(default 'bi-gem'), display_order, is_active
 ```
 
-Mismo patron singleton+items que `BrandSliderConfig`/`BrandSliderItem` (sin el
-truco de "desactivar hermanos en save()" — `AboutUsCommands.upsert_config`
-nunca crea una segunda fila). A diferencia del slider de marcas, tiene
-**endpoint publico propio** (`GET /api/v1/core/about-us/`) en vez de viajar
-dentro de `home-feed` — es su propia pagina (`/nosotros` en el frontend), no
-un bloque de la Home. Consumido por
-`frontend/src/views/customer/AboutUsView.vue` (publico) y
+**[CORREGIDO 2026-08-06]** Mismo gap real que `BrandSliderConfig` arriba, cerrado
+el mismo dia (Sprint 2, auditoria transversal): antes `AboutUsConfig` no tenia
+NINGUNA proteccion de singleton -- `AboutUsSelector.get_or_create_config()` podia
+crear 2 filas con requests concurrentes. Fix identico: `is_active` (migr. `0027`)
++ hereda `SingletonMixin` + `AboutUsSelector.get_config()`/`get_or_create_config()`
+filtran por `is_active=True`. `is_visible` (mostrar/ocultar la seccion en el sitio
+publico) es una decision de negocio distinta, sin cambios. El documento anterior
+decia "sin el truco de desactivar hermanos en save()" para justificar la ausencia
+de proteccion -- esa justificacion ya no aplica, era el bug.
+
+Mismo patron singleton+items que `BrandSliderConfig`/`BrandSliderItem`. A
+diferencia del slider de marcas, tiene **endpoint publico propio**
+(`GET /api/v1/core/about-us/`) en vez de viajar dentro de `home-feed` — es su
+propia pagina (`/nosotros` en el frontend), no un bloque de la Home. Consumido
+por `frontend/src/views/customer/AboutUsView.vue` (publico) y
 `frontend/src/modules/core/AboutUsAdminView.vue` (admin, `/panel/nosotros`).
 
 ### [MIGRADO 2026-07-12] SiteBrandConfig → `organization.Company` + `organization.Branding`
@@ -425,7 +458,7 @@ Ya no existe en `core`. Mismos campos (`phone`, `email`, `address`,
 Marcas/Clientes. Ver [[project_brand_slider_icon_renderer]].
 
 **Notas:**
-- `card_group_titles` (dict `{group_name_key: titulo}`) y `card_groups` (lista completa `HomeCardGroupSerializer`, con campos Visual Builder) **coexisten** — `card_group_titles` es el formato legado simple, `card_groups` es el nuevo formato usado por `TrustSection.vue` para leer padding/columnas/layout. Llaves ausentes en `card_group_titles` significan que ese grupo no tiene titulo personalizado; el frontend usa `group_name` como fallback.
+- `card_group_titles` (dict `{group_name_key: titulo}`) y `card_groups` (lista completa `HomeCardGroupSerializer`, con campos Visual Builder) **coexisten** — `card_group_titles` es el formato legado simple, `card_groups` es el nuevo formato usado por `HomeRenderer.vue` (antes `TrustSection.vue`, consolidado en 2026-08 — ver seccion Frontend) para leer padding/columnas/layout. Llaves ausentes en `card_group_titles` significan que ese grupo no tiene titulo personalizado; el frontend usa `group_name` como fallback.
 - `footer_cta` puede ser `null` si no existe ningun `FooterCTAConfig` activo — el frontend debe tener un default local (ver `HomeView.vue`).
 - `modules` es lista de dicts (no ModelSerializer) — la serializa `HomeFeedSelector.get_module_configs(request)`. Desde esta auditoria acepta `request` opcional para construir la URL absoluta de `background_image`.
 
@@ -458,6 +491,21 @@ esperando `nav_groups`. Ver [[project_footer_visual_builder]].
 
 ### GET `/api/v1/core/site-config/`
 
+**[NOTA 2026-07-31, matizada 2026-08-06]** Este endpoint NO expone el `<head>`
+HTML server-rendered del sitio -- las metaetiquetas de verificacion de dominio,
+analytics, pixels, etc. siguen viviendo exclusivamente en la app `seo`
+(`seo/.AGENT/docs/ARQUITECTURA_COMPLETA_SEO.md`), renderizadas server-side en
+`templates/spa_shell.html` vía `{% render_meta_tags %}`. **[CORREGIDO 2026-08-06]**
+Pero SI expone un bloque `seo` propio (no documentado antes) con
+`meta_title`/`meta_description`/`og_image` leidos de `organization.SeoSettings`
+(via `OrganizationSelector.get_seo_settings()`) — son datos distintos y
+complementarios: el `<head>` de `seo` app es lo que ve un bot/scraper en el HTML
+inicial (SSR, antes de que Vue monte), mientras que este bloque lo consume
+`HomeView.vue` client-side (`useSeo().setSeo()`) para actualizar `document.title`
+y las meta tags de Open Graph/JSON-LD despues del montaje de la SPA — necesario
+porque `spa_shell.html` es el mismo shell para todas las rutas y no puede saber
+de antemano el titulo especifico de la Home.
+
 **Cache:** `sintel_site_config_v1`, TTL 300s
 
 ```json
@@ -468,9 +516,14 @@ esperando `nav_groups`. Ver [[project_footer_visual_builder]].
     {"uuid": "...", "label": "Tienda", "url": "/tienda",
      "icon_class": "bi-shop", "display_order": 1,
      "is_visible": true, "open_in_new_tab": false}
-  ]
+  ],
+  "seo": {"meta_title": "...", "meta_description": "...", "og_image": "https://..."}
 }
 ```
+
+`seo.*` son cadenas vacias (`''`) / `null` si no existe ningun
+`organization.SeoSettings` activo — `HomeView.vue` cae a `site.brand?.site_name`/
+`site.brand?.tagline` como fallback en ese caso (ver seccion Frontend).
 
 ### GET `/api/v1/core/about-us/` *(nuevo 2026-07-19)*
 
@@ -507,7 +560,50 @@ si oculta la pagina, para que el admin pueda previsualizar antes de publicar.
 
 ---
 
-## Selectores y Commands (`core/services/selectors.py`)
+## Endpoints internos AI Engine (`core/api/internal_ai.py`) *(no documentado antes de 2026-08-06)*
+
+Rutas bajo `/api/v1/internal/ai/core/*`, registradas en
+`ecommerce/internal_ai_urls.py` (`app_name = "internal_ai"`; nginx no proxea
+`/internal/` hacia afuera — solo alcanzables server-to-server por el AI Engine).
+Cada vista es una fachada delgada sobre los mismos Selectors/Commands que usa
+el resto de `core` (`core/services/selectors.py` + `core/services/commands.py`),
+nunca accede a modelos directamente (regla dura del plan de Fases 2-8 del AI
+Core). Toda escritura exige `IsAdminUser` y queda auditada en
+`security.SecurityEvent` (`AI_ACTION_EXECUTED`) via
+`ecommerce.internal_ai_utils.log_ai_action()`.
+
+| Ruta | Metodo | Vista | Uso |
+|------|--------|-------|-----|
+| `internal/ai/core/home/` | GET | `AiCoreHomeConfigView` | banners (admin) + modulos, forma reducida |
+| `internal/ai/core/navbar/` | GET | `AiCoreNavbarView` | todos los links de navbar |
+| `internal/ai/core/footer/` | GET | `AiCoreFooterView` | grupos + enlaces del footer (forma reducida) |
+| `internal/ai/core/brand-slider/` | GET | `AiCoreBrandSliderView` | config + items del slider de marcas (admin) |
+| `internal/ai/core/banners/create/` | POST | `AiCoreBannerCreateView` | crea banner de solo texto (sin imagen/video — la IA no sube archivos) |
+| `internal/ai/core/banners/update/` | POST | `AiCoreBannerUpdateView` | actualiza campos whitelisted de un banner por `uuid` |
+| `internal/ai/core/navbar/create/` | POST | `AiCoreNavbarLinkCreateView` | crea enlace de navbar |
+| `internal/ai/core/navbar/update/` | POST | `AiCoreNavbarLinkUpdateView` | actualiza campos whitelisted de un link por `uuid` |
+| `internal/ai/core/brand-slider/update/` | POST | `AiCoreBrandSliderItemUpdateView` | actualiza campos whitelisted de un item por `uuid` (sin logo) |
+
+Todas las vistas de escritura validan `uuid`/campos requeridos a mano (no usan
+los serializers de `core/api/serializers.py`) y filtran el `request.data`
+contra una tupla `allowed_fields` explicita antes de pasarlo al Command
+correspondiente — mismo patron en las 3 (`Banner`, `NavbarLink`,
+`BrandSliderItem`). No existe (todavia) una vista equivalente de escritura para
+`HomeCard`/`HomeCardGroup`/`FooterGroup`/`FooterLink`/`FooterCTAConfig`/
+`AboutUsConfig`/`AboutUsValue` en esta fachada — solo lectura donde aplica.
+
+---
+
+## Selectores y Commands
+
+**[CORREGIDO 2026-08-06]** El titulo original de esta seccion decia
+`core/services/selectors.py` para TODAS las clases de abajo, pero desde el
+refactor "Sprint 1" (2026-07-16) `selectors.py` solo contiene
+`HomeConfigSelector` (metodos de lectura de banners/modulos) —
+`HomeConfigCommands` y el resto de clases (`HomeCard*`, `HomeCardGroup*`,
+`HomeFeedSelector`, `NavbarLink*`, `FooterGroup*`, `Footer*`, `FooterCTA*`,
+`BrandSlider*`, `AboutUs*`) viven en `core/services/commands.py`, que importa
+`HomeConfigSelector` desde `selectors.py` cuando lo necesita.
 
 ### HomeConfigSelector
 
@@ -550,7 +646,8 @@ get_by_uuid(uuid)   # get_object_or_404
 create_card(title, subtitle='', description='', group_name='',
             icon_class='bi-star', background_color='#3b82f6',
             redirect_url='', display_order=0, image=None, video=None,
-            card_type='vertical', animation='', is_featured=False, priority=0)
+            card_type='vertical', animation='', is_featured=False, priority=0,
+            badge_text='')   # [CORREGIDO 2026-08-06] badge_text faltaba, existe desde migr. 0020
 update_card(card, data)
 delete_card(card)   # is_active=False, is_deleted=True
 ```
@@ -570,13 +667,13 @@ get_by_name(name)   # .first() o None
 @transaction.atomic
 upsert(name, title, display_order=0, is_visible=True, **kwargs)
     # kwargs Constructor Visual: subtitle, description, bg_color, bg_image,
-    # layout_type, padding, divider, columns
+    # layout_type, padding, divider, columns, glass, hover  # glass/hover [CORREGIDO 2026-08-06]
     # Busca por name; si existe actualiza, si no crea
 
 @transaction.atomic
 update(group, data)     # data puede incluir title, display_order, is_visible + Visual Builder
                          # (subtitle, description, bg_color, bg_image, layout_type, padding,
-                         # divider, columns) -- dashboard/api/views.py::update_group ya pasa
+                         # divider, columns, glass, hover) -- dashboard/api/views.py::update_group ya pasa
                          # el set completo desde 2026-07-09
 
 @transaction.atomic
@@ -673,6 +770,9 @@ list_items_active()     # is_active=True, is_deleted=False, orden display_order
 list_items_for_admin()  # is_deleted=False
 get_item_by_uuid(uuid)
 get_config() / get_or_create_config()   # singleton, usado por home-feed publico
+    # [CORREGIDO 2026-08-06] get_config() ahora filtra is_active=True (ademas de
+    # is_deleted=False) -- antes no distinguia la fila "vigente" de una duplicada,
+    # ver nota de proteccion de singleton en la seccion de Modelos (2026-08-05, Sprint 2)
 
 # Commands
 create_item(name, logo=None, website='', display_order=0, is_active=True, open_new_tab=True)
@@ -690,6 +790,8 @@ list_values_active()     # is_active=True, is_deleted=False, orden display_order
 list_values_for_admin()  # is_deleted=False
 get_value_by_uuid(uuid)
 get_config() / get_or_create_config()   # singleton, usado por about-us publico
+    # [CORREGIDO 2026-08-06] get_config() ahora filtra is_active=True, mismo fix
+    # que BrandSliderSelector arriba (2026-08-05, Sprint 2)
 
 # Commands
 create_value(title, description='', icon_class='bi-gem', display_order=0, is_active=True)
@@ -719,7 +821,7 @@ ABOUT_US_CACHE_KEY    = 'sintel_about_us_v1'      # TTL: 300s (2026-07-19)
 
 | Signal | Modelos cubiertos | Cache invalidada |
 |--------|-------------------|-----------------|
-| `post_save` + `post_delete` | HomeBanner, HomeCard, HomeModuleConfig, FooterCTAConfig, BrandSliderItem, BrandSliderConfig *(2026-07-15)* | `HOME_FEED_CACHE_KEY` |
+| `post_save` + `post_delete` | HomeBanner, HomeCard, HomeCardGroup, HomeModuleConfig, FooterCTAConfig, BrandSliderItem, BrandSliderConfig *(2026-07-15)* | `HOME_FEED_CACHE_KEY` |
 | `post_save` + `post_delete` | FooterLink (`category='nav'`), FooterGroup *(2026-07-15)* | `FOOTER_CACHE_KEY` |
 | `post_save` + `post_delete` | NavbarLink | `SITE_CONFIG_CACHE_KEY` |
 | `post_save` + `post_delete` | AboutUsConfig, AboutUsValue *(2026-07-19)* | `ABOUT_US_CACHE_KEY` |
@@ -733,16 +835,26 @@ llamada justo despues de `OrganizationCommands.upsert_company/upsert_branding/up
 
 Registrado en `CoreConfig.ready()` via `import core.signals`.
 
-**[GAP CONOCIDO] `HomeCardGroup` sigue sin signal propio** — es intencional (documentado desde 2026-06-30): depende exclusivamente de la invalidacion manual en `AdminHomeCardGroupViewSet`. `FooterCTAConfig` gano su signal el 2026-07-09 (ver Cambios Recientes) porque no habia razon de diseno real para que fuera la excepcion — a diferencia de `HomeCardGroup`, no tiene ninguna caracteristica que justifique omitir el signal.
+**[CORREGIDO 2026-08-06] El "gap conocido" de `HomeCardGroup` ya NO existe —
+esta seccion estaba desactualizada.** `core/signals.py` (verificado por lectura
+directa del archivo) SI registra
+`invalidate_home_feed_on_card_group_change` (`post_save`+`post_delete` sobre
+`HomeCardGroup` → `cache.delete(HOME_FEED_CACHE_KEY)`), junto a los handlers de
+`BrandSliderItem`/`BrandSliderConfig` bajo el mismo comentario de seccion
+`# Home Feed Cache Invalidation`. No se pudo determinar en que sesion se cerro
+este gap (no hay entrada en "Cambios Recientes" que lo mencione) — probablemente
+se agrego junto con el signal de `BrandSliderConfig`/`BrandSliderItem` el
+2026-07-15 sin actualizar esta seccion ni el anti-patron de mas abajo. Los 12
+modelos con signal invalidan cache automaticamente; ya no queda ningun modelo
+de `core` que dependa EXCLUSIVAMENTE de invalidacion manual.
 
 ### Invalidacion explicita (dashboard writes)
 
-- `AdminHomeCardGroupViewSet` llama `_invalidate_home_feed_cache()` en cada write (unico modelo sin signal).
-- El resto de ViewSets admin (`AdminHomeConfigViewSet`, `AdminHomeCardViewSet`, `AdminFooterViewSet`, `AdminSiteBrandViewSet`, `AdminNavbarViewSet`, `AdminFooterCTAViewSet`) invalidan de forma redundante ademas del signal — no es un problema (doble `cache.delete()` es idempotente), pero confirma que el signal por si solo ya bastaria para esos 8 modelos.
+- Todos los ViewSets admin de `core` (`AdminHomeConfigViewSet`, `AdminHomeCardViewSet`, `AdminHomeCardGroupViewSet`, `AdminFooterViewSet`, `AdminFooterGroupViewSet`, `AdminSiteBrandViewSet`, `AdminNavbarViewSet`, `AdminFooterCTAViewSet`, `AdminBrandSliderViewSet`, `AdminAboutUsViewSet`) llaman a la funcion `_invalidate_*_cache()` correspondiente en cada write, de forma redundante ademas del signal automatico del modelo — no es un problema (doble `cache.delete()` es idempotente), pero confirma que el signal por si solo ya bastaria para los 12 modelos.
 
 ---
 
-## Serializers (21 en core, 2026-07-12: 2 migrados a organization + 1 reemplazado por adaptador)
+## Serializers (32 en core -- 31 clases + 1 funcion adaptadora, contado por grep 2026-08-06; 21 era el conteo de 2026-07-09, nunca actualizado con las adiciones de FooterGroup/BrandSlider/AboutUs de 2026-07-15/07-19. 2026-07-12: 2 migrados a organization + 1 reemplazado por adaptador)
 
 ### Lectura publica
 
@@ -753,8 +865,8 @@ Registrado en `CoreConfig.ready()` via `import core.signals`.
 | `FeaturedProductCardSerializer` | Product | uuid, name, slug, type, is_featured, category_name, min_price, thumbnail, item_url | home-feed |
 | `FeaturedEquipmentCardSerializer` | Equipment | uuid, name, slug, type, is_featured, category_name, min_price, thumbnail, item_url | home-feed |
 | `FeaturedServiceCardSerializer` | TechnicalService | uuid, name, slug, type, is_featured, category_name, thumbnail, item_url | home-feed |
-| `HomeCardSerializer` | HomeCard | id, uuid, title, subtitle, description, group_name, icon_class, background_color, image, video, redirect_url, display_order, is_active, created_at, card_type, animation, is_featured, priority | home-feed |
-| `HomeCardGroupSerializer` | HomeCardGroup | uuid, name, title, display_order, is_visible, subtitle, description, bg_color, bg_image, layout_type, padding, divider, columns | home-feed (`card_groups`) + dashboard/home-card-groups |
+| `HomeCardSerializer` | HomeCard | id, uuid, title, subtitle, description, group_name, icon_class, background_color, image, video, redirect_url, display_order, is_active, created_at, card_type, animation, is_featured, priority, badge_text *(2026-08-06)* | home-feed |
+| `HomeCardGroupSerializer` | HomeCardGroup | uuid, name, title, display_order, is_visible, subtitle, description, bg_color, bg_image, layout_type, padding, divider, columns, glass, hover *(2026-08-06)* | home-feed (`card_groups`) + dashboard/home-card-groups |
 | `FooterCTAConfigSerializer` | FooterCTAConfig | uuid, eyebrow, title_prefix, title_highlighted, subtitle, btn_primary_label, btn_primary_url, btn_ghost_label, btn_ghost_url, is_active, updated_at | home-feed (`footer_cta`) + dashboard/footer-cta |
 | `FooterLinkSerializer` | FooterLink | id, uuid, title, url, category, group(uuid), icon_class, open_new_tab, display_order, is_active, created_at | footer |
 | `FooterGroupPublicSerializer` *(nuevo 2026-07-15)* | FooterGroup | uuid, title, icon_class, description, background_color, text_color, display_order, links (FooterLinkSerializer anidado via Prefetch) | footer (`groups`) |
@@ -772,6 +884,7 @@ Registrado en `CoreConfig.ready()` via `import core.signals`.
 | Serializer | Campos extra | Uso |
 |------------|-------------|-----|
 | `HomeModuleConfigSerializer` | module_label, module_url, module_icon, module_color, is_core (computed) + todos los custom_* + display_type, layout_config | dashboard/home-config |
+| `FooterGroupSerializer` *(no documentado antes de 2026-08-06)* | uuid, title, icon_class, description, background_color, text_color, display_order, is_active, links_count (computed, cuenta `links` prefetched sin query extra) | dashboard/footer-groups (distinto de `FooterGroupPublicSerializer`, que anida los links completos y se usa en `footer` publico) |
 
 ### Entrada (escritura)
 
@@ -780,13 +893,13 @@ Registrado en `CoreConfig.ready()` via `import core.signals`.
 | `HomeBannerInputSerializer` | title, subtitle, eyebrow, link_url, link_label, background_color, cta_ghost_label, cta_ghost_url, display_order, is_active, image, video, remove_image, remove_video | crear/editar banner |
 | `HomeModuleConfigInputSerializer` | is_visible, display_order, featured_items_limit, custom_*, background_image, remove_background_image, display_type, layout_config | editar modulo |
 | `HomeModuleCreateSerializer` | module_key, custom_*, is_visible, display_order, featured_items_limit, background_image, display_type, layout_config | crear modulo |
-| `HomeCardInputSerializer` | title, subtitle, description, group_name, icon_class, background_color, image, video, redirect_url, display_order, is_active, card_type, animation, is_featured, priority, remove_image, remove_video | crear/editar tarjeta |
-| `HomeCardGroupInputSerializer` | name, title, display_order, is_visible, subtitle, description, bg_color, bg_image, layout_type, padding, divider, columns | upsert grupo de tarjetas |
+| `HomeCardInputSerializer` | title, subtitle, description, group_name, icon_class, background_color, image, video, redirect_url, display_order, is_active, card_type, animation, is_featured, priority, badge_text *(2026-08-06)*, remove_image, remove_video | crear/editar tarjeta |
+| `HomeCardGroupInputSerializer` | name, title, display_order, is_visible, subtitle, description, bg_color, bg_image, remove_bg_image, layout_type, padding, divider, columns, glass, hover *(2026-08-06)* | upsert grupo de tarjetas |
 | `FooterLinkInputSerializer` | title, url, category, group(uuid), icon_class, open_new_tab, display_order, is_active | crear/editar enlace footer |
 | `FooterGroupInputSerializer` *(nuevo 2026-07-15)* | title, icon_class, description, background_color, text_color, display_order, is_active | crear/editar columna del footer |
 | `FooterGroupReorderSerializer` / `FooterLinkReorderSerializer` *(nuevo 2026-07-15)* | items (lista de uuid) | drag&drop de grupos / enlaces |
-| `CompanyContactInfoInputSerializer` | phone, email, address, working_hours | editar contacto |
-| `SiteBrandConfigInputSerializer` | site_name, tagline, logo, remove_logo | editar marca |
+| ~~`CompanyContactInfoInputSerializer`~~ | **[CORREGIDO 2026-08-05, auditoria transversal]** No existe en `core/api/serializers.py` (confirmado por grep) — contacto se edita ahora vía `organization.ContactInfoViewSet`/serializer propio (migración a SSoT institucional, 2026-07-12) | — |
+| ~~`SiteBrandConfigInputSerializer`~~ | **[CORREGIDO 2026-08-05]** No existe — marca se edita ahora vía `organization.BrandingViewSet`/serializer propio, mismo motivo que arriba | — |
 | `NavbarLinkInputSerializer` | label, url, icon_class, display_order, is_visible, open_in_new_tab | crear/editar enlace navbar |
 | `FooterCTAConfigInputSerializer` | eyebrow, title_prefix, title_highlighted, subtitle, btn_primary_label, btn_primary_url, btn_ghost_label, btn_ghost_url | editar CTA final |
 | `BrandSliderItemInputSerializer` *(nuevo 2026-07-15)* | name, logo, website, display_order, is_active, open_new_tab, remove_logo | crear/editar logo del slider |
@@ -863,14 +976,19 @@ despachando entre `core.FooterLink` (`category='nav'`, ahora requiere
 
 ## Frontend — Consumo de core
 
+**[CORREGIDO 2026-08-06]** Esta seccion describia un flujo que ya no existe:
+`TrustSection.vue` (`src/components/ui/landing/TrustSection.vue`) **ya no existe
+como archivo** — su logica de agrupar `HomeCard` por `group_name` se consolido
+directamente dentro de `HomeRenderer.vue` (`src/renderers/HomeRenderer.vue`,
+243 lineas). `HomeView.vue` tampoco hace un `Promise.all` de `home-feed`+
+`site-config`: son 2 llamadas secuenciales en bloques `try/catch` separados
+(la segunda, `site-config`, es solo para SEO y no bloquea el render si falla).
+
 ### HomeView.vue (`src/views/customer/HomeView.vue`)
 
 ```javascript
-const [feedRes, configRes] = await Promise.all([
-  api.get('core/home-feed/'),
-  api.get('core/site-config/'),
-]);
-
+// Bloque 1 -- datos de render, independiente del bloque 2
+const { data } = await api.get('core/home-feed/');
 banners.value           = data.banners            || [];
 modules.value           = data.modules            || [];
 flashOffers.value       = data.flash_offers       || [];
@@ -880,16 +998,38 @@ featuredServices.value  = data.featured_services  || [];
 homeCards.value         = data.home_cards         || [];
 cardGroupTitles.value   = data.card_group_titles  || {};
 cardGroups.value        = data.card_groups        || [];
-if (data.footer_cta) footerCta.value = data.footer_cta;  // conserva default local si es null
+if (data.footer_cta)   footerCta.value   = data.footer_cta;   // conserva default local si es null
+if (data.brand_slider) brandSlider.value = data.brand_slider; // idem
+
+// Bloque 2 -- SEO client-side, en su propio try/catch (no bloquea el render de arriba)
+const { data: site } = await api.get('core/site-config/');
+const seo = site.seo || {};
+setSeo({  // useSeo() (`src/composables/useSeo.js`)
+  title: seo.meta_title || site.brand?.site_name,
+  description: seo.meta_description || site.brand?.tagline,
+  ogImage: seo.og_image,
+  jsonLd: { '@context': 'https://schema.org', '@type': 'Organization',
+            name: site.brand?.site_name, logo: site.brand?.logo },
+});
 ```
 
-`cardGroupTitles` se pasa como prop `:groupTitles="cardGroupTitles"` a `TrustSection.vue`; `cardGroups` (visible-only, via `computed`) alimenta el layout Visual Builder de esa misma seccion; `footerCta` se pasa a `<FooterCTA :config="footerCta" />` (`src/components/ui/landing/FooterCTA.vue`).
+Todos los datos de `home-feed` se pasan como props a
+`<HomeRenderer :banners="..." :modules="..." ... :brand-slider="brandSlider" />`
+— `HomeView.vue` en si mismo no renderiza ninguna seccion, solo hace fetch y
+delega. Este mismo componente (`HomeRenderer.vue`) es compartido con la Vista
+Previa del panel admin (`/panel/home-config`), que le pasa los mismos props
+desde datos de borrador en vez de la API publica.
 
-### TrustSection.vue (`src/components/ui/landing/TrustSection.vue`)
+### HomeRenderer.vue (`src/renderers/HomeRenderer.vue`) *(reemplaza a `TrustSection.vue`)*
 
-- Prop `groupTitles: { type: Object, default: () => ({}) }`
-- Agrupa cards por `c.group_name`
-- Muestra `:title="props.groupTitles[groupName] || groupName"` en `SectionHeader`
+- Prop `cardGroupTitles: { type: Object, default: () => ({}) }` + `cardGroups: { type: Array, default: () => [] }`
+- `computed` interno agrupa `homeCards` por `c.group_name` y para cada grupo sin
+  entrada en `cardGroups` (grupo sin Visual Builder configurado) construye un
+  fallback inline: `{ name: groupName, title: cardGroupTitles[groupName] || groupName, layout_type: 'grid', columns: 3, padding: 'normal' }`
+  — mismo fallback de titulo que documentaba `TrustSection.vue` antes, solo que
+  ahora tambien rellena layout por defecto.
+- Tambien renderiza `footer_cta` (`<FooterCTA :config="footerCta" />`) y
+  `brand_slider` (solo si `brandSlider.config?.is_visible !== false`).
 
 ### HomeConfigView.vue (`src/modules/core/HomeConfigView.vue`)
 
@@ -938,16 +1078,75 @@ title = groupTitles[groupName] || groupName  # CORRECTO
 # y useEnums.ts cae al fallback generico sin avisar visualmente.
 
 # NO: asumir que un modelo nuevo sin FK a User/Order en core hereda invalidacion de cache
-# automaticamente -- HomeCardGroup demuestra que si no se registra un signal en
-# core/signals.py, CUALQUIER escritura fuera de su ViewSet admin (shell, comando,
-# fixture) dejara la cache de home-feed desactualizada hasta el TTL de 300s. Es la unica
-# excepcion intencional que queda; todo modelo nuevo deberia registrar su signal salvo
-# que haya una razon explicita para no hacerlo (documentarla si se omite).
+# automaticamente -- si no se registra un signal en core/signals.py, CUALQUIER
+# escritura fuera de su ViewSet admin (shell, comando, fixture) dejara la cache
+# de home-feed/footer/site-config/about-us desactualizada hasta el TTL de 300s.
+# [CORREGIDO 2026-08-06] este ejemplo citaba a HomeCardGroup como "la unica
+# excepcion intencional que queda" -- ya no es cierto, HomeCardGroup SI tiene
+# signal propio (ver Cache Strategy). A la fecha de esta auditoria los 12
+# modelos de core con cache tienen signal; no queda ninguna excepcion.
 ```
 
 ---
 
 ## Cambios Recientes
+
+### 2026-08-06 — Auditoria de alineacion (sin cambios de codigo)
+
+Auditoria pura solicitada por el usuario ("valida y audita mi app core,
+actualiza documentacion") — comparo el codigo real (`models.py`, `signals.py`,
+`services/selectors.py`+`commands.py`, `api/views.py`+`serializers.py`,
+`api/internal_ai.py`, migraciones, `dashboard/api/views.py`, `HomeView.vue`/
+`HomeRenderer.vue`) contra este documento. Todos los hallazgos ya estan
+reflejados arriba en su seccion correspondiente; resumen:
+
+- **`api/internal_ai.py` no existia en el documento**: fachada completa del AI
+  Engine (9 vistas, lectura+escritura de banners/navbar/footer/brand-slider)
+  bajo `/api/v1/internal/ai/core/*`. Ver seccion "Endpoints internos AI Engine".
+- **`site-config` expone un bloque `seo` no documentado** (`meta_title`/
+  `meta_description`/`og_image` desde `organization.SeoSettings`), consumido
+  client-side por `HomeView.vue` via `useSeo()` — distinto y complementario al
+  `<head>` server-rendered de la app `seo`.
+- **Migraciones 0001-0026 ya no existen como archivos individuales**: fueron
+  squasheadas (DT-M18, 2026-07-30) en `0001_initial_squashed_0026_...py`. Nueva
+  `0027_aboutusconfig_is_active_brandsliderconfig_is_active.py` (2026-08-05) no
+  estaba documentada.
+- **Campos de modelo faltantes**: `HomeCard.badge_text` + `CARD_TYPE_LOGO`
+  (migr. 0020, 2026-06-30 — nunca se documento), `HomeCardGroup.glass`/`.hover`
+  + `LAYOUT_LOGOS`/`LAYOUT_MARQUEE` (idem).
+- **Fix real de concurrencia del 2026-08-05 (Sprint 2, auditoria transversal)
+  no documentado**: `AboutUsConfig`/`BrandSliderConfig` no tenian NINGUNA
+  proteccion de singleton (`get_or_create_config()` sin lock podia crear 2
+  filas con requests concurrentes) — se agrego `is_active` (migr. 0027) +
+  ambos modelos ahora heredan `shared.models.SingletonMixin` (consolidado ahi
+  mismo dia; antes habia 4 copias del mismo `save()` en `organization`,
+  `core.FooterCTAConfig` y `payment.PaymentFeatureFlags`). El documento
+  anterior describia la ausencia de este patron como una decision de diseno
+  ("sin el truco de desactivar hermanos") cuando en realidad era el bug.
+- **`TrustSection.vue` ya no existe** — su logica se consolido en
+  `HomeRenderer.vue`, compartido entre `HomeView.vue` (publico) y la Vista
+  Previa del panel admin. `HomeView.vue` tampoco hace `Promise.all` de
+  `home-feed`+`site-config`: son 2 llamadas secuenciales independientes.
+- **Serializers admin faltante**: `FooterGroupSerializer` (con `links_count`
+  computed), distinto de `FooterGroupPublicSerializer` que si estaba documentado.
+- **Contador de serializers corregido**: 21 → 32 (31 clases + 1 funcion
+  adaptadora, nunca se actualizo tras las adiciones de FooterGroup/BrandSlider/
+  AboutUs de 2026-07-15/07-19).
+
+**Gaps conocidos que quedan abiertos (no corregidos en esta auditoria, solo documentados):**
+- `core/tests/test_models_and_signals.py` solo cubre validacion de
+  `HomeBanner`/`HomeModuleConfig` y signals de `HomeBanner`/`HomeModuleConfig`/
+  `FooterLink` — sin ningun test para las signals de `HomeCard`, `HomeCardGroup`,
+  `FooterCTAConfig`, `FooterGroup`, `BrandSliderItem`/`BrandSliderConfig`, ni
+  `AboutUsConfig`/`AboutUsValue` (6 de los 12 modelos con signal no tienen test).
+- El comentario de cabecera de
+  `0001_initial_squashed_0026_aboutusconfig_aboutusvalue.py` afirma que "las
+  migraciones originales no se borraron (ver los propios archivos en este
+  mismo directorio)" — en este checkout esas migraciones originales (0001-0026)
+  **no existen** como archivos; solo permanece el squash. No es un problema
+  funcional (Django no necesita los archivos originales una vez squasheado y
+  aplicado), pero el comentario ya no es literalmente cierto para quien lea el
+  codigo fuente.
 
 ### 2026-07-15 — Slider de Marcas/Clientes + Footer Visual Builder + IconRenderer
 

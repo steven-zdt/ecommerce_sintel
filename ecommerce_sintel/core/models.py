@@ -1,6 +1,8 @@
 from django.db import models
 from django.core.exceptions import ValidationError
 from ecommerce.base_models import SintelBaseModel
+from shared.models import SingletonMixin
+from core.validators import validate_url_type_pair
 
 
 class HomeBanner(SintelBaseModel):
@@ -192,11 +194,59 @@ class HomeCard(SintelBaseModel):
     is_featured = models.BooleanField(default=False, db_index=True)
     priority    = models.PositiveIntegerField(default=0)
     badge_text  = models.CharField(max_length=50, blank=True, default='')
+    badge_color = models.CharField(max_length=30, blank=True, default='#2563eb')
+
+    # Card Group Section (2026-08-06) -- reutiliza HomeCard/HomeCardGroup en vez de un
+    # modelo paralelo. url_type reemplaza la inferencia por regex que hacia
+    # CardItem.vue::navigate() (redirect_url.startsWith('http')).
+    URL_TYPE_INTERNA = 'INTERNA'
+    URL_TYPE_EXTERNA = 'EXTERNA'
+    URL_TYPE_ANCHOR  = 'ANCHOR'
+    URL_TYPE_CHOICES = [
+        (URL_TYPE_INTERNA, 'Interna'),
+        (URL_TYPE_EXTERNA, 'Externa'),
+        (URL_TYPE_ANCHOR,  'Ancla'),
+    ]
+    TARGET_SELF  = '_self'
+    TARGET_BLANK = '_blank'
+    TARGET_CHOICES = [
+        (TARGET_SELF,  'Misma pestaña'),
+        (TARGET_BLANK, 'Nueva pestaña'),
+    ]
+
+    url_type   = models.CharField(max_length=10, default=URL_TYPE_INTERNA, choices=URL_TYPE_CHOICES)
+    url_target = models.CharField(max_length=10, default=TARGET_SELF, choices=TARGET_CHOICES)
+
+    # Chips genericos [{label, value}] -- mismo shape que FeatureBannerBlock.stats.
+    # Cubre duracion/precio/stock/cliente/ubicacion/certificacion/etc sin un campo
+    # dedicado por cada tipo de contenido futuro.
+    stats = models.JSONField(default=list, blank=True)
+
+    secondary_label     = models.CharField(max_length=100, blank=True, default='')
+    secondary_icon      = models.CharField(max_length=100, blank=True, default='')
+    secondary_url       = models.CharField(max_length=500, blank=True, default='')
+    secondary_url_type  = models.CharField(max_length=10, default=URL_TYPE_INTERNA, choices=URL_TYPE_CHOICES)
+    secondary_target    = models.CharField(max_length=10, default=TARGET_SELF, choices=TARGET_CHOICES)
 
     class Meta:
         verbose_name = 'tarjeta de inicio'
         verbose_name_plural = 'tarjetas de inicio'
         ordering = ['group_name', 'display_order']
+
+    def clean(self):
+        errors = {}
+        err = validate_url_type_pair(self.url_type, self.redirect_url)
+        if err:
+            errors['redirect_url'] = err
+        err = validate_url_type_pair(self.secondary_url_type, self.secondary_url)
+        if err:
+            errors['secondary_url'] = err
+        if errors:
+            raise ValidationError(errors)
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return f"[{self.group_name}] {self.title}"
@@ -264,6 +314,19 @@ class HomeCardGroup(SintelBaseModel):
     glass        = models.BooleanField(default=False)
     hover        = models.CharField(max_length=20, default=HOVER_LIFT, choices=HOVER_CHOICES)
 
+    # Card Group Section (2026-08-06): responsive + config de carrusel, reutilizando
+    # MarketplaceCarousel.vue en vez de un tercer carrusel propio. carousel_* solo
+    # aplica cuando layout_type='slider'.
+    columns_tablet = models.PositiveSmallIntegerField(default=2)
+    columns_mobile = models.PositiveSmallIntegerField(default=1)
+    gap            = models.DecimalField(max_digits=4, decimal_places=2, default=1.25)  # rem
+
+    carousel_autoplay = models.BooleanField(default=False)
+    carousel_loop     = models.BooleanField(default=True)
+    carousel_speed    = models.PositiveIntegerField(default=40)  # px/segundo
+    show_arrows       = models.BooleanField(default=True)
+    show_indicators   = models.BooleanField(default=True)
+
     class Meta:
         verbose_name = 'grupo de tarjetas'
         verbose_name_plural = 'grupos de tarjetas'
@@ -273,7 +336,179 @@ class HomeCardGroup(SintelBaseModel):
         return f"{self.name} -> {self.title}"
 
 
-class FooterCTAConfig(SintelBaseModel):
+class FeatureBannerSection(SintelBaseModel):
+    """
+    Seccion promocional generica del Home Builder (2026-08-06) -- "Feature Banner":
+    banner con imagen a un lado y texto/beneficios/botones al otro, reutilizable para
+    cualquier proposito comercial (Seguridad Electronica, Marketplace, IA, promociones,
+    alianzas...), no un modulo especifico. Contiene uno o varios FeatureBannerBlock.
+    """
+    THEME_LIGHT     = 'light'
+    THEME_DARK      = 'dark'
+    THEME_CORPORATE = 'corporate'
+    THEME_MINIMAL   = 'minimal'
+    THEME_GLASS     = 'glass'
+    THEME_CHOICES = [
+        (THEME_LIGHT,     'Light'),
+        (THEME_DARK,      'Dark'),
+        (THEME_CORPORATE, 'Corporate'),
+        (THEME_MINIMAL,   'Minimal'),
+        (THEME_GLASS,     'Glass'),
+    ]
+
+    BG_COLOR    = 'color'
+    BG_GRADIENT = 'gradient'
+    BG_IMAGE    = 'image'
+    BACKGROUND_TYPE_CHOICES = [
+        (BG_COLOR,    'Color solido'),
+        (BG_GRADIENT, 'Gradiente'),
+        (BG_IMAGE,    'Imagen'),
+    ]
+
+    title       = models.CharField(max_length=255, blank=True, default='')
+    subtitle    = models.CharField(max_length=500, blank=True, default='')
+    description = models.TextField(blank=True, default='')
+    is_visible    = models.BooleanField(default=True, db_index=True)
+    display_order = models.PositiveIntegerField(default=0, db_index=True)
+
+    theme = models.CharField(max_length=20, default=THEME_LIGHT, choices=THEME_CHOICES)
+
+    background_type          = models.CharField(max_length=20, default=BG_COLOR, choices=BACKGROUND_TYPE_CHOICES)
+    background_color         = models.CharField(max_length=30, blank=True, default='')
+    background_gradient_from = models.CharField(max_length=30, blank=True, default='')
+    background_gradient_to   = models.CharField(max_length=30, blank=True, default='')
+    background_image         = models.ImageField(upload_to='home_feature_banner/backgrounds/', null=True, blank=True)
+    overlay_enabled = models.BooleanField(default=False)
+    overlay_opacity = models.PositiveSmallIntegerField(default=45)
+
+    padding = models.CharField(max_length=20, default=HomeCardGroup.PADDING_NORMAL, choices=HomeCardGroup.PADDING_CHOICES)
+
+    class Meta:
+        verbose_name = 'seccion de feature banner'
+        verbose_name_plural = 'secciones de feature banner'
+        ordering = ['display_order', 'created_at']
+
+    def clean(self):
+        if not 0 <= self.overlay_opacity <= 100:
+            raise ValidationError({'overlay_opacity': 'Debe estar entre 0 y 100.'})
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return self.title or f"Feature Banner #{self.pk}"
+
+
+class FeatureBannerBlock(SintelBaseModel):
+    """Un bloque (imagen + texto + botones) dentro de una FeatureBannerSection."""
+    LAYOUT_IMAGE_LEFT   = 'image_left'
+    LAYOUT_IMAGE_RIGHT  = 'image_right'
+    LAYOUT_FIFTY_FIFTY  = 'fifty_fifty'
+    LAYOUT_SIXTY_FORTY  = 'sixty_forty'
+    LAYOUT_FORTY_SIXTY  = 'forty_sixty'
+    LAYOUT_FULL_IMAGE   = 'full_image'
+    LAYOUT_TEXT_CENTERED = 'text_centered'
+    LAYOUT_CHOICES = [
+        (LAYOUT_IMAGE_LEFT,    'Imagen izquierda'),
+        (LAYOUT_IMAGE_RIGHT,   'Imagen derecha'),
+        (LAYOUT_FIFTY_FIFTY,   '50 / 50'),
+        (LAYOUT_SIXTY_FORTY,   '60 / 40'),
+        (LAYOUT_FORTY_SIXTY,   '40 / 60'),
+        (LAYOUT_FULL_IMAGE,    'Imagen completa (overlay)'),
+        (LAYOUT_TEXT_CENTERED, 'Texto centrado (sin imagen)'),
+    ]
+
+    BTN_STYLE_FILLED  = 'filled'
+    BTN_STYLE_OUTLINE = 'outline'
+    BTN_STYLE_GHOST   = 'ghost'
+    BTN_STYLE_MINIMAL = 'minimal'
+    BTN_STYLE_CHOICES = [
+        (BTN_STYLE_FILLED,  'Filled'),
+        (BTN_STYLE_OUTLINE, 'Outline'),
+        (BTN_STYLE_GHOST,   'Ghost'),
+        (BTN_STYLE_MINIMAL, 'Minimal'),
+    ]
+
+    URL_TYPE_INTERNA = 'INTERNA'
+    URL_TYPE_EXTERNA = 'EXTERNA'
+    URL_TYPE_ANCHOR  = 'ANCHOR'
+    URL_TYPE_CHOICES = [
+        (URL_TYPE_INTERNA, 'Interna'),
+        (URL_TYPE_EXTERNA, 'Externa'),
+        (URL_TYPE_ANCHOR,  'Ancla'),
+    ]
+
+    TARGET_SELF  = '_self'
+    TARGET_BLANK = '_blank'
+    TARGET_CHOICES = [
+        (TARGET_SELF,  'Misma pestaña'),
+        (TARGET_BLANK, 'Nueva pestaña'),
+    ]
+
+    section = models.ForeignKey(FeatureBannerSection, on_delete=models.CASCADE, related_name='blocks')
+
+    layout_type = models.CharField(max_length=20, default=LAYOUT_IMAGE_LEFT, choices=LAYOUT_CHOICES)
+
+    title             = models.CharField(max_length=255, blank=True, default='')
+    title_highlighted = models.CharField(max_length=255, blank=True, default='')
+    description       = models.TextField(blank=True, default='')
+
+    image     = models.ImageField(upload_to='home_feature_banner/blocks/', null=True, blank=True)
+    image_alt = models.CharField(max_length=255, blank=True, default='')
+
+    benefits = models.JSONField(default=list, blank=True)   # [{icon, text}]
+    stats    = models.JSONField(default=list, blank=True)   # [{value, label}]
+
+    badge_text  = models.CharField(max_length=50, blank=True, default='')
+    badge_color = models.CharField(max_length=30, blank=True, default='#f59e0b')
+
+    btn_primary_text     = models.CharField(max_length=100, blank=True, default='')
+    btn_primary_icon     = models.CharField(max_length=100, blank=True, default='')
+    btn_primary_color    = models.CharField(max_length=30, blank=True, default='#2563eb')
+    btn_primary_style    = models.CharField(max_length=20, default=BTN_STYLE_FILLED, choices=BTN_STYLE_CHOICES)
+    btn_primary_url      = models.CharField(max_length=500, blank=True, default='')
+    btn_primary_url_type = models.CharField(max_length=10, default=URL_TYPE_INTERNA, choices=URL_TYPE_CHOICES)
+    btn_primary_target   = models.CharField(max_length=10, default=TARGET_SELF, choices=TARGET_CHOICES)
+
+    btn_secondary_text     = models.CharField(max_length=100, blank=True, default='')
+    btn_secondary_icon     = models.CharField(max_length=100, blank=True, default='')
+    btn_secondary_color    = models.CharField(max_length=30, blank=True, default='#2563eb')
+    btn_secondary_style    = models.CharField(max_length=20, default=BTN_STYLE_OUTLINE, choices=BTN_STYLE_CHOICES)
+    btn_secondary_url      = models.CharField(max_length=500, blank=True, default='')
+    btn_secondary_url_type = models.CharField(max_length=10, default=URL_TYPE_INTERNA, choices=URL_TYPE_CHOICES)
+    btn_secondary_target   = models.CharField(max_length=10, default=TARGET_SELF, choices=TARGET_CHOICES)
+
+    display_order = models.PositiveIntegerField(default=0, db_index=True)
+    is_active     = models.BooleanField(default=True, db_index=True)
+
+    class Meta:
+        verbose_name = 'bloque de feature banner'
+        verbose_name_plural = 'bloques de feature banner'
+        ordering = ['display_order', 'created_at']
+
+    @staticmethod
+    def _validate_url_pair(url_type, url, field_prefix, errors):
+        err = validate_url_type_pair(url_type, url)
+        if err:
+            errors[f'{field_prefix}_url'] = err
+
+    def clean(self):
+        errors = {}
+        self._validate_url_pair(self.btn_primary_url_type, self.btn_primary_url, 'btn_primary', errors)
+        self._validate_url_pair(self.btn_secondary_url_type, self.btn_secondary_url, 'btn_secondary', errors)
+        if errors:
+            raise ValidationError(errors)
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"[{self.section_id}] {self.title or self.pk}"
+
+
+class FooterCTAConfig(SingletonMixin, SintelBaseModel):
     """Bloque CTA final antes del footer. Singleton (solo un registro activo)."""
     eyebrow           = models.CharField(max_length=150, blank=True, default='Empieza hoy')
     title_prefix      = models.CharField(max_length=255, blank=True, default='Impulsa tu empresa con')
@@ -292,11 +527,6 @@ class FooterCTAConfig(SintelBaseModel):
 
     def __str__(self):
         return self.title_highlighted
-
-    def save(self, *args, **kwargs):
-        if self.is_active:
-            FooterCTAConfig.objects.filter(is_active=True).exclude(pk=self.pk).update(is_active=False)
-        super().save(*args, **kwargs)
 
 
 class FooterGroup(SintelBaseModel):
@@ -381,8 +611,20 @@ class BrandSliderItem(SintelBaseModel):
         return self.name
 
 
-class AboutUsConfig(SintelBaseModel):
-    """Contenido de la pagina publica 'Sobre Nosotros'. Singleton (una unica fila)."""
+class AboutUsConfig(SingletonMixin, SintelBaseModel):
+    """
+    Contenido de la pagina publica 'Sobre Nosotros'. Singleton (una unica fila).
+
+    `is_active` [agregado 2026-08-05, Sprint 2 auditoria transversal]: antes este modelo
+    no tenia proteccion de singleton en absoluto -- `AboutUsSelector.get_or_create_config()`
+    hacia `.filter(is_deleted=False).first()` y creaba una fila nueva si no encontraba
+    ninguna, sin ningun lock. Dos requests concurrentes (2 pestañas del panel admin
+    guardando "Sobre Nosotros" por primera vez a la vez) podian cada uno ver "no existe
+    fila" y crear su propia fila, dejando 2 filas sin ninguna señal de cual es la
+    vigente. `is_visible` es una decision de negocio distinta (mostrar/ocultar la
+    seccion en el sitio publico) y no se toca -- ambos campos coexisten con
+    significados independientes.
+    """
     title      = models.CharField(max_length=255, blank=True, default='Sobre Nosotros')
     subtitle   = models.CharField(max_length=500, blank=True, default='')
     hero_image = models.ImageField(upload_to='about_us/hero/', null=True, blank=True)
@@ -390,6 +632,7 @@ class AboutUsConfig(SintelBaseModel):
     mission    = models.TextField(blank=True, default='')
     vision     = models.TextField(blank=True, default='')
     is_visible = models.BooleanField(default=True)
+    is_active  = models.BooleanField(default=True)
 
     class Meta:
         verbose_name = 'config de Sobre Nosotros'
@@ -416,8 +659,15 @@ class AboutUsValue(SintelBaseModel):
         return self.title
 
 
-class BrandSliderConfig(SintelBaseModel):
-    """Configuracion del slider de marcas/clientes. Singleton (una unica fila)."""
+class BrandSliderConfig(SingletonMixin, SintelBaseModel):
+    """
+    Configuracion del slider de marcas/clientes. Singleton (una unica fila).
+
+    `is_active` [agregado 2026-08-05, Sprint 2 auditoria transversal] -- mismo motivo
+    que `AboutUsConfig.is_active` arriba: cerrar el mismo hueco de "get-or-create sin
+    lock" que ese modelo. `is_visible` sigue siendo la decision de negocio de
+    mostrar/ocultar el slider en el sitio publico, sin cambios.
+    """
     DIRECTION_LEFT = 'left'
     DIRECTION_RIGHT = 'right'
     DIRECTION_CHOICES = [
@@ -441,6 +691,7 @@ class BrandSliderConfig(SintelBaseModel):
     padding_top      = models.CharField(max_length=20, choices=PADDING_CHOICES, default=HomeCardGroup.PADDING_NORMAL)
     padding_bottom   = models.CharField(max_length=20, choices=PADDING_CHOICES, default=HomeCardGroup.PADDING_NORMAL)
     is_visible       = models.BooleanField(default=True, db_index=True)
+    is_active        = models.BooleanField(default=True)
 
     class Meta:
         verbose_name = 'config de slider de marcas'
