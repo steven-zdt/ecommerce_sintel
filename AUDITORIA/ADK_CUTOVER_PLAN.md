@@ -313,6 +313,48 @@ razonamiento, a revisar en un seguimiento (posible fix: instruccion explicita de
 razonamiento, o configuracion de LiteLlm/LM Studio para separar `reasoning_content` de
 `content` si el modelo lo soporta).
 
+## 4quinquies. Hallazgo critico: DOS stacks Docker separados -- todo lo anterior de esta
+## sesion vivio en STAGING, no en la produccion real (2026-09-14)
+
+**Confirmado con el usuario en vivo ("si confirmo es produccion sintel.net.co"):**
+`https://sintel.net.co/` lo sirve el proyecto Docker Compose **`sintel_production`**
+(`docker-compose.prod.yml`, contenedores `sintel_prod_*`, ingreso via Cloudflare Tunnel
+`sintel_prod_cloudflared` -- sin puertos publicados directamente al host) -- un stack
+**completamente separado** del proyecto `ecommerce_sintel` (`docker-compose.yml`,
+contenedores `ecommerce_sintel_*`, nginx publicado en `:8080`) que es el que se uso para
+TODO el trabajo de esta sesion (ADK-00 a ADK-11, cutover, fix del reasoning leak).
+
+**Implicacion real, verificada:** el cutover a Google ADK (seccion 4ter) y el fix del leak
+de razonamiento (`AUDITORIA/REASONING_LEAK_FIX_REPORT.md`) **NUNCA se aplicaron a
+`sintel_production`**. Ese stack real sigue corriendo `sintel_ai` viejo (imagen
+`ecommerce_sintel_ai:prod`, LangGraph) sin ningun cambio de esta sesion.
+
+**Hallazgo adicional en `sintel_production` (no relacionado con el trabajo de esta sesion,
+descubierto investigando un reporte del usuario de "no veo las respuestas del chat en la
+UI"):** `settings.AI_SUPPORT_CHAT_ENABLED = False` en produccion real -- el chat de IA esta
+**deshabilitado por feature flag global**, no por ningun bug. Confirmado via Django shell
+(solo lectura): un usuario real (`ceo@sintel.net.co`, no staff, sala `OPEN`, sin pausa, sin
+admin asignado) mando 4 mensajes reales que se guardaron correctamente (`[CHAT]
+status=sent`) pero JAMAS dispararon `_ai_reply()` (nunca aparece `AI request
+status=started` en los logs) -- `is_ai_mode_active()` corta en la primera condicion
+(`AI_SUPPORT_CHAT_ENABLED`) antes de llegar a nada relacionado con `sintel_ai`.
+
+**Decision del usuario (2026-09-14): Opcion 1 -- dejar `AI_SUPPORT_CHAT_ENABLED=False` en
+`sintel_production` tal como esta.** No se modifico nada en ese stack. El chat de soporte
+en produccion real sigue sin IA (los clientes reciben el flujo de soporte humano normal,
+sin degradacion -- los mensajes SI se guardan y son visibles para un agente humano, la IA
+simplemente no responde). Las otras dos opciones evaluadas y descartadas por ahora:
+(2) activar el flag con el `sintel_ai` viejo tal cual, sin el fix de razonamiento ni ADK;
+(3) migrar primero el cutover+fix a `docker-compose.prod.yml` y luego activar -- **esta
+sigue siendo la ruta recomendada cuando se decida activar IA en produccion real**, no
+descartada, solo no ejecutada ahora.
+
+**Estado real resultante:** `ecommerce_sintel` (staging) corre Google ADK + el fix del
+reasoning leak, verificado con trafico real de esa sala de staging. `sintel_production`
+(real) sigue exactamente como estaba antes de esta sesion completa -- sin ADK, sin el fix,
+y con IA deshabilitada por flag (no por fallo). Ningun cliente real de `sintel.net.co` fue
+afectado, positiva ni negativamente, por ningun cambio de esta sesion.
+
 ## 5. Gate final antes de ejecutar cualquier paso de este plan
 
 Ningun paso de la seccion 3 (Opcion A) se ejecuta sin autorizacion explicita, item por
