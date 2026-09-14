@@ -1,6 +1,16 @@
 # Guía de Uso — Sintel AI Engine
 
-> Guía práctica de "cómo se usa" el motor, día a día. Para la referencia
+> **[DOCUMENTO HISTORICO -- DESACTUALIZADO, 2026-09-14]** Escrito antes de FASE 4a/4b de la
+> mision de simplificacion arquitectonica (`AUDITORIA/ARCHITECTURE_SIMPLIFICATION_AUDIT.md`):
+> los endpoints `/generate`, `/validate`, `/plan`, `/impact`, `/breakage`, `/ingest`,
+> `/graph/*` YA NO EXISTEN (pipeline de codigo retirado, ChromaDB retirado). Los comandos
+> curl/ejemplos de este documento que los usan ya no funcionan. Los unicos endpoints
+> vigentes de cara al chat son `/chat` y `/health` (ver `ai_engine/main.py`); el RAG vive en
+> PostgreSQL+pgvector via Django/`ai_knowledge`, no en ChromaDB. Se conserva como referencia
+> historica del flujo operativo original -- verificar contra `ai_engine/main.py` antes de
+> ejecutar cualquier comando de este documento.
+>
+> Guía práctica de "cómo se usa" el motor, día a día. (Historico) Para la referencia
 > arquitectónica completa (cómo está construido cada pieza) ver
 > `FLIJO_COMPLETO_IA_ENGINE.md`. Para el porqué y el histórico de cómo se
 > construyó el AI Core (fases 1-8) ver `PLAN_DE_ACCION_AI_CORE.md`. Este

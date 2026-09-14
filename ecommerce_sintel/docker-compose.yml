@@ -12,8 +12,10 @@
 #   - Celery Beat      (Scheduler de tareas)
 #   - Nginx 1.26       (Reverse proxy)
 #   - Ollama           (LLM local para motor cognitivo -- puerto 11434)
-#   - ChromaDB         (Vector store para motor cognitivo -- puerto 8200)
-#   - Sintel AI Engine (Motor LangChain/LangGraph -- puerto 8100)
+#   - Sintel AI Engine (Motor LangChain/LangGraph -- puerto 8100; RAG sobre
+#                       PostgreSQL+pgvector via ai_knowledge, FASE 1-4 de la
+#                       mision de simplificacion arquitectonica, 2026-09-14 --
+#                       ChromaDB retirado, ver AUDITORIA/ARCHITECTURE_SIMPLIFICATION_AUDIT.md)
 #
 # =============================================================================
 
@@ -186,27 +188,6 @@ services:
               count: all
               capabilities: [gpu]
 
-  sintel_chromadb:
-    image: chromadb/chroma:0.5.23
-    container_name: ecommerce_sintel_chromadb
-    restart: unless-stopped
-    ports:
-      - "8200:8000"
-    volumes:
-      - ecommerce_sintel_chromadb_data:/chroma/chroma
-    environment:
-      - ANONYMIZED_TELEMETRY=false
-      - IS_PERSISTENT=TRUE
-      - PERSIST_DIRECTORY=/chroma/chroma
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/heartbeat"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
-    networks:
-      - ecommerce_sintel_network
-
   sintel_ai:
     build:
       context: ./ai_engine
@@ -218,17 +199,12 @@ services:
       - "8100:8100"
     volumes:
       - .:/workspace:ro
-      - ../docs/specs:/docs/specs:ro
       # FASE 10: tokens OAuth del MCP de Meta Ads (mcp_client/storage.py).
       # Persisten fuera de la imagen y no se versionan.
       - ecommerce_sintel_mcp_tokens:/data/mcp
     env_file: .env
     environment:
       OLLAMA_BASE_URL: "http://sintel_ollama:11434"
-      CHROMA_HOST: "sintel_chromadb"
-      CHROMA_PORT: "8000"
-      CHROMA_AUTH_TOKEN: ""
-      DOCS_SPECS_PATH: "/docs/specs"
       CODEBASE_PATH: "/workspace"
       MCP_TOKEN_STORE_DIR: "/data/mcp"
       # Fase 1 AI Core: URL interna hacia Django para resolver identidad
@@ -242,8 +218,6 @@ services:
     depends_on:
       sintel_ollama:
         condition: service_started
-      sintel_chromadb:
-        condition: service_healthy
       redis:
         condition: service_healthy
     networks:
@@ -286,8 +260,6 @@ volumes:
   ecommerce_sintel_beat_schedule:
     driver: local
   ecommerce_sintel_ollama_models:
-    driver: local
-  ecommerce_sintel_chromadb_data:
     driver: local
   ecommerce_sintel_mcp_tokens:
     driver: local

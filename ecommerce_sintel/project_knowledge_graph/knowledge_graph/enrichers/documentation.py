@@ -7,10 +7,11 @@ Agrega nodos `Documentation` al Knowledge Graph y la arista `DOCUMENTED_BY`
 (App -> Documentation) para las apps que ya tienen una convencion de nombre de
 archivo clara ("<app>/.AGENT/docs/*.md").
 
-No reemplaza ni duplica el RAG vectorial (ChromaDB, ver ai_engine/retrievers.py)
--- ese sigue siendo la fuente de contexto narrativo. Este modulo solo
-estructura metadata (ruta, fecha declarada, app) como nodos de grafo
-consultables.
+No reemplaza ni duplica el RAG vectorial (PostgreSQL+pgvector via Django/
+ai_knowledge, ver ai_engine/retrievers.py -- ChromaDB retirado en la mision
+de simplificacion arquitectonica, 2026-09-14) -- ese sigue siendo la fuente
+de contexto narrativo. Este modulo solo estructura metadata (ruta, fecha
+declarada, app) como nodos de grafo consultables.
 
 Fuentes de documentos indexadas (deliberadamente explicito, no "todo .md del
 repo" -- indexar ruido como wizard/fase docs historicos degradaria la senal):

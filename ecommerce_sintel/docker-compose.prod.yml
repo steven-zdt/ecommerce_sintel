@@ -15,9 +15,11 @@
 # en false hasta activacion explicita posterior (fuera de alcance de este
 # cambio de infraestructura).
 #
-# NO incluye todavia (permanecen privados, solo en docker-compose.yml de
-# desarrollo): sintel_ollama, sintel_chromadb -- decision de proveedor LLM
-# diferida a proposito, ver comentario del servicio sintel_ai abajo. frontend
+# NO incluye todavia (permanece privado, solo en docker-compose.yml de
+# desarrollo): sintel_ollama -- decision de proveedor LLM diferida a
+# proposito, ver comentario del servicio sintel_ai abajo. ChromaDB se retiro
+# por completo del proyecto (FASE 4b, 2026-09-14), no aplica a ningun
+# entorno. frontend
 # (vite dev server) tampoco aplica: el bundle de Vue ya viene compilado dentro
 # de la imagen runtime (ver Dockerfile, stage frontend-builder).
 #
@@ -226,11 +228,12 @@ services:
 
   # ─── AI ENGINE (privado -- NUNCA expuesto a Internet) ──────────────────────
   # Auditoria de puesta en produccion (2026-08-17): agregado deliberadamente SIN
-  # sintel_ollama/sintel_chromadb (ver docs/deployment o el informe de esa
-  # auditoria) -- decision de proveedor LLM diferida a proposito. El motor
-  # arranca igual sin ChromaDB (RAG se degrada con gracia, ver
-  # ai_engine/main.py::lifespan y retrievers.py::retrieve_knowledge_for_chat,
-  # mismo fix de esta auditoria) y sin Ollama (get_llm()/ChatOllama no hacen red
+  # sintel_ollama (ver docs/deployment o el informe de esa auditoria) --
+  # decision de proveedor LLM diferida a proposito. FASE 4b (mision de
+  # simplificacion arquitectonica, 2026-09-14): ChromaDB retirado por completo
+  # -- el RAG del chat vive en PostgreSQL+pgvector via el endpoint interno de
+  # Django `ai_knowledge` (retrievers.py::retrieve_knowledge_for_chat), no en
+  # este proceso. El motor arranca igual sin Ollama (get_llm()/ChatOllama no hacen red
   # al construirse, solo al primer uso real -- y AI_SUPPORT_CHAT_ENABLED queda
   # en false, asi que /chat no se invoca todavia). Si mas adelante se decide
   # Ollama local, agregar aqui un servicio "sintel_ollama" identico al de
@@ -258,7 +261,6 @@ services:
     # Customer directo.
     volumes:
       - .:/workspace:ro
-      - ../docs/specs:/docs/specs:ro
       # FASE 10: refresh token OAuth del MCP de Meta Ads (mcp_client/storage.py).
       # Se autoriza una vez con `python -m mcp_client.authorize`; despues el
       # cliente refresca solo. MCP_META_ADS_ENABLED debe ponerse en .env.production.
@@ -277,13 +279,6 @@ services:
       # ai_engine/.AGENT/LM_STUDIO_MIGRATION_2026-08-17.md para el detalle
       # completo (conectividad, hallazgos, concurrencia medida).
       LOCAL_MODEL_CHAIN: "lmstudio|openai-compatible|http://host.docker.internal:1234/v1|qwen/qwen3.5-9b"
-      EMBEDDING_PROVIDER: "openai"
-      EMBEDDING_MODEL: "text-embedding-nomic-embed-text-v1.5"
-      EMBEDDING_BASE_URL: "http://host.docker.internal:1234/v1"
-      CHROMA_HOST: "sintel_chromadb"
-      CHROMA_PORT: "8000"
-      CHROMA_AUTH_TOKEN: ""
-      DOCS_SPECS_PATH: "/docs/specs"
       CODEBASE_PATH: "/workspace"
       DJANGO_INTERNAL_API_URL: "http://django:8000/api/v1"
       # Checkpointer del Action Graph (DB 2 de Redis, separada de Channels/Cache

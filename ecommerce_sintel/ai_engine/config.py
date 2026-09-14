@@ -22,27 +22,19 @@ LOCAL_MODEL_CHAIN   = config(
     "LOCAL_MODEL_CHAIN",
     default=f"ollama|ollama-nativo|{OLLAMA_BASE_URL}|{LLM_MODEL}",
 )
-EMBEDDING_PROVIDER  = config("EMBEDDING_PROVIDER", default="ollama")
-EMBEDDING_MODEL     = config("EMBEDDING_MODEL", default="bge-m3")
-# CERRADO 2026-08-17 (auditoria LM Studio): antes EMBEDDING_PROVIDER="openai" solo
-# podia hablarle a la API real de OpenAI (embeddings_factory.py no aceptaba
-# base_url) -- inservible para un motor OpenAI-compatible local como LM Studio.
-# Mismo patron que OLLAMA_BASE_URL: solo se usa cuando EMBEDDING_PROVIDER != "ollama".
-EMBEDDING_BASE_URL  = config("EMBEDDING_BASE_URL", default="")
 
-CHROMA_HOST         = config("CHROMA_HOST", default="sintel_chromadb")
-CHROMA_PORT         = config("CHROMA_PORT", default=8000, cast=int)
-CHROMA_AUTH_TOKEN   = config("CHROMA_AUTH_TOKEN", default="")
-CHROMA_COLLECTION   = config("CHROMA_COLLECTION_NAME", default="sintel_kb")
+# FASE 4b (mision de simplificacion arquitectonica, 2026-09-14): CHROMA_*/
+# EMBEDDING_*/DOCS_SPECS_PATH/INGESTION_BATCH_SIZE/MAX_RETRIEVER_CHUNKS
+# retirados -- este proceso ya no calcula embeddings ni mantiene un vector
+# store propio (ChromaDB eliminado). El RAG del chat vive en Django/
+# ai_knowledge (PostgreSQL+pgvector); su propia configuracion de embeddings
+# (AIChannelConfig.CHANNEL_EMBEDDINGS) es independiente de este archivo. Ver
+# AUDITORIA/ARCHITECTURE_SIMPLIFICATION_AUDIT.md.
 
-DOCS_SPECS_PATH     = config("DOCS_SPECS_PATH", default="/docs/specs")
 CODEBASE_PATH       = config("CODEBASE_PATH", default="/workspace/ecommerce_sintel")
 # B2 (AUDITORIA/16): checkpointer del Action Graph (redis_checkpointer.py) -- DB separada de
 # Django (Channels=0, Cache=1) para no compartir namespace de claves con nada mas.
 CHECKPOINTER_REDIS_URL = config("CHECKPOINTER_REDIS_URL", default="redis://redis:6379/2")
-INGESTION_BATCH_SIZE = config("INGESTION_BATCH_SIZE", default=50, cast=int)
-MAX_RETRIEVER_CHUNKS = config("MAX_RETRIEVER_CHUNKS", default=50, cast=int)
-VALIDATION_MAX_RETRIES = config("VALIDATION_MAX_RETRIES", default=3, cast=int)
 
 OPENAI_API_KEY      = config("OPENAI_API_KEY", default="")
 ANTHROPIC_API_KEY   = config("ANTHROPIC_API_KEY", default="")

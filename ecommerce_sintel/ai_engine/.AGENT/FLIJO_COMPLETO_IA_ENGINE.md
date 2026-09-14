@@ -1,7 +1,23 @@
 # Flujo Completo — Sintel AI Engine
 
-> Microservicio FastAPI autónomo. Puerto **8100**. Genera y valida código para el proyecto
-> Sintel E-Commerce REST v5 mediante RAG (LangChain + LangGraph + ChromaDB + Ollama).
+> **[DOCUMENTO HISTORICO -- DESACTUALIZADO, 2026-09-14]** Este documento describe el motor
+> ANTES de dos fases de la mision de simplificacion arquitectonica (ver
+> `AUDITORIA/ARCHITECTURE_SIMPLIFICATION_AUDIT.md`): **FASE 4a** retiro por completo el
+> pipeline de generacion/validacion de codigo que describe la mayor parte de este documento
+> (`/generate`, `/validate`, `/plan`, `/impact`, `/breakage`, `graph.py`, `chains.py`,
+> `chains_frontend.py`, `guardrails.py`, `guardrails_frontend.py`, `planner.py` -- todos
+> eliminados, superseded por `ai_editor/` + `project_knowledge_graph/`) y **FASE 4b** retiro
+> ChromaDB por completo (`vectorstore_factory.py`, `embeddings_factory.py`, `bootstrap.py`,
+> `loaders.py`, `splitters.py`, el servicio Docker `sintel_chromadb`, las variables
+> `CHROMA_*` -- todos eliminados). El RAG del chat (`/chat`, el UNICO endpoint de este
+> documento que sigue vigente junto con `/health`) ahora consulta PostgreSQL+pgvector via el
+> endpoint interno de Django `ai_knowledge` (`POST /internal/ai/knowledge/retrieve/`) --
+> ver `ai_engine/retrievers.py` y `ecommerce_sintel/ai_knowledge/` para el estado real y
+> vigente. Se conserva el resto de este documento como referencia historica del diseño
+> original -- NO como arquitectura actual.
+>
+> Microservicio FastAPI autónomo. Puerto **8100**. (Historico) Genera y valida código para el
+> proyecto Sintel E-Commerce REST v5 mediante RAG (LangChain + LangGraph + ChromaDB + Ollama).
 
 ---
 

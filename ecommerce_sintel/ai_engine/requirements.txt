@@ -1,12 +1,10 @@
 langchain>=0.3.0,<0.4.0
 langchain-core>=0.3.0,<0.4.0
 langchain-community>=0.3.0,<0.4.0
-langchain-chroma>=0.1.4,<0.2.0
 langchain-ollama>=0.2.0,<0.3.0
 langchain-openai>=0.2.0,<0.3.0
 langchain-anthropic>=0.2.0,<0.3.0
 langgraph>=0.2.0,<0.3.0
-chromadb>=0.5.0,<0.6.0
 rank-bm25>=0.2.2,<0.3.0
 fastapi>=0.115.0,<0.116.0
 uvicorn[standard]>=0.32.0,<0.33.0
@@ -15,7 +13,11 @@ python-multipart>=0.0.12
 httpx>=0.28.0
 python-decouple>=3.8,<4.0
 PyJWT>=2.9.0,<3.0.0
-unstructured[md]>=0.16.0,<0.17.0
+# FASE 4b (mision de simplificacion arquitectonica, 2026-09-14): chromadb/
+# langchain-chroma/unstructured[md] retirados -- ChromaDB eliminado del
+# proyecto (RAG movido a PostgreSQL+pgvector via Django/ai_knowledge, ver
+# AUDITORIA/ARCHITECTURE_SIMPLIFICATION_AUDIT.md). unstructured solo la usaba
+# loaders.py (tambien eliminado) para cargar markdown hacia el vector store.
 # B2 (AUDITORIA/16): checkpointer propio del Action Graph sobre Redis (redis_checkpointer.py) --
 # NO el paquete langgraph-checkpoint-redis (requiere el modulo RediSearch, no disponible en
 # redis:7.2-alpine ya usado por el proyecto). Cliente redis plano, sync+async.

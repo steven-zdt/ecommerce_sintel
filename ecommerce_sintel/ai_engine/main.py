@@ -7,7 +7,16 @@ pipeline de generacion/validacion de codigo (`/generate`, `/validate`,
 modulos graph.py/chains.py/chains_frontend.py/guardrails.py/
 guardrails_frontend.py/planner.py) -- confirmado sin ningun consumidor
 externo (grep global) y superseded por `ai_editor/` + `project_knowledge_graph/`,
-ya construidos y certificados (FASE61). Ver AUDITORIA/ARCHITECTURE_SIMPLIFICATION_AUDIT.md.
+ya construidos y certificados (FASE61).
+
+FASE 4b (misma mision): se retiro ChromaDB por completo (`/ingest`,
+vectorstore_factory.py, embeddings_factory.py, bootstrap.py, loaders.py,
+splitters.py) -- el RAG del chat (`/chat`) ya no vive en este proceso desde
+FASE 3, consulta el endpoint interno de Django `ai_knowledge`
+(PostgreSQL+pgvector) via retrievers.py::retrieve_knowledge_for_chat. Este
+motor ya no mantiene ningun estado de conocimiento propio en memoria.
+
+Ver AUDITORIA/ARCHITECTURE_SIMPLIFICATION_AUDIT.md para el detalle completo.
 
 Arranque:
     uvicorn main:app --host 0.0.0.0 --port 8100 --reload
@@ -21,17 +30,13 @@ import httpx
 from auth import get_validated_token, decode_django_jwt
 from action_graph import run_action_chat
 
-from embeddings_factory import get_embeddings
-from vectorstore_factory import get_vectorstore
 from llm_factory import get_llm, get_dynamic_llm
-from loaders import load_all_documents
-from splitters import split_all
 from memory_builder import get_global_memory, get_app_memory
 from specialized_retrieval import retrieve_with_routing, get_registry
 from ai_manifest import build_all_manifests, get_manifest
 from incremental_updater import update_changed_apps, detect_changed_apps
 from gateway import ai_router
-from config import DOCS_SPECS_PATH, CODEBASE_PATH, LOCAL_MODEL_CHAIN, EMBEDDING_PROVIDER, EMBEDDING_MODEL, OLLAMA_BASE_URL
+from config import LOCAL_MODEL_CHAIN, OLLAMA_BASE_URL
 from llm_factory import parse_local_model_chain
 
 logging.basicConfig(
@@ -48,13 +53,16 @@ async def _ensure_ollama_models() -> None:
     Pre-carga en Ollama los modelos que se van a necesitar antes de la primera peticion
     real, para evitar el timeout de la primera llamada. Nivel A (auditoria 2026-08-07):
     ya no hay un unico LLM_PROVIDER que revisar -- se recorre LOCAL_MODEL_CHAIN y se
-    pre-carga cada entrada 'ollama-nativo' (mas el modelo de embeddings, si tambien usa
-    Ollama). Motores openai-compatible/anthropic no necesitan pre-carga: son servicios
-    externos al proceso, no procesos que este mismo Ollama tenga que arrancar.
+    pre-carga cada entrada 'ollama-nativo'. Motores openai-compatible/anthropic no
+    necesitan pre-carga: son servicios externos al proceso, no procesos que este mismo
+    Ollama tenga que arrancar.
+
+    FASE 4b (2026-09-14): ya no pre-carga el modelo de embeddings -- este proceso no
+    calcula embeddings desde que el RAG se movio a Django/ai_knowledge (FASE 1/3); el
+    modelo de embeddings que SI importa (el que usa EmbeddingService del lado Django)
+    se pre-carga o no segun ese proceso, no este.
     """
     targets: list[tuple[str, str]] = []
-    if EMBEDDING_PROVIDER == "ollama":
-        targets.append((OLLAMA_BASE_URL, EMBEDDING_MODEL))
     for entry in parse_local_model_chain(LOCAL_MODEL_CHAIN):
         if entry["kind"] == "ollama-nativo":
             targets.append((entry["base_url"], entry["model"]))
@@ -84,29 +92,9 @@ async def lifespan(app: FastAPI):
     try:
         await _ensure_ollama_models()  # no-op limpio si LOCAL_MODEL_CHAIN no tiene entradas ollama-nativo
         llm              = get_llm()
-        raw_docs         = load_all_documents(DOCS_SPECS_PATH, CODEBASE_PATH)
-        all_chunks       = split_all(raw_docs)
-        _STATE["all_docs"]    = all_chunks
-        _STATE["llm"]         = llm
+        _STATE["llm"]    = llm
 
-        # Fallback de produccion (auditoria de puesta en produccion, 2026-08-17):
-        # chromadb.HttpClient valida la conexion al construirse -- si ChromaDB no
-        # esta disponible, get_vectorstore() lanza y (antes de este fix) tumbaba
-        # el arranque ENTERO del proceso, no solo el RAG. /chat ya pasa
-        # vectorstore=_STATE.get("vectorstore") (None-safe) y
-        # retrieve_knowledge_for_chat ya tolera vectorstore=None -- el unico punto
-        # que faltaba blindar era este. Motor sigue arrancando sin RAG si Chroma
-        # esta caido; /generate (que si necesita vectorstore) sigue devolviendo
-        # 503 explicito como ya hacia (linea ~331), no un crash de proceso.
-        try:
-            embeddings  = get_embeddings()
-            vectorstore = get_vectorstore(embeddings)
-            _STATE["vectorstore"] = vectorstore
-        except Exception as exc:
-            _STATE["vectorstore"] = None
-            logger.warning("[startup] ChromaDB no disponible, RAG degradado (motor sigue arrancando): %s", exc)
-
-        logger.info("[startup] Motor listo. Chunks en memoria: %d", len(all_chunks))
+        logger.info("[startup] Motor listo.")
 
         # Pre-build specialized indices (Phase 5/6)
         try:
@@ -241,22 +229,22 @@ async def chat(req: ChatRequest, token: str = Depends(get_validated_token)):
 async def health():
     """
     Fase 10 (auditoria de puesta en produccion, 2026-08-17): antes devolvia
-    "status": "ok" fijo + un conteo de chunks -- no distinguia liveness (el
-    proceso esta vivo) de readiness real de sus dependencias. `llm`/`all_docs`
-    siempre quedan poblados si el proceso llego a aceptar requests (el lifespan
-    los construye fuera del bloque tolerante a fallos); lo unico que puede faltar
-    es `vectorstore` (RAG degradado si ChromaDB no estaba disponible al
-    arrancar, ver lifespan). Deliberadamente sin hacer una llamada de red nueva
-    aqui -- un healthcheck que depende de red puede volverse su propio punto de
-    falla bajo latencia/saturacion; reporta el estado ya conocido de `_STATE`.
+    "status": "ok" fijo -- no distinguia liveness (el proceso esta vivo) de
+    readiness real de sus dependencias. `llm` siempre queda poblado si el
+    proceso llego a aceptar requests (el lifespan lo construye fuera del
+    bloque tolerante a fallos). Deliberadamente sin hacer una llamada de red
+    nueva aqui -- un healthcheck que depende de red puede volverse su propio
+    punto de falla bajo latencia/saturacion; reporta el estado ya conocido de
+    `_STATE`.
+
+    FASE 4b (2026-09-14): ya no reporta `rag_ready`/`chunks_indexed` -- este
+    proceso no mantiene estado de RAG propio (ver retrievers.py). La salud
+    del RAG es responsabilidad de Django/ai_knowledge, no de este healthcheck.
     """
-    vectorstore_ok = _STATE.get("vectorstore") is not None
     llm_ok = _STATE.get("llm") is not None
     return {
         "status": "ok" if llm_ok else "starting",
         "llm_ready": llm_ok,
-        "rag_ready": vectorstore_ok,
-        "chunks_indexed": len(_STATE.get("all_docs", [])),
     }
 
 
@@ -333,22 +321,3 @@ async def detect_changes():
     """Detecta que apps han cambiado desde el ultimo refresh."""
     changed_apps, frontend = detect_changed_apps()
     return {"changed_apps": changed_apps, "frontend_changed": frontend}
-
-
-@app.post("/ingest")
-async def trigger_ingestion():
-    """Recarga y re-indexa todos los documentos (invocacion manual)."""
-    if not _STATE.get("vectorstore"):
-        raise HTTPException(503, "Motor no inicializado.")
-    try:
-        raw_docs   = load_all_documents(DOCS_SPECS_PATH, CODEBASE_PATH)
-        all_chunks = split_all(raw_docs)
-        vs         = _STATE["vectorstore"]
-        batch_size = 50
-        for i in range(0, len(all_chunks), batch_size):
-            vs.add_documents(all_chunks[i : i + batch_size])
-        _STATE["all_docs"] = all_chunks
-        return {"status": "ok", "chunks_ingested": len(all_chunks)}
-    except Exception as exc:
-        logger.error("[ingest] Error durante re-ingesta: %s", exc)
-        raise HTTPException(500, str(exc))
