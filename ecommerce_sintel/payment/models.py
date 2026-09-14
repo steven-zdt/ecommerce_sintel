@@ -2,6 +2,7 @@ from django.db import models
 from django.conf import settings
 from ecommerce.base_models import SintelBaseModel
 from orders.models import Order
+from shared.models import SingletonMixin
 
 
 # ── Wompi ─────────────────────────────────────────────────────────────────────
@@ -108,14 +109,20 @@ class TransactionEvent(SintelBaseModel):
         return f"TransactionEvent({self.source}, {self.previous_status}->{self.new_status})"
 
 
-class PaymentFeatureFlags(SintelBaseModel):
+class PaymentFeatureFlags(SingletonMixin, SintelBaseModel):
     """
     Flags operativos del flujo de pagos Wompi (ADR-001 Fase 5: migracion
     gradual) -- editables desde /admin/ de Django, sin necesidad de desplegar
     codigo nuevo. Singleton: guardar un registro con is_active=True desactiva
-    cualquier otro (mismo patron ya usado en organization/core -- se duplica
-    aqui en vez de importarlo entre apps, siguiendo la convencion existente
-    del proyecto de no crear dependencias cruzadas para un mixin de 3 lineas).
+    cualquier otro, via `shared.models.SingletonMixin`.
+
+    [Corregido 2026-08-05, Sprint 2 auditoria transversal] Este docstring decia
+    antes "se duplica aqui en vez de importarlo entre apps... para no crear
+    dependencias cruzadas para un mixin de 3 lineas" -- esa razon seguia siendo
+    valida para NO importar desde `organization` (esa app prohibe explicitamente
+    que otras apps lean sus modelos), pero no aplicaba a `shared`, que ya es el
+    lugar establecido en este proyecto para mixins/modelos genericos reutilizables
+    entre apps (`ContentBlockConfig`, `CatalogRelation`, ahora `SingletonMixin`).
     """
     card_api_flow_enabled = models.BooleanField(
         default=True,
@@ -148,11 +155,6 @@ class PaymentFeatureFlags(SintelBaseModel):
     class Meta:
         verbose_name = 'flags de pagos'
         verbose_name_plural = 'flags de pagos'
-
-    def save(self, *args, **kwargs):
-        if self.is_active:
-            PaymentFeatureFlags.objects.exclude(pk=self.pk).update(is_active=False)
-        super().save(*args, **kwargs)
 
     def __str__(self):
         return f"PaymentFeatureFlags(card_api_flow_enabled={self.card_api_flow_enabled})"

@@ -6,6 +6,7 @@ from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.viewsets import GenericViewSet
 from users.api.permissions import IsAuthenticatedActiveUser
 from orders.models import Order
+from orders.services.selectors import OrderSelector
 from payment.models import NequiTransaction
 from payment.nequi.client import NequiApiError
 from payment.nequi.services.commands import NequiCommands
@@ -41,7 +42,7 @@ class NequiPaymentViewSet(GenericViewSet):
         data = serializer.validated_data
 
         try:
-            order = Order.objects.get(uuid=data['order_uuid'])
+            order = OrderSelector.get_by_uuid(data['order_uuid'])
         except Order.DoesNotExist:
             return Response({'detail': 'Orden no encontrada.'}, status=status.HTTP_404_NOT_FOUND)
 

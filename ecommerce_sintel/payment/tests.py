@@ -305,7 +305,7 @@ class WompiConfirmationSyncTestCase(APITransactionTestCase):
         self.url = f'/api/v1/payment/payments/confirmation/?tx={self.wompi_tx.uuid}'
 
     @override_settings(WOMPI_PRIVATE_KEY='prv_test_dummy')
-    @patch('payment.online.api.views.http_requests.get')
+    @patch('payment.online.api.sync.http_requests.get')
     def test_confirmation_endpoint_syncs_approved_and_deducts_stock(self, get_mock):
         get_mock.return_value.status_code = 200
         get_mock.return_value.json.return_value = {
@@ -324,7 +324,7 @@ class WompiConfirmationSyncTestCase(APITransactionTestCase):
         self.assertEqual(response.data['payment']['status'], 'APPROVED')
 
     @override_settings(WOMPI_PRIVATE_KEY='prv_test_dummy')
-    @patch('payment.online.api.views.http_requests.get')
+    @patch('payment.online.api.sync.http_requests.get')
     def test_confirmation_endpoint_leaves_pending_on_wompi_api_error(self, get_mock):
         get_mock.return_value.status_code = 500
 
@@ -338,7 +338,7 @@ class WompiConfirmationSyncTestCase(APITransactionTestCase):
         self.assertEqual(InventorySelector.get_current_stock(self.stock_record.id), 5)
 
     @override_settings(WOMPI_PRIVATE_KEY='prv_test_dummy')
-    @patch('payment.online.api.views.http_requests.get')
+    @patch('payment.online.api.sync.http_requests.get')
     def test_confirmation_endpoint_syncs_via_id_hint_before_webhook_arrives(self, get_mock):
         """
         Cubre la causa raiz real del bug reportado (2026-07-07): justo despues de que
@@ -611,7 +611,7 @@ class RentalPaymentFailureReleaseTestCase(TransactionTestCase):
 
     @_PATCH_NOTIFICATION_COMMANDS
     @override_settings(WOMPI_PRIVATE_KEY='prv_test_dummy')
-    @patch('payment.online.api.views.http_requests.get')
+    @patch('payment.online.api.sync.http_requests.get')
     def test_sync_wompi_status_declined_cancels_rental_request(self, get_mock, *_mocks):
         """
         Cubre el gap real cerrado 2026-07-14 (roadmap "Reconciliacion de pagos"):
@@ -869,7 +869,7 @@ class WompiReconcilePendingTransactionsTaskTestCase(APITransactionTestCase):
     @_PATCH_NOTIFICATION_COMMANDS
     @_PATCH_OPERATION_COMMANDS
     @_PATCH_SERVICE_COMMANDS
-    @patch('payment.online.api.views.http_requests.get')
+    @patch('payment.online.api.sync.http_requests.get')
     def test_reconcile_only_touches_stale_transactions_with_known_wompi_id(self, get_mock, *_mocks):
         from payment.tasks import reconcile_pending_wompi_transactions
 
@@ -915,7 +915,7 @@ class WompiReconciliationObservabilityTestCase(APITransactionTestCase):
             payment_method='WOMPI', total_amount=Decimal('40000.00'),
         )
 
-    @patch('payment.online.api.views.http_requests.get')
+    @patch('payment.online.api.sync.http_requests.get')
     def test_sync_status_non_200_writes_unprocessed_event(self, get_mock):
         from payment.online.api.views import _sync_wompi_status
 
@@ -935,7 +935,7 @@ class WompiReconciliationObservabilityTestCase(APITransactionTestCase):
         self.assertIn('500', event.error_detail)
         self.assertEqual(event.correlation_id, 'corr-sync-fail-1')
 
-    @patch('payment.online.api.views.http_requests.get')
+    @patch('payment.online.api.sync.http_requests.get')
     def test_sync_status_exception_writes_unprocessed_event(self, get_mock):
         from payment.online.api.views import _sync_wompi_status
 
@@ -1429,7 +1429,7 @@ class WompiObservabilityTestCase(APITransactionTestCase):
     @_PATCH_SERVICE_COMMANDS
     @patch('payment.online.services.commands._has_sufficient_stock', return_value=True)
     @patch('payment.online.services.commands.confirm_order_payment')
-    @patch('payment.online.api.views.http_requests.get')
+    @patch('payment.online.api.sync.http_requests.get')
     def test_sync_status_change_writes_transaction_event(self, get_mock, *_mocks):
         tx = Transaction.objects.create(
             order=self.order, amount_in_cents=4000000, status='PENDING',
@@ -1576,7 +1576,7 @@ class PaymentAdminPanelTestCase(APITransactionTestCase):
     @_PATCH_NOTIFICATION_COMMANDS
     @_PATCH_OPERATION_COMMANDS
     @_PATCH_SERVICE_COMMANDS
-    @patch('payment.online.api.views.http_requests.get')
+    @patch('payment.online.api.sync.http_requests.get')
     def test_resync_updates_pending_transaction_with_known_wompi_id(self, get_mock, *_mocks):
         tx = Transaction.objects.create(
             order=self.order, wompi_id='wompi-panel-1', amount_in_cents=4000000, status='PENDING',
@@ -1596,7 +1596,7 @@ class PaymentAdminPanelTestCase(APITransactionTestCase):
         tx = Transaction.objects.create(order=self.order, amount_in_cents=4000000, status='PENDING')
 
         self.client.force_authenticate(user=self.admin)
-        with patch('payment.online.api.views.http_requests.get') as get_mock:
+        with patch('payment.online.api.sync.http_requests.get') as get_mock:
             response = self.client.post(self._url(tx.uuid, 'resync'))
             get_mock.assert_not_called()
 

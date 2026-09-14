@@ -1,9 +1,6 @@
-import hashlib
-import hmac
 import logging
 import uuid as uuid_lib
 
-import requests as http_requests
 from django.conf import settings
 from django.db import transaction
 from django.db.models import Q
@@ -20,191 +17,23 @@ from payment.online.api.serializers import TransactionSerializer
 from payment.online.services.commands import WompiCommands
 from payment.online.wompi_client import WompiApiError
 
+# [Sprint 3, 2026-08-05] _sync_wompi_status y _verify_wompi_event_signature se
+# extrajeron a sync.py/signature.py (reconciliacion activa y validacion HMAC del
+# webhook, cada una un bloque autocontenido sin relacion con la capa HTTP del
+# ViewSet). Reexportadas aqui sin cambio de comportamiento para que los call sites
+# existentes (`from payment.online.api.views import _sync_wompi_status` en
+# dashboard/services/admin_orchestrators.py, payment/tasks.py, payment/tests.py, y
+# `_verify_wompi_event_signature` en payment/api/views.py) sigan funcionando.
+from payment.online.api.sync import _sync_wompi_status  # noqa: F401
+from payment.online.api.signature import _verify_wompi_event_signature  # noqa: F401
+
 logger = logging.getLogger(__name__)
-
-
-def _sync_wompi_status(wompi_tx: Transaction, wompi_id_hint: str = None) -> None:
-    """
-    Query the Wompi API to sync a PENDING transaction status.
-    Called when the user returns from Wompi's confirmation page before
-    the webhook has been processed.
-
-    `wompi_id_hint` covers the exact race this function exists for: right after
-    the checkout widget closes, Wompi's own webhook (which is the only place that
-    normally writes `Transaction.wompi_id`) may not have arrived yet, so
-    `wompi_tx.wompi_id` is still None. The widget's own JS callback already knows
-    Wompi's transaction id at that point (`result.transaction.id`) -- the frontend
-    passes it through as a hint so this function can query Wompi directly instead
-    of silently giving up. This is only used to know WHICH transaction to ask
-    Wompi about; the actual status always comes from Wompi's API response below,
-    never from the hint itself (per Wompi's own guidance: never trust the
-    redirect/callback status, only the API/webhook).
-    """
-    wompi_id = wompi_tx.wompi_id or wompi_id_hint
-    if not wompi_id:
-        return
-
-    env = getattr(settings, "WOMPI_ENVIRONMENT", "test")
-    base_url = (
-        "https://sandbox.wompi.co/v1"
-        if env != "prod"
-        else "https://production.wompi.co/v1"
-    )
-    private_key = getattr(settings, "WOMPI_PRIVATE_KEY", "")
-    if not private_key:
-        logger.warning("_sync_wompi_status: WOMPI_PRIVATE_KEY no configurado")
-        return
-
-    # Capturado ANTES de cualquier intento (ADR-001 Fase 6): las ramas de error
-    # de abajo necesitan el status previo para dejar un TransactionEvent, y
-    # wompi_tx.status puede haber sido mutado dentro del bloque atomic si la
-    # excepcion ocurre a mitad de camino (el rollback de BD no deshace ese
-    # atributo en memoria).
-    original_status = wompi_tx.status
-
-    try:
-        resp = http_requests.get(
-            f"{base_url}/transactions/{wompi_id}",
-            headers={"Authorization": f"Bearer {private_key}"},
-            timeout=5,
-        )
-        if resp.status_code != 200:
-            logger.warning(
-                "_sync_wompi_status: Wompi respondio %s para wompi_id=%s",
-                resp.status_code, wompi_id,
-            )
-            from payment.online.services.commands import WompiCommands
-            WompiCommands.record_sync_event(
-                wompi_tx, previous_status=original_status,
-                error_detail=f"Wompi respondio {resp.status_code} al consultar wompi_id={wompi_id}",
-            )
-            return
-
-        data = resp.json().get("data", {})
-        new_status = data.get("status", "")
-        method_type = data.get("payment_method_type", "")
-
-        # Se bloquea y guarda una copia separada (no se reasigna wompi_tx: el
-        # caller (confirmation()/transaction_status()) mantiene su propia
-        # referencia al objeto que le pasamos, y necesita ver los campos
-        # actualizados para construir la respuesta -- reasignar el parametro
-        # aqui solo actualizaria el nombre local, dejando el objeto del caller
-        # con el status viejo en memoria aunque la fila en BD ya cambio).
-        with transaction.atomic():
-            locked_tx = Transaction.objects.select_for_update().get(pk=wompi_tx.pk)
-            update_fields = ["updated_at"]
-            previous_status = locked_tx.status
-
-            if not locked_tx.wompi_id:
-                locked_tx.wompi_id = wompi_id
-                update_fields.append("wompi_id")
-
-            if method_type and method_type != locked_tx.payment_method_type:
-                locked_tx.payment_method_type = method_type
-                update_fields.append("payment_method_type")
-
-            status_changed = new_status and new_status != locked_tx.status
-            if status_changed:
-                locked_tx.status = new_status
-                update_fields.append("status")
-
-            locked_tx.save(update_fields=update_fields)
-
-            wompi_tx.wompi_id            = locked_tx.wompi_id
-            wompi_tx.payment_method_type = locked_tx.payment_method_type
-            wompi_tx.status              = locked_tx.status
-
-            if status_changed:
-                from payment.online.services.commands import WompiCommands as _WC
-                _WC.record_sync_event(
-                    locked_tx, previous_status=previous_status,
-                    new_status=new_status, raw_payload=data, processed=True,
-                )
-
-        if status_changed:
-            logger.info(
-                "_sync_wompi_status: actualizado corr=%s wompi_id=%s status=%s",
-                wompi_tx.correlation_id, wompi_id, new_status,
-            )
-            from payment.online.services.commands import WompiCommands
-            WompiCommands.handle_status_change(wompi_tx, new_status)
-
-    except Exception as exc:
-        logger.warning(
-            "_sync_wompi_status: error consultando Wompi wompi_id=%s | %s",
-            wompi_id, exc,
-        )
-        from payment.online.services.commands import WompiCommands as _WC
-        _WC.record_sync_event(
-            wompi_tx, previous_status=original_status,
-            error_detail=str(exc)[:500],
-        )
 
 
 def _is_nequi_configured() -> bool:
     """Credenciales reales presentes (ni vacias ni el placeholder de .env.example)."""
     required = (settings.NEQUI_CLIENT_ID, settings.NEQUI_CLIENT_SECRET, settings.NEQUI_API_KEY)
     return all(required) and not any(str(v).startswith('your_') for v in required)
-
-
-def _verify_wompi_event_signature(payload: dict, request=None) -> bool:
-    """
-    Valida la autenticidad de un evento Wompi usando el secreto de eventos.
-
-    Algoritmo (doc oficial Wompi):
-      1. Extraer el array `properties` del objeto `signature`.
-      2. Por cada propiedad, navegar el objeto `data` y concatenar su valor.
-      3. Agregar al final `str(timestamp)` y `WOMPI_EVENTS_SECRET`.
-      4. SHA256 de la cadena UTF-8 resultante.
-      5. Comparar con `signature.checksum` con hmac.compare_digest (timing-safe).
-    """
-    from security.models import SecurityEvent
-    from security.services.commands import SecurityCommands
-
-    events_secret: str = getattr(settings, "WOMPI_EVENTS_SECRET", "")
-    if not events_secret:
-        # Fail-CLOSED: sin el secreto NO se puede verificar la autenticidad del
-        # evento, asi que se rechaza. Antes retornaba True (fail-open), lo que
-        # permitia falsificar un "pago aprobado" si la variable faltaba en
-        # produccion. Ver F-01 de la auditoria.
-        logger.critical(
-            "Wompi webhook: WOMPI_EVENTS_SECRET no configurado — "
-            "evento RECHAZADO (fail-closed)."
-        )
-        SecurityCommands.log_event(
-            SecurityEvent.PAYMENT_WEBHOOK_INVALID_SIGNATURE, request=request, severity=SecurityEvent.SEVERITY_CRITICAL,
-            metadata={'reason': 'secret_not_configured'},
-        )
-        return False
-
-    try:
-        sig_obj: dict       = payload.get("signature", {})
-        checksum: str       = sig_obj.get("checksum", "")
-        properties: list    = sig_obj.get("properties", [])
-        timestamp: str|int  = payload.get("timestamp", "")
-        data: dict          = payload.get("data", {})
-
-        concatenated = ""
-        for prop in properties:
-            value: object = data
-            for key in prop.split("."):
-                value = value.get(key, "") if isinstance(value, dict) else ""
-            concatenated += str(value)
-
-        concatenated += str(timestamp) + events_secret
-        computed = hashlib.sha256(concatenated.encode("utf-8")).hexdigest()
-
-        is_valid = hmac.compare_digest(computed, checksum)
-        if not is_valid:
-            SecurityCommands.log_event(
-                SecurityEvent.PAYMENT_WEBHOOK_INVALID_SIGNATURE, request=request, severity=SecurityEvent.SEVERITY_CRITICAL,
-                metadata={'event_type': payload.get('event', 'unknown')},
-            )
-        return is_valid
-
-    except Exception as exc:
-        logger.exception("Wompi webhook: error al validar firma | %s", exc)
-        return False
 
 
 def _build_rental_confirmation(wompi_tx: Transaction) -> dict:
@@ -281,8 +110,14 @@ class WompiPaymentViewSet(viewsets.ViewSet):
     # F-03 (auditoria enterprise): initialize() no tenia ningun limite de
     # tasa -- solo `initialize` lo necesita (es la accion que dispara dinero/
     # cobro); el resto de acciones son lectura o publicas por diseno.
+    # [CORREGIDO 2026-08-04, hallazgo C1 de AUDITORIA_INTEGRAL_PRODUCCION_2026-08-04.md]:
+    # transaction_status/confirmation SI necesitan throttle -- disparan
+    # _sync_wompi_status(), que consulta Wompi con un wompi_id controlado por el cliente.
+    # Defensa en profundidad ademas de la validacion de reference/monto ya agregada ahi.
     ACTION_THROTTLE_SCOPES = {
         'initialize': 'payment_initialize',
+        'transaction_status': 'payment_reconciliation',
+        'confirmation': 'payment_reconciliation',
     }
 
     def get_throttles(self):
@@ -324,7 +159,7 @@ class WompiPaymentViewSet(viewsets.ViewSet):
 
         if order.status != Order.STATUS_PENDING_PAYMENT:
             return Response(
-                {"error": "La orden no esta pendiente de pago."},
+                {"detail": "La orden no esta pendiente de pago."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -342,7 +177,7 @@ class WompiPaymentViewSet(viewsets.ViewSet):
         flags = PaymentFeatureFlags.get_active()
         if (card_token or payment_source_id) and not flags.card_api_flow_enabled:
             return Response(
-                {"error": "El pago con tarjeta via API esta deshabilitado temporalmente. Usa PSE/Otros."},
+                {"detail": "El pago con tarjeta via API esta deshabilitado temporalmente. Usa PSE/Otros."},
                 status=status.HTTP_403_FORBIDDEN,
             )
         # Simetrico al kill-switch de arriba (plan hibrido Widget+API): si el
@@ -350,7 +185,7 @@ class WompiPaymentViewSet(viewsets.ViewSet):
         # card_token/payment_source_id) tambien debe rechazarse en el backend.
         if not (card_token or payment_source_id) and not flags.widget_flow_enabled:
             return Response(
-                {"error": "El pago via Widget esta deshabilitado temporalmente. Usa Tarjeta."},
+                {"detail": "El pago via Widget esta deshabilitado temporalmente. Usa Tarjeta."},
                 status=status.HTTP_403_FORBIDDEN,
             )
 
@@ -371,7 +206,7 @@ class WompiPaymentViewSet(viewsets.ViewSet):
             locked_order = Order.objects.select_for_update().get(pk=order.pk)
             if locked_order.status != Order.STATUS_PENDING_PAYMENT:
                 return Response(
-                    {"error": "La orden no esta pendiente de pago."},
+                    {"detail": "La orden no esta pendiente de pago."},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
             existing_tx = (
@@ -399,9 +234,9 @@ class WompiPaymentViewSet(viewsets.ViewSet):
                         correlation_id=correlation_id,
                     )
                 except ValueError as exc:
-                    return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+                    return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
                 except WompiApiError as exc:
-                    return Response({"error": str(exc)}, status=status.HTTP_502_BAD_GATEWAY)
+                    return Response({"detail": str(exc)}, status=status.HTTP_502_BAD_GATEWAY)
 
         return Response({
             "uuid":                str(wompi_tx.uuid),
@@ -431,7 +266,7 @@ class WompiPaymentViewSet(viewsets.ViewSet):
         tx_uuid: str = request.query_params.get("tx", "").strip()
         tx_wompi_id: str = request.query_params.get("id", "").strip()
         if not tx_uuid:
-            return Response({"error": "Parametro tx requerido."}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"detail": "Parametro tx requerido."}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
             wompi_tx = (
@@ -444,7 +279,7 @@ class WompiPaymentViewSet(viewsets.ViewSet):
                 )
             )
         except Transaction.DoesNotExist:
-            return Response({"error": "Transaccion no encontrada."}, status=status.HTTP_404_NOT_FOUND)
+            return Response({"detail": "Transaccion no encontrada."}, status=status.HTTP_404_NOT_FOUND)
 
         if wompi_tx.status == "PENDING":
             _sync_wompi_status(wompi_tx, wompi_id_hint=tx_wompi_id or None)
@@ -527,7 +362,7 @@ class WompiPaymentViewSet(viewsets.ViewSet):
 
         if not tx_wompi_id and not tx_uuid:
             return Response(
-                {"error": "Parametro id o tx requerido."},
+                {"detail": "Parametro id o tx requerido."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -543,7 +378,7 @@ class WompiPaymentViewSet(viewsets.ViewSet):
             else:
                 wompi_tx = qs.get(owner_filter, wompi_id=tx_wompi_id)
         except Transaction.DoesNotExist:
-            return Response({"error": "Transaccion no encontrada."}, status=status.HTTP_404_NOT_FOUND)
+            return Response({"detail": "Transaccion no encontrada."}, status=status.HTTP_404_NOT_FOUND)
 
         if wompi_tx.status == "PENDING":
             _sync_wompi_status(wompi_tx, wompi_id_hint=tx_wompi_id or None)
@@ -695,7 +530,7 @@ class WompiPaymentViewSet(viewsets.ViewSet):
                 "Wompi webhook: firma INVALIDA. payload=%s",
                 str(request.data)[:500],
             )
-            return Response({"error": "Firma de evento invalida."}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"detail": "Firma de evento invalida."}, status=status.HTTP_400_BAD_REQUEST)
 
         WompiCommands.process_webhook_notification(request.data)
         return Response({"status": "received"}, status=status.HTTP_200_OK)
