@@ -85,6 +85,12 @@ class ServiceOrderViewSet(viewsets.ModelViewSet):
             .select_related(
                 'service_detail', 'service_detail__technician',
                 'service_detail__technician__technician_profile',
+                # Migracion "autoridad unica de tecnico" FASE 4 (2026-08-14):
+                # ServiceAssignmentQueueSerializer.get_technician() ahora lee de
+                # aqui (fuente real), no solo de service_detail -- select_related
+                # evita un N+1 por fila en el tablero de asignacion.
+                'service_operation', 'service_operation__technician',
+                'service_operation__technician__technician_profile',
             )
             .prefetch_related(
                 'items',
@@ -106,7 +112,10 @@ class ServiceOrderViewSet(viewsets.ModelViewSet):
             qs = qs.filter(service_detail__priority=priority)
         has_technician = params.get('has_technician')
         if has_technician in ('true', 'false'):
-            qs = qs.filter(service_detail__technician__isnull=has_technician == 'false')
+            # FASE 4 (2026-08-14): filtra por ServiceOperation.technician (fuente
+            # real), no service_detail.technician (snapshot legacy que puede
+            # quedar en None si la asignacion se hizo desde el panel de Servicios).
+            qs = qs.filter(service_operation__technician__isnull=has_technician == 'false')
         category = params.get('category')
         if category:
             qs = qs.filter(items__service_variant__service__category__slug=category).distinct()

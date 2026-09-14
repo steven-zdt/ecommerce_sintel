@@ -6,6 +6,20 @@ from orders.models import Order, Shipment, DispatchCenter, Carrier, DeliveryDriv
 
 class AssignmentCommands:
     @staticmethod
+    def _set_dispatcher_availability(dispatcher, is_available):
+        """Mantiene operations.DispatcherProfile.is_available sincronizada con
+        la asignacion real via Shipment. Cross-domain audit FASE B
+        (2026-08-14, ver
+        technical_services/.AGENT/CROSS_DOMAIN_ASSIGNMENT_AUDIT_FINAL.md):
+        mismo patron que RentalOperationCommands._set_dispatcher_availability()/
+        ServiceOperationCommands._set_technician_availability()."""
+        if dispatcher is None:
+            return
+        if dispatcher.is_available != is_available:
+            dispatcher.is_available = is_available
+            dispatcher.save(update_fields=['is_available', 'updated_at'])
+
+    @staticmethod
     @transaction.atomic
     def assign_dispatch_center(order: Order, shipment: Shipment, dispatch_center_uuid: str, assigned_by=None) -> Shipment:
         dispatch_center = get_object_or_404(DispatchCenter, uuid=dispatch_center_uuid, is_deleted=False)
@@ -65,8 +79,21 @@ class AssignmentCommands:
         """
         from operations.models import DispatcherProfile
         dispatcher = get_object_or_404(DispatcherProfile, uuid=dispatcher_profile_uuid, is_deleted=False)
-        if not dispatcher.is_active or not dispatcher.is_available:
+        same_dispatcher = shipment.assigned_dispatcher_id == dispatcher.id
+        if not dispatcher.is_active or (not same_dispatcher and not dispatcher.is_available):
             raise ValueError('El despachador seleccionado no esta disponible.')
+
+        # Cross-domain audit FASE B (2026-08-14, ver
+        # technical_services/.AGENT/CROSS_DOMAIN_ASSIGNMENT_AUDIT_FINAL.md):
+        # este es ahora el unico lugar que marca al despachador ocupado para
+        # envios de Shop -- antes ningun escritor lo hacia (mismo gap que
+        # tenia RentalOperationCommands.assign_dispatcher() hasta esa
+        # auditoria), y luego operations.OperationCommands.assign_resource()
+        # lo hacia de forma aislada, sin relacion con este Shipment.
+        previous_dispatcher = shipment.assigned_dispatcher
+        if previous_dispatcher and previous_dispatcher.id != dispatcher.id:
+            AssignmentCommands._set_dispatcher_availability(previous_dispatcher, True)
+        AssignmentCommands._set_dispatcher_availability(dispatcher, False)
 
         shipment.assigned_dispatcher = dispatcher
         shipment.vehicle = dispatcher.vehicle_plate or shipment.vehicle

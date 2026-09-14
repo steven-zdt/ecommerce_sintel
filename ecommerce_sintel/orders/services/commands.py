@@ -5,24 +5,27 @@ from django.utils import timezone
 from decimal import Decimal
 from orders.models import Order, OrderItem, ShippingAddress, Coupon
 from cart.models import Cart
-from inventory.services.selectors import InventorySelector
+from inventory.services.selectors import InventorySelector, check_variant_or_service_availability
 
 logger = logging.getLogger(__name__)
 
 
 def _check_item_stock(item):
-    if item.variant:
-        stock = InventorySelector.get_stock_for_variant(item.variant)
-        if stock < item.quantity:
-            raise ValidationError(
-                f"Sin existencias suficientes para: {item.variant.sku}"
-            )
-    elif item.service_variant:
+    """
+    DUP-B4 (auditoria, doc 03): delega el calculo de disponibilidad a
+    inventory.services.selectors.check_variant_or_service_availability()
+    (mismo helper que usa cart.services.commands._check_availability()), pero
+    conserva el mensaje de error propio de esta app (con el SKU) en vez del
+    mensaje generico del helper compartido -- el texto que ve el usuario no
+    cambio, solo el calculo/comparacion de stock que estaba duplicado.
+    """
+    try:
+        check_variant_or_service_availability(item.variant, item.service_variant, item.quantity)
+    except ValidationError:
+        if item.variant:
+            raise ValidationError(f"Sin existencias suficientes para: {item.variant.sku}")
         sv = item.service_variant
-        if not sv.is_active or not sv.service.is_active:
-            raise ValidationError(
-                f"El servicio {sv.sku} ya no esta disponible."
-            )
+        raise ValidationError(f"El servicio {sv.sku} ya no esta disponible.")
 
 
 def _item_unit_price(item) -> Decimal:

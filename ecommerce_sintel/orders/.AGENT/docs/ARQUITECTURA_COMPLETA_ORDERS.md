@@ -614,6 +614,20 @@ return qs.filter(user=self.request.user)
 | `upload_attachment` | POST | `/{uuid}/attachments/` | Authenticated | `ServiceAttachmentCommands.add_attachment()` |
 | `assign_technician` | POST | `/{uuid}/assign-technician/` | IsAdminUser | `ServiceAssignmentCommands.assign_technician()` |
 | `auto_assign_technician` | POST | `/{uuid}/auto-assign/` | IsAdminUser | `ServiceAssignmentCommands.auto_assign_technician()` |
+
+> **[REGLA 2026-08-14, actualizada FASE 4] `ServiceAssignmentCommands` (usado por estos
+> 2 endpoints + `unassign-technician`) ya NO decide la asignacion por su cuenta** --
+> delega integramente en `technical_services.ServiceOperationCommands`
+> (`operations.py`), la unica fuente de verdad (SOURCE OF TRUTH) real: valida FSM,
+> reserva/libera `ProfessionalAvailability`, mantiene `TechnicianProfile.is_available`.
+> `OrderServiceDetail.technician` se sigue escribiendo aqui, pero solo como snapshot de
+> compatibilidad reflejando esa decision (nunca como segunda decision independiente) --
+> ver `technical_services/.AGENT/docs/ARQUITECTURA_COMPLETA_SERVICES.md` #23. Estos
+> endpoints (`TechnicianAssignmentBoard.vue`, `/panel/servicios/asignacion-tecnicos`)
+> siguen activos y funcionalmente equivalentes al usuario -- no requieren cambio de
+> consumidor. Ver
+> `technical_services/.AGENT/TECHNICIAN_ASSIGNMENT_MIGRATION_FASE0_2026-08-14.md` para
+> las fases restantes (reconciliacion de datos historicos, Orders a solo-lectura).
 | `confirm_cod` | POST | `/{uuid}/confirm-cod/` | owner (user) | Confirma pago en sitio COD para servicio |
 
 **Detalle de `confirm_cod`:**
