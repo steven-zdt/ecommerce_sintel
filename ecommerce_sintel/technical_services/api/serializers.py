@@ -1,12 +1,19 @@
 from decimal import Decimal
+from django.contrib.contenttypes.models import ContentType
 from rest_framework import serializers
 from shop.models import ProductVariant as _PV
+from shop.api.serializers import ProductSerializer
 from technical_services.models import (
     TechnicalService, ServiceVariant, ServiceMaterial,
     ServiceCategory, ServiceLevel, ServiceImage, ServiceConfiguration,
     OrderServiceDetail, OrderServiceTimeline, ServiceAttachment,
     ServicePriceHistory, ServiceFAQ, ServiceMarketing, ServiceReview,
+    ServiceIncludedItem, ServiceExcludedItem, ServiceRequirement,
+    ServiceSpecificationGroup, ServiceSpecification,
+    ServiceDocument, ServiceVideo, ServiceProcessStep,
 )
+from shared.models import CatalogRelation
+from shared.services.content_blocks import ContentBlockConfigSelector, CatalogRelationSelector
 
 
 # ─── Output Serializers ───────────────────────────────────────────────────────
@@ -35,7 +42,22 @@ class ServiceConfigurationSerializer(serializers.ModelSerializer):
 class ServiceImageSerializer(serializers.ModelSerializer):
     class Meta:
         model = ServiceImage
-        fields = ['uuid', 'image', 'alt_text', 'is_primary']
+        fields = ['uuid', 'image', 'alt_text', 'is_primary', 'caption', 'description', 'display_order']
+
+
+class ServiceImageUpdateInputSerializer(serializers.Serializer):
+    """Payload de PATCH .../images/{uuid}/ -- solo metadatos (sin archivo),
+    ver ServiceImageCommands.update_metadata() (FASE 4 galeria descriptiva)."""
+    alt_text = serializers.CharField(required=False, allow_blank=True)
+    caption = serializers.CharField(required=False, allow_blank=True, max_length=150)
+    description = serializers.CharField(required=False, allow_blank=True)
+
+
+class ServiceImageReorderInputSerializer(serializers.Serializer):
+    """Payload de POST .../reorder_images/ -- lista de uuids de ServiceImage
+    en el orden final deseado, mismo patron que ContentBlocksTab.vue usa
+    para reordenar bloques (ordered_block_types)."""
+    ordered_uuids = serializers.ListField(child=serializers.UUIDField(), allow_empty=False)
 
 
 class ServiceMaterialSerializer(serializers.ModelSerializer):
@@ -59,8 +81,19 @@ class ServiceVariantSerializer(serializers.ModelSerializer):
             'id', 'uuid', 'sku', 'pricing_strategy', 'estimated_hours', 'complexity_factor',
             'fixed_price', 'min_duration', 'max_duration', 'simultaneous_capacity',
             'calculated_price', 'price_info',
+            # Plan "Manual Pricing Engine" (2026-08-13) FASE 8 -- solo lectura aqui a
+            # proposito: el panel debe cambiar estos 3 campos exclusivamente via la
+            # accion dedicada set-pricing/ (ServicePricingCommands.set_manual_pricing,
+            # con historial + validacion cruzada), nunca via el PATCH generico de esta
+            # variante -- ver SetVariantPricingInputSerializer abajo.
+            'pricing_source', 'manual_unit_price', 'manual_project_price', 'is_manual_pricing',
             'is_default', 'is_active', 'materials',
         ]
+        # is_manual_pricing (property del modelo, no columna) ya queda read-only
+        # automaticamente al no ser un campo escribible -- listarla aqui de mas
+        # rompe con "may not also be listed in read_only_fields" si DRF la
+        # detecta como declarada.
+        read_only_fields = ['pricing_source', 'manual_unit_price', 'manual_project_price']
 
     def get_calculated_price(self, obj):
         from technical_services.services import ServiceSelector
@@ -93,7 +126,31 @@ class ServicePriceHistorySerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ServicePriceHistory
-        fields = ['uuid', 'old_price', 'new_price', 'changed_by_email', 'created_at']
+        # Plan "Manual Pricing Engine" FASE 6 -- pricing_source_old/new,
+        # unit_price_old/new, project_price_old/new y reason son NULL en las
+        # entradas generadas por cambios de fixed_price (ServiceVariantCommands.
+        # update_variant) y old_price/new_price son NULL en las generadas por
+        # ServicePricingCommands.set_manual_pricing -- el frontend distingue el
+        # tipo de entrada por cual grupo de campos viene poblado.
+        fields = [
+            'uuid', 'old_price', 'new_price',
+            'pricing_source_old', 'pricing_source_new',
+            'unit_price_old', 'unit_price_new',
+            'project_price_old', 'project_price_new',
+            'reason', 'changed_by_email', 'created_at',
+        ]
+
+
+class SetVariantPricingInputSerializer(serializers.Serializer):
+    """Payload de POST .../service-variants/{uuid}/set-pricing/ -- unica via
+    admitida para cambiar ServiceVariant.pricing_source (FASE 8). unit_price/
+    project_price se validan cruzados contra pricing_source en
+    ServicePricingCommands.set_manual_pricing() (via ServiceVariant.clean()),
+    no aqui -- este serializer solo valida forma/tipos."""
+    pricing_source = serializers.ChoiceField(choices=ServiceVariant.PRICING_SOURCE_CHOICES)
+    unit_price = serializers.DecimalField(max_digits=12, decimal_places=2, required=False, allow_null=True)
+    project_price = serializers.DecimalField(max_digits=12, decimal_places=2, required=False, allow_null=True)
+    reason = serializers.CharField(required=False, allow_blank=True, default='')
 
 
 class ServiceFAQSerializer(serializers.ModelSerializer):
@@ -238,6 +295,121 @@ class TechnicalServiceSerializer(serializers.ModelSerializer):
         return ServiceFAQSerializer(faqs, many=True).data
 
 
+class TechnicalServiceDetailSerializer(TechnicalServiceSerializer):
+    """
+    Payload enriquecido de GET /services/services/{uuid}/detail/ -- espejo de
+    ProductDetailSerializer (shop/api/serializers.py). Mismo endpoint base,
+    campos aditivos unicamente (mismo contrato de TechnicalServiceSerializer +
+    catalogo enriquecido + orquestacion de bloques + relaciones). Reingenieria
+    SDP 2026-08-05 -- ver technical_services/.AGENT/docs/UI_MODULO_SERVICES.md.
+    """
+    included_items = serializers.SerializerMethodField()
+    excluded_items = serializers.SerializerMethodField()
+    requirements = serializers.SerializerMethodField()
+    specification_groups = serializers.SerializerMethodField()
+    documents = serializers.SerializerMethodField()
+    videos = serializers.SerializerMethodField()
+    process_steps = serializers.SerializerMethodField()
+    materials = serializers.SerializerMethodField()
+    content_blocks = serializers.SerializerMethodField()
+    related_services = serializers.SerializerMethodField()
+    compatible_services = serializers.SerializerMethodField()
+    recommended_products = serializers.SerializerMethodField()
+
+    class Meta(TechnicalServiceSerializer.Meta):
+        fields = TechnicalServiceSerializer.Meta.fields + [
+            'scope', 'warranty', 'coverage_notes',
+            'included_items', 'excluded_items', 'requirements', 'specification_groups',
+            'documents', 'videos', 'process_steps', 'materials', 'content_blocks',
+            'related_services', 'compatible_services', 'recommended_products',
+        ]
+
+    @staticmethod
+    def _active(related_manager):
+        return [obj for obj in related_manager.all() if obj.is_active]
+
+    def get_included_items(self, obj):
+        return ServiceIncludedItemSerializer(self._active(obj.included_items), many=True).data
+
+    def get_excluded_items(self, obj):
+        return ServiceExcludedItemSerializer(self._active(obj.excluded_items), many=True).data
+
+    def get_requirements(self, obj):
+        return ServiceRequirementSerializer(self._active(obj.requirements), many=True).data
+
+    def get_specification_groups(self, obj):
+        payload = []
+        for group in self._active(obj.specification_groups):
+            payload.append({
+                'uuid': str(group.uuid),
+                'name': group.name,
+                'position': group.position,
+                'is_active': group.is_active,
+                'specifications': ServiceSpecificationSerializer(self._active(group.specifications), many=True).data,
+            })
+        return payload
+
+    def get_documents(self, obj):
+        public_docs = [d for d in obj.documents.all() if d.is_public and d.is_active]
+        return ServiceDocumentSerializer(public_docs, many=True, context=self.context).data
+
+    def get_videos(self, obj):
+        return ServiceVideoSerializer(self._active(obj.videos), many=True, context=self.context).data
+
+    def get_process_steps(self, obj):
+        return ServiceProcessStepSerializer(self._active(obj.process_steps), many=True, context=self.context).data
+
+    def get_materials(self, obj):
+        """
+        Bloque "Materiales utilizados" (Fase 11 del brief SDP) -- ServiceMaterial
+        ya existia (referencia shop.ProductVariant, usado por el motor de
+        costos), nunca se habia expuesto al cliente. Se agregan por
+        product_variant (deduplicado) entre todas las variantes activas del
+        servicio -- reusa el prefetch ya cargado por ServiceSelector.get_by_uuid
+        (variants__materials__product_variant__product), sin queries nuevas.
+        """
+        seen = set()
+        materials = []
+        for variant in obj.variants.all():
+            if variant.is_deleted:
+                continue
+            for material in variant.materials.all():
+                pv = material.product_variant
+                if pv is None or pv.id in seen:
+                    continue
+                seen.add(pv.id)
+                materials.append(material)
+        return ServiceMaterialSerializer(materials, many=True, context=self.context).data
+
+    def get_content_blocks(self, obj):
+        from shared.models import ContentBlockConfig
+        content_type = ContentType.objects.get_for_model(TechnicalService)
+        return ContentBlockConfigSelector.resolve_for(content_type, obj.uuid, ContentBlockConfig.SERVICE_DEFAULT_ORDER)
+
+    def _get_related(self, obj, relation_type):
+        content_type = ContentType.objects.get_for_model(TechnicalService)
+        targets = CatalogRelationSelector.get_related_objects(content_type, obj.uuid, relation_type)
+        return TechnicalServiceSerializer(targets, many=True, context=self.context).data
+
+    def get_related_services(self, obj):
+        return self._get_related(obj, CatalogRelation.RELATION_RELATED)
+
+    def get_compatible_services(self, obj):
+        return self._get_related(obj, CatalogRelation.RELATION_COMPATIBLE)
+
+    def get_recommended_products(self, obj):
+        """
+        Fase 21 del brief (Productos recomendados) -- relacion cruzada real:
+        CatalogRelation.related_content_type puede apuntar a shop.Product sin
+        que este modulo dependa de la logica de negocio de Shop, solo de su
+        serializer de lectura publico (mismo nivel de acoplamiento que ya
+        existe hoy via ServiceMaterial.product_variant -> shop.ProductVariant).
+        """
+        content_type = ContentType.objects.get_for_model(TechnicalService)
+        products = CatalogRelationSelector.get_related_objects(content_type, obj.uuid, CatalogRelation.RELATION_ACCESSORY)
+        return ProductSerializer(products, many=True, context=self.context).data
+
+
 # ─── Input Serializers ────────────────────────────────────────────────────────
 
 class ServiceCategoryInputSerializer(serializers.Serializer):
@@ -277,6 +449,9 @@ class ServiceLevelInputSerializer(serializers.Serializer):
 class TechnicalServiceInputSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=255)
     description = serializers.CharField(allow_blank=True, default='')
+    scope = serializers.CharField(allow_blank=True, required=False, default='')
+    warranty = serializers.CharField(allow_blank=True, required=False, default='')
+    coverage_notes = serializers.CharField(allow_blank=True, required=False, default='')
     category = serializers.SlugRelatedField(
         slug_field='uuid',
         queryset=ServiceCategory.objects.all(),
@@ -399,10 +574,19 @@ class OrderServiceDetailSerializer(serializers.ModelSerializer):
         ]
 
     def get_technician(self, obj):
-        if not obj.technician:
+        # Migracion "autoridad unica de tecnico" FASE 4/9 (2026-08-14): prioriza
+        # ServiceOperation.technician (la fuente real) sobre el snapshot legacy
+        # obj.technician, evitando exponer un valor obsoleto si la asignacion se
+        # movio desde el panel de Servicios/la fachada admin en vez de este
+        # endpoint legacy. Fallback a obj.technician solo si aun no existe
+        # ServiceOperation para la orden (caso residual, ensure_for_order() la
+        # crea automaticamente en el flujo normal).
+        operation = getattr(obj.order, 'service_operation', None)
+        technician = operation.technician if operation and operation.technician_id else obj.technician
+        if not technician:
             return None
         from users.api.serializers import UserDetailSerializer
-        return UserDetailSerializer(obj.technician).data
+        return UserDetailSerializer(technician).data
 
 
 class OrderServiceTimelineSerializer(serializers.ModelSerializer):
@@ -488,8 +672,10 @@ class ServiceAssignmentQueueSerializer(serializers.ModelSerializer):
     """
     Listado liviano para el tablero de asignacion de tecnicos. Requiere que la orden venga
     con select_related/prefetch_related de get_queryset() (items__service_variant__service__category,
-    timeline, service_detail__technician__technician_profile) -- current_status y category_name
-    NUNCA disparan una query nueva por fila, solo leen las colecciones ya prefetcheadas.
+    timeline, service_detail__technician__technician_profile, service_operation__technician__
+    technician_profile -- este ultimo agregado en FASE 4 2026-08-14, ver
+    TECHNICIAN_ASSIGNMENT_MIGRATION_FASE0_2026-08-14.md) -- current_status, category_name y
+    technician NUNCA disparan una query nueva por fila, solo leen las colecciones ya prefetcheadas.
     """
     client_email = serializers.ReadOnlyField(source='user.email')
     client_name = serializers.SerializerMethodField()
@@ -538,8 +724,13 @@ class ServiceAssignmentQueueSerializer(serializers.ModelSerializer):
         return events[-1].status if events else None
 
     def get_technician(self, obj):
+        # FASE 4/9 (2026-08-14): ServiceOperation.technician es la fuente real --
+        # ver docstring de OrderServiceDetailSerializer.get_technician().
+        operation = getattr(obj, 'service_operation', None)
         detail = getattr(obj, 'service_detail', None)
-        technician = detail.technician if detail else None
+        technician = operation.technician if operation and operation.technician_id else (
+            detail.technician if detail else None
+        )
         if not technician:
             return None
         from accounts.services.profile_resolver import ProfileResolver
@@ -716,3 +907,165 @@ class ServiceCostRuleInputSerializer(serializers.Serializer):
 
 class ServiceCostAssignmentInputSerializer(serializers.Serializer):
     variant_uuid = serializers.UUIDField()
+
+
+# ---------------------------------------------------------------------------
+# Catalogo enriquecido de TechnicalService (2026-08-05) -- espejo de
+# shop/api/serializers.py (mismo bloque, "Catalogo enriquecido de Product").
+# ---------------------------------------------------------------------------
+
+class ServiceIncludedItemSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ServiceIncludedItem
+        fields = ['uuid', 'title', 'description', 'icon', 'position', 'is_active']
+        read_only_fields = ['uuid']
+
+
+class ServiceIncludedItemInputSerializer(serializers.Serializer):
+    title = serializers.CharField(max_length=255)
+    description = serializers.CharField(required=False, allow_blank=True, default='')
+    icon = serializers.CharField(max_length=100, required=False, allow_blank=True, default='')
+    position = serializers.IntegerField(min_value=0, default=0, required=False)
+    is_active = serializers.BooleanField(default=True, required=False)
+
+
+class ServiceExcludedItemSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ServiceExcludedItem
+        fields = ['uuid', 'title', 'description', 'icon', 'position', 'is_active']
+        read_only_fields = ['uuid']
+
+
+class ServiceExcludedItemInputSerializer(serializers.Serializer):
+    title = serializers.CharField(max_length=255)
+    description = serializers.CharField(required=False, allow_blank=True, default='')
+    icon = serializers.CharField(max_length=100, required=False, allow_blank=True, default='')
+    position = serializers.IntegerField(min_value=0, default=0, required=False)
+    is_active = serializers.BooleanField(default=True, required=False)
+
+
+class ServiceRequirementSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ServiceRequirement
+        fields = ['uuid', 'title', 'description', 'position', 'is_active']
+        read_only_fields = ['uuid']
+
+
+class ServiceRequirementInputSerializer(serializers.Serializer):
+    title = serializers.CharField(max_length=255)
+    description = serializers.CharField(required=False, allow_blank=True, default='')
+    position = serializers.IntegerField(min_value=0, default=0, required=False)
+    is_active = serializers.BooleanField(default=True, required=False)
+
+
+class ServiceSpecificationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ServiceSpecification
+        fields = ['uuid', 'name', 'value', 'position', 'is_active']
+        read_only_fields = ['uuid']
+
+
+class ServiceSpecificationGroupSerializer(serializers.ModelSerializer):
+    specifications = ServiceSpecificationSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = ServiceSpecificationGroup
+        fields = ['uuid', 'name', 'position', 'is_active', 'specifications']
+        read_only_fields = ['uuid']
+
+
+class ServiceSpecificationGroupInputSerializer(serializers.Serializer):
+    name = serializers.CharField(max_length=150)
+    position = serializers.IntegerField(min_value=0, default=0, required=False)
+    is_active = serializers.BooleanField(default=True, required=False)
+
+
+class ServiceSpecificationInputSerializer(serializers.Serializer):
+    group = serializers.SlugRelatedField(
+        slug_field='uuid',
+        queryset=ServiceSpecificationGroup.objects.filter(is_deleted=False),
+    )
+    name = serializers.CharField(max_length=150)
+    value = serializers.CharField(max_length=255)
+    position = serializers.IntegerField(min_value=0, default=0, required=False)
+    is_active = serializers.BooleanField(default=True, required=False)
+
+
+class ServiceDocumentSerializer(serializers.ModelSerializer):
+    document_type_display = serializers.CharField(source='get_document_type_display', read_only=True)
+
+    class Meta:
+        model = ServiceDocument
+        fields = [
+            'uuid', 'title', 'description', 'document_type', 'document_type_display',
+            'file', 'cover_image', 'downloads', 'position', 'is_public', 'is_active', 'created_at',
+        ]
+        read_only_fields = ['uuid', 'downloads', 'created_at']
+
+
+class ServiceDocumentInputSerializer(serializers.Serializer):
+    title = serializers.CharField(max_length=255)
+    description = serializers.CharField(required=False, allow_blank=True, default='')
+    document_type = serializers.ChoiceField(choices=ServiceDocument.DOCUMENT_TYPE_CHOICES, default=ServiceDocument.TYPE_OTRO)
+    cover_image = serializers.ImageField(required=False, allow_null=True)
+    position = serializers.IntegerField(min_value=0, default=0, required=False)
+    is_public = serializers.BooleanField(default=True, required=False)
+    is_active = serializers.BooleanField(default=True, required=False)
+
+
+class ServiceVideoSerializer(serializers.ModelSerializer):
+    source_type_display = serializers.CharField(source='get_source_type_display', read_only=True)
+    embed_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ServiceVideo
+        fields = [
+            'uuid', 'title', 'source_type', 'source_type_display',
+            'video_url', 'video_file', 'thumbnail', 'embed_url', 'position', 'is_active',
+        ]
+        read_only_fields = ['uuid']
+
+    def get_embed_url(self, obj):
+        import re
+        if obj.source_type == ServiceVideo.SOURCE_YOUTUBE and obj.video_url:
+            match = re.search(r'(?:youtube\.com/watch\?v=|youtu\.be/)([^&?/]+)', obj.video_url)
+            return f'https://www.youtube.com/embed/{match.group(1)}' if match else obj.video_url
+        if obj.source_type == ServiceVideo.SOURCE_VIMEO and obj.video_url:
+            match = re.search(r'vimeo\.com/(\d+)', obj.video_url)
+            return f'https://player.vimeo.com/video/{match.group(1)}' if match else obj.video_url
+        if obj.source_type == ServiceVideo.SOURCE_MP4 and obj.video_file:
+            request = self.context.get('request')
+            return request.build_absolute_uri(obj.video_file.url) if request else obj.video_file.url
+        return obj.video_url or None
+
+
+class ServiceVideoInputSerializer(serializers.Serializer):
+    title = serializers.CharField(max_length=255, required=False, allow_blank=True, default='')
+    source_type = serializers.ChoiceField(choices=ServiceVideo.SOURCE_TYPE_CHOICES, default=ServiceVideo.SOURCE_YOUTUBE)
+    video_url = serializers.URLField(required=False, allow_blank=True, default='')
+    video_file = serializers.FileField(required=False, allow_null=True)
+    thumbnail = serializers.ImageField(required=False, allow_null=True)
+    position = serializers.IntegerField(min_value=0, default=0, required=False)
+    is_active = serializers.BooleanField(default=True, required=False)
+
+
+class ServiceProcessStepSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ServiceProcessStep
+        fields = ['uuid', 'step_number', 'title', 'description', 'image', 'estimated_time', 'position', 'is_active']
+        read_only_fields = ['uuid']
+
+
+class ServiceProcessStepInputSerializer(serializers.Serializer):
+    step_number = serializers.IntegerField(min_value=1, default=1, required=False)
+    title = serializers.CharField(max_length=255)
+    description = serializers.CharField(required=False, allow_blank=True, default='')
+    image = serializers.ImageField(required=False, allow_null=True)
+    estimated_time = serializers.CharField(max_length=100, required=False, allow_blank=True, default='')
+    position = serializers.IntegerField(min_value=0, default=0, required=False)
+    is_active = serializers.BooleanField(default=True, required=False)
+
+
+class ServiceCatalogReorderInputSerializer(serializers.Serializer):
+    """Payload generico de reorder: lista ordenada de uuids (drag&drop)."""
+    ordered_uuids = serializers.ListField(child=serializers.UUIDField(), allow_empty=False)

@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from rest_framework import serializers
 
 from orders.models import Order
@@ -62,6 +64,18 @@ class ServiceOperationOrderSummarySerializer(serializers.Serializer):
             'rate_amount': str(detail.applied_rate_amount) if detail.applied_rate_amount is not None else None,
             'discount_amount': str(obj.discount_amount),
             'total_amount': str(obj.total_amount),
+            # Plan "Manual Pricing Engine" FASE 16/18 -- bloque "PRECIO COMERCIAL"
+            # del panel de operaciones. price_status/confirmed_total son el estado
+            # editable (ver OrderPricingCommands); el resto es el snapshot
+            # congelado al momento de la orden (FASE 2), nunca reconstruido desde
+            # la ServiceVariant actual (que puede haber cambiado desde entonces).
+            'pricing_source_snapshot': detail.pricing_source_snapshot,
+            'pricing_mode_snapshot': detail.pricing_mode_snapshot,
+            'unit_price_snapshot': str(detail.unit_price_snapshot) if detail.unit_price_snapshot is not None else None,
+            'project_price_snapshot': str(detail.project_price_snapshot) if detail.project_price_snapshot is not None else None,
+            'price_status': detail.price_status,
+            'price_status_display': detail.get_price_status_display(),
+            'confirmed_total': str(detail.confirmed_total) if detail.confirmed_total is not None else None,
         }
 
 
@@ -133,6 +147,14 @@ class ServiceOperationCloseSerializer(serializers.Serializer):
     closure_status = serializers.ChoiceField(
         choices=ServiceOperation.CLOSURE_CHOICES, required=False,
     )
+
+
+class ServiceOperationPriceOverrideSerializer(serializers.Serializer):
+    """Plan 'Manual Pricing Engine' FASE 19 -- payload de .../override-price/.
+    `reason` es obligatorio aqui Y en OrderPricingCommands.override_price()
+    (doble capa, mismo criterio que discount_pct en ServiceRequestInputSerializer)."""
+    new_total = serializers.DecimalField(max_digits=12, decimal_places=2, min_value=Decimal('0'))
+    reason = serializers.CharField()
 
 
 class ServiceOperationTechnicianCandidateSerializer(TechnicianCandidateSerializer):

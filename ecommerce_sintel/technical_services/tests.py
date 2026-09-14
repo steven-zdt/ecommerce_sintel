@@ -1,4 +1,5 @@
 from decimal import Decimal
+from django.core.exceptions import ValidationError
 from django.test import TransactionTestCase
 from django.contrib.auth import get_user_model
 from technical_services.models import (
@@ -567,6 +568,58 @@ class TechnicianAssignmentTestCase(APITestCase):
         uuids = [item['uuid'] for item in results]
         self.assertIn(str(self.order.uuid), uuids)
 
+    def test_get_assigned_technician_prefers_service_operation(self):
+        """
+        Migracion "autoridad unica de tecnico" FASE 8 (2026-08-14):
+        ServiceTechnicianReconciliationSelector.get_assigned_technician() debe
+        leer ServiceOperation.technician (fuente real), no el snapshot legacy,
+        incluso si divergen (caso B de find_divergent_assignments()).
+        """
+        from technical_services.services.selectors import ServiceTechnicianReconciliationSelector
+        from technical_services.services.operations import ServiceOperationCommands
+
+        ServiceAssignmentCommands.assign_technician(self.order, self.tech1, assigned_by=self.admin_user)
+        operation = ServiceOperationCommands.ensure_for_order(self.order)
+        ServiceOperationCommands.assign_technician(operation, technician=self.tech2, actor=self.admin_user)
+
+        self.order.refresh_from_db()
+        detail = self.order.service_detail
+        detail.refresh_from_db()
+        self.assertEqual(detail.technician, self.tech1)  # snapshot legacy, no sincronizado
+
+        resolved = ServiceTechnicianReconciliationSelector.get_assigned_technician(self.order)
+        self.assertEqual(resolved, self.tech2)  # fuente real gana
+
+    def test_find_divergent_assignments_classifies_conflict_and_operation_only(self):
+        """
+        FASE 6-7 (2026-08-14): find_divergent_assignments() debe detectar el caso
+        B (conflicto real, ambos asignados a tecnicos distintos) y el caso C
+        (asignado solo via ServiceOperation, esperado desde FASE 4 para
+        asignaciones hechas fuera del panel legacy de Orders).
+        """
+        from technical_services.services.selectors import ServiceTechnicianReconciliationSelector
+        from technical_services.services.operations import ServiceOperationCommands
+
+        # Orden 1 (self.order): conflicto real (caso B).
+        ServiceAssignmentCommands.assign_technician(self.order, self.tech1, assigned_by=self.admin_user)
+        operation1 = ServiceOperationCommands.ensure_for_order(self.order)
+        ServiceOperationCommands.assign_technician(operation1, technician=self.tech2, actor=self.admin_user)
+
+        # Orden 2: asignada solo via ServiceOperation (caso C, panel de Servicios/fachada).
+        from technical_services.services.commands import ServiceCommands
+        order2 = ServiceCommands.request_service(
+            user=self.customer, variant=self.variant, quantity=1,
+            service_detail_data={'priority': 'medium', 'description': 'Orden 2', 'address': 'Calle 2'},
+        )
+        operation2 = ServiceOperationCommands.ensure_for_order(order2)
+        ServiceOperationCommands.assign_technician(operation2, technician=self.tech2, actor=self.admin_user)
+
+        result = ServiceTechnicianReconciliationSelector.find_divergent_assignments()
+        self.assertIn(str(self.order.uuid), result['B_conflict'])
+        self.assertIn(str(order2.uuid), result['C_operation_only'])
+        self.assertNotIn(str(self.order.uuid), result['C_operation_only'])
+        self.assertNotIn(str(order2.uuid), result['B_conflict'])
+
 
 class ServicePriceAuditingTestCase(APITestCase):
     def setUp(self):
@@ -702,6 +755,70 @@ class ServicePriceAuditingTestCase(APITestCase):
         self.assertEqual(response.data[0]['old_price'], '100000.00')
         self.assertEqual(response.data[0]['new_price'], '120000.00')
         self.assertEqual(response.data[0]['changed_by_email'], self.admin_user.email)
+
+
+class OrderServiceDetailCommercialSnapshotTestCase(APITestCase):
+    """Plan 'Manual Pricing Engine' FASE 2 -- snapshot comercial ampliado en
+    OrderServiceDetail. Motor sigue siendo 100% AUTOMATIC (FASE 3/4 no existen
+    todavia) -- este test cubre lo que request_service() puede poblar HOY."""
+
+    def setUp(self):
+        self.customer = User.objects.create_user(email='snapshot_customer@example.com', password='x')
+        from accounts.models import UserProfile
+        UserProfile.objects.create(user=self.customer, first_name='C', last_name='U', user_type='CLIENT')
+        self.category = ServiceCategory.objects.create(name='Cat Snap', slug='cat-snap')
+        self.service = TechnicalService.objects.create(
+            vendor=self.customer, category=self.category, name='Servicio Snap', slug='servicio-snap',
+        )
+        self.variant = ServiceVariant.objects.create(
+            service=self.service, sku='SNAP-001', pricing_strategy=ServiceVariant.HOURLY,
+            estimated_hours=Decimal('4.00'),
+        )
+        ServiceConfiguration.objects.create(
+            name='Config Snap', smlv=Decimal('1300000.00'), transport_subsidy=Decimal('162000.00'),
+            benefit_rate=Decimal('53.10'), indirect_costs_rate=Decimal('15.00'), is_active=True,
+        )
+
+    def test_snapshot_fields_populated_on_request_service(self):
+        from technical_services.services.commands import ServiceCommands
+
+        order = ServiceCommands.request_service(
+            user=self.customer, variant=self.variant, quantity=1,
+            service_detail_data={'priority': 'medium', 'description': 'Prueba snapshot', 'address': 'Calle 1'},
+        )
+        detail = order.service_detail
+        self.assertEqual(detail.pricing_source_snapshot, ServiceVariant.SOURCE_AUTOMATIC)
+        self.assertEqual(detail.pricing_mode_snapshot, ServiceVariant.HOURLY)
+        self.assertIsNotNone(detail.unit_price_snapshot)
+        self.assertIsNone(detail.project_price_snapshot)
+        self.assertEqual(detail.duration_snapshot, Decimal('4.00'))
+        self.assertIsNotNone(detail.quotation_snapshot)
+        self.assertEqual(detail.quotation_snapshot['pricing_strategy'], ServiceVariant.HOURLY)
+        self.assertIn('total_price', detail.quotation_snapshot)
+        self.assertIn('breakdown', detail.quotation_snapshot)
+
+    def test_snapshot_survives_later_config_change(self):
+        """Mismo principio ya probado para applied_rate_amount: el snapshot queda
+        congelado, un cambio posterior en SMLV/variant no debe alterar ordenes ya
+        creadas."""
+        from technical_services.services.commands import ServiceCommands
+        from technical_services.services.calculator import LaborCostCalculator
+
+        order = ServiceCommands.request_service(
+            user=self.customer, variant=self.variant, quantity=1,
+            service_detail_data={'priority': 'medium', 'description': 'Prueba snapshot 2', 'address': 'Calle 2'},
+        )
+        original_unit_price = order.service_detail.unit_price_snapshot
+
+        ServiceConfiguration.objects.filter(is_active=True).update(is_active=False)
+        ServiceConfiguration.objects.create(
+            name='Config Nueva', smlv=Decimal('2000000.00'), transport_subsidy=Decimal('162000.00'),
+            benefit_rate=Decimal('53.10'), indirect_costs_rate=Decimal('15.00'), is_active=True,
+        )
+        LaborCostCalculator.invalidate_config_cache()
+
+        order.service_detail.refresh_from_db()
+        self.assertEqual(order.service_detail.unit_price_snapshot, original_unit_price)
 
 
 class ServiceCostRulePricingTestCase(TransactionTestCase):
@@ -914,5 +1031,542 @@ class DiscountPctLimitsTestCase(TransactionTestCase):
         self.assertIn('discount_pct', serializer.errors)
 
 
+class ServiceVariantPricingSourceTestCase(TransactionTestCase):
+    """Plan 'Manual Pricing Engine' (2026-08-13) FASE 1 -- contrato formal de
+    pricing_source en ServiceVariant.clean(). Solo valida el modelo -- el motor
+    de calculo (ManualPricingCalculator/ServiceQuotationResolver) es FASE 3/4,
+    todavia no existe."""
 
+    def setUp(self):
+        self.user = User.objects.create_user(email='pricing_source_ts@example.com', password='x')
+        from accounts.models import UserProfile
+        UserProfile.objects.create(user=self.user, first_name='T', last_name='U', user_type='VENDOR')
+        self.category = ServiceCategory.objects.create(name='Cat PS', slug='cat-ps')
+        self.service = TechnicalService.objects.create(
+            vendor=self.user, category=self.category, name='Servicio PS', slug='servicio-ps',
+        )
+
+    def _variant(self, **overrides):
+        defaults = dict(service=self.service, sku=f'SKU-PS-{ServiceVariant.objects.count()}')
+        defaults.update(overrides)
+        return ServiceVariant(**defaults)
+
+    def test_automatic_is_the_default_and_needs_no_manual_fields(self):
+        variant = self._variant()
+        variant.full_clean()
+        self.assertEqual(variant.pricing_source, ServiceVariant.SOURCE_AUTOMATIC)
+        self.assertFalse(variant.is_manual_pricing)
+
+    def test_automatic_rejects_manual_unit_price(self):
+        variant = self._variant(manual_unit_price=Decimal('50000'))
+        with self.assertRaises(ValidationError):
+            variant.full_clean()
+
+    def test_manual_project_requires_project_price(self):
+        variant = self._variant(pricing_source=ServiceVariant.SOURCE_MANUAL_PROJECT)
+        with self.assertRaises(ValidationError):
+            variant.full_clean()
+
+    def test_manual_project_rejects_zero_or_negative_price(self):
+        variant = self._variant(
+            pricing_source=ServiceVariant.SOURCE_MANUAL_PROJECT, manual_project_price=Decimal('0'),
+        )
+        with self.assertRaises(ValidationError):
+            variant.full_clean()
+
+    def test_manual_project_rejects_unit_price_set(self):
+        variant = self._variant(
+            pricing_source=ServiceVariant.SOURCE_MANUAL_PROJECT,
+            manual_project_price=Decimal('1800000'), manual_unit_price=Decimal('1'),
+        )
+        with self.assertRaises(ValidationError):
+            variant.full_clean()
+
+    def test_manual_project_valid(self):
+        variant = self._variant(
+            pricing_source=ServiceVariant.SOURCE_MANUAL_PROJECT, manual_project_price=Decimal('1800000'),
+        )
+        variant.full_clean()
+        self.assertTrue(variant.is_manual_pricing)
+
+    def test_manual_general_requires_unit_price(self):
+        variant = self._variant(pricing_source=ServiceVariant.SOURCE_MANUAL_GENERAL)
+        with self.assertRaises(ValidationError):
+            variant.full_clean()
+
+    def test_manual_general_rejects_project_price_set(self):
+        variant = self._variant(
+            pricing_source=ServiceVariant.SOURCE_MANUAL_GENERAL,
+            manual_unit_price=Decimal('500000'), manual_project_price=Decimal('1'),
+        )
+        with self.assertRaises(ValidationError):
+            variant.full_clean()
+
+    def test_manual_general_valid(self):
+        variant = self._variant(
+            pricing_source=ServiceVariant.SOURCE_MANUAL_GENERAL, manual_unit_price=Decimal('500000'),
+        )
+        variant.full_clean()
+
+    def test_manual_hourly_requires_unit_price(self):
+        variant = self._variant(pricing_source=ServiceVariant.SOURCE_MANUAL_HOURLY)
+        with self.assertRaises(ValidationError):
+            variant.full_clean()
+
+    def test_manual_hourly_valid(self):
+        variant = self._variant(
+            pricing_source=ServiceVariant.SOURCE_MANUAL_HOURLY, manual_unit_price=Decimal('85000'),
+        )
+        variant.full_clean()
+        self.assertTrue(variant.is_manual_pricing)
+
+
+class ManualPricingCalculatorTestCase(TransactionTestCase):
+    """Plan 'Manual Pricing Engine' FASE 3. Casos exactos del propio plan (FASE
+    25): tarifa 85.000/h x 6h = 510.000, IVA 19% = 96.900, total = 606.900."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(email='manual_calc@example.com', password='x')
+        from accounts.models import UserProfile
+        UserProfile.objects.create(user=self.user, first_name='M', last_name='C', user_type='VENDOR')
+        self.category = ServiceCategory.objects.create(name='Cat MPC', slug='cat-mpc')
+        self.service = TechnicalService.objects.create(
+            vendor=self.user, category=self.category, name='Servicio MPC', slug='servicio-mpc',
+        )
+        ServiceConfiguration.objects.create(
+            name='Config MPC', smlv=Decimal('1300000.00'), transport_subsidy=Decimal('162000.00'),
+            benefit_rate=Decimal('53.10'), indirect_costs_rate=Decimal('15.00'),
+            iva_rate=Decimal('19.00'), is_active=True,
+        )
+
+    def test_manual_hourly_matches_plan_worked_example(self):
+        from technical_services.services.manual_pricing import ManualPricingCalculator
+        variant = ServiceVariant.objects.create(
+            service=self.service, sku='MPC-HOURLY', pricing_source=ServiceVariant.SOURCE_MANUAL_HOURLY,
+            manual_unit_price=Decimal('85000.00'),
+        )
+        result = ManualPricingCalculator.calculate_hourly_price(variant, duration=Decimal('6'))
+        self.assertEqual(result['base_amount'], Decimal('510000.00'))
+        self.assertEqual(result['iva_amount'], Decimal('96900.00'))
+        self.assertEqual(result['total_price'], Decimal('606900.00'))
+        self.assertEqual(result['material_cost'], Decimal('0.00'))
+        self.assertEqual(result['breakdown']['cost_rules'], [])
+
+    def test_manual_project_ignores_duration(self):
+        from technical_services.services.manual_pricing import ManualPricingCalculator
+        variant = ServiceVariant.objects.create(
+            service=self.service, sku='MPC-PROJECT', pricing_source=ServiceVariant.SOURCE_MANUAL_PROJECT,
+            manual_project_price=Decimal('1000000.00'),
+        )
+        result_no_duration = ManualPricingCalculator.calculate_project_price(variant)
+        result_with_duration = ManualPricingCalculator.calculate(variant, duration=Decimal('10'))
+        self.assertEqual(result_no_duration['base_amount'], Decimal('1000000.00'))
+        self.assertEqual(result_with_duration['base_amount'], Decimal('1000000.00'))
+
+    def test_manual_general_ignores_duration(self):
+        from technical_services.services.manual_pricing import ManualPricingCalculator
+        variant = ServiceVariant.objects.create(
+            service=self.service, sku='MPC-GENERAL', pricing_source=ServiceVariant.SOURCE_MANUAL_GENERAL,
+            manual_unit_price=Decimal('500000.00'),
+        )
+        result = ManualPricingCalculator.calculate(variant, duration=Decimal('10'))
+        self.assertEqual(result['base_amount'], Decimal('500000.00'))
+
+    def test_calculate_dispatches_by_pricing_source(self):
+        from technical_services.services.manual_pricing import ManualPricingCalculator
+        project = ServiceVariant.objects.create(
+            service=self.service, sku='MPC-DISPATCH-1', pricing_source=ServiceVariant.SOURCE_MANUAL_PROJECT,
+            manual_project_price=Decimal('1800000.00'),
+        )
+        result = ManualPricingCalculator.calculate(project)
+        self.assertEqual(result['pricing_source'], ServiceVariant.SOURCE_MANUAL_PROJECT)
+        self.assertEqual(result['base_amount'], Decimal('1800000.00'))
+
+    def test_calculate_rejects_automatic_variant(self):
+        from technical_services.services.manual_pricing import ManualPricingCalculator
+        variant = ServiceVariant.objects.create(service=self.service, sku='MPC-AUTO')
+        with self.assertRaises(ValueError):
+            ManualPricingCalculator.calculate(variant)
+
+    def test_hourly_raises_without_manual_unit_price(self):
+        from technical_services.services.manual_pricing import ManualPricingCalculator
+        variant = ServiceVariant(
+            service=self.service, sku='MPC-BAD', pricing_source=ServiceVariant.SOURCE_MANUAL_HOURLY,
+        )
+        with self.assertRaises(ValueError):
+            ManualPricingCalculator.calculate_hourly_price(variant, duration=Decimal('1'))
+
+    def test_discount_applies_before_iva(self):
+        from technical_services.services.manual_pricing import ManualPricingCalculator
+        variant = ServiceVariant.objects.create(
+            service=self.service, sku='MPC-DISCOUNT', pricing_source=ServiceVariant.SOURCE_MANUAL_GENERAL,
+            manual_unit_price=Decimal('1000000.00'),
+        )
+        result = ManualPricingCalculator.calculate_general_price(variant, discount_pct=Decimal('10'))
+        self.assertEqual(result['discount_amount'], Decimal('100000.00'))
+        taxable_base = Decimal('900000.00')
+        self.assertEqual(result['iva_amount'], (taxable_base * Decimal('0.19')).quantize(Decimal('0.01')))
+
+    def test_hourly_respects_min_duration_clamp(self):
+        from technical_services.services.manual_pricing import ManualPricingCalculator
+        variant = ServiceVariant.objects.create(
+            service=self.service, sku='MPC-CLAMP', pricing_source=ServiceVariant.SOURCE_MANUAL_HOURLY,
+            manual_unit_price=Decimal('50000.00'), min_duration=Decimal('2.00'),
+        )
+        result = ManualPricingCalculator.calculate_hourly_price(variant, duration=Decimal('0.5'))
+        self.assertEqual(result['base_amount'], Decimal('100000.00'))  # 50000 x 2 (clamped), no x 0.5
+
+
+class ServiceQuotationResolverTestCase(APITestCase):
+    """Plan 'Manual Pricing Engine' FASE 4 -- ServiceQuotationResolver es el
+    unico punto de entrada real. Estos tests pegan directo al endpoint publico
+    (GET .../quotation/) para probar la cadena completa serializer-free:
+    ViewSet -> ServiceSelector.get_variant_quotation() -> Resolver -> motor
+    correcto -- exactamente lo que FASE 12 del plan exige ('mismo contrato
+    independientemente del modo')."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(email='resolver@example.com', password='x')
+        from accounts.models import UserProfile
+        UserProfile.objects.create(user=self.user, first_name='R', last_name='S', user_type='VENDOR')
+        self.category = ServiceCategory.objects.create(name='Cat Resolver', slug='cat-resolver')
+        self.service = TechnicalService.objects.create(
+            vendor=self.user, category=self.category, name='Servicio Resolver', slug='servicio-resolver',
+        )
+        ServiceConfiguration.objects.create(
+            name='Config Resolver', smlv=Decimal('1300000.00'), transport_subsidy=Decimal('162000.00'),
+            benefit_rate=Decimal('53.10'), indirect_costs_rate=Decimal('15.00'),
+            iva_rate=Decimal('19.00'), is_active=True,
+        )
+
+    def test_resolver_routes_automatic_to_labor_cost_calculator(self):
+        from technical_services.services.quotation_resolver import ServiceQuotationResolver
+        variant = ServiceVariant.objects.create(
+            service=self.service, sku='RES-AUTO', pricing_strategy=ServiceVariant.FIXED,
+            fixed_price=Decimal('200000.00'),
+        )
+        result = ServiceQuotationResolver.resolve(variant)
+        self.assertEqual(result['labor_cost'], Decimal('200000.00'))
+        self.assertEqual(result['pricing_strategy'], ServiceVariant.FIXED)
+
+    def test_resolver_routes_manual_hourly_to_manual_calculator(self):
+        from technical_services.services.quotation_resolver import ServiceQuotationResolver
+        variant = ServiceVariant.objects.create(
+            service=self.service, sku='RES-MANUAL', pricing_source=ServiceVariant.SOURCE_MANUAL_HOURLY,
+            manual_unit_price=Decimal('85000.00'),
+        )
+        result = ServiceQuotationResolver.resolve(variant, duration=Decimal('6'))
+        self.assertEqual(result['total_price'], Decimal('606900.00'))
+
+    def test_public_quotation_endpoint_serves_manual_project(self):
+        variant = ServiceVariant.objects.create(
+            service=self.service, sku='API-PROJECT', pricing_source=ServiceVariant.SOURCE_MANUAL_PROJECT,
+            manual_project_price=Decimal('1800000.00'),
+        )
+        resp = self.client.get(f'/api/v1/services/services/quotation/?variant_uuid={variant.uuid}')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(Decimal(str(resp.data['base_amount'])), Decimal('1800000.00'))
+        self.assertEqual(Decimal(str(resp.data['iva_amount'])), Decimal('342000.00'))
+        self.assertEqual(Decimal(str(resp.data['total_price'])), Decimal('2142000.00'))
+
+    def test_public_quotation_endpoint_serves_manual_hourly(self):
+        variant = ServiceVariant.objects.create(
+            service=self.service, sku='API-HOURLY', pricing_source=ServiceVariant.SOURCE_MANUAL_HOURLY,
+            manual_unit_price=Decimal('85000.00'),
+        )
+        resp = self.client.get(f'/api/v1/services/services/quotation/?variant_uuid={variant.uuid}&duration=6')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(Decimal(str(resp.data['total_price'])), Decimal('606900.00'))
+
+    def test_public_quotation_endpoint_still_serves_automatic(self):
+        """Regresion explicita: variantes AUTOMATIC (la inmensa mayoria del
+        catalogo hoy) deben seguir cotizando exactamente igual que antes de
+        FASE 4."""
+        variant = ServiceVariant.objects.create(
+            service=self.service, sku='API-AUTO', pricing_strategy=ServiceVariant.FIXED,
+            fixed_price=Decimal('300000.00'),
+        )
+        resp = self.client.get(f'/api/v1/services/services/quotation/?variant_uuid={variant.uuid}')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(Decimal(str(resp.data['labor_cost'])), Decimal('300000.00'))
+
+    def test_misconfigured_manual_variant_returns_400_not_500(self):
+        """MANUAL_HOURLY sin manual_unit_price valido -- solo posible si se
+        crea via ORM directo (el modelo lo rechaza en clean()/full_clean(), pero
+        el endpoint no debe explotar con un 500 si de todos modos ocurre)."""
+        variant = ServiceVariant.objects.create(service=self.service, sku='API-BAD')
+        ServiceVariant.objects.filter(pk=variant.pk).update(pricing_source=ServiceVariant.SOURCE_MANUAL_HOURLY)
+        variant.refresh_from_db()
+        resp = self.client.get(f'/api/v1/services/services/quotation/?variant_uuid={variant.uuid}')
+        self.assertEqual(resp.status_code, 400)
+
+
+class OrderServiceDetailManualSnapshotTestCase(APITestCase):
+    """Plan 'Manual Pricing Engine' FASE 2+4 integradas -- ahora que
+    ServiceQuotationResolver esta cableado, request_service() debe snapshotear
+    correctamente ordenes de variantes MANUAL_*, no solo AUTOMATIC."""
+
+    def setUp(self):
+        self.customer = User.objects.create_user(email='manual_snap_customer@example.com', password='x')
+        from accounts.models import UserProfile
+        UserProfile.objects.create(user=self.customer, first_name='C', last_name='U', user_type='CLIENT')
+        self.category = ServiceCategory.objects.create(name='Cat Manual Snap', slug='cat-manual-snap')
+        self.service = TechnicalService.objects.create(
+            vendor=self.customer, category=self.category, name='Servicio Manual Snap', slug='servicio-manual-snap',
+        )
+        ServiceConfiguration.objects.create(
+            name='Config Manual Snap', smlv=Decimal('1300000.00'), transport_subsidy=Decimal('162000.00'),
+            benefit_rate=Decimal('53.10'), indirect_costs_rate=Decimal('15.00'),
+            iva_rate=Decimal('19.00'), is_active=True,
+        )
+
+    def test_manual_project_order_snapshots_project_price_not_unit_price(self):
+        from technical_services.services.commands import ServiceCommands
+        variant = ServiceVariant.objects.create(
+            service=self.service, sku='SNAP-PROJECT', pricing_source=ServiceVariant.SOURCE_MANUAL_PROJECT,
+            manual_project_price=Decimal('1800000.00'),
+        )
+        order = ServiceCommands.request_service(
+            user=self.customer, variant=variant, quantity=1,
+            service_detail_data={'priority': 'medium', 'description': 'Proyecto manual', 'address': 'Calle 1'},
+        )
+        detail = order.service_detail
+        self.assertEqual(detail.pricing_source_snapshot, ServiceVariant.SOURCE_MANUAL_PROJECT)
+        self.assertIsNone(detail.unit_price_snapshot)
+        self.assertEqual(detail.project_price_snapshot, Decimal('1800000.00'))
+        self.assertEqual(detail.quotation_snapshot['total_price'], '2142000.00')
+
+    def test_manual_hourly_order_snapshots_unit_price_and_duration(self):
+        from technical_services.services.commands import ServiceCommands
+        variant = ServiceVariant.objects.create(
+            service=self.service, sku='SNAP-HOURLY', pricing_source=ServiceVariant.SOURCE_MANUAL_HOURLY,
+            manual_unit_price=Decimal('85000.00'), estimated_hours=Decimal('6.00'),
+        )
+        order = ServiceCommands.request_service(
+            user=self.customer, variant=variant, quantity=1,
+            service_detail_data={'priority': 'medium', 'description': 'Por horas manual', 'address': 'Calle 2'},
+        )
+        detail = order.service_detail
+        self.assertEqual(detail.pricing_source_snapshot, ServiceVariant.SOURCE_MANUAL_HOURLY)
+        self.assertEqual(detail.unit_price_snapshot, Decimal('85000.00'))
+        self.assertIsNone(detail.project_price_snapshot)
+        self.assertEqual(detail.duration_snapshot, Decimal('6.00'))
+        self.assertEqual(detail.pricing_mode_snapshot, None)  # solo AUTOMATIC lo llena
+
+
+class ServicePricingCommandsTestCase(TransactionTestCase):
+    """Plan 'Manual Pricing Engine' FASE 6/7 -- ServicePricingCommands.
+    set_manual_pricing() como via preferida para cambiar pricing_source, con
+    historial dedicado en ServicePriceHistory."""
+
+    def setUp(self):
+        self.admin = User.objects.create_user(email='pricing_cmd_admin@example.com', password='x')
+        from accounts.models import UserProfile
+        UserProfile.objects.create(user=self.admin, first_name='A', last_name='D', user_type='ADMIN')
+        self.category = ServiceCategory.objects.create(name='Cat Pricing Cmd', slug='cat-pricing-cmd')
+        self.service = TechnicalService.objects.create(
+            vendor=self.admin, category=self.category, name='Servicio Pricing Cmd', slug='servicio-pricing-cmd',
+        )
+        self.variant = ServiceVariant.objects.create(service=self.service, sku='PC-001')
+
+    def test_set_manual_pricing_switches_automatic_to_hourly(self):
+        from technical_services.services.commands import ServicePricingCommands
+        from technical_services.models import ServicePriceHistory
+
+        ServicePricingCommands.set_manual_pricing(
+            self.variant, ServiceVariant.SOURCE_MANUAL_HOURLY, unit_price=Decimal('85000.00'),
+            changed_by=self.admin, reason='Servicio con dificultad especial',
+        )
+        self.variant.refresh_from_db()
+        self.assertEqual(self.variant.pricing_source, ServiceVariant.SOURCE_MANUAL_HOURLY)
+        self.assertEqual(self.variant.manual_unit_price, Decimal('85000.00'))
+        self.assertTrue(self.variant.is_manual_pricing)
+
+        entry = ServicePriceHistory.objects.filter(variant=self.variant).latest('created_at')
+        self.assertEqual(entry.pricing_source_old, ServiceVariant.SOURCE_AUTOMATIC)
+        self.assertEqual(entry.pricing_source_new, ServiceVariant.SOURCE_MANUAL_HOURLY)
+        self.assertIsNone(entry.unit_price_old)
+        self.assertEqual(entry.unit_price_new, Decimal('85000.00'))
+        self.assertEqual(entry.changed_by, self.admin)
+        self.assertEqual(entry.reason, 'Servicio con dificultad especial')
+
+    def test_set_manual_pricing_switches_back_to_automatic(self):
+        from technical_services.services.commands import ServicePricingCommands
+        ServicePricingCommands.set_manual_pricing(
+            self.variant, ServiceVariant.SOURCE_MANUAL_GENERAL, unit_price=Decimal('500000.00'),
+        )
+        ServicePricingCommands.set_manual_pricing(self.variant, ServiceVariant.SOURCE_AUTOMATIC)
+        self.variant.refresh_from_db()
+        self.assertEqual(self.variant.pricing_source, ServiceVariant.SOURCE_AUTOMATIC)
+        self.assertIsNone(self.variant.manual_unit_price)
+        self.assertFalse(self.variant.is_manual_pricing)
+
+    def test_set_manual_pricing_rejects_invalid_combination(self):
+        """MANUAL_PROJECT sin project_price -- la variante NUNCA debe quedar
+        guardada con datos invalidos, ni generarse historial."""
+        from technical_services.services.commands import ServicePricingCommands
+        from technical_services.models import ServicePriceHistory
+
+        with self.assertRaises(ValidationError):
+            ServicePricingCommands.set_manual_pricing(self.variant, ServiceVariant.SOURCE_MANUAL_PROJECT)
+
+        self.variant.refresh_from_db()
+        self.assertEqual(self.variant.pricing_source, ServiceVariant.SOURCE_AUTOMATIC)
+        self.assertEqual(ServicePriceHistory.objects.filter(variant=self.variant).count(), 0)
+
+    def test_no_history_entry_when_nothing_actually_changes(self):
+        from technical_services.services.commands import ServicePricingCommands
+        from technical_services.models import ServicePriceHistory
+
+        ServicePricingCommands.set_manual_pricing(self.variant, ServiceVariant.SOURCE_AUTOMATIC)
+        self.assertEqual(ServicePriceHistory.objects.filter(variant=self.variant).count(), 0)
+
+    def test_update_variant_validates_pricing_fields_when_touched(self):
+        from technical_services.services.commands import ServiceVariantCommands
+        with self.assertRaises(ValidationError):
+            ServiceVariantCommands.update_variant(
+                self.variant, {'pricing_source': ServiceVariant.SOURCE_MANUAL_GENERAL},
+            )
+
+    def test_update_variant_ignores_pricing_validation_when_untouched(self):
+        """Regresion: update_variant() para campos NO relacionados con pricing
+        (ej. complexity_factor) no debe empezar a exigir validacion de pricing_
+        source -- el variant ya es AUTOMATIC valido de por si, pero clean() solo
+        se llama si el caller realmente toco alguno de los 3 campos."""
+        from technical_services.services.commands import ServiceVariantCommands
+        updated = ServiceVariantCommands.update_variant(self.variant, {'complexity_factor': Decimal('2.00')})
+        self.assertEqual(updated.complexity_factor, Decimal('2.00'))
+
+
+class DashboardSetVariantPricingAPITestCase(APITestCase):
+    """Plan 'Manual Pricing Engine' FASE 8 -- POST /api/v1/dashboard/
+    service-variants/{uuid}/set-pricing/, la unica via HTTP real que existe
+    hoy para que un admin cambie pricing_source de una variante."""
+
+    def setUp(self):
+        self.admin = User.objects.create_superuser(email='set_pricing_admin@example.com', password='x')
+        from accounts.models import UserProfile
+        UserProfile.objects.create(user=self.admin, first_name='A', last_name='D', user_type='ADMIN')
+        self.customer = User.objects.create_user(email='set_pricing_customer@example.com', password='x')
+        UserProfile.objects.create(user=self.customer, first_name='C', last_name='U', user_type='CLIENT')
+        self.category = ServiceCategory.objects.create(name='Cat Set Pricing', slug='cat-set-pricing')
+        self.service = TechnicalService.objects.create(
+            vendor=self.admin, category=self.category, name='Servicio Set Pricing', slug='servicio-set-pricing',
+        )
+        self.variant = ServiceVariant.objects.create(service=self.service, sku='DASH-SP-001')
+
+    def _url(self, variant=None):
+        return f'/api/v1/dashboard/service-variants/{(variant or self.variant).uuid}/set-pricing/'
+
+    def test_requires_admin(self):
+        resp = self.client.post(self._url(), {'pricing_source': ServiceVariant.SOURCE_MANUAL_HOURLY, 'unit_price': '85000'})
+        self.assertEqual(resp.status_code, 401)
+
+        self.client.force_authenticate(user=self.customer)
+        resp = self.client.post(self._url(), {'pricing_source': ServiceVariant.SOURCE_MANUAL_HOURLY, 'unit_price': '85000'})
+        self.assertEqual(resp.status_code, 403)
+
+    def test_admin_switches_variant_to_manual_hourly(self):
+        self.client.force_authenticate(user=self.admin)
+        resp = self.client.post(self._url(), {
+            'pricing_source': ServiceVariant.SOURCE_MANUAL_HOURLY, 'unit_price': '85000.00',
+            'reason': 'Trabajo en altura + dificultad especial',
+        })
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['pricing_source'], ServiceVariant.SOURCE_MANUAL_HOURLY)
+        self.assertEqual(resp.data['manual_unit_price'], '85000.00')
+        self.assertTrue(resp.data['is_manual_pricing'])
+
+        self.variant.refresh_from_db()
+        self.assertEqual(self.variant.pricing_source, ServiceVariant.SOURCE_MANUAL_HOURLY)
+
+        from technical_services.models import ServicePriceHistory
+        entry = ServicePriceHistory.objects.filter(variant=self.variant).latest('created_at')
+        self.assertEqual(entry.reason, 'Trabajo en altura + dificultad especial')
+        self.assertEqual(entry.changed_by, self.admin)
+
+    def test_invalid_combination_returns_400_via_http(self):
+        """MANUAL_PROJECT sin project_price -- ValidationError del modelo debe
+        llegar al cliente como 400, no como 500 sin manejar."""
+        self.client.force_authenticate(user=self.admin)
+        resp = self.client.post(self._url(), {'pricing_source': ServiceVariant.SOURCE_MANUAL_PROJECT})
+        self.assertEqual(resp.status_code, 400)
+        self.variant.refresh_from_db()
+        self.assertEqual(self.variant.pricing_source, ServiceVariant.SOURCE_AUTOMATIC)
+
+    def test_variant_detail_and_list_expose_pricing_fields_read_only(self):
+        """Confirma FASE 8: el panel puede LEER pricing_source/manual_*_price
+        del listado/detalle normal de variantes (GET), pero esos campos no son
+        escribibles via el PATCH generico."""
+        self.client.force_authenticate(user=self.admin)
+        resp = self.client.get(f'/api/v1/dashboard/service-variants/{self.variant.uuid}/')
+        self.assertEqual(resp.data['pricing_source'], ServiceVariant.SOURCE_AUTOMATIC)
+        self.assertIn('manual_unit_price', resp.data)
+        self.assertIn('is_manual_pricing', resp.data)
+
+        # Intento de cambiar pricing_source via el PATCH generico -- se ignora
+        # silenciosamente (read_only_fields), la variante sigue AUTOMATIC.
+        resp = self.client.patch(
+            f'/api/v1/dashboard/service-variants/{self.variant.uuid}/',
+            {'pricing_source': ServiceVariant.SOURCE_MANUAL_GENERAL}, format='json',
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.variant.refresh_from_db()
+        self.assertEqual(self.variant.pricing_source, ServiceVariant.SOURCE_AUTOMATIC)
+
+
+class ManualPricingPackageIntegrationTestCase(APITestCase):
+    """Plan 'Manual Pricing Engine' FASE 21 -- interaccion con ServicePackage.
+    PackagePriceCalculator.calculate() recibe `extra_base=quotation['base_amount']`
+    (services/commands.py::request_service) -- como get_variant_quotation() ya
+    delega en ServiceQuotationResolver (FASE 4), un variant MANUAL_* alimenta el
+    precio de paquete correctamente SIN ningun cambio en packages.py. Este test
+    prueba esa integracion real, no solo el calculador en aislamiento."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(email='pkg_manual@example.com', password='x')
+        from accounts.models import UserProfile
+        UserProfile.objects.create(user=self.user, first_name='P', last_name='M', user_type='CLIENT')
+        self.category = ServiceCategory.objects.create(name='Cat Pkg Manual', slug='cat-pkg-manual')
+        self.service = TechnicalService.objects.create(
+            vendor=self.user, category=self.category, name='Servicio Pkg Manual', slug='servicio-pkg-manual',
+        )
+        self.variant = ServiceVariant.objects.create(
+            service=self.service, sku='PKG-MANUAL-001', pricing_source=ServiceVariant.SOURCE_MANUAL_PROJECT,
+            manual_project_price=Decimal('1000000.00'),
+        )
+        from technical_services.models import ServicePackage
+        self.package = ServicePackage.objects.create(
+            service=self.service, name='Paquete Manual', slug='paquete-manual',
+            base_price=Decimal('200000.00'),
+        )
+        ServiceConfiguration.objects.create(
+            name='Config Pkg Manual', smlv=Decimal('1300000.00'), transport_subsidy=Decimal('162000.00'),
+            benefit_rate=Decimal('53.10'), indirect_costs_rate=Decimal('15.00'),
+            iva_rate=Decimal('19.00'), is_active=True,
+        )
+
+    def test_package_price_includes_manual_variant_base_not_automatic_calc(self):
+        from technical_services.services.packages import PackagePriceCalculator
+        quotation = ServiceSelector.get_variant_quotation(self.variant)
+        self.assertEqual(quotation['base_amount'], Decimal('1000000.00'))
+
+        breakdown = PackagePriceCalculator.calculate(self.package, extra_base=quotation['base_amount'])
+        # 200.000 (paquete) + 1.000.000 (variant manual) = 1.200.000 subtotal
+        self.assertEqual(breakdown['subtotal'], Decimal('1200000.00'))
+        self.assertEqual(breakdown['iva_amount'], Decimal('228000.00'))
+        self.assertEqual(breakdown['total'], Decimal('1428000.00'))
+
+    def test_request_service_with_package_uses_manual_variant_price(self):
+        from technical_services.services.commands import ServiceCommands
+        order = ServiceCommands.request_service(
+            user=self.user, variant=self.variant, quantity=1, package=self.package,
+            service_detail_data={'priority': 'medium', 'description': 'Con paquete manual', 'address': 'Calle 1'},
+        )
+        # order_total = package_price_breakdown['total'] (services/commands.py) --
+        # confirma que el camino real end-to-end (no solo el calculador aislado)
+        # usa el precio manual del variant, no un calculo AUTOMATIC.
+        self.assertEqual(order.total_amount, Decimal('1428000.00'))
+        self.assertEqual(order.service_detail.pricing_source_snapshot, ServiceVariant.SOURCE_MANUAL_PROJECT)
+        self.assertEqual(order.service_detail.project_price_snapshot, Decimal('1000000.00'))
 

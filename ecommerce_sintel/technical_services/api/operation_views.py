@@ -9,11 +9,13 @@ from technical_services.api.operation_serializers import (
     ServiceOperationCloseSerializer,
     ServiceOperationIncidentSerializer,
     ServiceOperationPlanSerializer,
+    ServiceOperationPriceOverrideSerializer,
     ServiceOperationRescheduleSerializer,
     ServiceOperationSerializer,
     ServiceOperationTechnicianCandidateSerializer,
 )
 from technical_services.models import ServiceOperation
+from technical_services.services.commands import OrderPricingCommands
 from technical_services.services.operations import ServiceOperationCommands, ServiceOperationSelector
 from users.api.permissions import IsAdminUser
 
@@ -213,4 +215,39 @@ class ServiceOperationViewSet(viewsets.ReadOnlyModelViewSet):
             operation = ServiceOperationCommands.resolve_incident(self.get_object(), actor=request.user)
         except (ValueError, DjangoValidationError) as exc:
             return Response({'detail': _err(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(ServiceOperationSerializer(operation).data)
+
+    # ── Plan "Manual Pricing Engine" FASE 16/18/19 -- precio comercial de la
+    # orden asociada. Ver OrderPricingCommands: nunca toca Order.total_amount,
+    # solo deja un registro auditado (decision confirmada con el usuario). ──
+
+    @action(detail=True, methods=['post'], url_path='confirm-price')
+    def confirm_price(self, request, uuid=None):
+        operation = self.get_object()
+        detail = getattr(operation.order, 'service_detail', None)
+        if detail is None:
+            return Response({'detail': 'Esta orden no tiene detalle de servicio.'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            OrderPricingCommands.confirm_price(detail, changed_by=request.user)
+        except (ValueError, DjangoValidationError) as exc:
+            return Response({'detail': _err(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        operation.refresh_from_db()
+        return Response(ServiceOperationSerializer(operation).data)
+
+    @action(detail=True, methods=['post'], url_path='override-price')
+    def override_price(self, request, uuid=None):
+        operation = self.get_object()
+        detail = getattr(operation.order, 'service_detail', None)
+        if detail is None:
+            return Response({'detail': 'Esta orden no tiene detalle de servicio.'}, status=status.HTTP_400_BAD_REQUEST)
+        serializer = ServiceOperationPriceOverrideSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            OrderPricingCommands.override_price(
+                detail, new_total=serializer.validated_data['new_total'],
+                reason=serializer.validated_data['reason'], changed_by=request.user,
+            )
+        except (ValueError, DjangoValidationError) as exc:
+            return Response({'detail': _err(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        operation.refresh_from_db()
         return Response(ServiceOperationSerializer(operation).data)

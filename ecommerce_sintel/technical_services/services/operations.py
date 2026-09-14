@@ -6,6 +6,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 from technical_services.models import ServiceOperation, ServiceOperationEvent
+from operations.services.fsm import transition_operation
 
 ASSIGNABLE_PROFILE_TYPES = {'TECHNICIAN', 'PROFESSIONAL', 'SPECIALIST', 'CONTRACTOR'}
 CONFLICTING_SLOT_STATUSES = ['BOOKED', 'PENDING_RESERVATION', 'BLOCKED', 'VACATION', 'SICK_LEAVE']
@@ -67,12 +68,22 @@ class ServiceOperationCommands:
         operation.scheduled_time = scheduled_time
         operation.estimated_duration_minutes = estimated_duration_minutes
         operation.notes = notes
+        # Migracion "autoridad unica de tecnico" FASE 2 (2026-08-14): si ya habia un
+        # tecnico pre-asignado (asignado antes de conocer fecha, sin slot reservado
+        # todavia -- ver assign_technician()), ahora que hay fecha se completa esa
+        # asignacion (reserva real de slot + notificacion), delegando a
+        # assign_technician() en vez de duplicar esa logica aqui.
+        pending_technician = operation.technician if not operation.availability_slot_id else None
         operation.status = ServiceOperation.PLANNED
         operation.save()
         ServiceOperationEvent.objects.create(
             operation=operation, event_type='PLANNED', actor=actor,
             description='Visita planeada.',
         )
+        if pending_technician:
+            return ServiceOperationCommands.assign_technician(
+                operation, technician=pending_technician, actor=actor,
+            )
         return operation
 
     @staticmethod
@@ -152,21 +163,19 @@ class ServiceOperationCommands:
             )
 
     @staticmethod
-    @transaction.atomic
-    def assign_technician(operation, *, technician, actor=None):
+    def _ensure_technician_slot(operation, technician, actor=None):
+        """Reserva/mueve el slot de disponibilidad de `technician` para la fecha ya
+        planeada de `operation`. No-op (retorna None) si la operacion todavia no
+        tiene fecha/hora -- en ese caso la reserva real ocurre despues, cuando
+        plan() la completa (ver FASE 2, migracion "autoridad unica de tecnico",
+        2026-08-14)."""
+        if not operation.scheduled_date or not operation.scheduled_time:
+            return None
+
         from accounts.models import ProfessionalAvailability
         from accounts.services.profile_resolver import ProfileResolver
         from accounts.services.commands import AvailabilityCommands
 
-        operation = ServiceOperation.objects.select_for_update().get(pk=operation.pk)
-        if operation.status not in {ServiceOperation.PLANNED, ServiceOperation.TECHNICIAN_ASSIGNED}:
-            raise ValueError('Solo se puede asignar tecnico a una operacion planeada.')
-        if not operation.scheduled_date or not operation.scheduled_time:
-            raise ValueError('La operacion debe planearse (fecha/hora) antes de asignar tecnico.')
-
-        profile_type = ProfileResolver.get_type(technician)
-        if profile_type not in ASSIGNABLE_PROFILE_TYPES:
-            raise ValueError('El usuario seleccionado no es un tecnico ni contratista valido.')
         user_profile = ProfileResolver.get_profile(technician)
         if not user_profile:
             raise ValueError('El profesional seleccionado no tiene un perfil valido.')
@@ -192,25 +201,74 @@ class ServiceOperationCommands:
         slot.save(update_fields=['booked_by', 'updated_at'])
         AvailabilityCommands.confirm_booking(slot.id)
         slot.refresh_from_db()
+        return slot
 
+    @staticmethod
+    def _set_technician_availability(technician, is_available):
+        """Mantiene TechnicianProfile.is_available (bandera legacy, leida por
+        TechnicianSelector.get_available_for_category()/find_best_technician() y
+        el bloque publico 'Profesionales') sincronizada con la asignacion real via
+        ServiceOperation. Migracion "autoridad unica de tecnico" FASE 4
+        (2026-08-14): antes solo la escribia ServiceAssignmentCommands (legacy),
+        y quedaba congelada para operaciones asignadas/liberadas desde aqui."""
+        if technician is None:
+            return
+        from accounts.services.profile_resolver import ProfileResolver
+        profile = ProfileResolver.get_technician_profile(technician)
+        if profile and profile.is_available != is_available:
+            profile.is_available = is_available
+            profile.save(update_fields=['is_available', 'updated_at'])
+
+    @staticmethod
+    @transaction.atomic
+    def assign_technician(operation, *, technician, actor=None):
+        from accounts.services.profile_resolver import ProfileResolver
+
+        operation = ServiceOperation.objects.select_for_update().get(pk=operation.pk)
+        # Migracion "autoridad unica de tecnico" FASE 2 (2026-08-14): se relaja la
+        # precondicion de fecha/hora para preservar el flujo existente del panel
+        # legacy de Orders (TechnicianAssignmentBoard.vue), que hoy asigna tecnico
+        # sin exigir planeacion previa. Si aun no hay fecha, se guarda el tecnico
+        # como "pre-asignado" (sin slot, sin avanzar de READY_FOR_PLANNING) y la
+        # reserva real de disponibilidad se completa al planear (ver plan()).
+        if operation.status not in {
+            ServiceOperation.READY_FOR_PLANNING, ServiceOperation.PLANNED,
+            ServiceOperation.TECHNICIAN_ASSIGNED,
+        }:
+            raise ValueError(
+                'Solo se puede asignar tecnico a una operacion pendiente de planeacion o ya planeada.'
+            )
+
+        profile_type = ProfileResolver.get_type(technician)
+        if profile_type not in ASSIGNABLE_PROFILE_TYPES:
+            raise ValueError('El usuario seleccionado no es un tecnico ni contratista valido.')
+
+        slot = ServiceOperationCommands._ensure_technician_slot(operation, technician, actor=actor)
+
+        previous_technician = operation.technician
         operation.technician = technician
         operation.availability_slot = slot
-        operation.status = ServiceOperation.TECHNICIAN_ASSIGNED
+        if slot is not None:
+            operation.status = ServiceOperation.TECHNICIAN_ASSIGNED
         operation.save()
+        if previous_technician and previous_technician.id != technician.id:
+            ServiceOperationCommands._set_technician_availability(previous_technician, True)
+        ServiceOperationCommands._set_technician_availability(technician, False)
         ServiceOperationEvent.objects.create(
             operation=operation, event_type='TECHNICIAN_ASSIGNED', actor=actor,
             description=f'Tecnico asignado: {technician.get_full_name() or technician.email}.',
         )
-        context = {
-            'order_uuid': str(operation.order.uuid),
-            'operation_uuid': str(operation.uuid),
-            'scheduled_date': str(operation.scheduled_date),
-            'scheduled_time': str(operation.scheduled_time),
-        }
-        from notifications.services.commands import NotificationCommands
-        transaction.on_commit(lambda: NotificationCommands.dispatch_notification(
-            user=technician, template_slug='service_operation_assigned', context=context,
-        ))
+        if slot is not None:
+            context = {
+                'order_uuid': str(operation.order.uuid),
+                'operation_uuid': str(operation.uuid),
+                'scheduled_date': str(operation.scheduled_date),
+                'scheduled_time': str(operation.scheduled_time),
+            }
+            from notifications.services.commands import NotificationCommands
+            transaction.on_commit(lambda: NotificationCommands.dispatch_notification(
+                user=technician, template_slug='service_operation_assigned', context=context,
+            ))
         return operation
 
     @staticmethod
@@ -220,10 +278,16 @@ class ServiceOperationCommands:
         operation = ServiceOperation.objects.select_for_update().get(pk=operation.pk)
         if operation.availability_slot_id:
             AvailabilityCommands.release_booking(operation.availability_slot_id)
+        previous_technician = operation.technician
         operation.technician = None
         operation.availability_slot = None
-        operation.status = ServiceOperation.PLANNED
+        # FASE 2 (2026-08-14): un tecnico pudo haber sido pre-asignado sin fecha
+        # (status se quedo en READY_FOR_PLANNING, sin slot) -- al desasignar debe
+        # volver ahi, no forzarse a PLANNED sin una fecha real detras.
+        has_schedule = bool(operation.scheduled_date and operation.scheduled_time)
+        operation.status = ServiceOperation.PLANNED if has_schedule else ServiceOperation.READY_FOR_PLANNING
         operation.save()
+        ServiceOperationCommands._set_technician_availability(previous_technician, True)
         ServiceOperationEvent.objects.create(
             operation=operation, event_type='TECHNICIAN_UNASSIGNED', actor=actor,
             description='Tecnico desasignado.',
@@ -316,23 +380,25 @@ class ServiceOperationCommands:
     @staticmethod
     @transaction.atomic
     def transition(operation, target_status, actor=None):
-        operation = ServiceOperation.objects.select_for_update().get(pk=operation.pk)
-        allowed = ServiceOperationCommands.TRANSITIONS.get(operation.status, set())
-        if target_status not in allowed:
-            raise ValueError(f'Transicion invalida: {operation.status} -> {target_status}.')
-        operation.status = target_status
-        now = timezone.now()
-        update_fields = ['status', 'updated_at']
-        if target_status == ServiceOperation.ARRIVED:
-            operation.arrived_at = now
-            update_fields.append('arrived_at')
-        elif target_status == ServiceOperation.IN_PROGRESS:
-            operation.started_at = now
-            update_fields.append('started_at')
-        elif target_status == ServiceOperation.COMPLETED:
-            operation.completed_at = now
-            update_fields.append('completed_at')
-        operation.save(update_fields=update_fields)
+        def _apply_extra_fields(op, target, now):
+            fields = []
+            if target == ServiceOperation.ARRIVED:
+                op.arrived_at = now
+                fields.append('arrived_at')
+            elif target == ServiceOperation.IN_PROGRESS:
+                op.started_at = now
+                fields.append('started_at')
+            elif target == ServiceOperation.COMPLETED:
+                op.completed_at = now
+                fields.append('completed_at')
+            return fields
+
+        operation = transition_operation(
+            model_class=ServiceOperation,
+            transitions_map=ServiceOperationCommands.TRANSITIONS,
+            operation=operation, target_status=target_status,
+            apply_extra_fields=_apply_extra_fields,
+        )
         ServiceOperationEvent.objects.create(
             operation=operation, event_type=target_status, actor=actor,
             description=f'Operacion actualizada a {operation.get_status_display()}.',
@@ -467,6 +533,13 @@ class ServiceOperationSelector:
             'delayed': qs.filter(status__in=active_statuses, scheduled_date__lt=today).count(),
             'avg_completion_hours': avg_hours,
             'sla_percentage': sla_pct,
+            # Plan "Fachada Administrativa Unificada" FASE 18 (2026-08-14) --
+            # 3 campos agregados para los KPI de /panel/servicios/solicitudes.
+            # Extension aditiva de un metodo ya existente (no se crea ningun
+            # modelo de estadisticas ni un segundo endpoint de metricas).
+            'new_today': qs.filter(created_at__date=today).count(),
+            'without_technician': qs.filter(status__in=active_statuses, technician__isnull=True).count(),
+            'cancelled': qs.filter(status=ServiceOperation.CANCELLED).count(),
         }
 
     @staticmethod

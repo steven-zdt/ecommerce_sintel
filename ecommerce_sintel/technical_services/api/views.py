@@ -1,3 +1,4 @@
+from django.http import Http404
 from rest_framework import viewsets, permissions, status
 from rest_framework.decorators import action
 from rest_framework.pagination import PageNumberPagination
@@ -22,7 +23,7 @@ from technical_services.services import (
     TechnicianSelector,
 )
 from technical_services.api.serializers import (
-    TechnicalServiceSerializer, TechnicalServiceInputSerializer,
+    TechnicalServiceSerializer, TechnicalServiceDetailSerializer, TechnicalServiceInputSerializer,
     ServiceCategorySerializer, ServiceCategoryInputSerializer,
     ServiceLevelSerializer, ServiceLevelInputSerializer,
     ServiceVariantSerializer, ServiceVariantInputSerializer,
@@ -83,9 +84,8 @@ class TechnicalServiceViewSet(viewsets.ReadOnlyModelViewSet):
         if not variant_uuid:
             return Response({'detail': 'variant_uuid es requerido.'}, status=status.HTTP_400_BAD_REQUEST)
         try:
-            from technical_services.models import ServiceVariant
-            variant = ServiceVariant.objects.get(uuid=variant_uuid, is_deleted=False)
-        except ServiceVariant.DoesNotExist:
+            variant = ServiceVariantSelector.get_by_uuid(variant_uuid)
+        except Http404:
             return Response({'detail': 'Variante no encontrada.'}, status=status.HTTP_404_NOT_FOUND)
 
         duration = request.query_params.get('duration')
@@ -119,8 +119,6 @@ class TechnicalServiceViewSet(viewsets.ReadOnlyModelViewSet):
                 "additional_costs": [{"additional_cost_uuid": "...", "quantity": 1}],
                 "discount_pct": 0 (opcional) }
         """
-        from technical_services.models import ServiceVariant
-
         package_uuid = request.data.get('package_uuid')
         if not package_uuid:
             return Response({'detail': 'package_uuid es requerido.'}, status=status.HTTP_400_BAD_REQUEST)
@@ -132,8 +130,8 @@ class TechnicalServiceViewSet(viewsets.ReadOnlyModelViewSet):
         variant_uuid = request.data.get('variant_uuid')
         if variant_uuid:
             try:
-                variant = ServiceVariant.objects.get(uuid=variant_uuid, is_deleted=False)
-            except ServiceVariant.DoesNotExist:
+                variant = ServiceVariantSelector.get_by_uuid(variant_uuid)
+            except Http404:
                 return Response({'detail': 'Variante no encontrada.'}, status=status.HTTP_404_NOT_FOUND)
             variant_quotation = ServiceSelector.get_variant_quotation(variant, duration=request.data.get('duration'))
             extra_base = variant_quotation['base_amount']
@@ -206,11 +204,13 @@ class TechnicalServiceViewSet(viewsets.ReadOnlyModelViewSet):
     def full_detail(self, request, uuid=None):
         """GET /services/services/{uuid}/detail/
 
-        Retorna servicio técnico completo con toda la información pública.
-        No rompe API existente (endpoint nuevo, aditivo).
+        Retorna servicio técnico completo con toda la información pública,
+        incluido el catalogo enriquecido + bloques orquestables (reingenieria
+        SDP 2026-08-05). Sigue sin romper la API existente (mismo endpoint,
+        el serializer nuevo es TechnicalServiceSerializer + campos aditivos).
         """
         service = self.get_object()
-        serializer = TechnicalServiceSerializer(service, context={'request': request})
+        serializer = TechnicalServiceDetailSerializer(service, context={'request': request})
         return Response(serializer.data)
 
 

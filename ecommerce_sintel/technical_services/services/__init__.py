@@ -17,6 +17,8 @@ from .commands import (
     ServiceLevelCommands,
     TechnicalServiceCommands,
     ServiceVariantCommands,
+    ServicePricingCommands,
+    OrderPricingCommands,
     ServiceMaterialCommands,
     ServiceConfigurationCommands,
     ServiceTimelineCommands,
@@ -26,6 +28,8 @@ from .commands import (
     WorkingExceptionCommands,
 )
 from .pricing import ServicePricingCalculator, ServiceCostRuleSelector, ServiceCostRuleCommands
+from .manual_pricing import ManualPricingCalculator
+from .quotation_resolver import ServiceQuotationResolver
 from .technician_availability import TechnicianAvailabilityEngine
 from .calendar import build_calendar_feed
 from .packages import (
@@ -37,6 +41,16 @@ from .packages import (
 from .marketing import (
     ServiceFAQSelector, ServiceFAQCommands, ServiceMarketingCommands,
     ServiceReviewSelector, ServiceReviewCommands,
+)
+from .catalog import (
+    ServiceIncludedItemSelector, ServiceIncludedItemCommands,
+    ServiceExcludedItemSelector, ServiceExcludedItemCommands,
+    ServiceRequirementSelector, ServiceRequirementCommands,
+    ServiceSpecificationGroupSelector, ServiceSpecificationGroupCommands,
+    ServiceSpecificationSelector, ServiceSpecificationCommands,
+    ServiceDocumentSelector, ServiceDocumentCommands,
+    ServiceVideoSelector, ServiceVideoCommands,
+    ServiceProcessStepSelector, ServiceProcessStepCommands,
 )
 
 __all__ = [
@@ -55,6 +69,10 @@ __all__ = [
     "ServiceLevelCommands",
     "TechnicalServiceCommands",
     "ServiceVariantCommands",
+    "ServicePricingCommands",
+    "OrderPricingCommands",
+    "ManualPricingCalculator",
+    "ServiceQuotationResolver",
     "ServiceMaterialCommands",
     "ServiceConfigurationCommands",
     "ServiceTimelineCommands",
@@ -73,4 +91,12 @@ __all__ = [
     "PackagePriceCalculator", "ServiceRequestPackageCommands",
     "ServiceFAQSelector", "ServiceFAQCommands", "ServiceMarketingCommands",
     "ServiceReviewSelector", "ServiceReviewCommands",
+    "ServiceIncludedItemSelector", "ServiceIncludedItemCommands",
+    "ServiceExcludedItemSelector", "ServiceExcludedItemCommands",
+    "ServiceRequirementSelector", "ServiceRequirementCommands",
+    "ServiceSpecificationGroupSelector", "ServiceSpecificationGroupCommands",
+    "ServiceSpecificationSelector", "ServiceSpecificationCommands",
+    "ServiceDocumentSelector", "ServiceDocumentCommands",
+    "ServiceVideoSelector", "ServiceVideoCommands",
+    "ServiceProcessStepSelector", "ServiceProcessStepCommands",
 ]

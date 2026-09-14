@@ -371,11 +371,21 @@ class OrderServiceDetailAdmin(admin.ModelAdmin):
         'technician_display',
         'created_at'
     )
-    search_fields = ('order__id', 'technician__user__username', 'address')
+    search_fields = ('order__id', 'technician__email', 'address')
     list_filter = ('priority', 'created_at')
     readonly_fields = (
         'order', 'uuid', 'created_at', 'updated_at',
-        'professional_type_snapshot', 'applied_rate_type', 'applied_rate_amount'
+        'professional_type_snapshot', 'applied_rate_type', 'applied_rate_amount',
+        # Plan "Migracion a autoridad unica de tecnico" FASE 1 (2026-08-14) --
+        # `technician` es legacy/compatibility, NO fuente de verdad
+        # (ServiceOperation.technician lo es). Este ModelAdmin permitia
+        # editar el campo directo, sin pasar por ServiceAssignmentCommands:
+        # sin validar disponibilidad, sin liberar al tecnico anterior, sin
+        # timeline, sin notificacion -- via de escritura sin auditoria
+        # detectada en TECHNICIAN_ASSIGNMENT_MIGRATION_FASE0_2026-08-14.md.
+        # Se cierra aqui; la asignacion real debe hacerse siempre desde
+        # /panel/servicios (ServiceOperation), nunca desde /admin/.
+        'technician',
     )
 
     def order_display(self, obj):
@@ -404,8 +414,12 @@ class OrderServiceDetailAdmin(admin.ModelAdmin):
     scheduled_display.short_description = 'Scheduled'
 
     def technician_display(self, obj):
-        if obj.technician:
-            return obj.technician.username
+        # FASE 9 (2026-08-14): usa el selector sancionado en vez del snapshot
+        # legacy directo -- ver ARQUITECTURA_COMPLETA_SERVICES.md #23.
+        from technical_services.services.selectors import ServiceTechnicianReconciliationSelector
+        technician = ServiceTechnicianReconciliationSelector.get_assigned_technician(obj.order)
+        if technician:
+            return technician.username
         return "Unassigned"
     technician_display.short_description = 'Technician'
 

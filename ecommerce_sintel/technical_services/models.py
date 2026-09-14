@@ -1,8 +1,10 @@
+from decimal import Decimal
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.conf import settings
 from django.utils.text import slugify
-from django.core.validators import MinValueValidator, MaxValueValidator
 from ecommerce.base_models import SintelBaseModel
+from shared.models import AbstractCostRule, AbstractCostAssignment, AbstractReview
 
 class ServiceCategory(SintelBaseModel):
     parent = models.ForeignKey(
@@ -84,6 +86,11 @@ class TechnicalService(SintelBaseModel):
     name = models.CharField(max_length=255)
     slug = models.SlugField(max_length=255, unique=True, db_index=True)
     description = models.TextField()
+    # Bloques "Alcance"/"Garantia"/"Cobertura" de la reingenieria SDP (2026-08-05) -- texto
+    # unico, mismo patron que shop.Product.scope/warranty, no ameritan modelo hijo propio.
+    scope = models.TextField(blank=True, default='')
+    warranty = models.TextField(blank=True, default='')
+    coverage_notes = models.TextField(blank=True, default='')
     is_active = models.BooleanField(default=True)
     is_featured = models.BooleanField(default=False)
     is_purchasable = models.BooleanField(default=True)
@@ -124,6 +131,27 @@ class ServiceVariant(SintelBaseModel):
         (FIXED, 'Fixed'),
     ]
 
+    # Plan "Manual Pricing Engine" (2026-08-13), FASE 1 -- contrato formal de
+    # pricing_source. AUTOMATIC (default) preserva el comportamiento actual sin
+    # ningun cambio: LaborCostCalculator + ServicePricingCalculator sobre
+    # pricing_strategy/fixed_price, exactamente como hoy (ver SERVICE_MANUAL_
+    # PRICING_BASELINE.md §2). Los 3 modos MANUAL_* apagan ese calculo por
+    # completo (FASE 4, ServiceQuotationResolver) -- pricing_strategy/fixed_price
+    # de la variante quedan sin efecto cuando pricing_source != AUTOMATIC, pero NO
+    # se eliminan del modelo (permite volver a AUTOMATIC sin perder la
+    # configuracion de mano de obra ya cargada).
+    SOURCE_AUTOMATIC = 'AUTOMATIC'
+    SOURCE_MANUAL_PROJECT = 'MANUAL_PROJECT'
+    SOURCE_MANUAL_GENERAL = 'MANUAL_GENERAL'
+    SOURCE_MANUAL_HOURLY = 'MANUAL_HOURLY'
+    PRICING_SOURCE_CHOICES = [
+        (SOURCE_AUTOMATIC, 'Automatico'),
+        (SOURCE_MANUAL_PROJECT, 'Manual - Proyecto completo'),
+        (SOURCE_MANUAL_GENERAL, 'Manual - Precio general'),
+        (SOURCE_MANUAL_HOURLY, 'Manual - Por horas'),
+    ]
+    _MANUAL_SOURCES = (SOURCE_MANUAL_PROJECT, SOURCE_MANUAL_GENERAL, SOURCE_MANUAL_HOURLY)
+
     service = models.ForeignKey(TechnicalService, on_delete=models.CASCADE, related_name='variants')
     sku = models.CharField(max_length=100, unique=True, db_index=True)
     estimated_hours = models.DecimalField(max_digits=6, decimal_places=2, default=1.0)
@@ -160,6 +188,43 @@ class ServiceVariant(SintelBaseModel):
     is_default = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True, db_index=True)
 
+    pricing_source = models.CharField(
+        max_length=20, choices=PRICING_SOURCE_CHOICES, default=SOURCE_AUTOMATIC, db_index=True,
+        help_text="AUTOMATIC = LaborCostCalculator/SMLV (comportamiento actual). MANUAL_* = precio "
+                   "definido directamente por el administrador, ver ManualPricingCalculator.",
+    )
+    manual_unit_price = models.DecimalField(
+        max_digits=12, decimal_places=2, null=True, blank=True,
+        help_text="MANUAL_GENERAL: precio fijo total. MANUAL_HOURLY: tarifa por hora (se multiplica "
+                   "por duration). No aplica a MANUAL_PROJECT ni AUTOMATIC.",
+    )
+    manual_project_price = models.DecimalField(
+        max_digits=12, decimal_places=2, null=True, blank=True,
+        help_text="Solo MANUAL_PROJECT: precio total fijo del proyecto, duration no lo modifica.",
+    )
+
+    def clean(self):
+        super().clean()
+        if self.pricing_source == self.SOURCE_AUTOMATIC:
+            if self.manual_unit_price is not None or self.manual_project_price is not None:
+                raise ValidationError(
+                    'pricing_source AUTOMATIC no debe tener manual_unit_price ni manual_project_price.'
+                )
+        elif self.pricing_source == self.SOURCE_MANUAL_PROJECT:
+            if not self.manual_project_price or self.manual_project_price <= Decimal('0'):
+                raise ValidationError('MANUAL_PROJECT requiere manual_project_price > 0.')
+            if self.manual_unit_price is not None:
+                raise ValidationError('MANUAL_PROJECT no debe tener manual_unit_price (usar manual_project_price).')
+        elif self.pricing_source in (self.SOURCE_MANUAL_GENERAL, self.SOURCE_MANUAL_HOURLY):
+            if not self.manual_unit_price or self.manual_unit_price <= Decimal('0'):
+                raise ValidationError(f'{self.pricing_source} requiere manual_unit_price > 0.')
+            if self.manual_project_price is not None:
+                raise ValidationError(f'{self.pricing_source} no debe tener manual_project_price.')
+
+    @property
+    def is_manual_pricing(self) -> bool:
+        return self.pricing_source in self._MANUAL_SOURCES
+
     def __str__(self):
         return f"{self.service.name} - {self.sku}"
 
@@ -188,14 +253,20 @@ class ServiceImage(SintelBaseModel):
     image = models.ImageField(upload_to='services/')
     alt_text = models.CharField(max_length=255, blank=True, null=True)
     is_primary = models.BooleanField(default=False)
+    # Galeria descriptiva (plan "Rediseno ServiceForm + Content/Media", FASE 4,
+    # 2026-08-14) -- caption/description dan contexto a cada foto (no solo el
+    # alt_text tecnico de accesibilidad), display_order permite reordenar la
+    # galeria manualmente en vez de depender del orden de subida.
+    caption = models.CharField(max_length=150, blank=True, default='')
+    description = models.TextField(blank=True, default='')
+    display_order = models.PositiveIntegerField(default=0, db_index=True)
 
-class ServiceReview(SintelBaseModel):
+    class Meta:
+        ordering = ['display_order', 'created_at']
+
+class ServiceReview(AbstractReview):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='service_reviews')
     service = models.ForeignKey(TechnicalService, on_delete=models.CASCADE, related_name='reviews')
-    rating = models.PositiveSmallIntegerField(
-        validators=[MinValueValidator(1), MaxValueValidator(5)]
-    )
-    comment = models.TextField()
 
     class Meta:
         unique_together = ('user', 'service')
@@ -322,6 +393,195 @@ class ServiceMarketing(SintelBaseModel):
         return f"Marketing -- {self.service.name}"
 
 
+# ── Catalogo enriquecido de TechnicalService (2026-08-05) ──────────────────────
+# Espejo de shop.Product*/renting.Rental* (mismo shape: fila hija con
+# position/is_active, soft-delete real via SintelBaseModel) -- ver
+# technical_services/.AGENT/docs/UI_MODULO_SERVICES.md para el detalle completo
+# de la reingenieria SDP que motivo estos modelos.
+
+class ServiceIncludedItem(SintelBaseModel):
+    """Que incluye el servicio, mostrado en el detalle publico."""
+    service = models.ForeignKey(TechnicalService, on_delete=models.CASCADE, related_name='included_items')
+    title = models.CharField(max_length=255)
+    description = models.TextField(blank=True, default='')
+    icon = models.CharField(max_length=50, blank=True, default='')
+    position = models.PositiveIntegerField(default=0)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        verbose_name = 'item incluido de servicio'
+        verbose_name_plural = 'items incluidos de servicio'
+        ordering = ['position', 'created_at']
+
+    def __str__(self):
+        return f"{self.service.name} -- incluye: {self.title}"
+
+
+class ServiceExcludedItem(SintelBaseModel):
+    """Que NO incluye el servicio, mostrado en el detalle publico."""
+    service = models.ForeignKey(TechnicalService, on_delete=models.CASCADE, related_name='excluded_items')
+    title = models.CharField(max_length=255)
+    description = models.TextField(blank=True, default='')
+    icon = models.CharField(max_length=50, blank=True, default='')
+    position = models.PositiveIntegerField(default=0)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        verbose_name = 'item no incluido de servicio'
+        verbose_name_plural = 'items no incluidos de servicio'
+        ordering = ['position', 'created_at']
+
+    def __str__(self):
+        return f"{self.service.name} -- no incluye: {self.title}"
+
+
+class ServiceRequirement(SintelBaseModel):
+    """Requisito del cliente / condicion de instalacion antes de prestar el servicio."""
+    service = models.ForeignKey(TechnicalService, on_delete=models.CASCADE, related_name='requirements')
+    title = models.CharField(max_length=255)
+    description = models.TextField(blank=True, default='')
+    position = models.PositiveIntegerField(default=0)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        verbose_name = 'requisito de servicio'
+        verbose_name_plural = 'requisitos de servicio'
+        ordering = ['position', 'created_at']
+
+    def __str__(self):
+        return f"{self.service.name} -- requisito: {self.title}"
+
+
+class ServiceSpecificationGroup(SintelBaseModel):
+    """Grupo de la ficha tecnica (ej. 'General', 'Cobertura')."""
+    service = models.ForeignKey(TechnicalService, on_delete=models.CASCADE, related_name='specification_groups')
+    name = models.CharField(max_length=100)
+    position = models.PositiveIntegerField(default=0)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        verbose_name = 'grupo de ficha tecnica de servicio'
+        verbose_name_plural = 'grupos de ficha tecnica de servicio'
+        ordering = ['position', 'created_at']
+
+    def __str__(self):
+        return f"{self.service.name} -- grupo: {self.name}"
+
+
+class ServiceSpecification(SintelBaseModel):
+    """Fila de la ficha tecnica, agrupada bajo ServiceSpecificationGroup."""
+    service = models.ForeignKey(TechnicalService, on_delete=models.CASCADE, related_name='specifications')
+    group = models.ForeignKey(ServiceSpecificationGroup, on_delete=models.CASCADE, related_name='specifications')
+    name = models.CharField(max_length=100)
+    value = models.CharField(max_length=255)
+    position = models.PositiveIntegerField(default=0)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        verbose_name = 'especificacion de servicio'
+        verbose_name_plural = 'especificaciones de servicio'
+        ordering = ['position', 'created_at']
+
+    def __str__(self):
+        return f"{self.service.name} -- {self.name}: {self.value}"
+
+
+class ServiceDocument(SintelBaseModel):
+    """
+    Documento descargable del servicio: manual, ficha tecnica, certificado,
+    normativa, catalogo. is_public controla visibilidad en el detalle del
+    cliente (documentos internos pueden quedar is_public=False).
+    """
+    TYPE_MANUAL = 'MANUAL'
+    TYPE_FICHA_TECNICA = 'FICHA_TECNICA'
+    TYPE_CERTIFICADO = 'CERTIFICADO'
+    TYPE_NORMATIVA = 'NORMATIVA'
+    TYPE_CATALOGO = 'CATALOGO'
+    TYPE_OTRO = 'OTRO'
+    DOCUMENT_TYPE_CHOICES = [
+        (TYPE_MANUAL, 'Manual'),
+        (TYPE_FICHA_TECNICA, 'Ficha tecnica'),
+        (TYPE_CERTIFICADO, 'Certificado'),
+        (TYPE_NORMATIVA, 'Normativa'),
+        (TYPE_CATALOGO, 'Catalogo'),
+        (TYPE_OTRO, 'Otro'),
+    ]
+
+    service = models.ForeignKey(TechnicalService, on_delete=models.CASCADE, related_name='documents')
+    title = models.CharField(max_length=255)
+    description = models.TextField(blank=True, default='')
+    document_type = models.CharField(max_length=20, choices=DOCUMENT_TYPE_CHOICES, default=TYPE_OTRO, db_index=True)
+    file = models.FileField(upload_to='services/documents/')
+    cover_image = models.ImageField(upload_to='services/documents/covers/', blank=True, null=True)
+    downloads = models.PositiveIntegerField(default=0)
+    position = models.PositiveIntegerField(default=0)
+    is_public = models.BooleanField(default=True)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        verbose_name = 'documento de servicio'
+        verbose_name_plural = 'documentos de servicio'
+        ordering = ['position', 'created_at']
+
+    def __str__(self):
+        return f"{self.service.name} -- documento: {self.title}"
+
+
+class ServiceVideo(SintelBaseModel):
+    """Video del servicio (lista) -- YouTube/Vimeo/archivo propio."""
+    SOURCE_YOUTUBE = 'YOUTUBE'
+    SOURCE_VIMEO = 'VIMEO'
+    SOURCE_MP4 = 'MP4'
+    SOURCE_TYPE_CHOICES = [
+        (SOURCE_YOUTUBE, 'YouTube'),
+        (SOURCE_VIMEO, 'Vimeo'),
+        (SOURCE_MP4, 'Archivo MP4'),
+    ]
+
+    service = models.ForeignKey(TechnicalService, on_delete=models.CASCADE, related_name='videos')
+    title = models.CharField(max_length=255, blank=True, default='')
+    source_type = models.CharField(max_length=10, choices=SOURCE_TYPE_CHOICES, default=SOURCE_YOUTUBE)
+    video_url = models.URLField(blank=True, default='')
+    video_file = models.FileField(upload_to='services/videos/', blank=True, null=True)
+    thumbnail = models.ImageField(upload_to='services/videos/thumbs/', blank=True, null=True)
+    position = models.PositiveIntegerField(default=0)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        verbose_name = 'video de servicio'
+        verbose_name_plural = 'videos de servicio'
+        ordering = ['position', 'created_at']
+
+    def __str__(self):
+        return f"{self.service.name} -- video: {self.title or self.source_type}"
+
+
+class ServiceProcessStep(SintelBaseModel):
+    """
+    Paso del proceso de prestacion del servicio (Fase 10 del brief SDP) --
+    sin equivalente en Shop/Renting, genuinamente nuevo. step_number es
+    editable (no se infiere de position) porque el admin puede querer un
+    numero visible distinto del orden de arrastre (ej. renumerar tras borrar
+    un paso intermedio sin correr los demas).
+    """
+    service = models.ForeignKey(TechnicalService, on_delete=models.CASCADE, related_name='process_steps')
+    step_number = models.PositiveIntegerField(default=1)
+    title = models.CharField(max_length=255)
+    description = models.TextField(blank=True, default='')
+    image = models.ImageField(upload_to='services/process/', blank=True, null=True)
+    estimated_time = models.CharField(max_length=100, blank=True, default='', help_text='Ej: 30 min, 1-2 horas')
+    position = models.PositiveIntegerField(default=0)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        verbose_name = 'paso del proceso de servicio'
+        verbose_name_plural = 'pasos del proceso de servicio'
+        ordering = ['position', 'created_at']
+
+    def __str__(self):
+        return f"{self.service.name} -- paso {self.step_number}: {self.title}"
+
+
 class OrderServiceDetail(SintelBaseModel):
     PRIORITY_CHOICES = [
         ('low', 'Low'),
@@ -354,6 +614,67 @@ class OrderServiceDetail(SintelBaseModel):
     applied_rate_type = models.CharField(max_length=20, choices=RATE_TYPE_CHOICES, null=True, blank=True)
     applied_rate_amount = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
 
+    # Plan "Manual Pricing Engine" (2026-08-13) FASE 2 -- snapshot comercial
+    # ampliado. applied_rate_type/applied_rate_amount (arriba) quedan sin tocar
+    # por compatibilidad (siguen siendo consumidos por OrderServiceDetailSerializer
+    # y solo capturan pricing_strategy/labor_cost, ver SERVICE_MANUAL_PRICING_
+    # BASELINE.md §1) -- estos 5 campos nuevos son el snapshot real y completo,
+    # tomado de ServiceVariant.pricing_source en el momento exacto de la orden
+    # (nunca del valor actual de la variante, que puede cambiar despues).
+    pricing_source_snapshot = models.CharField(
+        max_length=20, null=True, blank=True,
+        help_text="ServiceVariant.pricing_source al momento de la orden (AUTOMATIC/MANUAL_*).",
+    )
+    pricing_mode_snapshot = models.CharField(
+        max_length=20, null=True, blank=True,
+        help_text="Para AUTOMATIC: pricing_strategy (HOURLY/DAILY/FIXED) usado en el calculo. "
+                   "None para modos MANUAL_* (pricing_source_snapshot ya es suficiente).",
+    )
+    unit_price_snapshot = models.DecimalField(
+        max_digits=12, decimal_places=2, null=True, blank=True,
+        help_text="Tarifa unitaria aplicada (labor_cost en AUTOMATIC, manual_unit_price en "
+                   "MANUAL_GENERAL/MANUAL_HOURLY). None en MANUAL_PROJECT.",
+    )
+    project_price_snapshot = models.DecimalField(
+        max_digits=12, decimal_places=2, null=True, blank=True,
+        help_text="Solo MANUAL_PROJECT: manual_project_price aplicado.",
+    )
+    duration_snapshot = models.DecimalField(
+        max_digits=6, decimal_places=2, null=True, blank=True,
+        help_text="Horas/dias usados en el calculo (irrelevante para MANUAL_PROJECT/MANUAL_GENERAL).",
+    )
+    # Registro completo de la cotizacion (mismo dict que retorna
+    # ServiceSelector.get_variant_quotation()/ServiceQuotationResolver) -- los 5
+    # campos de arriba son para queries/filtros rapidos sin parsear JSON: este es
+    # el registro historico completo (material_cost, reglas de costo aplicadas,
+    # descuento, IVA, total) para auditoria/disputas, mismo patron ya usado por
+    # `contact_person` (JSONField) en este mismo modelo.
+    quotation_snapshot = models.JSONField(null=True, blank=True)
+
+    # Plan "Manual Pricing Engine" (2026-08-13) FASE 18-19 -- estado del precio
+    # comercial visible/editable desde /panel/servicios/operaciones. Decision
+    # explicita (confirmada con el usuario): el override queda como registro
+    # AUDITADO (este campo + OrderPriceAdjustment abajo) y NUNCA modifica
+    # Order.total_amount/OrderItem.price -- lo que Wompi ya cobro o va a cobrar
+    # no se toca aqui. Un ajuste de cobro real (nota de credito, reembolso
+    # parcial) es un proceso de negocio aparte, fuera de alcance de este plan.
+    PRICE_STATUS_ESTIMATED = 'ESTIMATED'
+    PRICE_STATUS_CONFIRMED = 'CONFIRMED'
+    PRICE_STATUS_OVERRIDDEN = 'OVERRIDDEN'
+    PRICE_STATUS_LOCKED = 'LOCKED'
+    PRICE_STATUS_CHOICES = [
+        (PRICE_STATUS_ESTIMATED, 'Estimado'),
+        (PRICE_STATUS_CONFIRMED, 'Confirmado'),
+        (PRICE_STATUS_OVERRIDDEN, 'Modificado por administrador'),
+        (PRICE_STATUS_LOCKED, 'Bloqueado'),
+    ]
+    price_status = models.CharField(max_length=20, choices=PRICE_STATUS_CHOICES, default=PRICE_STATUS_ESTIMATED)
+    confirmed_total = models.DecimalField(
+        max_digits=12, decimal_places=2, null=True, blank=True,
+        help_text="Total revisado/ajustado por un administrador (solo informativo -- "
+                   "NO reemplaza Order.total_amount, ver OrderPricingCommands).",
+    )
+
     # Slot de disponibilidad reservado (referencia desacoplada, sin FK cross-app)
     booked_slot_id   = models.IntegerField(null=True, blank=True, db_index=True,
                                             help_text="ID del ProfessionalAvailability reservado.")
@@ -376,6 +697,32 @@ class OrderServiceDetail(SintelBaseModel):
 
     def __str__(self):
         return f"Detail for Order {self.order.uuid}"
+
+
+class OrderPriceAdjustment(SintelBaseModel):
+    """Plan 'Manual Pricing Engine' FASE 19 -- registro append-only de cada
+    override de precio comercial hecho por un administrador sobre una orden ya
+    creada. `reason` es obligatorio a nivel de Command (OrderPricingCommands.
+    override_price), no a nivel de modelo, para poder reusar full_clean() sin
+    exigirlo en otros flujos hipoteticos futuros que no pasen por ese Command."""
+    order_service_detail = models.ForeignKey(
+        OrderServiceDetail, on_delete=models.CASCADE, related_name='price_adjustments',
+    )
+    old_total = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    new_total = models.DecimalField(max_digits=12, decimal_places=2)
+    reason = models.TextField(blank=True, default='')
+    changed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='service_price_overrides',
+    )
+
+    class Meta:
+        verbose_name = 'ajuste de precio de orden'
+        verbose_name_plural = 'ajustes de precio de ordenes'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"Ajuste orden {self.order_service_detail.order_id}: {self.old_total} -> {self.new_total}"
 
 
 class OrderServiceTimeline(SintelBaseModel):
@@ -465,14 +812,7 @@ class ServiceBooking(SintelBaseModel):
         return f"ServiceBooking {self.service_variant.sku} [{self.start_time} - {self.end_time}]"
 
 
-class ServiceCostRule(SintelBaseModel):
-    TYPE_FIXED = 'FIXED'
-    TYPE_PERCENTAGE = 'PERCENTAGE'
-    COST_TYPE_CHOICES = [
-        (TYPE_FIXED, 'Valor fijo (COP)'),
-        (TYPE_PERCENTAGE, 'Porcentaje (%)'),
-    ]
-
+class ServiceCostRule(AbstractCostRule):
     CTX_TAX = 'TAX'
     CTX_DISCOUNT = 'DISCOUNT'
     CTX_SETUP = 'SETUP'
@@ -484,23 +824,15 @@ class ServiceCostRule(SintelBaseModel):
         (CTX_OPERATIONAL, 'Costo operativo adicional'),
     ]
 
-    name = models.CharField(max_length=150)
-    description = models.TextField(blank=True, default='')
-    cost_type = models.CharField(max_length=10, choices=COST_TYPE_CHOICES, db_index=True)
     context = models.CharField(max_length=20, choices=CONTEXT_CHOICES, db_index=True)
-    value = models.DecimalField(max_digits=12, decimal_places=4)
     applies_globally = models.BooleanField(default=False, db_index=True)
-    is_active = models.BooleanField(default=True, db_index=True)
 
     class Meta:
         verbose_name = 'regla de costo de servicio'
         verbose_name_plural = 'reglas de costo de servicio'
 
-    def __str__(self):
-        return f"{self.name} ({self.context})"
 
-
-class ServiceCostAssignment(SintelBaseModel):
+class ServiceCostAssignment(AbstractCostAssignment):
     rule = models.ForeignKey(
         ServiceCostRule, on_delete=models.CASCADE, related_name='assignments'
     )
@@ -512,9 +844,6 @@ class ServiceCostAssignment(SintelBaseModel):
         verbose_name = 'asignacion de regla de costo de servicio'
         verbose_name_plural = 'asignaciones de reglas de costo de servicio'
         unique_together = ('rule', 'variant')
-
-    def __str__(self):
-        return f"{self.rule.name} -> {self.variant.sku}"
 
 
 class ServicePriceHistory(SintelBaseModel):
@@ -528,6 +857,22 @@ class ServicePriceHistory(SintelBaseModel):
         blank=True,
         related_name='service_price_changes'
     )
+
+    # Plan "Manual Pricing Engine" (2026-08-13) FASE 6 -- old_price/new_price
+    # (arriba) quedan intactos, siguen registrando SOLO cambios de fixed_price
+    # (poblados por ServiceVariantCommands.update_variant(), sin tocar). Estos
+    # campos nuevos son un segundo tipo de entrada de historial, poblada
+    # exclusivamente por ServicePricingCommands.set_manual_pricing() (FASE 7) --
+    # una fila de ServicePriceHistory nunca mezcla ambos tipos: o trae
+    # old_price/new_price (cambio de fixed_price) o trae pricing_source_old/new
+    # + unit/project_price_old/new (cambio de fuente de precio), no ambos.
+    pricing_source_old = models.CharField(max_length=20, null=True, blank=True)
+    pricing_source_new = models.CharField(max_length=20, null=True, blank=True)
+    unit_price_old = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    unit_price_new = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    project_price_old = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    project_price_new = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    reason = models.TextField(blank=True, default='')
 
     class Meta:
         verbose_name = 'historial de precio de servicio'

@@ -7,7 +7,7 @@ from technical_services.models import (
     TechnicalService, ServiceVariant, ServiceMaterial,
     OrderServiceDetail, OrderServiceTimeline, ServiceAttachment,
     ServicePriceHistory, ServiceImage, ServiceBooking,
-    WorkingSchedule, WorkingException,
+    WorkingSchedule, WorkingException, OrderPriceAdjustment,
 )
 from orders.models import Order, OrderItem
 from technical_services.services.selectors import ServiceSelector
@@ -155,7 +155,36 @@ class ServiceCommands:
             # Capture applied rate from quotation (audit trail)
             applied_rate_type = quotation.get('pricing_strategy')
             applied_rate_amount = quotation.get('labor_cost')
-            
+
+            # Plan "Manual Pricing Engine" FASE 2/4 -- snapshot comercial completo,
+            # congelado al momento exacto de la orden (nunca reconstruible desde
+            # ServiceVariant despues, que puede cambiar). Desde FASE 4, `quotation`
+            # ya viene de ServiceQuotationResolver. 'labor_cost' NO sirve como
+            # unit_price_snapshot en MANUAL_HOURLY -- ahi ya es
+            # unit_price x duration (el TOTAL, no la tarifa), asi que la tarifa
+            # unitaria real hay que leerla de breakdown['unit_price']
+            # (ManualPricingCalculator la deja explicita ahi para exactamente
+            # este caso, ver manual_pricing.py). Bug real atrapado por
+            # OrderServiceDetailManualSnapshotTestCase.
+            # test_manual_hourly_order_snapshots_unit_price_and_duration antes de
+            # llegar a produccion.
+            pricing_source_snapshot = variant.pricing_source
+            breakdown = quotation.get('breakdown') or {}
+            if pricing_source_snapshot == ServiceVariant.SOURCE_MANUAL_PROJECT:
+                pricing_mode_snapshot = None
+                unit_price_snapshot = None
+                project_price_snapshot = quotation.get('labor_cost')
+            elif pricing_source_snapshot in (ServiceVariant.SOURCE_MANUAL_GENERAL, ServiceVariant.SOURCE_MANUAL_HOURLY):
+                pricing_mode_snapshot = None
+                raw_unit_price = breakdown.get('unit_price')
+                unit_price_snapshot = Decimal(str(raw_unit_price)) if raw_unit_price is not None else None
+                project_price_snapshot = None
+            else:  # AUTOMATIC
+                pricing_mode_snapshot = quotation.get('pricing_strategy')
+                unit_price_snapshot = quotation.get('labor_cost')
+                project_price_snapshot = None
+            duration_snapshot = breakdown.get('hours')
+
             detail = OrderServiceDetail.objects.create(
                 order=order,
                 technician=selected_technician,
@@ -172,6 +201,12 @@ class ServiceCommands:
                 professional_type_snapshot=professional_type_snapshot,
                 applied_rate_type=applied_rate_type,
                 applied_rate_amount=applied_rate_amount,
+                pricing_source_snapshot=pricing_source_snapshot,
+                pricing_mode_snapshot=pricing_mode_snapshot,
+                unit_price_snapshot=unit_price_snapshot,
+                project_price_snapshot=project_price_snapshot,
+                duration_snapshot=duration_snapshot,
+                quotation_snapshot={k: (str(v) if isinstance(v, Decimal) else v) for k, v in quotation.items()},
                 booked_slot_id=slot_data['id'] if slot_data else None,
                 booked_date=slot_data['date'] if slot_data else None,
                 booked_start_time=slot_data['start_time'] if slot_data else None,
@@ -262,12 +297,17 @@ class ServiceCommands:
         item = order.items.select_related('service_variant__service').first()
         scheduled = detail.confirmed_date or detail.booked_date or detail.preferred_date
         from notifications.services.commands import NotificationCommands
+        # FASE 9 (2026-08-14): usa el selector sancionado en vez de detail.technician
+        # directo -- evita mostrarle al cliente un tecnico obsoleto si la asignacion
+        # real se movio a ServiceOperation (ver ARQUITECTURA_COMPLETA_SERVICES.md #23).
+        from technical_services.services.selectors import ServiceTechnicianReconciliationSelector
+        assigned_technician = ServiceTechnicianReconciliationSelector.get_assigned_technician(order)
         _user  = order.user
         _ctx   = {
             'order_uuid':      str(order.uuid),
             'user_name':       _user.get_short_name(),
             'service':         item.service_variant.service.name if item and item.service_variant else item.item_name if item else '',
-            'technician':      detail.technician.get_full_name() if detail.technician else 'Por asignar',
+            'technician':      assigned_technician.get_full_name() if assigned_technician else 'Por asignar',
             'scheduled_date':  str(scheduled) if scheduled else 'Por confirmar',
             'total':           str(order.total_amount),
         }
@@ -365,14 +405,21 @@ class ServiceLevelCommands:
 class ServiceImageCommands:
     @staticmethod
     @transaction.atomic
-    def add_image(service: TechnicalService, image_file, alt_text: str = '', is_primary: bool = False) -> ServiceImage:
+    def add_image(
+        service: TechnicalService, image_file, alt_text: str = '', is_primary: bool = False,
+        caption: str = '', description: str = '',
+    ) -> ServiceImage:
         if is_primary:
             ServiceImage.objects.filter(service=service, is_primary=True).update(is_primary=False)
+        next_order = ServiceImage.objects.filter(service=service).count()
         img = ServiceImage.objects.create(
             service=service,
             image=image_file,
             alt_text=alt_text or '',
             is_primary=is_primary,
+            caption=caption or '',
+            description=description or '',
+            display_order=next_order,
         )
         if not ServiceImage.objects.filter(service=service, is_primary=True).exclude(pk=img.pk).exists():
             img.is_primary = True
@@ -399,6 +446,42 @@ class ServiceImageCommands:
         image.save(update_fields=['is_primary'])
         return image
 
+    # Plan "Rediseno ServiceForm + Content/Media" FASE 4 (2026-08-14) --
+    # metadatos de galeria (caption/description/alt_text) editables sin
+    # volver a subir el archivo, reemplazo del archivo manteniendo el resto
+    # de la metadata, y reordenamiento manual de la galeria.
+    @staticmethod
+    @transaction.atomic
+    def update_metadata(image: ServiceImage, **fields) -> ServiceImage:
+        allowed = {'alt_text', 'caption', 'description'}
+        update_fields = []
+        for key, value in fields.items():
+            if key not in allowed:
+                continue
+            setattr(image, key, value or '')
+            update_fields.append(key)
+        if update_fields:
+            image.save(update_fields=update_fields)
+        return image
+
+    @staticmethod
+    @transaction.atomic
+    def replace_file(image: ServiceImage, image_file) -> ServiceImage:
+        image.image = image_file
+        image.save(update_fields=['image'])
+        return image
+
+    @staticmethod
+    @transaction.atomic
+    def reorder(service: TechnicalService, ordered_uuids: list) -> None:
+        images_by_uuid = {str(img.uuid): img for img in ServiceImage.objects.filter(service=service)}
+        for position, uuid_str in enumerate(ordered_uuids):
+            img = images_by_uuid.get(str(uuid_str))
+            if img is None:
+                continue
+            img.display_order = position
+            img.save(update_fields=['display_order'])
+
 
 class TechnicalServiceCommands:
     @staticmethod
@@ -409,6 +492,9 @@ class TechnicalServiceCommands:
         category=None,
         level=None,
         vendor=None,
+        scope: str = '',
+        warranty: str = '',
+        coverage_notes: str = '',
         is_active: bool = True,
         is_featured: bool = False,
         is_purchasable: bool = True,
@@ -419,6 +505,7 @@ class TechnicalServiceCommands:
         return TechnicalService.objects.create(
             name=name, description=description,
             category=category, level=level, vendor=vendor,
+            scope=scope, warranty=warranty, coverage_notes=coverage_notes,
             is_active=is_active, is_featured=is_featured, is_purchasable=is_purchasable,
             meta_title=meta_title, meta_description=meta_description, meta_keywords=meta_keywords,
         )
@@ -530,9 +617,20 @@ class ServiceVariantCommands:
             is_active=is_active,
         )
 
+    _PRICING_SOURCE_FIELDS = {'pricing_source', 'manual_unit_price', 'manual_project_price'}
+
     @staticmethod
     @transaction.atomic
     def update_variant(variant: ServiceVariant, data: dict, updated_by=None) -> ServiceVariant:
+        """Plan 'Manual Pricing Engine' FASE 7: sigue siendo el metodo generico
+        (setattr sin allowlist, sin tocar el comportamiento de campos no
+        relacionados con pricing) -- pero si `data` toca pricing_source/
+        manual_unit_price/manual_project_price, valida la combinacion via
+        variant.clean() antes de guardar (scope acotado: clean() solo valida
+        esos 3 campos, no dispara validaciones de otros campos del modelo).
+        ServicePricingCommands.set_manual_pricing() (abajo) sigue siendo la via
+        PREFERIDA -- deja historial dedicado (pricing_source_old/new) y acepta
+        `reason`; este metodo no genera esa entrada de historial, solo valida."""
         old_price = variant.fixed_price
         if data.get('is_default') and not variant.is_default:
             variant.service.variants.filter(is_deleted=False, is_default=True).update(is_default=False)
@@ -546,6 +644,8 @@ class ServiceVariantCommands:
                 new_price=new_price,
                 changed_by=updated_by
             )
+        if ServiceVariantCommands._PRICING_SOURCE_FIELDS & data.keys():
+            variant.clean()
         variant.save()
         return variant
 
@@ -554,6 +654,98 @@ class ServiceVariantCommands:
     def delete_variant(variant: ServiceVariant) -> None:
         variant.is_deleted = True
         variant.save()
+
+
+class ServicePricingCommands:
+    """Plan 'Manual Pricing Engine' (2026-08-13) FASE 7 -- via PREFERIDA (segun
+    el propio plan) para cambiar la fuente de precio de una variante. Unico
+    metodo (`set_manual_pricing`) maneja las 4 transiciones posibles
+    (AUTOMATIC -> MANUAL_*, MANUAL_* -> AUTOMATIC, MANUAL_* -> otro MANUAL_*) --
+    no hay un comando separado para "volver a automatico": pasar
+    pricing_source=ServiceVariant.SOURCE_AUTOMATIC (con unit_price/project_price
+    en None) hace exactamente eso. Deja una entrada de ServicePriceHistory
+    dedicada (pricing_source_old/new + unit/project_price_old/new + reason) --
+    distinta de la que ya genera ServiceVariantCommands.update_variant() para
+    cambios de fixed_price (ver comentario en ServicePriceHistory, models.py)."""
+
+    @staticmethod
+    @transaction.atomic
+    def set_manual_pricing(
+        variant: ServiceVariant, pricing_source: str, unit_price=None, project_price=None,
+        changed_by=None, reason='',
+    ) -> ServiceVariant:
+        old_source = variant.pricing_source
+        old_unit_price = variant.manual_unit_price
+        old_project_price = variant.manual_project_price
+
+        variant.pricing_source = pricing_source
+        variant.manual_unit_price = unit_price
+        variant.manual_project_price = project_price
+        variant.clean()
+        variant.save(update_fields=['pricing_source', 'manual_unit_price', 'manual_project_price', 'updated_at'])
+
+        changed = (
+            old_source != variant.pricing_source
+            or old_unit_price != variant.manual_unit_price
+            or old_project_price != variant.manual_project_price
+        )
+        if changed:
+            ServicePriceHistory.objects.create(
+                variant=variant,
+                pricing_source_old=old_source, pricing_source_new=variant.pricing_source,
+                unit_price_old=old_unit_price, unit_price_new=variant.manual_unit_price,
+                project_price_old=old_project_price, project_price_new=variant.manual_project_price,
+                changed_by=changed_by, reason=reason or '',
+            )
+        return variant
+
+
+class OrderPricingCommands:
+    """Plan 'Manual Pricing Engine' (2026-08-13) FASE 18-19 -- estado del precio
+    comercial de una orden YA CREADA, visible/editable desde /panel/servicios/
+    operaciones. Decision explicita del usuario: estos comandos NUNCA tocan
+    Order.total_amount/OrderItem.price -- 'confirmar' u 'override' solo dejan un
+    registro auditado (OrderServiceDetail.price_status/confirmed_total +
+    OrderPriceAdjustment). Sincronizar el cobro real (Wompi) con un override es
+    un proceso de negocio aparte, deliberadamente fuera de este plan."""
+
+    @staticmethod
+    @transaction.atomic
+    def confirm_price(detail: OrderServiceDetail, changed_by=None) -> OrderServiceDetail:
+        if detail.price_status == OrderServiceDetail.PRICE_STATUS_LOCKED:
+            raise ValueError('El precio de esta orden esta bloqueado, no se puede confirmar de nuevo.')
+        detail.confirmed_total = detail.order.total_amount
+        detail.price_status = OrderServiceDetail.PRICE_STATUS_CONFIRMED
+        detail.save(update_fields=['confirmed_total', 'price_status', 'updated_at'])
+        return detail
+
+    @staticmethod
+    @transaction.atomic
+    def override_price(detail: OrderServiceDetail, new_total, reason: str, changed_by=None) -> OrderServiceDetail:
+        if not reason or not reason.strip():
+            raise ValueError('El motivo del cambio de precio es obligatorio.')
+        if detail.price_status == OrderServiceDetail.PRICE_STATUS_LOCKED:
+            raise ValueError('El precio de esta orden esta bloqueado, no se puede modificar.')
+        new_total = Decimal(str(new_total))
+        if new_total < Decimal('0'):
+            raise ValueError('El nuevo total no puede ser negativo.')
+
+        old_total = detail.confirmed_total if detail.confirmed_total is not None else detail.order.total_amount
+        OrderPriceAdjustment.objects.create(
+            order_service_detail=detail, old_total=old_total, new_total=new_total,
+            reason=reason.strip(), changed_by=changed_by,
+        )
+        detail.confirmed_total = new_total
+        detail.price_status = OrderServiceDetail.PRICE_STATUS_OVERRIDDEN
+        detail.save(update_fields=['confirmed_total', 'price_status', 'updated_at'])
+        return detail
+
+    @staticmethod
+    @transaction.atomic
+    def lock_price(detail: OrderServiceDetail) -> OrderServiceDetail:
+        detail.price_status = OrderServiceDetail.PRICE_STATUS_LOCKED
+        detail.save(update_fields=['price_status', 'updated_at'])
+        return detail
 
 
 class ServiceMaterialCommands:
@@ -724,49 +916,40 @@ class ServiceAttachmentCommands:
 
 class ServiceAssignmentCommands:
     @staticmethod
-    def _release_technician(technician) -> None:
-        """Libera (is_available=True) a un tecnico previamente asignado, si tiene perfil."""
-        if technician is None:
-            return
-        from accounts.services.profile_resolver import ProfileResolver
-        profile = ProfileResolver.get_technician_profile(technician)
-        if profile:
-            profile.is_available = True
-            profile.save(update_fields=['is_available', 'updated_at'])
-
-    @staticmethod
     @transaction.atomic
     def assign_technician(order: Order, technician, notes: str = "", assigned_by=None) -> OrderServiceDetail:
         """
-        Assigns a technician to the service order, toggles their availability,
-        and adds an 'assigned' timeline event.
+        Asigna un tecnico a la orden de servicio. Migracion "autoridad unica de
+        tecnico" FASE 4 (2026-08-14): la decision real (validez de FSM, reserva de
+        slot/conflicto de horario, TechnicianProfile.is_available) ya NO se decide
+        aqui -- se delega integramente a ServiceOperationCommands.assign_technician()
+        (technical_services/services/operations.py), el unico escritor real desde
+        esta fase (ver ARQUITECTURA_COMPLETA_SERVICES.md #23).
+        OrderServiceDetail.technician se sigue escribiendo, pero como snapshot de
+        compatibilidad reflejando esa decision -- no como una segunda decision
+        independiente -- para no romper el contrato de este endpoint legacy
+        (TechnicianAssignmentBoard.vue) mientras se completa la migracion del
+        panel (FASE 11-13, pendiente).
         """
         from accounts.services.profile_resolver import ProfileResolver
+        from technical_services.services.operations import ServiceOperationCommands
+
         profile = ProfileResolver.get_technician_profile(technician)
         if profile is None:
             raise ValueError("El técnico no tiene un perfil de técnico configurado.")
-
         if not profile.is_available:
             raise ValueError("El técnico seleccionado no está disponible.")
 
-        # Get or create detail
-        detail, created = OrderServiceDetail.objects.get_or_create(
+        operation = ServiceOperationCommands.ensure_for_order(order, actor=assigned_by)
+        ServiceOperationCommands.assign_technician(operation, technician=technician, actor=assigned_by)
+
+        detail, _created = OrderServiceDetail.objects.get_or_create(
             order=order,
             defaults={'address': '', 'description': ''}
         )
-
-        # If there was a previous technician, make them available again
-        if detail.technician and detail.technician != technician:
-            ServiceAssignmentCommands._release_technician(detail.technician)
-
         detail.technician = technician
-        detail.save()
+        detail.save(update_fields=['technician', 'updated_at'])
 
-        # Mark technician as unavailable
-        profile.is_available = False
-        profile.save(update_fields=['is_available', 'updated_at'])
-
-        # Add timeline event
         ServiceTimelineCommands.add_timeline_event(
             order=order,
             status='assigned',
@@ -780,17 +963,25 @@ class ServiceAssignmentCommands:
     @transaction.atomic
     def unassign_technician(order: Order, unassigned_by=None, notes: str = "") -> OrderServiceDetail:
         """
-        Cancela la asignacion de tecnico de una orden de servicio: libera al tecnico
-        (is_available=True) y vuelve el detalle de la orden a estado 'pending'.
+        Cancela la asignacion de tecnico de una orden de servicio. Migracion
+        "autoridad unica de tecnico" FASE 4 (2026-08-14): delega la liberacion
+        real (slot, TechnicianProfile.is_available, FSM) en
+        ServiceOperationCommands.unassign_technician() -- ver docstring de
+        assign_technician() arriba.
         """
+        from technical_services.services.operations import ServiceOperationCommands
+
         detail = OrderServiceDetail.objects.filter(order=order).first()
         if detail is None or detail.technician is None:
             raise ValueError("Esta orden no tiene un técnico asignado.")
 
         previous = detail.technician
-        ServiceAssignmentCommands._release_technician(previous)
+        operation = ServiceOperationCommands.ensure_for_order(order, actor=unassigned_by)
+        if operation.technician_id:
+            ServiceOperationCommands.unassign_technician(operation, actor=unassigned_by)
+
         detail.technician = None
-        detail.save()
+        detail.save(update_fields=['technician', 'updated_at'])
 
         ServiceTimelineCommands.add_timeline_event(
             order=order,

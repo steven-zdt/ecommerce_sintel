@@ -2137,6 +2137,13 @@ extrae ambos campos del payload y los reenvía a `request_service(...)` sin más
 
 ### 20.5 Panel Administrador — `/panel/servicios` → pestaña "Paquetes"
 
+**[NOTA 2026-08-14]:** esta sección describe el estado del formulario en el momento
+en que se agregó Paquetes (5ª pestaña, junto a General/Imagen/Variantes/Costos). Esa
+cifra quedó desactualizada por fases posteriores (reingeniería SDP 2026-08-05 sumó
+8 pestañas más del catálogo enriquecido). El número real actual es **15 pestañas**
+— ver auditoría completa en `technical_services/.AGENT/SERVICES_FRONTEND_AUDIT_2026-08-14.md`.
+Se conserva el texto original como registro histórico de esta fase puntual.
+
 `ServiceForm.vue` (offcanvas de edición de servicio) ganó una 5ª pestaña **Paquetes**
 junto a General/Imagen/Variantes/Costos, siguiendo el mismo patrón de pestañas con
 `v-show` + Pinia store ya usado por Variantes (§13):
@@ -2222,11 +2229,279 @@ proyecto (234 tests) corrida tras el cambio: 2 fallos preexistentes no relaciona
 
 ---
 
+## 21. Manual Pricing Engine (2026-08-13)
+
+Plan "Manual Pricing Engine" -- permite fijar el precio de una `ServiceVariant`
+manualmente en vez de calcularlo con `LaborCostCalculator` (SMLV), sin romper
+el motor automatico existente ni ningun caller que ya consume
+`ServiceSelector.get_variant_quotation()`. Documentacion fase-por-fase completa
+en `technical_services/.AGENT/MANUAL_PRICING_FASE{1..9}*.md` -- este resumen
+consolida solo lo que un futuro editor necesita saber de entrada.
+
+### 21.1 Pricing Sources
+
+`ServiceVariant.pricing_source` (nuevo, mig. 0033): `AUTOMATIC` (default, sin
+cambios de comportamiento), `MANUAL_PROJECT`, `MANUAL_GENERAL`,
+`MANUAL_HOURLY`. Campos `manual_unit_price`/`manual_project_price`
+(mutuamente excluyentes segun el modo, validado en `ServiceVariant.clean()`).
+`pricing_strategy`/`fixed_price` (AUTOMATIC) se conservan intactos cuando la
+variante pasa a MANUAL_* -- permite volver a AUTOMATIC sin reconfigurar.
+
+### 21.2-21.4 Manual Project / General / Hourly
+
+`technical_services/services/manual_pricing.py::ManualPricingCalculator` --
+archivo nuevo, deliberadamente separado de `LaborCostCalculator`. Sin
+materiales ni `ServiceCostRule` sobre un precio manual (decision explicita,
+primera version) -- el precio que define el administrador ya es el precio
+base final, solo se le suma descuento + IVA. `MANUAL_PROJECT`/`MANUAL_GENERAL`
+ignoran `duration`; `MANUAL_HOURLY` lo multiplica y respeta
+`min_duration`/`max_duration`.
+
+### 21.5 Snapshot
+
+`OrderServiceDetail` gano `pricing_source_snapshot`, `pricing_mode_snapshot`,
+`unit_price_snapshot`, `project_price_snapshot`, `duration_snapshot` (mig.
+0034) + `quotation_snapshot` (JSONField, registro completo de la cotizacion).
+Poblado en `ServiceCommands.request_service()` -- congela la fuente/tarifa
+exacta al momento de la orden, un cambio posterior en la variante/SMLV no
+afecta ordenes ya creadas (verificado con test).
+
+### 21.6 Resolver + Price Override
+
+`technical_services/services/quotation_resolver.py::ServiceQuotationResolver`
+-- unico punto que decide AUTOMATIC vs MANUAL_* segun `pricing_source`.
+`ServiceSelector.get_variant_quotation()` (mismo nombre/firma de siempre)
+delega en el resolver -- **ningun caller existente se modifico**
+(`ServiceVariantSerializer`, `request_service()`, `PackagePriceCalculator`,
+el endpoint publico `quotation/`) para que empezaran a soportar precios
+manuales.
+
+Cambio de `pricing_source` -- exclusivamente via
+`ServicePricingCommands.set_manual_pricing()` (`services/commands.py`),
+expuesto en `POST /api/v1/dashboard/service-variants/{uuid}/set-pricing/`
+(`AdminServiceVariantViewSet`). Valida la combinacion antes de guardar
+(`ValidationError` -> 400 si es invalida, nunca queda a medio guardar) y
+acepta `reason` (motivo del cambio, opcional).
+
+### 21.7 Price History
+
+`ServicePriceHistory` gano `pricing_source_old/new`, `unit_price_old/new`,
+`project_price_old/new`, `reason` (mig. 0035) -- entrada de tipo distinto a
+la que ya generaba `update_variant()` para cambios de `fixed_price`
+(`old_price`/`new_price`, sin tocar). El modal de historial en
+`VariantsTab.vue` distingue ambos tipos de entrada por que grupo de campos
+viene poblado.
+
+### 21.8 Package Interaction
+
+Sin cambios en `services/packages.py` -- `PackagePriceCalculator.calculate()`
+recibe `extra_base=quotation['base_amount']` desde `request_service()`, y como
+`get_variant_quotation()` ya resuelve el precio manual (§21.6), un
+`ServicePackage` sobre una variante `MANUAL_PROJECT`/`GENERAL`/`HOURLY`
+funciona correctamente sin ningun ajuste -- verificado con test de
+integracion real (`ManualPricingPackageIntegrationTestCase`).
+
+### 21.9 ServiceOperation Interaction
+
+Sin superposicion: `ServiceOperation.estimated_duration_minutes` (dominio
+operativo, §18) es independiente de la duracion usada para calcular el precio
+comercial (`OrderServiceDetail.duration_snapshot`, §21.5) -- confirmado que no
+existe ninguna referencia cruzada entre el motor de precios y este campo.
+
+### 21.10 UI
+
+`frontend/src/modules/technical_services/service-form/PricingSourceCard.vue`
+(nuevo) -- montado en `CostosTab.vue` arriba de `CostCalculationPanel.vue`
+(existente, sin cambios de logica -- solo se le fuerza un `:key` nuevo tras
+guardar, para que vuelva a pedir la cotizacion real al backend). Badge
+"Manual"/`pricing_source` en la lista de variantes (`VariantsTab.vue`).
+
+### 21.11 Verificacion
+
+Backend: suite completo de `technical_services` **172+/172+ PASS** (0
+regresiones en ninguna fase). Frontend: verificado manualmente contra el dev
+stack real (login admin, cambio AUTOMATIC -> MANUAL_HOURLY -> AUTOMATIC,
+confirmado en Postgres y en el modal de historial) -- sin suite de tests de
+componentes Vue en este proyecto.
+
+---
+
+## 22. Fachada Administrativa Unificada — `/panel/servicios/solicitudes` (2026-08-14)
+
+Plan "Fachada Administrativa Unificada": el admin necesitaba ver y
+gestionar el ciclo completo de una solicitud de servicio (cliente, pago,
+operación, técnico) sin navegar entre `/panel/ordenes`,
+`/panel/servicios/operaciones` y `/panel/servicios/asignacion-tecnicos`.
+Se construyó una **fachada de lectura/escritura**, no un nuevo dominio.
+
+**Regla de ownership (no cambió):**
+- `orders.Order` sigue siendo el dueño de la solicitud comercial.
+- `technical_services.ServiceOperation` sigue siendo el dueño del estado
+  operativo/técnico.
+- `dashboard` (BFF) es la fachada — combina ambos dominios para lectura y
+  delega toda escritura a los comandos ya existentes de cada dominio.
+  **No existe ni existirá `technical_services.ServiceRequest`** como
+  modelo paralelo.
+
+**Backend** (`dashboard/services/admin_orchestrators.py`):
+`ServiceAdminRequestSelector.base_queryset()` combina `Order` +
+`OrderServiceDetail` + `ServiceOperation` + técnico en una consulta
+optimizada (7 queries para 20 filas, incluyendo timeline fusionado).
+`ServiceAdminRequestOrchestrator` expone `plan_request`/`assign_technician`/
+`schedule_request`/`notify_customer`/`cancel_request` — cada uno es una
+delegación de una línea a `ServiceOperationCommands` (nunca
+`Model.objects.update()` directo). **No existe `approve_request()`**: el
+backend de servicios no tiene un gate de aprobación tipo
+`pending_validation` (a diferencia de Renting) — `ServiceOperation` nace
+en `READY_FOR_PLANNING` automáticamente dentro de
+`ServiceCommands.request_service()`.
+
+**Endpoint BFF**: `/api/v1/dashboard/technical-services/requests/`
+(`AdminServiceRequestViewSet`, `ADMIN_PERMISSIONS`) — list/detail +
+`POST {uuid}/plan|assign|schedule|notify|cancel/`. Reusa los serializers
+de input ya existentes de `ServiceOperationViewSet`
+(`technical_services/api/operation_serializers.py`), sin duplicarlos.
+
+**DTO** (`dashboard/api/serializers.py::ServiceAdminRequestSummarySerializer`):
+`customer`/`service`/`variant`/`commercial`/`payment`/`request_status`/
+`operation`/`technician`/`schedule`/`timeline`. El campo `technician`
+expone **ambos** sistemas de asignación que coexisten hoy en el código
+(`ServiceOperation.technician`, fuente de verdad para escritura, y
+`OrderServiceDetail.technician`, legacy/solo lectura) con un flag
+`diverges` si difieren — ver §14 para el detalle histórico de por qué hay
+dos.
+
+**Frontend**: `ServiceRequestsPanel.vue` + `ServiceRequestActionsPanel.vue`
+(`frontend/src/modules/technical_services/`), store
+`technicalServicesAdmin/requests.js`, ruta
+`/panel/servicios/solicitudes`. Mismo patrón UX que
+`RentingRequestList.vue`/`RentalRequestActionsPanel.vue` (fila expandible,
+no modal). Reusa `OperationStatusBadge.vue` y el endpoint ya existente
+`service-operations/{uuid}/available-technicians/` — cero componentes ni
+selectores nuevos donde ya existían. KPIs (`Nuevas hoy`/`Pendientes de
+planeación`/`Sin técnico`/`Programadas hoy`/`En curso`/`Atrasadas`/
+`Canceladas`) extienden aditivamente `ServiceOperationSelector.dashboard_metrics()`
+(ya existente, ya usado por `ServiceOperationBoard.vue`) — sin modelo de
+estadísticas nuevo.
+
+**[Ver operación]** navega a `/panel/servicios/operaciones?search=<uuid>`
+(`ServiceOperationBoard.vue` se extendió para leer `route.query.search` —
+gap encontrado y corregido durante la verificación). **[Ver orden]**
+navega a la ruta `order-detail` ya existente. Ninguna de las dos abre una
+vista nueva.
+
+**Documentación detallada de esta fase**, en orden:
+`technical_services/.AGENT/SERVICES_ADMIN_FACADE_BASELINE.md` (auditoría,
+incluye 2 hallazgos: doble sistema de asignación de técnico y ausencia de
+gate de aprobación), `SERVICES_ADMIN_FACADE_MATRIX_2026-08-14.md` (matriz
+de ownership), `SERVICES_ADMIN_FACADE_FASE2_5_2026-08-14.md` (backend),
+`SERVICES_ADMIN_FACADE_FASE6_14_2026-08-14.md` (frontend, con el
+walkthrough completo verificado en navegador real: planificar → asignar →
+notificar, cruzado con la vista de Orden).
+
+**Verificación**: 5 tests nuevos en `dashboard/tests.py::ServiceAdminRequestFacadeTestCase`
+(incluye assert explícito de que `OrderServiceDetail.technician` no se
+toca al asignar desde la fachada, y de que no existe `ServiceRequest` ni
+`/approve/`) + regresión completa de `dashboard` (57/57 PASS) +
+verificación manual en navegador contra datos reales, cruzada con
+`/panel/ordenes/{uuid}` y `/panel/renta/solicitudes` (sin regresión).
+
+---
+
+## 23. Regla oficial de autoridad de asignación de técnico (2026-08-14)
+
+Resuelve formalmente el hallazgo H1 documentado en §22 y en
+`SERVICES_ADMIN_FACADE_BASELINE.md`. Plan completo de migración:
+`technical_services/.AGENT/TECHNICIAN_ASSIGNMENT_MIGRATION_FASE0_2026-08-14.md`
+y sucesivos.
+
+> **`ServiceOperation.technician` es la única fuente de verdad (SOURCE OF
+> TRUTH) para "qué técnico está asignado a un servicio".**
+>
+> **`OrderServiceDetail.technician` es LEGACY / COMPATIBILITY.** No debe
+> aceptar cambios independientes de su valor — solo puede reflejar (no
+> gobernar) lo que ya decidió `ServiceOperation`.
+
+**Por qué**: la auditoría de FASE 0 encontró 3 vías de escritura activas al
+campo legacy (`orders/service-orders/` vía `TechnicianAssignmentBoard.vue`,
+y el **Django Admin nativo** `/admin/`, esta última sin pasar por ningún
+Command — sin validar disponibilidad, sin liberar al técnico anterior, sin
+timeline, sin notificación). Mantener dos escritores independientes
+perpetúa divergencias reales, no solo teóricas — ver campo `diverges` del
+DTO de la fachada (§22), que ya detecta estos casos en producción.
+
+**Cerrado en FASE 1**: `OrderServiceDetailAdmin.readonly_fields` ahora
+incluye `technician` — el Django Admin nativo ya no puede escribirlo.
+
+**Cerrado en FASE 2-4 (2026-08-14)**: `ServiceOperationCommands.assign_technician()`/
+`unassign_technician()` (`technical_services/services/operations.py`) son ahora el
+único lugar que decide una asignación real — incluye:
+- Precondición de fecha/hora **relajada**: se puede pre-asignar un técnico antes de
+  planear (sin reservar slot todavía, sin avanzar de `READY_FOR_PLANNING`); `plan()`
+  completa la reserva real de `ProfessionalAvailability` en cuanto hay fecha. Decisión
+  explícita del usuario (no del plan original) para no romper el flujo existente del
+  panel legacy de Orders, que nunca exigió planeación previa.
+- `TechnicianProfile.is_available` (bandera legacy leída por
+  `TechnicianSelector.get_available_for_category()`/`find_best_technician()` y el
+  bloque público "Profesionales") ahora también se mantiene sincronizada desde aquí
+  (`_set_technician_availability()`) — antes solo la tocaba `ServiceAssignmentCommands`
+  y quedaba congelada para asignaciones hechas desde el sistema nuevo.
+- `orders/api/service_orders.py` (`assign-technician`/`auto-assign`/`unassign-technician`,
+  usados por `TechnicianAssignmentBoard.vue`) ya NO decide nada por su cuenta:
+  `ServiceAssignmentCommands` (`technical_services/services/commands.py`) delega
+  íntegramente en `ServiceOperationCommands` y solo escribe
+  `OrderServiceDetail.technician` como snapshot de compatibilidad (nunca como segunda
+  decisión independiente).
+- `OrderServiceDetailSerializer.get_technician()` y
+  `ServiceAssignmentQueueSerializer.get_technician()` ahora leen primero
+  `ServiceOperation.technician` (fuente real), con fallback al snapshot legacy solo si
+  aún no existe `ServiceOperation` para la orden — evita mostrar un valor obsoleto si
+  la asignación se movió desde el panel de Servicios/la fachada admin. El filtro
+  `has_technician` del tablero de asignación (`assignment-queue`) también migró a
+  `service_operation__technician__isnull`.
+
+Regresión completa verificada tras FASE 2-4: `technical_services` + `orders` +
+`dashboard`, 271 tests, OK.
+
+**Cerrado en FASE 6-9 (2026-08-14)**: `ServiceTechnicianReconciliationSelector`
+(`technical_services/services/selectors.py`) — único lugar sancionado para leer
+"quién es el técnico asignado" (`get_assigned_technician()`) y para auditar
+divergencias entre los 2 sistemas (`find_divergent_assignments()`, clasifica en
+`B_conflict`/`C_operation_only`/`D_detail_only`). Reconciliación real corrida
+contra la base de datos de desarrollo: **0 conflictos reales**, 3 asignaciones
+nuevas esperadas (vía panel de Servicios/fachada), 5 residuos históricos benignos
+(órdenes `pending` de antes de que `ServiceOperation` existiera como feature) — ver
+`TECHNICIAN_ASSIGNMENT_RECONCILIATION_REPORT.md` para el detalle completo. Se
+usó el selector para cerrar 2 lectores adicionales encontrados por auditoría que
+aún mostraban el snapshot legacy directo: `ServiceCommands.confirm_slot_on_payment()`
+(notificación al cliente) y `OrderServiceDetailAdmin.technician_display()` (columna
+del admin nativo).
+
+**Decisión FASE 10-13 (2026-08-14, explícita del usuario vía `AskUserQuestion`)**:
+`TechnicianAssignmentBoard.vue` (panel legacy de Orders) **se deja tal cual está**
+— no se le remueven los botones de asignar/desasignar. Ya delega correctamente en
+`ServiceOperationCommands` desde FASE 4 (misma garantía de corrección que el panel
+nuevo), así que convertirlo a solo-lectura no cerraría ningún riesgo real
+adicional — solo le quitaría capacidad a los admins que hoy lo usan, sin beneficio
+técnico. La migración de autoridad de escritura (lo que importaba) ya está
+cerrada; esto era una decisión de UX, no de corrección.
+
+**Pendiente, sin decisión tomada (FASE 14-20 del plan)**: auditoría permanente
+automatizada (`validate_technician_consistency()` como comando periódico — hoy el
+selector existe pero se corre manualmente, ver reporte de reconciliación) / apagar
+por completo la escritura legacy de `OrderServiceDetail.technician` (no se ha
+evaluado si algún consumidor externo depende de que ese campo quede escrito) /
+deprecar formalmente el campo. Ver documento de migración para el detalle fase por
+fase — retomar solo si surge una necesidad concreta.
+
+---
+
 ## Conclusión
 
 El módulo **Technical Services** es una capa e-commerce completa para cobro de servicios técnicos y mano de obra calificada en Colombia, que además ya administra su propio ciclo operativo post-venta. Sus características actuales (re-auditadas al 2026-07-17):
 
-- **31 migraciones aplicadas** — incluyendo IVA configurable, snapshot de tarifas, slot booking, contact_person JSONField, price history, el motor de reglas de costo `ServiceCostRule` (mig. 0015, §5.2bis), el dominio `ServiceOperation` (mig. 0023-0024), el **Sistema de Paquetes de Servicio** (§20, mig. 0027), el seed de los templates `service_request_created`/`service_status_updated` (mig. 0030), y `ServiceMarketing`/`ServiceFAQ`/SEO (mig. 0031, §16 C8) de la unificación con Renting.
+- **35 migraciones aplicadas** — incluyendo IVA configurable, snapshot de tarifas, slot booking, contact_person JSONField, price history, el motor de reglas de costo `ServiceCostRule` (mig. 0015, §5.2bis), el dominio `ServiceOperation` (mig. 0023-0024), el **Sistema de Paquetes de Servicio** (§20, mig. 0027), el seed de los templates `service_request_created`/`service_status_updated` (mig. 0030), `ServiceMarketing`/`ServiceFAQ`/SEO (mig. 0031, §16 C8) de la unificación con Renting, el catálogo enriquecido (mig. 0032, reingeniería SDP 2026-08-05), y el **Manual Pricing Engine** (§21, mig. 0033-0035, 2026-08-13).
+- **Manual Pricing Engine** (§21): un administrador puede fijar el precio de una variante manualmente (por proyecto, general, o por hora) en vez de depender siempre del cálculo SMLV — coexiste con el motor automático sin romperlo, migrable servicio por servicio.
 - **Paquetes de servicio opcionales** (§20): venta configurable Servicio → Paquete → Adicionales, 100% aditiva — un servicio sin paquetes se sigue contratando exactamente igual que antes de esta fase.
 - **Wizard 4-pasos** (`ServiceRequestWizard.vue`: Servicio → Información → Programación → Confirmar) con checkout en **modal** (§13.4) — el pago nunca abandona la SPA, integrado con Payment sin reimplementar su lógica. Desde el 2026-07-18 (§16 C9), los pasos 2-3 muestran un **sidebar de resumen persistente** (`ServiceRequestSummary.vue`) y el stepper de progreso es el mismo componente compartido (`CheckoutStepper.vue`) que usa Renting.
 - **`ServiceDetailView.vue` completamente componentizado** (§16 C9, 2026-07-18): 8 componentes nuevos en `components/services/detail/` (Galería/Recursos técnicos/Alcance/Ficha técnica/FAQ/Profesionales/Reseñas), reseñas (`ServiceReview`) y técnicos disponibles expuestos por primera vez en la API pública, mismo orden de bloques que `RentalDetailView.vue`.

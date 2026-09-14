@@ -7,6 +7,9 @@ from technical_services.models import (
     TechnicalService, ServiceVariant, ServiceCategory,
     ServiceLevel, ServiceConfiguration, ServiceMaterial,
     ServicePriceHistory, WorkingSchedule, WorkingException, ServiceFAQ,
+    ServiceIncludedItem, ServiceExcludedItem, ServiceRequirement,
+    ServiceSpecificationGroup, ServiceSpecification,
+    ServiceDocument, ServiceVideo, ServiceProcessStep,
 )
 from .calculator import LaborCostCalculator
 
@@ -119,6 +122,25 @@ class ServiceSelector:
             .prefetch_related(
                 'variants__materials__product_variant__product', 'images',
                 Prefetch('faqs', queryset=ServiceFAQ.objects.filter(is_deleted=False)),
+                # Catalogo enriquecido (2026-08-05) -- solo lo usa
+                # TechnicalServiceDetailSerializer (GET .../detail/), pero se
+                # prefetchea aqui igual (get_by_uuid es la unica via de
+                # get_object() del ViewSet) para evitar N+1 en ese endpoint.
+                # Filtrado is_deleted=False explicito (mismo patron que
+                # ProductSelector._get_detail_queryset() en shop) -- sin esto,
+                # el serializer veria filas soft-deleted.
+                Prefetch('included_items', queryset=ServiceIncludedItem.objects.filter(is_deleted=False)),
+                Prefetch('excluded_items', queryset=ServiceExcludedItem.objects.filter(is_deleted=False)),
+                Prefetch('requirements', queryset=ServiceRequirement.objects.filter(is_deleted=False)),
+                Prefetch('documents', queryset=ServiceDocument.objects.filter(is_deleted=False)),
+                Prefetch('videos', queryset=ServiceVideo.objects.filter(is_deleted=False)),
+                Prefetch('process_steps', queryset=ServiceProcessStep.objects.filter(is_deleted=False)),
+                Prefetch(
+                    'specification_groups',
+                    queryset=ServiceSpecificationGroup.objects.filter(is_deleted=False).prefetch_related(
+                        Prefetch('specifications', queryset=ServiceSpecification.objects.filter(is_deleted=False)),
+                    ),
+                ),
             )
             .select_related('category', 'level', 'marketing')
             .get(uuid=uuid, is_deleted=False)
@@ -157,6 +179,23 @@ class ServiceSelector:
 
     @classmethod
     def get_variant_quotation(cls, variant: ServiceVariant, duration=None, discount_pct=None):
+        """Plan 'Manual Pricing Engine' (2026-08-13) FASE 4 -- punto de entrada
+        unico, sin cambios de firma para no tocar ningun caller existente
+        (serializers.py, commands.py, packages.py, api/views.py quotation action).
+        Delega en ServiceQuotationResolver, que decide AUTOMATIC vs MANUAL_* segun
+        variant.pricing_source -- ver quotation_resolver.py. Import diferido
+        (dentro del metodo, no a nivel de modulo) para evitar el ciclo
+        selectors.py <-> quotation_resolver.py (el resolver tambien importa
+        ServiceSelector de forma diferida para el camino AUTOMATIC)."""
+        from technical_services.services.quotation_resolver import ServiceQuotationResolver
+        return ServiceQuotationResolver.resolve(variant, duration=duration, discount_pct=discount_pct)
+
+    @classmethod
+    def _get_automatic_quotation(cls, variant: ServiceVariant, duration=None, discount_pct=None):
+        """Cuerpo real de la cotizacion AUTOMATIC -- exactamente el mismo codigo
+        que antes vivia en get_variant_quotation() (FASE 4: renombrado, cero
+        cambios de logica). Solo lo llama ServiceQuotationResolver cuando
+        variant.pricing_source == AUTOMATIC."""
         if variant.pricing_strategy == 'FIXED' and variant.fixed_price is not None:
             labor_cost = variant.fixed_price
         else:
@@ -395,6 +434,74 @@ class TechnicianSelector:
         if candidates is None:
             return None
         return candidates.first()
+
+
+class ServiceTechnicianReconciliationSelector:
+    """
+    Migracion "autoridad unica de tecnico" FASE 6-8 (2026-08-14).
+    `get_assigned_technician()` es el unico lugar sancionado para leer "quien
+    es el tecnico asignado" a una orden de servicio -- evita que un consumidor
+    nuevo reintroduzca la ambiguedad entre ServiceOperation.technician (fuente
+    real, ver ARQUITECTURA_COMPLETA_SERVICES.md #23) y
+    OrderServiceDetail.technician (snapshot legacy). Los 2 serializers que ya
+    existian antes de esta fase (OrderServiceDetailSerializer,
+    ServiceAssignmentQueueSerializer) replican esta misma logica inline por
+    razones de select_related/N+1 -- no llaman a este selector directamente.
+    """
+
+    @staticmethod
+    def get_assigned_technician(order):
+        operation = getattr(order, 'service_operation', None)
+        if operation and operation.technician_id:
+            return operation.technician
+        detail = getattr(order, 'service_detail', None)
+        return detail.technician if detail else None
+
+    @staticmethod
+    def find_divergent_assignments():
+        """
+        Compara ServiceOperation.technician vs OrderServiceDetail.technician para
+        cada orden con detalle de servicio. Ver
+        technical_services/.AGENT/TECHNICIAN_ASSIGNMENT_MIGRATION_FASE0_2026-08-14.md
+        FASE 6-7 para la politica de reconciliacion de cada categoria.
+
+        Retorna dict {'B_conflict': [...], 'C_operation_only': [...], 'D_detail_only': [...]}
+        con uuids de Order (str). No incluye ordenes donde ambos coinciden
+        (incluyendo ambos None) -- esas no requieren revision.
+
+        - B_conflict: ambos asignados pero a tecnicos DISTINTOS -- conflicto real,
+          requiere revision manual antes de sincronizar (politica: favorecer
+          ServiceOperation, por tener chequeo real de conflicto de agenda, pero
+          no sobreescribir sin que un admin lo confirme).
+        - C_operation_only: ServiceOperation tiene tecnico, OrderServiceDetail no --
+          esperado desde FASE 4 para asignaciones hechas por el panel de
+          Servicios/la fachada admin (nunca escriben el snapshot legacy). No es
+          un error, es el estado normal del sistema migrado.
+        - D_detail_only: OrderServiceDetail tiene tecnico, ServiceOperation no --
+          residual de ordenes anteriores a la existencia de ServiceOperation
+          para esa orden (ensure_for_order() no se habia ejecutado aun).
+        """
+        from orders.models import Order
+        qs = (
+            Order.objects.filter(service_detail__isnull=False)
+            .select_related(
+                'service_detail', 'service_operation',
+            )
+        )
+        result = {'B_conflict': [], 'C_operation_only': [], 'D_detail_only': []}
+        for order in qs:
+            detail_tech_id = order.service_detail.technician_id
+            operation = getattr(order, 'service_operation', None)
+            op_tech_id = operation.technician_id if operation else None
+            if detail_tech_id == op_tech_id:
+                continue
+            if detail_tech_id and op_tech_id:
+                result['B_conflict'].append(str(order.uuid))
+            elif op_tech_id and not detail_tech_id:
+                result['C_operation_only'].append(str(order.uuid))
+            elif detail_tech_id and not op_tech_id:
+                result['D_detail_only'].append(str(order.uuid))
+        return result
 
 
 class WorkingScheduleSelector:
