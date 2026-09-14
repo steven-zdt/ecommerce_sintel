@@ -1,5 +1,5 @@
 from decimal import Decimal
-from django.db.models import Avg, Count, FloatField, Q, Value, OuterRef, Subquery
+from django.db.models import Avg, Count, FloatField, Q, QuerySet, Value, OuterRef, Subquery
 from django.db.models.functions import Coalesce
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.conf import settings
@@ -83,6 +83,73 @@ class AccountSelector:
             'refresh': str(refresh),
             'access': str(refresh.access_token),
         }
+
+
+class ContractorCVSelector:
+    """
+    Lectura del CV profesional propio (ARCH-M1).
+
+    Las 7 ViewSets de CV (ContractorProfileScopedMixin) hacian el mismo
+    filtro ORM inline en su get_queryset(). El scope real (owner) lo sigue
+    imponiendo el caller pasando su propio user_profile -- estos metodos no
+    resuelven el perfil, solo filtran por el que reciben.
+    """
+
+    @staticmethod
+    def list_specialties(user_profile) -> QuerySet:
+        from accounts.models import ContractorSpecialty
+        return ContractorSpecialty.objects.filter(user_profile=user_profile, is_deleted=False)
+
+    @staticmethod
+    def list_skills(user_profile) -> QuerySet:
+        from accounts.models import ContractorSkill
+        return ContractorSkill.objects.filter(user_profile=user_profile, is_deleted=False)
+
+    @staticmethod
+    def list_experiences(user_profile) -> QuerySet:
+        from accounts.models import ProfessionalExperience
+        return ProfessionalExperience.objects.filter(user_profile=user_profile, is_deleted=False)
+
+    @staticmethod
+    def list_academic_trainings(user_profile) -> QuerySet:
+        from accounts.models import AcademicTraining
+        return AcademicTraining.objects.filter(user_profile=user_profile, is_deleted=False)
+
+    @staticmethod
+    def list_courses(user_profile) -> QuerySet:
+        from accounts.models import ProfessionalCourse
+        return ProfessionalCourse.objects.filter(user_profile=user_profile, is_deleted=False)
+
+    @staticmethod
+    def list_certifications(user_profile) -> QuerySet:
+        from accounts.models import ProfessionalCertification
+        return ProfessionalCertification.objects.filter(user_profile=user_profile, is_deleted=False)
+
+    @staticmethod
+    def list_success_cases(user_profile) -> QuerySet:
+        from accounts.models import SuccessCase
+        return SuccessCase.objects.filter(user_profile=user_profile, is_deleted=False)
+
+
+class ContractorProfileSelector:
+    """Perfiles de contratista del marketplace publico (ARCH-M1)."""
+
+    @staticmethod
+    def list_public() -> QuerySet:
+        from accounts.models import UserProfile
+        from accounts.services.profile_registry import SERVICE_PROVIDER_TYPES
+        return UserProfile.objects.filter(
+            is_deleted=False,
+            user_type__in=SERVICE_PROVIDER_TYPES,
+        )
+
+    @staticmethod
+    def get_by_uuid(profile_uuid: str):
+        from django.shortcuts import get_object_or_404
+        from accounts.models import UserProfile
+        return get_object_or_404(
+            UserProfile.objects.select_related('user'), uuid=profile_uuid, is_deleted=False,
+        )
 
 
 class ContractorSearchSelector:
@@ -257,6 +324,18 @@ class AvailabilitySelector:
     """
     Consultas de lectura para los slots de disponibilidad.
     """
+
+    @staticmethod
+    def list_all() -> QuerySet:
+        """Todos los slots no eliminados (ARCH-M1).
+
+        Base de AvailabilityViewSet.get_queryset(); el filtrado real por
+        perfil/rango lo hacen get_available_slots()/get_full_schedule().
+        """
+        from accounts.models import ProfessionalAvailability
+        return ProfessionalAvailability.objects.filter(is_deleted=False).select_related(
+            'user_profile__user', 'booked_by',
+        )
 
     @staticmethod
     def get_available_slots(profile_uuid, start_date=None, end_date=None):

@@ -10,15 +10,11 @@ from rest_framework.throttling import ScopedRateThrottle
 from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from drf_spectacular.utils import extend_schema
-from accounts.models import (
-    UserProfile, ContractorSpecialty, ContractorSkill, AcademicTraining,
-    ProfessionalCourse, ProfessionalCertification, ProfessionalExperience,
-    SuccessCase, ProfessionalAvailability,
-)
+from accounts.models import UserProfile
 from accounts.services import AccountSelector, AccountCommands
 from accounts.services.selectors import (
     ContractorSearchSelector, ContractorRecommendationSelector, AvailabilitySelector,
-    ContractorAdminSelector,
+    ContractorAdminSelector, ContractorCVSelector, ContractorProfileSelector,
 )
 from accounts.services.commands import AvailabilityCommands, CustomerPasswordResetCommands
 from accounts.services.profile_registry import SERVICE_PROVIDER_TYPES
@@ -279,9 +275,11 @@ class AccountViewSet(viewsets.ViewSet):
                 # is_used se marca en la misma transaccion que crea la cuenta:
                 # si create_from_verified_payload falla (p.ej. telefono duplicado),
                 # el rollback deja el codigo intacto y el usuario puede reintentar
-                # sin perder el OTP.
-                verification.is_used = True
-                verification.save(update_fields=['is_used'])
+                # sin perder el OTP. [CORREGIDO 2026-08-04, hallazgo M7 de
+                # AUDITORIA_INTEGRAL_PRODUCCION_2026-08-04.md]: delegado a
+                # VerificationCommands.mark_as_used en vez de escribir el modelo
+                # directo aqui -- sigue en la misma transaccion atomica.
+                VerificationCommands.mark_as_used(verification)
                 user = AccountCommands.create_from_verified_payload(verification.registration_payload)
         except IntegrityError as exc:
             if 'phone_number' in str(exc):
@@ -379,10 +377,7 @@ class ContractorProfileViewSet(viewsets.ReadOnlyModelViewSet):
     """
     ViewSet publico para visualizar contratistas del marketplace.
     """
-    queryset = UserProfile.objects.filter(
-        is_deleted=False,
-        user_type__in=SERVICE_PROVIDER_TYPES,
-    )
+    queryset = ContractorProfileSelector.list_public()
     serializer_class = PublicContractorProfileSerializer
     lookup_field = 'uuid'
     permission_classes = [permissions.AllowAny]
@@ -492,7 +487,7 @@ class ContractorSpecialtyViewSet(ContractorProfileScopedMixin, viewsets.ModelVie
     serializer_class = ContractorSpecialtySerializer
 
     def get_queryset(self):
-        return ContractorSpecialty.objects.filter(user_profile=self.own_profile, is_deleted=False)
+        return ContractorCVSelector.list_specialties(self.own_profile)
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
@@ -511,7 +506,7 @@ class ContractorSkillViewSet(ContractorProfileScopedMixin, viewsets.ModelViewSet
     serializer_class = ContractorSkillSerializer
 
     def get_queryset(self):
-        return ContractorSkill.objects.filter(user_profile=self.own_profile, is_deleted=False)
+        return ContractorCVSelector.list_skills(self.own_profile)
 
     def perform_create(self, serializer):
         AccountCommands.add_skill(
@@ -528,7 +523,7 @@ class ProfessionalExperienceViewSet(ContractorProfileScopedMixin, viewsets.Model
     serializer_class = ProfessionalExperienceSerializer
 
     def get_queryset(self):
-        return ProfessionalExperience.objects.filter(user_profile=self.own_profile, is_deleted=False)
+        return ContractorCVSelector.list_experiences(self.own_profile)
 
     def perform_create(self, serializer):
         AccountCommands.add_experience(
@@ -549,7 +544,7 @@ class AcademicTrainingViewSet(ContractorProfileScopedMixin, viewsets.ModelViewSe
     serializer_class = AcademicTrainingSerializer
 
     def get_queryset(self):
-        return AcademicTraining.objects.filter(user_profile=self.own_profile, is_deleted=False)
+        return ContractorCVSelector.list_academic_trainings(self.own_profile)
 
     def perform_create(self, serializer):
         AccountCommands.add_academic_training(
@@ -570,7 +565,7 @@ class ProfessionalCourseViewSet(ContractorProfileScopedMixin, viewsets.ModelView
     serializer_class = ProfessionalCourseSerializer
 
     def get_queryset(self):
-        return ProfessionalCourse.objects.filter(user_profile=self.own_profile, is_deleted=False)
+        return ContractorCVSelector.list_courses(self.own_profile)
 
     def perform_create(self, serializer):
         AccountCommands.add_course(
@@ -589,7 +584,7 @@ class ProfessionalCertificationViewSet(ContractorProfileScopedMixin, viewsets.Mo
     serializer_class = ProfessionalCertificationSerializer
 
     def get_queryset(self):
-        return ProfessionalCertification.objects.filter(user_profile=self.own_profile, is_deleted=False)
+        return ContractorCVSelector.list_certifications(self.own_profile)
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
@@ -614,7 +609,7 @@ class SuccessCaseViewSet(ContractorProfileScopedMixin, viewsets.ModelViewSet):
     serializer_class = SuccessCaseSerializer
 
     def get_queryset(self):
-        return SuccessCase.objects.filter(user_profile=self.own_profile, is_deleted=False)
+        return ContractorCVSelector.list_success_cases(self.own_profile)
 
     def create(self, request, *args, **kwargs):
         title = request.data.get('title')
@@ -652,14 +647,12 @@ class AvailabilityViewSet(viewsets.GenericViewSet):
     Endpoints del cliente (autenticado):
       - POST /availability/{id}/lock/
     """
-    queryset = ProfessionalAvailability.objects.filter(is_deleted=False)
+    queryset = AvailabilitySelector.list_all()
     serializer_class = AvailabilityOutputSerializer
     permission_classes = [permissions.AllowAny]
 
     def get_queryset(self):
-        return ProfessionalAvailability.objects.filter(is_deleted=False).select_related(
-            'user_profile__user', 'booked_by'
-        )
+        return AvailabilitySelector.list_all()
 
     # ── GET /availability/ ──────────────────────────────────────────
     def list(self, request):
@@ -791,17 +784,15 @@ class AvailabilityViewSet(viewsets.GenericViewSet):
         serializer = AvailabilityStatusUpdateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
+        # [CORREGIDO 2026-08-04, hallazgo M7 de AUDITORIA_INTEGRAL_PRODUCCION_2026-08-04.md]:
+        # notes ahora viaja al Command (que decide si escribirlo) en vez de que el ViewSet
+        # mute el modelo directo despues de la llamada.
         slot = AvailabilityCommands.update_slot_status(
             slot_id=pk,
             new_status=serializer.validated_data['status'],
             requesting_user=request.user,
+            notes=serializer.validated_data.get('notes'),
         )
-        # Actualizar notes si se pasan
-        notes = serializer.validated_data.get('notes')
-        if notes is not None:
-            slot.notes = notes
-            slot.save(update_fields=['notes'])
-
         return Response(AvailabilityOutputSerializer(slot).data)
 
 
@@ -845,7 +836,7 @@ class AdminContractorViewSet(viewsets.GenericViewSet):
 
     @action(detail=True, methods=['patch'], url_path='toggle-availability')
     def toggle_availability(self, request, uuid=None):
-        profile = get_object_or_404(UserProfile.objects.select_related('user'), uuid=uuid, is_deleted=False)
+        profile = ContractorProfileSelector.get_by_uuid(uuid)
         is_available = request.data.get('is_available')
         if not isinstance(is_available, bool):
             return Response(
