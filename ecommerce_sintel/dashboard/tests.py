@@ -4,7 +4,7 @@ from django.test import TransactionTestCase
 from django.core.cache import cache
 from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
-from shop.models import ProductVariant, Product, Category
+from shop.models import ProductVariant, Product, Category, ProductCostRule
 from renting.models import Equipment, EquipmentVariant, RentingCategory, RentingBrand, RentalLabor, RentalCostAssignment
 from renting.services.pricing import RentalCostRuleCommands
 from technical_services.models import TechnicalService, ServiceVariant, ServiceCategory, ServiceLevel, ServiceCostRule
@@ -683,6 +683,50 @@ class DashboardServiceListQueryCountRegressionTestCase(TransactionTestCase):
         self.assertLessEqual(len(ctx.captured_queries), 25)
 
 
+class DashboardShopCostRuleAPITestCase(TransactionTestCase):
+    """Cubre el ciclo de escritura expuesto por CostosTab de Shop."""
+
+    def setUp(self):
+        cache.clear()
+        self.client = APIClient()
+        self.admin_user = User.objects.create_superuser(
+            email="shop_cost_rules_admin@example.com", password="adminpassword",
+        )
+        self.client.force_authenticate(user=self.admin_user)
+
+    def test_create_toggle_and_delete_cost_rule(self):
+        collection_url = "/api/v1/dashboard/shop-cost-rules/"
+        payload = {
+            "name": "IVA P2-2",
+            "description": "Regla temporal de prueba del ciclo de CostosTab",
+            "cost_type": "PERCENTAGE",
+            "context": "TAX",
+            "value": "7.5000",
+            "applies_globally": False,
+        }
+
+        created = self.client.post(collection_url, payload, format="json")
+        self.assertEqual(created.status_code, 201)
+        rule_uuid = created.data["uuid"]
+        self.assertTrue(created.data["is_active"])
+
+        toggled = self.client.post(f"{collection_url}{rule_uuid}/deactivate/", format="json")
+        self.assertEqual(toggled.status_code, 204)
+        rule = ProductCostRule.objects.get(uuid=rule_uuid)
+        self.assertFalse(rule.is_active)
+        self.assertFalse(rule.is_deleted)
+
+        deleted = self.client.delete(f"{collection_url}{rule_uuid}/")
+        self.assertEqual(deleted.status_code, 204)
+        rule.refresh_from_db()
+        self.assertTrue(rule.is_deleted)
+        self.assertFalse(rule.is_active)
+
+        listed = self.client.get(collection_url)
+        self.assertEqual(listed.status_code, 200)
+        self.assertNotIn(rule_uuid, [item["uuid"] for item in listed.data])
+
+
 class DashboardMarketplaceMetricsTestCase(TransactionTestCase):
     """
     AdminMetricsOrchestrator._get_marketplace_metrics() -- tarjetas KPI nuevas del dashboard
@@ -721,4 +765,123 @@ class DashboardMarketplaceMetricsTestCase(TransactionTestCase):
         response = self.client.get('/api/v1/dashboard/metrics/')
         self.assertEqual(response.status_code, 200)
         self.assertIn('marketplace', response.data)
+
+
+class ServiceAdminRequestFacadeTestCase(TransactionTestCase):
+    """
+    Plan "Fachada Administrativa Unificada" (2026-08-14), FASE 5 --
+    ServiceAdminRequestSelector/Orchestrator + AdminServiceRequestViewSet
+    (/api/v1/dashboard/technical-services/requests/). Cubre list/detail +
+    las 5 acciones reales (plan/assign/schedule/notify/cancel -- no existe
+    approve, ver hallazgo H2 de SERVICES_ADMIN_FACADE_BASELINE.md) contra
+    una solicitud creada por el camino real (ServiceCommands.request_service()),
+    y verifica explicitamente que Order sigue siendo el owner (no se crea
+    ningun ServiceRequest paralelo).
+    """
+
+    def setUp(self):
+        from accounts.models import UserProfile
+        from accounts.services.commands import AccountCommands
+        from technical_services.models import ServiceCategory, ServiceVariant, TechnicalService, ServiceConfiguration
+        from technical_services.services.commands import ServiceCommands
+
+        cache.clear()
+        self.client = APIClient()
+        self.admin_user = User.objects.create_superuser(
+            email="facade_admin@example.com", password="adminpassword",
+        )
+        self.customer = User.objects.create_user(
+            email="facade_customer@example.com", password="customerpassword",
+        )
+        UserProfile.objects.create(user=self.customer, first_name="Cliente", last_name="Fachada", user_type="CUSTOMER")
+
+        self.technician = AccountCommands.register_user({
+            "email": "facade_tech@example.com", "password": "Pass@1234!",
+            "user_type": UserProfile.TECHNICIAN, "first_name": "Tec", "last_name": "Fachada",
+        })
+
+        self.category = ServiceCategory.objects.create(name="Fachada Cat", slug="fachada-cat")
+        self.service = TechnicalService.objects.create(
+            vendor=self.admin_user, category=self.category,
+            name="Servicio Fachada", slug="servicio-fachada",
+        )
+        self.variant = ServiceVariant.objects.create(
+            service=self.service, sku="FACADE-001",
+            pricing_strategy=ServiceVariant.FIXED, fixed_price=Decimal('100000.00'),
+        )
+        ServiceConfiguration.objects.create(
+            name="Config Fachada", smlv=Decimal('1300000.00'), transport_subsidy=Decimal('162000.00'),
+            benefit_rate=Decimal('53.10'), indirect_costs_rate=Decimal('15.00'), is_active=True,
+        )
+
+        self.order = ServiceCommands.request_service(
+            user=self.customer, variant=self.variant, quantity=1,
+            service_detail_data={'priority': 'medium', 'description': 'Prueba fachada', 'address': 'Calle Fachada 1'},
+        )
+        self.client.force_authenticate(user=self.admin_user)
+
+    def test_list_includes_the_request(self):
+        response = self.client.get('/api/v1/dashboard/technical-services/requests/')
+        self.assertEqual(response.status_code, 200)
+        uuids = [row['request_id'] for row in response.data['results']]
+        self.assertIn(str(self.order.uuid), uuids)
+
+    def test_detail_combines_order_and_operation(self):
+        response = self.client.get(f'/api/v1/dashboard/technical-services/requests/{self.order.uuid}/')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['order_id'], str(self.order.uuid))
+        self.assertEqual(response.data['service']['name'], 'Servicio Fachada')
+        self.assertIsNotNone(response.data['operation'])
+        self.assertEqual(response.data['operation']['status'], 'READY_FOR_PLANNING')
+
+    def test_plan_assign_schedule_notify_cancel_delegate_to_service_operation(self):
+        from technical_services.models import ServiceOperation
+
+        url = f'/api/v1/dashboard/technical-services/requests/{self.order.uuid}/'
+
+        plan_resp = self.client.post(url + 'plan/', {
+            'scheduled_date': '2026-09-01', 'scheduled_time': '09:00:00',
+        }, format='json')
+        self.assertEqual(plan_resp.status_code, 200, plan_resp.data)
+        self.assertEqual(plan_resp.data['operation']['status'], ServiceOperation.PLANNED)
+
+        assign_resp = self.client.post(url + 'assign/', {
+            'technician_uuid': str(self.technician.uuid),
+        }, format='json')
+        self.assertEqual(assign_resp.status_code, 200, assign_resp.data)
+        self.assertEqual(assign_resp.data['operation']['status'], ServiceOperation.TECHNICIAN_ASSIGNED)
+        self.assertEqual(assign_resp.data['technician']['uuid'], str(self.technician.uuid))
+        # Sistema legacy (OrderServiceDetail.technician) no se toca desde la
+        # fachada -- confirma que solo ServiceOperation es la fuente de verdad.
+        self.order.service_detail.refresh_from_db()
+        self.assertIsNone(self.order.service_detail.technician)
+
+        schedule_resp = self.client.post(url + 'schedule/', {
+            'scheduled_date': '2026-09-02', 'scheduled_time': '10:00:00',
+        }, format='json')
+        self.assertEqual(schedule_resp.status_code, 200, schedule_resp.data)
+
+        notify_resp = self.client.post(url + 'notify/', {}, format='json')
+        self.assertEqual(notify_resp.status_code, 200, notify_resp.data)
+        self.assertEqual(notify_resp.data['operation']['status'], ServiceOperation.CUSTOMER_NOTIFIED)
+
+        cancel_resp = self.client.post(url + 'cancel/', {'reason': 'prueba'}, format='json')
+        self.assertEqual(cancel_resp.status_code, 200, cancel_resp.data)
+        self.assertEqual(cancel_resp.data['operation']['status'], ServiceOperation.CANCELLED)
+
+    def test_no_approve_action_and_no_parallel_service_request_model(self):
+        """H2 (baseline): no existe endpoint /approve/ -- no hay gate de
+        aprobacion en el backend de servicios. H1/regla de no-duplicacion:
+        Order sigue siendo la unica fuente de la solicitud."""
+        url = f'/api/v1/dashboard/technical-services/requests/{self.order.uuid}/approve/'
+        response = self.client.post(url, {}, format='json')
+        self.assertEqual(response.status_code, 404)
+
+        import technical_services.models as ts_models
+        self.assertFalse(hasattr(ts_models, 'ServiceRequest'))
+
+    def test_non_admin_cannot_access_facade(self):
+        self.client.force_authenticate(user=self.customer)
+        response = self.client.get('/api/v1/dashboard/technical-services/requests/')
+        self.assertEqual(response.status_code, 403)
 

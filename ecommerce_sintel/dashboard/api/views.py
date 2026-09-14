@@ -14,6 +14,7 @@ from rest_framework.views import APIView
 from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiParameter
 from django.db.models import Q
 from django.db import IntegrityError
+from django.core.exceptions import ValidationError as DjangoValidationError
 
 from users.api.permissions import IsAdminUser
 
@@ -21,6 +22,7 @@ from dashboard.services.admin_orchestrators import (
     AdminMetricsOrchestrator,
     ShopAdminOrchestrator,
     ServiceAdminOrchestrator,
+    ServiceAdminRequestOrchestrator,
     RentingAdminOrchestrator,
     QuotationAdminOrchestrator,
     QuoteTemplateAdminOrchestrator,
@@ -77,16 +79,22 @@ from dashboard.api.serializers import (
     ServiceLevelSerializer, ServiceLevelInputSerializer,
     ServiceVariantSerializer, ServiceVariantInputSerializer,
     ServiceMaterialSerializer, ServiceMaterialInputSerializer,
-    ServicePriceHistorySerializer,
+    ServicePriceHistorySerializer, SetVariantPricingInputSerializer,
     ServiceCostRuleSerializer, ServiceCostRuleInputSerializer, ServiceCostAssignmentInputSerializer,
+    ServiceAdminRequestSummarySerializer,
     # Support
     ChatRoomListSerializer, ChatRoomSerializer,
 )
 from technical_services.api.serializers import (
-    ServiceImageSerializer, ServiceFAQSerializer, ServiceFAQInputSerializer,
+    ServiceImageSerializer, ServiceImageUpdateInputSerializer, ServiceImageReorderInputSerializer,
+    ServiceFAQSerializer, ServiceFAQInputSerializer,
     ServiceMarketingSerializer, ServiceMarketingInputSerializer,
 )
 from technical_services.services import ServiceFAQSelector, ServiceFAQCommands, ServiceMarketingCommands
+from technical_services.api.operation_serializers import (
+    ServiceOperationPlanSerializer, ServiceOperationAssignSerializer,
+    ServiceOperationRescheduleSerializer, ServiceOperationCancelSerializer,
+)
 from shop.models import ProductImage
 from shop.services.commands import ProductImageCommands
 from security.api.serializers import SecurityEventSerializer
@@ -1141,7 +1149,12 @@ class AdminTechnicalServiceViewSet(viewsets.ViewSet):
             return Response({'detail': 'Se requiere el campo image.'}, status=status.HTTP_400_BAD_REQUEST)
         alt_text   = request.data.get('alt_text', '')
         is_primary = request.data.get('is_primary', 'false').lower() == 'true'
-        img = ServiceAdminOrchestrator.add_image(service, image_file, alt_text=alt_text, is_primary=is_primary)
+        caption     = request.data.get('caption', '')
+        description = request.data.get('description', '')
+        img = ServiceAdminOrchestrator.add_image(
+            service, image_file, alt_text=alt_text, is_primary=is_primary,
+            caption=caption, description=description,
+        )
         return Response(ServiceImageSerializer(img).data, status=status.HTTP_201_CREATED)
 
     @extend_schema(summary="[Admin] Eliminar imagen de servicio")
@@ -1159,6 +1172,48 @@ class AdminTechnicalServiceViewSet(viewsets.ViewSet):
         img = ServiceAdminOrchestrator.get_image(image_uuid)
         updated = ServiceAdminOrchestrator.set_primary_image(img)
         return Response(ServiceImageSerializer(updated).data)
+
+    # Plan "Rediseno ServiceForm + Content/Media" FASE 4/5 (2026-08-14) --
+    # galeria descriptiva: metadatos editables sin re-subir, reemplazo del
+    # archivo, reordenamiento manual. Mismo patron BFF que el resto (Vue ->
+    # store -> este ViewSet -> ServiceAdminOrchestrator -> Commands).
+    @extend_schema(summary="[Admin] Actualizar metadatos de imagen de servicio (sin archivo)")
+    @action(detail=True, methods=['patch'], url_path='update_image/(?P<image_uuid>[^/.]+)')
+    def update_image(self, request, uuid=None, image_uuid=None):
+        ServiceAdminOrchestrator.get_service(uuid)
+        img = ServiceAdminOrchestrator.get_image(image_uuid)
+        ser = ServiceImageUpdateInputSerializer(data=request.data, partial=True)
+        ser.is_valid(raise_exception=True)
+        updated = ServiceAdminOrchestrator.update_image_metadata(img, **ser.validated_data)
+        return Response(ServiceImageSerializer(updated).data)
+
+    @extend_schema(summary="[Admin] Reemplazar el archivo de una imagen de servicio")
+    @action(detail=True, methods=['post'], url_path='replace_image/(?P<image_uuid>[^/.]+)',
+            parser_classes=[MultiPartParser, FormParser])
+    def replace_image(self, request, uuid=None, image_uuid=None):
+        ServiceAdminOrchestrator.get_service(uuid)
+        img = ServiceAdminOrchestrator.get_image(image_uuid)
+        image_file = request.FILES.get('image')
+        if not image_file:
+            return Response({'detail': 'Se requiere el campo image.'}, status=status.HTTP_400_BAD_REQUEST)
+        updated = ServiceAdminOrchestrator.replace_image_file(img, image_file)
+        return Response(ServiceImageSerializer(updated).data)
+
+    @extend_schema(summary="[Admin] Reordenar la galeria de imagenes de un servicio")
+    @action(detail=True, methods=['post'], url_path='reorder_images')
+    def reorder_images(self, request, uuid=None):
+        service = ServiceAdminOrchestrator.get_service(uuid)
+        ser = ServiceImageReorderInputSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        ServiceAdminOrchestrator.reorder_images(service, ser.validated_data['ordered_uuids'])
+        # ServiceSelector.get_by_uuid() (usado por get_service() arriba) hace
+        # prefetch_related('images', ...) -- `service.images.all()` aqui
+        # reusaria ese cache ya poblado ANTES del reorder recien aplicado (Django
+        # no invalida un prefetch_related cache por escrituras posteriores).
+        # Se consulta ServiceImage.objects directo para forzar una query fresca.
+        from technical_services.models import ServiceImage
+        images = ServiceImage.objects.filter(service=service)
+        return Response(ServiceImageSerializer(images, many=True).data)
 
     @extend_schema(summary="[Admin] Duplicar servicio")
     @action(detail=True, methods=['post'])
@@ -1208,6 +1263,108 @@ class AdminTechnicalServiceViewSet(viewsets.ViewSet):
         if request.method == 'DELETE':
             ServiceMarketingCommands.delete(service)
             return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+def _facade_err(exc):
+    if isinstance(exc, DjangoValidationError):
+        return '; '.join(exc.messages) if hasattr(exc, 'messages') else str(exc)
+    return str(exc)
+
+
+class AdminServiceRequestViewSet(viewsets.ViewSet):
+    """
+    /api/v1/dashboard/technical-services/requests/ -- Fachada Administrativa
+    Unificada (Plan 2026-08-14). Listado/detalle combinan Order +
+    OrderServiceDetail + ServiceOperation (ver
+    ServiceAdminRequestSelector); las acciones delegan siempre a
+    ServiceOperationCommands via ServiceAdminRequestOrchestrator -- este
+    ViewSet nunca escribe un modelo directo. Ver
+    technical_services/.AGENT/SERVICES_ADMIN_FACADE_MATRIX_2026-08-14.md.
+
+    No existe accion `approve`: no hay estado de aprobacion en el backend
+    de servicios (a diferencia de Renting) -- ver hallazgo H2 del baseline.
+    """
+    permission_classes = ADMIN_PERMISSIONS
+    lookup_field = 'uuid'
+
+    def list(self, request):
+        params = request.query_params
+        qs = ServiceAdminRequestOrchestrator.list_requests(
+            status=params.get('status') or None,
+            priority=params.get('priority') or None,
+            technician_id=params.get('technician_id') or None,
+            has_technician=params.get('has_technician') or None,
+            search=params.get('search', ''),
+        )
+        paginator = DashboardResultsSetPagination()
+        page = paginator.paginate_queryset(qs, request)
+        if page is not None:
+            return paginator.get_paginated_response(ServiceAdminRequestSummarySerializer(page, many=True).data)
+        return Response(ServiceAdminRequestSummarySerializer(qs, many=True).data)
+
+    def retrieve(self, request, uuid=None):
+        order = ServiceAdminRequestOrchestrator.get_request(uuid)
+        return Response(ServiceAdminRequestSummarySerializer(order).data)
+
+    @extend_schema(summary="[Admin] Planificar solicitud de servicio (fecha/hora/duracion)")
+    @action(detail=True, methods=['post'], url_path='plan')
+    def plan(self, request, uuid=None):
+        order = ServiceAdminRequestOrchestrator.get_request(uuid)
+        serializer = ServiceOperationPlanSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            ServiceAdminRequestOrchestrator.plan_request(order, actor=request.user, **serializer.validated_data)
+        except (ValueError, DjangoValidationError) as exc:
+            return Response({'detail': _facade_err(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(ServiceAdminRequestSummarySerializer(ServiceAdminRequestOrchestrator.get_request(uuid)).data)
+
+    @extend_schema(summary="[Admin] Asignar tecnico a la solicitud (ServiceOperation, fuente de verdad)")
+    @action(detail=True, methods=['post'], url_path='assign')
+    def assign(self, request, uuid=None):
+        order = ServiceAdminRequestOrchestrator.get_request(uuid)
+        serializer = ServiceOperationAssignSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            ServiceAdminRequestOrchestrator.assign_technician(
+                order, technician=serializer.validated_data['technician_uuid'], actor=request.user,
+            )
+        except (ValueError, DjangoValidationError) as exc:
+            return Response({'detail': _facade_err(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(ServiceAdminRequestSummarySerializer(ServiceAdminRequestOrchestrator.get_request(uuid)).data)
+
+    @extend_schema(summary="[Admin] Reprogramar la solicitud (delega a ServiceOperationCommands.reschedule)")
+    @action(detail=True, methods=['post'], url_path='schedule')
+    def schedule(self, request, uuid=None):
+        order = ServiceAdminRequestOrchestrator.get_request(uuid)
+        serializer = ServiceOperationRescheduleSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            ServiceAdminRequestOrchestrator.schedule_request(order, actor=request.user, **serializer.validated_data)
+        except (ValueError, DjangoValidationError) as exc:
+            return Response({'detail': _facade_err(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(ServiceAdminRequestSummarySerializer(ServiceAdminRequestOrchestrator.get_request(uuid)).data)
+
+    @extend_schema(summary="[Admin] Notificar al cliente (ServiceOperationCommands.notify_client)")
+    @action(detail=True, methods=['post'], url_path='notify')
+    def notify(self, request, uuid=None):
+        order = ServiceAdminRequestOrchestrator.get_request(uuid)
+        try:
+            ServiceAdminRequestOrchestrator.notify_customer(order, actor=request.user)
+        except (ValueError, DjangoValidationError) as exc:
+            return Response({'detail': _facade_err(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(ServiceAdminRequestSummarySerializer(ServiceAdminRequestOrchestrator.get_request(uuid)).data)
+
+    @extend_schema(summary="[Admin] Cancelar la solicitud (ServiceOperationCommands.cancel)")
+    @action(detail=True, methods=['post'], url_path='cancel')
+    def cancel(self, request, uuid=None):
+        order = ServiceAdminRequestOrchestrator.get_request(uuid)
+        serializer = ServiceOperationCancelSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            ServiceAdminRequestOrchestrator.cancel_request(order, actor=request.user, **serializer.validated_data)
+        except (ValueError, DjangoValidationError) as exc:
+            return Response({'detail': _facade_err(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(ServiceAdminRequestSummarySerializer(ServiceAdminRequestOrchestrator.get_request(uuid)).data)
 
 
 class AdminServiceFAQViewSet(viewsets.ViewSet):
@@ -1392,6 +1549,32 @@ class AdminServiceVariantViewSet(viewsets.ViewSet):
         history = ServiceAdminOrchestrator.get_variant_price_history(variant)
         return Response(ServicePriceHistorySerializer(history, many=True).data)
 
+    @extend_schema(
+        summary="[Admin] Cambia la fuente de precio de una variante (AUTOMATIC/MANUAL_*)",
+        request=SetVariantPricingInputSerializer,
+    )
+    @action(detail=True, methods=['post'], url_path='set-pricing')
+    def set_pricing(self, request, uuid=None):
+        """Plan 'Manual Pricing Engine' FASE 8/9 -- unica via para cambiar
+        pricing_source (ver SetVariantPricingInputSerializer/
+        ServicePricingCommands.set_manual_pricing). Nunca via el PATCH
+        generico de esta variante."""
+        variant = ServiceAdminOrchestrator.get_variant(uuid)
+        ser = SetVariantPricingInputSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        try:
+            updated = ServiceAdminOrchestrator.set_variant_pricing(
+                variant,
+                pricing_source=ser.validated_data['pricing_source'],
+                unit_price=ser.validated_data.get('unit_price'),
+                project_price=ser.validated_data.get('project_price'),
+                changed_by=request.user,
+                reason=ser.validated_data.get('reason', ''),
+            )
+        except DjangoValidationError as exc:
+            return Response({'detail': '; '.join(exc.messages)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(ServiceVariantSerializer(updated).data)
+
 
 # ---------------------------------------------------------------------------
 # SHOP COST RULES (Motor de Precios autonomo de shop)
@@ -1402,6 +1585,7 @@ class AdminShopCostRuleViewSet(
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
     mixins.CreateModelMixin,
+    mixins.DestroyModelMixin,
     viewsets.GenericViewSet,
 ):
     """
@@ -1446,6 +1630,12 @@ class AdminShopCostRuleViewSet(
     def deactivate(self, request, uuid=None):
         rule = ProductCostRuleSelector.get_by_uuid(uuid)
         ProductCostRuleCommands.deactivate_rule(rule)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @extend_schema(summary="[Admin] Eliminar regla de costo de shop")
+    def destroy(self, request, uuid=None):
+        rule = ProductCostRuleSelector.get_by_uuid(uuid)
+        ProductCostRuleCommands.delete_rule(rule)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     @extend_schema(summary="[Admin] Asignar regla a variante de producto")
@@ -1828,24 +2018,10 @@ class AdminHomeCardViewSet(viewsets.ViewSet):
         from core.api.serializers import HomeCardInputSerializer, HomeCardSerializer
         s = HomeCardInputSerializer(data=request.data)
         s.is_valid(raise_exception=True)
-        d = s.validated_data
-        card = HomeCardCommands.create_card(
-            title=d['title'],
-            subtitle=d.get('subtitle', ''),
-            description=d.get('description', ''),
-            group_name=d['group_name'],
-            icon_class=d.get('icon_class', 'bi-star'),
-            background_color=d.get('background_color', '#3b82f6'),
-            redirect_url=d.get('redirect_url', ''),
-            display_order=d.get('display_order', 0),
-            image=d.get('image'),
-            video=d.get('video'),
-            card_type=d.get('card_type', 'vertical'),
-            animation=d.get('animation', ''),
-            is_featured=d.get('is_featured', False),
-            priority=d.get('priority', 0),
-            badge_text=d.get('badge_text', ''),
-        )
+        d = dict(s.validated_data)
+        d.pop('remove_image', None)
+        d.pop('remove_video', None)
+        card = HomeCardCommands.create_card(**d)
         _invalidate_home_feed_cache()
         return Response(HomeCardSerializer(card, context={'request': request}).data, status=status.HTTP_201_CREATED)
 
@@ -1902,6 +2078,9 @@ class AdminHomeCardGroupViewSet(viewsets.ViewSet):
         extra = {k: d[k] for k in (
             'subtitle', 'description', 'bg_color', 'bg_image', 'remove_bg_image',
             'layout_type', 'padding', 'divider', 'columns', 'glass', 'hover',
+            'columns_tablet', 'columns_mobile', 'gap',
+            'carousel_autoplay', 'carousel_loop', 'carousel_speed',
+            'show_arrows', 'show_indicators',
         ) if k in d}
         group = HomeCardGroupCommands.upsert(
             name=d['name'],
@@ -1925,6 +2104,9 @@ class AdminHomeCardGroupViewSet(viewsets.ViewSet):
             'title', 'display_order', 'is_visible',
             'subtitle', 'description', 'bg_color', 'bg_image',
             'layout_type', 'padding', 'divider', 'columns', 'glass', 'hover',
+            'columns_tablet', 'columns_mobile', 'gap',
+            'carousel_autoplay', 'carousel_loop', 'carousel_speed',
+            'show_arrows', 'show_indicators',
         ):
             if field in request.data:
                 d[field] = request.data[field]
@@ -1939,6 +2121,131 @@ class AdminHomeCardGroupViewSet(viewsets.ViewSet):
         from core.services.commands import HomeCardGroupCommands
         group = HomeCardGroupSelector.get_by_uuid(uuid)
         HomeCardGroupCommands.delete(group)
+        _invalidate_home_feed_cache()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+# ---------------------------------------------------------------------------
+# FEATURE BANNER (core) -- seccion promocional generica del Home Builder,
+# 2026-08-06. Mismo patron exacto que HomeCard/HomeCardGroup arriba.
+# ---------------------------------------------------------------------------
+
+class AdminFeatureBannerSectionViewSet(viewsets.ViewSet):
+    """
+    /api/v1/dashboard/feature-banner-sections/
+    CRUD de secciones "Feature Banner" (contenedor de bloques imagen+texto+botones).
+    """
+    permission_classes = ADMIN_PERMISSIONS
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+
+    @extend_schema(summary="[Admin] Lista secciones de Feature Banner (con sus bloques)")
+    def list(self, request):
+        from core.services.commands import FeatureBannerSectionSelector
+        from core.api.serializers import FeatureBannerSectionSerializer
+        qs = FeatureBannerSectionSelector.list_all()
+        return Response(FeatureBannerSectionSerializer(qs, many=True, context={'request': request}).data)
+
+    @extend_schema(summary="[Admin] Crea seccion de Feature Banner")
+    @action(detail=False, methods=['post'], url_path='create')
+    def create_section(self, request):
+        from core.services.commands import FeatureBannerSectionCommands
+        from core.api.serializers import FeatureBannerSectionInputSerializer, FeatureBannerSectionSerializer
+        s = FeatureBannerSectionInputSerializer(data=request.data)
+        s.is_valid(raise_exception=True)
+        d = dict(s.validated_data)
+        d.pop('remove_background_image', None)
+        section = FeatureBannerSectionCommands.create(**d)
+        _invalidate_home_feed_cache()
+        return Response(FeatureBannerSectionSerializer(section, context={'request': request}).data, status=status.HTTP_201_CREATED)
+
+    @extend_schema(summary="[Admin] Actualiza seccion de Feature Banner")
+    @action(detail=False, methods=['patch'], url_path='(?P<uuid>[^/.]+)')
+    def update_section(self, request, uuid=None):
+        from core.services.commands import FeatureBannerSectionSelector, FeatureBannerSectionCommands
+        from core.api.serializers import FeatureBannerSectionInputSerializer, FeatureBannerSectionSerializer
+        section = FeatureBannerSectionSelector.get_by_uuid(uuid)
+        s = FeatureBannerSectionInputSerializer(data=request.data, partial=True)
+        s.is_valid(raise_exception=True)
+        section = FeatureBannerSectionCommands.update(section, dict(s.validated_data))
+        _invalidate_home_feed_cache()
+        return Response(FeatureBannerSectionSerializer(section, context={'request': request}).data)
+
+    @extend_schema(summary="[Admin] Elimina (soft) seccion de Feature Banner")
+    @action(detail=False, methods=['delete'], url_path='(?P<uuid>[^/.]+)/delete')
+    def delete_section(self, request, uuid=None):
+        from core.services.commands import FeatureBannerSectionSelector, FeatureBannerSectionCommands
+        section = FeatureBannerSectionSelector.get_by_uuid(uuid)
+        FeatureBannerSectionCommands.delete(section)
+        _invalidate_home_feed_cache()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class AdminFeatureBannerBlockViewSet(viewsets.ViewSet):
+    """
+    /api/v1/dashboard/feature-banner-blocks/?section=<uuid>
+    CRUD de bloques (imagen+texto+botones) dentro de una FeatureBannerSection.
+    """
+    permission_classes = ADMIN_PERMISSIONS
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+
+    @extend_schema(summary="[Admin] Lista bloques de una seccion de Feature Banner")
+    def list(self, request):
+        from core.services.commands import FeatureBannerBlockSelector
+        from core.api.serializers import FeatureBannerBlockSerializer
+        section_uuid = request.query_params.get('section')
+        if not section_uuid:
+            return Response({'detail': 'section (uuid) es requerido.'}, status=status.HTTP_400_BAD_REQUEST)
+        qs = FeatureBannerBlockSelector.list_for_section(section_uuid)
+        return Response(FeatureBannerBlockSerializer(qs, many=True, context={'request': request}).data)
+
+    @extend_schema(summary="[Admin] Crea bloque de Feature Banner")
+    @action(detail=False, methods=['post'], url_path='create')
+    def create_block(self, request):
+        from core.services.commands import FeatureBannerSectionSelector, FeatureBannerBlockCommands
+        from core.api.serializers import FeatureBannerBlockInputSerializer, FeatureBannerBlockSerializer
+        section_uuid = request.data.get('section')
+        if not section_uuid:
+            return Response({'detail': 'section (uuid) es requerido.'}, status=status.HTTP_400_BAD_REQUEST)
+        section = FeatureBannerSectionSelector.get_by_uuid(section_uuid)
+        s = FeatureBannerBlockInputSerializer(data=request.data)
+        s.is_valid(raise_exception=True)
+        d = dict(s.validated_data)
+        d.pop('remove_image', None)
+        block = FeatureBannerBlockCommands.create(section, **d)
+        _invalidate_home_feed_cache()
+        return Response(FeatureBannerBlockSerializer(block, context={'request': request}).data, status=status.HTTP_201_CREATED)
+
+    @extend_schema(summary="[Admin] Actualiza bloque de Feature Banner")
+    @action(detail=False, methods=['patch'], url_path='(?P<uuid>[^/.]+)')
+    def update_block(self, request, uuid=None):
+        from core.services.commands import FeatureBannerBlockSelector, FeatureBannerBlockCommands
+        from core.api.serializers import FeatureBannerBlockInputSerializer, FeatureBannerBlockSerializer
+        block = FeatureBannerBlockSelector.get_by_uuid(uuid)
+        s = FeatureBannerBlockInputSerializer(data=request.data, partial=True)
+        s.is_valid(raise_exception=True)
+        block = FeatureBannerBlockCommands.update(block, dict(s.validated_data))
+        _invalidate_home_feed_cache()
+        return Response(FeatureBannerBlockSerializer(block, context={'request': request}).data)
+
+    @extend_schema(summary="[Admin] Elimina (soft) bloque de Feature Banner")
+    @action(detail=False, methods=['delete'], url_path='(?P<uuid>[^/.]+)/delete')
+    def delete_block(self, request, uuid=None):
+        from core.services.commands import FeatureBannerBlockSelector, FeatureBannerBlockCommands
+        block = FeatureBannerBlockSelector.get_by_uuid(uuid)
+        FeatureBannerBlockCommands.delete(block)
+        _invalidate_home_feed_cache()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @extend_schema(summary="[Admin] Reordena bloques de una seccion (drag & drop)")
+    @action(detail=False, methods=['post'], url_path='reorder')
+    def reorder(self, request):
+        from core.services.commands import FeatureBannerSectionSelector, FeatureBannerBlockCommands
+        section_uuid = request.data.get('section')
+        ordered_uuids = request.data.get('ordered_uuids', [])
+        if not section_uuid or not ordered_uuids:
+            return Response({'detail': 'section y ordered_uuids son requeridos.'}, status=status.HTTP_400_BAD_REQUEST)
+        section = FeatureBannerSectionSelector.get_by_uuid(section_uuid)
+        FeatureBannerBlockCommands.reorder(section.id, ordered_uuids)
         _invalidate_home_feed_cache()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -2029,10 +2336,10 @@ class AdminFooterViewSet(viewsets.ViewSet):
     @action(detail=False, methods=['patch'], url_path='links/(?P<uuid>[^/.]+)')
     def update_link(self, request, uuid=None):
         from core.api.serializers import FooterLinkInputSerializer, FooterLinkSerializer, social_link_to_footer_link_shape
-        from organization.models import SocialLink
+        from organization.services.selectors import OrganizationSelector
         from organization.services.commands import OrganizationCommands
 
-        social_link = SocialLink.objects.filter(uuid=uuid, is_deleted=False).first()
+        social_link = OrganizationSelector.find_social_link_by_uuid(uuid)
         if social_link:
             data = dict(request.data)
             mapped = {}
@@ -2060,10 +2367,10 @@ class AdminFooterViewSet(viewsets.ViewSet):
     @extend_schema(summary="[Admin] Elimina (soft) enlace de footer (nav o social)")
     @action(detail=False, methods=['delete'], url_path='links/(?P<uuid>[^/.]+)/delete')
     def delete_link(self, request, uuid=None):
-        from organization.models import SocialLink
+        from organization.services.selectors import OrganizationSelector
         from organization.services.commands import OrganizationCommands
 
-        social_link = SocialLink.objects.filter(uuid=uuid, is_deleted=False).first()
+        social_link = OrganizationSelector.find_social_link_by_uuid(uuid)
         if social_link:
             OrganizationCommands.delete_social_link(social_link)
             _invalidate_footer_cache()
@@ -2179,7 +2486,7 @@ class AdminSiteBrandViewSet(viewsets.ViewSet):
             logo_url = request.build_absolute_uri(branding.logo.url)
         return {
             'uuid': str(company.uuid) if company else None,
-            'site_name': company.trade_name if company else 'Sintel',
+            'site_name': OrganizationSelector.get_display_name(),
             'logo': logo_url,
             'tagline': branding.tagline if branding else '',
             'updated_at': company.updated_at if company else None,
@@ -2483,6 +2790,206 @@ class AdminAboutUsViewSet(viewsets.ViewSet):
         cfg = AboutUsCommands.upsert_config(s.validated_data)
         _invalidate_about_us_cache()
         return Response(AboutUsConfigSerializer(cfg, context={'request': request}).data)
+
+
+# ---------------------------------------------------------------------------
+# SEO / METAETIQUETAS
+# ---------------------------------------------------------------------------
+
+
+class AdminSeoMetaTagViewSet(viewsets.ViewSet):
+    """
+    /api/v1/dashboard/seo/meta-tags/
+    Sistema empresarial de administracion de metaetiquetas del <head> del
+    sitio publico (verificacion de dominio, analytics, pixels, SEO...).
+    Renderizado real y unico en templates/spa_shell.html via
+    seo.templatetags.seo_tags.render_meta_tags -- este ViewSet solo
+    administra los datos, nunca construye HTML de produccion directamente.
+    Toda la logica de negocio vive en seo.services (Selector/Commands).
+    """
+    permission_classes = ADMIN_PERMISSIONS
+    pagination_class = DashboardResultsSetPagination
+    lookup_field = 'uuid'
+
+    @extend_schema(summary="[Admin] Lista metaetiquetas (filtros: provider, tag_type, environment, is_active, search)")
+    def list(self, request):
+        from seo.services.selectors import MetaTagSelector
+        from seo.api.serializers import SiteMetaTagSerializer
+
+        is_active_param = request.query_params.get('is_active')
+        is_active = is_active_param.lower() in ('1', 'true') if is_active_param in ('true', 'false', '1', '0') else None
+
+        qs = MetaTagSelector.list_for_admin({
+            'provider': request.query_params.get('provider'),
+            'tag_type': request.query_params.get('tag_type'),
+            'environment': request.query_params.get('environment'),
+            'is_active': is_active,
+            'search': request.query_params.get('search'),
+        })
+        paginator = self.pagination_class()
+        page = paginator.paginate_queryset(qs, request)
+        return paginator.get_paginated_response(SiteMetaTagSerializer(page, many=True).data)
+
+    @extend_schema(summary="[Admin] Detalle de una metaetiqueta")
+    def retrieve(self, request, uuid=None):
+        from seo.services.selectors import MetaTagSelector
+        from seo.api.serializers import SiteMetaTagSerializer
+        tag = MetaTagSelector.get_by_uuid(uuid)
+        return Response(SiteMetaTagSerializer(tag).data)
+
+    @extend_schema(summary="[Admin] Crea una metaetiqueta", request=None)
+    def create(self, request):
+        from seo.services.commands import MetaTagCommands
+        from seo.api.serializers import SiteMetaTagInputSerializer, SiteMetaTagSerializer
+        s = SiteMetaTagInputSerializer(data=request.data)
+        s.is_valid(raise_exception=True)
+        tag = MetaTagCommands.create(s.validated_data, request=request)
+        return Response(SiteMetaTagSerializer(tag).data, status=status.HTTP_201_CREATED)
+
+    @extend_schema(summary="[Admin] Actualiza una metaetiqueta")
+    def partial_update(self, request, uuid=None):
+        from seo.services.selectors import MetaTagSelector
+        from seo.services.commands import MetaTagCommands
+        from seo.api.serializers import SiteMetaTagInputSerializer, SiteMetaTagSerializer
+        tag = MetaTagSelector.get_by_uuid(uuid)
+        s = SiteMetaTagInputSerializer(data=request.data, partial=True)
+        s.is_valid(raise_exception=True)
+        tag = MetaTagCommands.update(tag, s.validated_data, request=request)
+        return Response(SiteMetaTagSerializer(tag).data)
+
+    @extend_schema(summary="[Admin] Elimina (soft) una metaetiqueta")
+    def destroy(self, request, uuid=None):
+        from seo.services.selectors import MetaTagSelector
+        from seo.services.commands import MetaTagCommands
+        tag = MetaTagSelector.get_by_uuid(uuid)
+        MetaTagCommands.delete(tag, request=request)
+        _log_admin_delete(request, 'SiteMetaTag', uuid)  # D-02
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @extend_schema(summary="[Admin] Duplica una metaetiqueta (la copia nace inactiva)")
+    @action(detail=True, methods=['post'])
+    def duplicate(self, request, uuid=None):
+        from seo.services.selectors import MetaTagSelector
+        from seo.services.commands import MetaTagCommands
+        from seo.api.serializers import SiteMetaTagSerializer
+        tag = MetaTagSelector.get_by_uuid(uuid)
+        copy = MetaTagCommands.duplicate(tag, request=request)
+        return Response(SiteMetaTagSerializer(copy).data, status=status.HTTP_201_CREATED)
+
+    @extend_schema(summary="[Admin] Activa/desactiva una metaetiqueta")
+    @action(detail=True, methods=['post'])
+    def toggle(self, request, uuid=None):
+        from seo.services.selectors import MetaTagSelector
+        from seo.services.commands import MetaTagCommands
+        from seo.api.serializers import SiteMetaTagSerializer
+        tag = MetaTagSelector.get_by_uuid(uuid)
+        tag = MetaTagCommands.toggle_active(tag, request=request)
+        return Response(SiteMetaTagSerializer(tag).data)
+
+    @extend_schema(summary="[Admin] Reordena metaetiquetas por prioridad (drag & drop)")
+    @action(detail=False, methods=['post'])
+    def reorder(self, request):
+        from seo.services.commands import MetaTagCommands
+        from seo.api.serializers import SiteMetaTagReorderSerializer
+        s = SiteMetaTagReorderSerializer(data=request.data)
+        s.is_valid(raise_exception=True)
+        MetaTagCommands.reorder(s.validated_data['items'], request=request)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @extend_schema(summary="[Admin] Vista previa del HTML real que se renderiza en el <head>")
+    @action(detail=True, methods=['get'])
+    def preview(self, request, uuid=None):
+        from seo.services.selectors import MetaTagSelector
+        tag = MetaTagSelector.get_by_uuid(uuid)
+        return Response({'html': tag.to_html()})
+
+    @extend_schema(summary="[Admin] Exporta todas las metaetiquetas en JSON")
+    @action(detail=False, methods=['get'])
+    def export(self, request):
+        from seo.services.commands import MetaTagCommands
+        data = MetaTagCommands.export(request=request)
+        return Response({'items': data})
+
+    @extend_schema(summary="[Admin] Importa metaetiquetas desde JSON (cada item se valida/sanitiza igual que create)")
+    @action(detail=False, methods=['post'], url_path='import')
+    def import_tags(self, request):
+        from seo.services.commands import MetaTagCommands
+        from seo.api.serializers import SiteMetaTagImportSerializer, SiteMetaTagSerializer
+        s = SiteMetaTagImportSerializer(data=request.data)
+        s.is_valid(raise_exception=True)
+        created = [
+            MetaTagCommands.create(item, request=request)
+            for item in s.validated_data['items']
+        ]
+        MetaTagCommands.log_import(len(created), request=request)
+        return Response(SiteMetaTagSerializer(created, many=True).data, status=status.HTTP_201_CREATED)
+
+    @extend_schema(summary="[Admin] Historial de auditoria de una metaetiqueta")
+    @action(detail=True, methods=['get'])
+    def history(self, request, uuid=None):
+        from seo.services.selectors import MetaTagSelector
+        from seo.api.serializers import SeoMetaTagAuditLogSerializer
+        tag = MetaTagSelector.get_by_uuid(uuid)
+        entries = MetaTagSelector.list_history(tag)
+        return Response(SeoMetaTagAuditLogSerializer(entries, many=True).data)
+
+
+class AdminSiteVerificationFileViewSet(viewsets.ViewSet):
+    """
+    /api/v1/dashboard/seo/verification-files/
+    Archivos estaticos de verificacion servidos en la RAIZ del dominio
+    (metodo "Subir archivo HTML", alternativo a la metaetiqueta) --
+    servidos realmente por seo.views.serve_verification_file, registrado en
+    ecommerce/urls.py ANTES del catch-all de la SPA.
+    """
+    permission_classes = ADMIN_PERMISSIONS
+    lookup_field = 'uuid'
+
+    @extend_schema(summary="[Admin] Lista archivos de verificacion")
+    def list(self, request):
+        from seo.services.selectors import VerificationFileSelector
+        from seo.api.serializers import SiteVerificationFileSerializer
+        qs = VerificationFileSelector.list_for_admin()
+        return Response(SiteVerificationFileSerializer(qs, many=True).data)
+
+    @extend_schema(summary="[Admin] Crea un archivo de verificacion", request=None)
+    def create(self, request):
+        from seo.services.commands import VerificationFileCommands
+        from seo.api.serializers import SiteVerificationFileInputSerializer, SiteVerificationFileSerializer
+        s = SiteVerificationFileInputSerializer(data=request.data)
+        s.is_valid(raise_exception=True)
+        record = VerificationFileCommands.create(s.validated_data, request=request)
+        return Response(SiteVerificationFileSerializer(record).data, status=status.HTTP_201_CREATED)
+
+    @extend_schema(summary="[Admin] Actualiza un archivo de verificacion")
+    def partial_update(self, request, uuid=None):
+        from seo.services.selectors import VerificationFileSelector
+        from seo.services.commands import VerificationFileCommands
+        from seo.api.serializers import SiteVerificationFileInputSerializer, SiteVerificationFileSerializer
+        record = VerificationFileSelector.get_by_uuid(uuid)
+        s = SiteVerificationFileInputSerializer(data=request.data, partial=True)
+        s.is_valid(raise_exception=True)
+        record = VerificationFileCommands.update(record, s.validated_data, request=request)
+        return Response(SiteVerificationFileSerializer(record).data)
+
+    @extend_schema(summary="[Admin] Elimina (soft) un archivo de verificacion")
+    def destroy(self, request, uuid=None):
+        from seo.services.selectors import VerificationFileSelector
+        from seo.services.commands import VerificationFileCommands
+        record = VerificationFileSelector.get_by_uuid(uuid)
+        VerificationFileCommands.delete(record, request=request)
+        _log_admin_delete(request, 'SiteVerificationFile', uuid)  # D-02
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @extend_schema(summary="[Admin] Activa/desactiva un archivo de verificacion")
+    @action(detail=True, methods=['post'])
+    def toggle(self, request, uuid=None):
+        from seo.services.selectors import VerificationFileSelector
+        from seo.services.commands import VerificationFileCommands
+        from seo.api.serializers import SiteVerificationFileSerializer
+        record = VerificationFileSelector.get_by_uuid(uuid)
+        record = VerificationFileCommands.toggle_active(record, request=request)
+        return Response(SiteVerificationFileSerializer(record).data)
 
 
 # ---------------------------------------------------------------------------

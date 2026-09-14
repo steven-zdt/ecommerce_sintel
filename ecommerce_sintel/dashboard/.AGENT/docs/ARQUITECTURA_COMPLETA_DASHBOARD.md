@@ -130,6 +130,7 @@ ruta, siguiendo el mismo patron que Operations (nota abajo).
 | `service-levels/` | `AdminServiceLevelViewSet` |
 | `service-variants/` | `AdminServiceVariantViewSet` |
 | `service-cost-rules/` | `AdminServiceCostRuleViewSet` |
+| `technical-services/requests/` (2026-08-14) | `AdminServiceRequestViewSet` -- fachada admin sobre `orders.Order`+`ServiceOperation`, sin ownership propio. `list`/`retrieve` + `POST {uuid}/plan\|assign\|schedule\|notify\|cancel/`. Sin `/approve/` a proposito -- ver ARQUITECTURA_COMPLETA_SERVICES.md §22 |
 
 ### Marketing
 
@@ -148,6 +149,14 @@ ruta, siguiendo el mismo patron que Operations (nota abajo).
 | `site-brand/` | `AdminSiteBrandViewSet` |
 | `navbar/` | `AdminNavbarViewSet` |
 | `footer-cta/` | `AdminFooterCTAViewSet` |
+| `about-us/` (+ `<uuid>/`, `config/`, `config/update/`, `reorder/`) | `AdminAboutUsViewSet` — ver `core/.AGENT/docs/ARQUITECTURA_COMPLETA_CORE.md` *(agregado a este doc 2026-07-31, feature de 2026-07-19)* |
+
+### SEO (metaetiquetas del `<head>`) *(nuevo 2026-07-31)*
+
+| Ruta | ViewSet |
+|---|---|
+| `seo/meta-tags/` (+ `<uuid>/`, `<uuid>/duplicate/`, `<uuid>/toggle/`, `<uuid>/preview/`, `<uuid>/history/`, `reorder/`, `export/`, `import/`) | `AdminSeoMetaTagViewSet` — logica en `seo.services.selectors.MetaTagSelector` / `seo.services.commands.MetaTagCommands`, ver `seo/.AGENT/docs/ARQUITECTURA_COMPLETA_SEO.md` |
+| `seo/verification-files/` (+ `<uuid>/`, `<uuid>/toggle/`) | `AdminSiteVerificationFileViewSet` — CRUD de `SiteVerificationFile` (archivos servidos en la raiz del dominio via `seo/views.py`, fuera de este BFF) |
 
 ### Support
 
@@ -190,6 +199,7 @@ operaciones de escritura.
 | `AdminMetricsOrchestrator` | Metricas consolidadas (`orders`, `users`, `shop`, `accounts`, `technical_services` vía `marketplace`) |
 | `ShopAdminOrchestrator` | `ProductSelector/Commands`, `CategorySelector/Commands`, `BrandSelector/Commands`, `TaxSelector/Commands` |
 | `ServiceAdminOrchestrator` | `ServiceSelector/Commands`, `ServiceCategoryCommands` |
+| `ServiceAdminRequestSelector`/`ServiceAdminRequestOrchestrator` (2026-08-14) | **Fachada cross-domain** -- combina `orders.Order` + `technical_services.OrderServiceDetail`/`ServiceOperation`, sin ownership propio. Escritura delega siempre a `ServiceOperationCommands` (`technical_services`), nunca `Model.objects.update()` directo. Ver `technical_services/.AGENT/docs/ARQUITECTURA_COMPLETA_SERVICES.md` §22 para el detalle completo (incluye por que NO hay `approve_request()`) |
 | `RentingAdminOrchestrator` | `RentingSelector`, `EquipmentCommands`, `EquipmentVariantCommands`, `RentingBrandCommands`, `RentingCategoryCommands` |
 | `QuotationAdminOrchestrator` | `QuotationSelector`, `QuotationCommands` |
 | `QuoteTemplateAdminOrchestrator` | Comandos del Constructor de Cuestionarios (`QuoteTemplate`, `QuoteQuestion`, etc.) |

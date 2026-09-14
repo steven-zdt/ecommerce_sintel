@@ -7,18 +7,117 @@ from django.http import Http404
 # Import selectors and commands from other applications
 from users.models import User
 
+
+class _GenericCatalogChildOrchestrator:
+    """
+    Base compartida de los 4 orquestadores admin de catalogo hijo (Shop/Renting/
+    Services/Packages) -- Sprint 4, 2026-08-05, auditoria transversal. Las 4
+    delegaciones (list/get/create/update/delete/toggle_active/duplicate/reorder)
+    eran identicas salvo el registro (REGISTRY) y el nombre del padre
+    (PARENT_KWARG: 'product'/'equipment'/'service'/'package'). El nombre del
+    metodo del Selector (`list_for_<PARENT_KWARG>`) no se unifico -- cada
+    catalog.py de cada app sigue definiendo su propio `list_for_product()`/
+    `list_for_equipment()`/etc, fuera del alcance de este sprint (solo se toca
+    la capa de orquestacion admin) -- se resuelve dinamicamente via getattr.
+    """
+    REGISTRY: dict = {}
+    PARENT_KWARG: str = 'parent'
+
+    @classmethod
+    def list_for_parent(cls, resource, parent_uuid):
+        selector, _ = cls.REGISTRY[resource]
+        return getattr(selector, f'list_for_{cls.PARENT_KWARG}')(parent_uuid)
+
+    @classmethod
+    def get(cls, resource, uuid):
+        selector, _ = cls.REGISTRY[resource]
+        return selector.get_by_uuid(uuid)
+
+    @classmethod
+    def create(cls, resource, parent, data):
+        _, commands = cls.REGISTRY[resource]
+        return commands.create(**{cls.PARENT_KWARG: parent}, **data)
+
+    @classmethod
+    def update(cls, resource, instance, data):
+        _, commands = cls.REGISTRY[resource]
+        return commands.update(instance, **data)
+
+    @classmethod
+    def delete(cls, resource, instance):
+        _, commands = cls.REGISTRY[resource]
+        commands.delete(instance)
+
+    @classmethod
+    def toggle_active(cls, resource, instance):
+        _, commands = cls.REGISTRY[resource]
+        return commands.toggle_active(instance)
+
+    @classmethod
+    def duplicate(cls, resource, instance):
+        _, commands = cls.REGISTRY[resource]
+        if not hasattr(commands, 'duplicate'):
+            raise ValueError('Este recurso no admite duplicar.')
+        return commands.duplicate(instance)
+
+    @classmethod
+    def reorder(cls, resource, parent_id, ordered_uuids):
+        _, commands = cls.REGISTRY[resource]
+        commands.reorder(parent_id, ordered_uuids)
+
 from shop.services.selectors import (
     ProductSelector, CategorySelector, BrandSelector, TaxSelector, ProductVariantSelector
 )
 from shop.services.commands import (
     ProductCommands, CategoryCommands, BrandCommands, TaxCommands, ProductVariantCommands
 )
+from shop.services.catalog import (
+    ProductImageSelector, ProductImageCommands,
+    ProductIncludedItemSelector, ProductIncludedItemCommands,
+    ProductExcludedItemSelector, ProductExcludedItemCommands,
+    ProductFeatureSelector, ProductFeatureCommands,
+    ProductSpecificationGroupSelector, ProductSpecificationGroupCommands,
+    ProductSpecificationSelector, ProductSpecificationCommands,
+    ProductRequirementSelector, ProductRequirementCommands,
+    ProductServiceIncludedSelector, ProductServiceIncludedCommands,
+    ProductOptionalServiceSelector, ProductOptionalServiceCommands,
+    ProductFAQSelector, ProductFAQCommands,
+    ProductVideoSelector, ProductVideoCommands,
+    ProductDocumentSelector, ProductDocumentCommands,
+    ProductFunctioningStepSelector, ProductFunctioningStepCommands,
+)
+
+# Recursos hijos de Product con shape identico (fila con position/is_active, FK directa a
+# product): mismo patron ya usado en RentingCatalogChildOrchestrator/ServicePackageChildOrchestrator
+# (2026-08-03, catalogo enriquecido de shop, espejo de renting.Equipment). ProductSpecification
+# queda fuera (cuelga de ProductSpecificationGroup, no directo de Product) y ProductDocument
+# tiene ademas su propio create() con archivo -- ver metodos dedicados en ShopAdminOrchestrator.
+_SHOP_CATALOG_CHILD_REGISTRY = {
+    'images': (ProductImageSelector, ProductImageCommands),
+    'included-items': (ProductIncludedItemSelector, ProductIncludedItemCommands),
+    'excluded-items': (ProductExcludedItemSelector, ProductExcludedItemCommands),
+    'features': (ProductFeatureSelector, ProductFeatureCommands),
+    'specification-groups': (ProductSpecificationGroupSelector, ProductSpecificationGroupCommands),
+    'requirements': (ProductRequirementSelector, ProductRequirementCommands),
+    'services-included': (ProductServiceIncludedSelector, ProductServiceIncludedCommands),
+    'optional-services': (ProductOptionalServiceSelector, ProductOptionalServiceCommands),
+    'faqs': (ProductFAQSelector, ProductFAQCommands),
+    'videos': (ProductVideoSelector, ProductVideoCommands),
+    'documents': (ProductDocumentSelector, ProductDocumentCommands),
+    'functioning-steps': (ProductFunctioningStepSelector, ProductFunctioningStepCommands),
+}
+
+
+class ProductCatalogChildOrchestrator(_GenericCatalogChildOrchestrator):
+    """Delegacion generica para los recursos de `_SHOP_CATALOG_CHILD_REGISTRY`."""
+    REGISTRY = _SHOP_CATALOG_CHILD_REGISTRY
+    PARENT_KWARG = 'product'
 
 from technical_services.services import (
     ServiceSelector, ServiceCategorySelector, ServiceLevelSelector, ServiceVariantSelector,
     ServiceMaterialSelector, ServiceConfigurationSelector, TechnicalServiceCommands,
-    ServiceCategoryCommands, ServiceLevelCommands, ServiceVariantCommands, ServiceMaterialCommands,
-    ServiceConfigurationCommands,
+    ServiceCategoryCommands, ServiceLevelCommands, ServiceVariantCommands, ServicePricingCommands,
+    ServiceMaterialCommands, ServiceConfigurationCommands,
     ServicePackageSelector, ServicePackageCommands,
     PackageIncludedItemSelector, PackageIncludedItemCommands,
     PackageAdditionalCostSelector, PackageAdditionalCostCommands,
@@ -34,48 +133,44 @@ _PACKAGE_CHILD_REGISTRY = {
 }
 
 
-class ServicePackageChildOrchestrator:
+class ServicePackageChildOrchestrator(_GenericCatalogChildOrchestrator):
     """Delegacion generica para los recursos de `_PACKAGE_CHILD_REGISTRY`."""
+    REGISTRY = _PACKAGE_CHILD_REGISTRY
+    PARENT_KWARG = 'package'
 
-    @staticmethod
-    def list_for_package(resource, package_uuid):
-        selector, _ = _PACKAGE_CHILD_REGISTRY[resource]
-        return selector.list_for_package(package_uuid)
+from technical_services.services.catalog import (
+    ServiceIncludedItemSelector, ServiceIncludedItemCommands,
+    ServiceExcludedItemSelector, ServiceExcludedItemCommands,
+    ServiceRequirementSelector, ServiceRequirementCommands,
+    ServiceSpecificationGroupSelector, ServiceSpecificationGroupCommands,
+    ServiceSpecificationSelector, ServiceSpecificationCommands,
+    ServiceDocumentSelector, ServiceDocumentCommands,
+    ServiceVideoSelector, ServiceVideoCommands,
+    ServiceProcessStepSelector, ServiceProcessStepCommands,
+)
 
-    @staticmethod
-    def get(resource, uuid):
-        selector, _ = _PACKAGE_CHILD_REGISTRY[resource]
-        return selector.get_by_uuid(uuid)
+# Recursos hijos de TechnicalService con shape identico (fila con position/
+# is_active, FK directa a service): mismo patron ya usado en
+# ProductCatalogChildOrchestrator/RentingCatalogChildOrchestrator.
+# ServiceSpecification queda fuera (cuelga de ServiceSpecificationGroup, no
+# directo de TechnicalService) y ServiceDocument tiene ademas su propio
+# create() con archivo -- ver metodos dedicados en ServiceAdminOrchestrator.
+_SERVICE_CATALOG_CHILD_REGISTRY = {
+    'included-items': (ServiceIncludedItemSelector, ServiceIncludedItemCommands),
+    'excluded-items': (ServiceExcludedItemSelector, ServiceExcludedItemCommands),
+    'requirements': (ServiceRequirementSelector, ServiceRequirementCommands),
+    'specification-groups': (ServiceSpecificationGroupSelector, ServiceSpecificationGroupCommands),
+    'documents': (ServiceDocumentSelector, ServiceDocumentCommands),
+    'videos': (ServiceVideoSelector, ServiceVideoCommands),
+    'process-steps': (ServiceProcessStepSelector, ServiceProcessStepCommands),
+}
 
-    @staticmethod
-    def create(resource, package, data):
-        _, commands = _PACKAGE_CHILD_REGISTRY[resource]
-        return commands.create(package=package, **data)
 
-    @staticmethod
-    def update(resource, instance, data):
-        _, commands = _PACKAGE_CHILD_REGISTRY[resource]
-        return commands.update(instance, **data)
+class ServiceCatalogChildOrchestrator(_GenericCatalogChildOrchestrator):
+    """Delegacion generica para los recursos de `_SERVICE_CATALOG_CHILD_REGISTRY`."""
+    REGISTRY = _SERVICE_CATALOG_CHILD_REGISTRY
+    PARENT_KWARG = 'service'
 
-    @staticmethod
-    def delete(resource, instance):
-        _, commands = _PACKAGE_CHILD_REGISTRY[resource]
-        commands.delete(instance)
-
-    @staticmethod
-    def toggle_active(resource, instance):
-        _, commands = _PACKAGE_CHILD_REGISTRY[resource]
-        return commands.toggle_active(instance)
-
-    @staticmethod
-    def duplicate(resource, instance):
-        _, commands = _PACKAGE_CHILD_REGISTRY[resource]
-        return commands.duplicate(instance)
-
-    @staticmethod
-    def reorder(resource, package_id, ordered_uuids):
-        _, commands = _PACKAGE_CHILD_REGISTRY[resource]
-        commands.reorder(package_id, ordered_uuids)
 
 from renting.services import (
     RentingSelector, EquipmentVariantSelector, EquipmentCommands, EquipmentVariantCommands,
@@ -118,50 +213,10 @@ _CATALOG_CHILD_REGISTRY = {
 }
 
 
-class RentingCatalogChildOrchestrator:
+class RentingCatalogChildOrchestrator(_GenericCatalogChildOrchestrator):
     """Delegacion generica para los recursos de `_CATALOG_CHILD_REGISTRY`."""
-
-    @staticmethod
-    def list_for_equipment(resource, equipment_uuid):
-        selector, _ = _CATALOG_CHILD_REGISTRY[resource]
-        return selector.list_for_equipment(equipment_uuid)
-
-    @staticmethod
-    def get(resource, uuid):
-        selector, _ = _CATALOG_CHILD_REGISTRY[resource]
-        return selector.get_by_uuid(uuid)
-
-    @staticmethod
-    def create(resource, equipment, data):
-        _, commands = _CATALOG_CHILD_REGISTRY[resource]
-        return commands.create(equipment=equipment, **data)
-
-    @staticmethod
-    def update(resource, instance, data):
-        _, commands = _CATALOG_CHILD_REGISTRY[resource]
-        return commands.update(instance, **data)
-
-    @staticmethod
-    def delete(resource, instance):
-        _, commands = _CATALOG_CHILD_REGISTRY[resource]
-        commands.delete(instance)
-
-    @staticmethod
-    def toggle_active(resource, instance):
-        _, commands = _CATALOG_CHILD_REGISTRY[resource]
-        return commands.toggle_active(instance)
-
-    @staticmethod
-    def duplicate(resource, instance):
-        _, commands = _CATALOG_CHILD_REGISTRY[resource]
-        if not hasattr(commands, 'duplicate'):
-            raise ValueError('Este recurso no admite duplicar.')
-        return commands.duplicate(instance)
-
-    @staticmethod
-    def reorder(resource, equipment_id, ordered_uuids):
-        _, commands = _CATALOG_CHILD_REGISTRY[resource]
-        commands.reorder(equipment_id, ordered_uuids)
+    REGISTRY = _CATALOG_CHILD_REGISTRY
+    PARENT_KWARG = 'equipment'
 from renting.models import RentingCategory, RentingBrand, RentalLabor
 
 from quotes.services import (
@@ -308,6 +363,49 @@ class ShopAdminOrchestrator:
     def delete_variant(variant):
         return ProductVariantCommands.delete_variant(variant)
 
+    # Catalogo enriquecido (2026-08-03) -- Specifications (fila, cuelga de un
+    # ProductSpecificationGroup ademas de product) y Documents (create() valida el archivo)
+    # quedan fuera del registro generico de ProductCatalogChildOrchestrator, mismo criterio
+    # que RentalSpecification/RentalDocument en RentingAdminOrchestrator.
+    @staticmethod
+    def list_specifications(product_uuid=None, group_uuid=None):
+        if group_uuid:
+            return ProductSpecificationSelector.list_for_group(group_uuid)
+        return ProductSpecificationSelector.list_for_product(product_uuid)
+
+    @staticmethod
+    def get_specification(uuid):
+        return ProductSpecificationSelector.get_by_uuid(uuid)
+
+    @staticmethod
+    def create_specification(product, data):
+        group = data.pop('group')
+        return ProductSpecificationCommands.create(product=product, group=group, **data)
+
+    @staticmethod
+    def update_specification(instance, data):
+        return ProductSpecificationCommands.update(instance, **data)
+
+    @staticmethod
+    def delete_specification(instance):
+        ProductSpecificationCommands.delete(instance)
+
+    @staticmethod
+    def toggle_specification(instance):
+        return ProductSpecificationCommands.toggle_active(instance)
+
+    @staticmethod
+    def duplicate_specification(instance):
+        return ProductSpecificationCommands.duplicate(instance)
+
+    @staticmethod
+    def reorder_specifications(group_id, ordered_uuids):
+        ProductSpecificationCommands.reorder(group_id, ordered_uuids)
+
+    @staticmethod
+    def create_document(product, data):
+        return ProductDocumentCommands.create(product=product, **data)
+
 
 class ServiceAdminOrchestrator:
     # Services
@@ -406,6 +504,15 @@ class ServiceAdminOrchestrator:
     def delete_variant(variant):
         return ServiceVariantCommands.delete_variant(variant)
 
+    @staticmethod
+    def set_variant_pricing(variant, pricing_source, unit_price=None, project_price=None, changed_by=None, reason=''):
+        """Plan 'Manual Pricing Engine' FASE 8 -- unica via BFF para cambiar
+        pricing_source de una variante, ver SetVariantPricingInputSerializer."""
+        return ServicePricingCommands.set_manual_pricing(
+            variant, pricing_source, unit_price=unit_price, project_price=project_price,
+            changed_by=changed_by, reason=reason,
+        )
+
     # Packages (paquetes de servicio, 2026-07-16)
     @staticmethod
     def list_packages(service_uuid):
@@ -462,8 +569,11 @@ class ServiceAdminOrchestrator:
 
     # Images
     @staticmethod
-    def add_image(service, image_file, alt_text='', is_primary=False):
-        return ServiceImageCommands.add_image(service, image_file, alt_text=alt_text, is_primary=is_primary)
+    def add_image(service, image_file, alt_text='', is_primary=False, caption='', description=''):
+        return ServiceImageCommands.add_image(
+            service, image_file, alt_text=alt_text, is_primary=is_primary,
+            caption=caption, description=description,
+        )
 
     @staticmethod
     def get_image(uuid):
@@ -476,6 +586,197 @@ class ServiceAdminOrchestrator:
     @staticmethod
     def set_primary_image(image):
         return ServiceImageCommands.set_primary(image)
+
+    @staticmethod
+    def update_image_metadata(image, **fields):
+        return ServiceImageCommands.update_metadata(image, **fields)
+
+    @staticmethod
+    def replace_image_file(image, image_file):
+        return ServiceImageCommands.replace_file(image, image_file)
+
+    @staticmethod
+    def reorder_images(service, ordered_uuids):
+        return ServiceImageCommands.reorder(service, ordered_uuids)
+
+    # Catalogo enriquecido (2026-08-05) -- especificaciones (cuelgan de
+    # ServiceSpecificationGroup) y documentos (create() propio con archivo),
+    # mismo patron que ShopAdminOrchestrator/RentingAdminOrchestrator.
+    @staticmethod
+    def list_specifications(service_uuid=None, group_uuid=None):
+        if group_uuid:
+            return ServiceSpecificationSelector.list_for_group(group_uuid)
+        return ServiceSpecificationSelector.list_for_service(service_uuid)
+
+    @staticmethod
+    def get_specification(uuid):
+        return ServiceSpecificationSelector.get_by_uuid(uuid)
+
+    @staticmethod
+    def create_specification(service, data):
+        group = data.pop('group')
+        return ServiceSpecificationCommands.create(service=service, group=group, **data)
+
+    @staticmethod
+    def update_specification(instance, data):
+        return ServiceSpecificationCommands.update(instance, **data)
+
+    @staticmethod
+    def delete_specification(instance):
+        ServiceSpecificationCommands.delete(instance)
+
+    @staticmethod
+    def toggle_specification(instance):
+        return ServiceSpecificationCommands.toggle_active(instance)
+
+    @staticmethod
+    def duplicate_specification(instance):
+        return ServiceSpecificationCommands.duplicate(instance)
+
+    @staticmethod
+    def reorder_specifications(group_id, ordered_uuids):
+        ServiceSpecificationCommands.reorder(group_id, ordered_uuids)
+
+    @staticmethod
+    def create_document(service, data):
+        return ServiceDocumentCommands.create(service=service, **data)
+
+
+class ServiceAdminRequestSelector:
+    """
+    Fachada de LECTURA para /panel/servicios > Solicitudes (Plan "Fachada
+    Administrativa Unificada", 2026-08-14). Combina Order + OrderServiceDetail
+    + ServiceOperation + tecnico en una sola consulta optimizada -- NUNCA
+    escribe. Ownership sin cambios: ver
+    technical_services/.AGENT/SERVICES_ADMIN_FACADE_MATRIX_2026-08-14.md.
+
+    `current_status` reusa el mismo patron Subquery/OuterRef que
+    AdminMetricsOrchestrator._get_marketplace_metrics() (OrderServiceTimeline
+    es un log append-only, no un campo vivo en Order).
+    """
+
+    @staticmethod
+    def base_queryset():
+        from django.db.models import Prefetch
+        from technical_services.models import OrderServiceTimeline, ServiceOperationEvent
+
+        latest_status_sq = (
+            OrderServiceTimeline.objects
+            .filter(order=OuterRef('pk'))
+            .order_by('-created_at')
+            .values('status')[:1]
+        )
+        return (
+            Order.objects
+            .filter(service_detail__isnull=False)
+            .select_related(
+                'user',
+                'user__profile',
+                'service_detail',
+                'service_detail__technician',
+                'service_detail__technician__profile',
+                'service_detail__technician__technician_profile',
+                'service_operation',
+                'service_operation__technician',
+                'service_operation__technician__profile',
+                'service_operation__technician__technician_profile',
+            )
+            .prefetch_related(
+                'items__service_variant__service__category',
+                Prefetch(
+                    'service_operation__timeline',
+                    queryset=ServiceOperationEvent.objects.select_related('actor', 'actor__profile').order_by('created_at'),
+                ),
+                Prefetch(
+                    'timeline',
+                    queryset=OrderServiceTimeline.objects.select_related('created_by', 'created_by__profile').order_by('created_at'),
+                ),
+            )
+            .annotate(current_status=Subquery(latest_status_sq))
+            .order_by('-created_at')
+        )
+
+    @staticmethod
+    def list_for_admin(status=None, priority=None, technician_id=None, has_technician=None, search=''):
+        qs = ServiceAdminRequestSelector.base_queryset()
+        if status:
+            qs = qs.filter(service_operation__status=status)
+        if priority:
+            qs = qs.filter(service_detail__priority=priority)
+        if technician_id:
+            qs = qs.filter(service_operation__technician_id=technician_id)
+        if has_technician == 'false':
+            qs = qs.filter(service_operation__technician__isnull=True)
+        elif has_technician == 'true':
+            qs = qs.filter(service_operation__technician__isnull=False)
+        if search:
+            qs = qs.filter(
+                Q(tracking_number__icontains=search)
+                | Q(user__email__icontains=search)
+                | Q(items__service_variant__service__name__icontains=search)
+            ).distinct()
+        return qs
+
+    @staticmethod
+    def get_by_uuid(uuid):
+        return get_object_or_404(ServiceAdminRequestSelector.base_queryset(), uuid=uuid)
+
+
+class ServiceAdminRequestOrchestrator:
+    """
+    Fachada de ESCRITURA para /panel/servicios > Solicitudes. Cada metodo es
+    una delegacion de una linea al comando real -- nunca reimplementa una
+    transicion ni hace Model.objects.update() directo (regla vinculante de
+    SERVICES_ADMIN_FACADE_MATRIX_2026-08-14.md).
+
+    No existe `approve_request()`: no hay ningun estado tipo
+    `pending_validation` en el backend de servicios (a diferencia de
+    Renting) -- ServiceOperation nace ya en READY_FOR_PLANNING dentro de
+    ServiceCommands.request_service(). Inventar un "aprobar" que no dispara
+    ninguna transicion real violaria la regla de no crear FSM paralela
+    (ver hallazgo H2 del baseline).
+    """
+
+    @staticmethod
+    def list_requests(**filters):
+        return ServiceAdminRequestSelector.list_for_admin(**filters)
+
+    @staticmethod
+    def get_request(uuid):
+        return ServiceAdminRequestSelector.get_by_uuid(uuid)
+
+    @staticmethod
+    def plan_request(order, *, scheduled_date, scheduled_time, estimated_duration_minutes=None, notes='', actor=None):
+        from technical_services.services.operations import ServiceOperationCommands
+        return ServiceOperationCommands.plan(
+            order.service_operation,
+            scheduled_date=scheduled_date, scheduled_time=scheduled_time,
+            estimated_duration_minutes=estimated_duration_minutes, notes=notes, actor=actor,
+        )
+
+    @staticmethod
+    def assign_technician(order, *, technician, actor=None):
+        from technical_services.services.operations import ServiceOperationCommands
+        return ServiceOperationCommands.assign_technician(order.service_operation, technician=technician, actor=actor)
+
+    @staticmethod
+    def schedule_request(order, *, scheduled_date, scheduled_time, estimated_duration_minutes=None, actor=None):
+        from technical_services.services.operations import ServiceOperationCommands
+        return ServiceOperationCommands.reschedule(
+            order.service_operation,
+            scheduled_date=scheduled_date, scheduled_time=scheduled_time,
+            estimated_duration_minutes=estimated_duration_minutes, actor=actor,
+        )
+
+    @staticmethod
+    def notify_customer(order, actor=None):
+        from technical_services.services.operations import ServiceOperationCommands
+        return ServiceOperationCommands.notify_client(order.service_operation, actor=actor)
+
+    @staticmethod
+    def cancel_request(order, *, reason='', actor=None):
+        from technical_services.services.operations import ServiceOperationCommands
+        return ServiceOperationCommands.cancel(order.service_operation, reason=reason, actor=actor)
 
 
 class RentingAdminOrchestrator:
@@ -1185,3 +1486,120 @@ class PaymentAdminOrchestrator:
     def set_widget_flow_enabled(enabled: bool):
         from payment.models import PaymentFeatureFlags
         return PaymentFeatureFlags.set_widget_flow_enabled(enabled)
+
+
+class AIProviderAdminOrchestrator:
+    """Plan maestro "CONFIGURACION DINAMICA DE MODELOS LOCALES PARA CHAT SUPPORT",
+    FASE 3 (2026-08-13). /panel/soporte -> AI Providers/Models/Channel Config."""
+
+    @staticmethod
+    def list_providers():
+        from ai_provider.services.selectors import AIProviderSelector
+        return AIProviderSelector.list_providers()
+
+    @staticmethod
+    def get_provider(uuid):
+        from ai_provider.services.selectors import AIProviderSelector
+        return AIProviderSelector.get_provider(uuid)
+
+    @staticmethod
+    def create_provider(data, user=None):
+        from ai_provider.services.commands import AIProviderCommands
+        return AIProviderCommands.create_provider(data, user=user)
+
+    @staticmethod
+    def update_provider(uuid, data, user=None):
+        from ai_provider.services.commands import AIProviderCommands
+        from ai_provider.services.selectors import AIProviderSelector
+        provider = AIProviderSelector.get_provider(uuid)
+        return AIProviderCommands.update_provider(provider, data, user=user)
+
+    @staticmethod
+    def delete_provider(uuid, user=None):
+        from ai_provider.services.commands import AIProviderCommands
+        from ai_provider.services.selectors import AIProviderSelector
+        provider = AIProviderSelector.get_provider(uuid)
+        AIProviderCommands.delete_provider(provider, user=user)
+
+    @staticmethod
+    def activate_provider(uuid, user=None):
+        from ai_provider.services.commands import AIProviderCommands
+        from ai_provider.services.selectors import AIProviderSelector
+        provider = AIProviderSelector.get_provider(uuid)
+        return AIProviderCommands.activate(provider, user=user)
+
+    @staticmethod
+    def deactivate_provider(uuid, user=None):
+        from ai_provider.services.commands import AIProviderCommands
+        from ai_provider.services.selectors import AIProviderSelector
+        provider = AIProviderSelector.get_provider(uuid)
+        return AIProviderCommands.deactivate(provider, user=user)
+
+    @staticmethod
+    def set_default_provider(uuid, user=None):
+        from ai_provider.services.commands import AIProviderCommands
+        from ai_provider.services.selectors import AIProviderSelector
+        provider = AIProviderSelector.get_provider(uuid)
+        return AIProviderCommands.set_default(provider, user=user)
+
+    @staticmethod
+    def test_connection(uuid, user=None):
+        """Intenta una llamada real minima al proveedor (nunca una generacion completa)
+        y persiste el resultado -- boton "Probar conexion" del panel. FASE 11 (plan "AI
+        Provider Runtime"): delega en AIProviderConnectionTestService (adapters), con
+        codigo de error categorizado (DNS/CONNECTION_REFUSED/TIMEOUT/UNAUTHORIZED/...)."""
+        from ai_provider.services.commands import AIProviderCommands
+        from ai_provider.services.selectors import AIProviderSelector
+        from ai_provider.services.connection_test import AIProviderConnectionTestService
+        provider = AIProviderSelector.get_provider(uuid)
+        result = AIProviderConnectionTestService.test(provider)
+        return AIProviderCommands.record_test_result(
+            provider, ok=result.success, latency_ms=result.latency_ms,
+            error=result.error_message_safe if not result.success else '', user=user,
+        )
+
+    @staticmethod
+    def discover_models(uuid):
+        """Lista de nombres de modelo disponibles en el proveedor real (Ollama: GET
+        /api/tags; openai-compatible: GET /models). No los agrega automaticamente --
+        el admin elige cuales agregar (accion separada `add_model`)."""
+        from ai_provider.services.selectors import AIProviderSelector
+        from ai_provider.services.model_discovery import discover_models
+        provider = AIProviderSelector.get_provider(uuid)
+        return discover_models(provider)
+
+    @staticmethod
+    def add_model(provider_uuid, model_id, display_name='', user=None):
+        from ai_provider.services.commands import AIModelCommands
+        from ai_provider.services.selectors import AIProviderSelector
+        provider = AIProviderSelector.get_provider(provider_uuid)
+        return AIModelCommands.add_model(provider, model_id, display_name=display_name, user=user)
+
+    @staticmethod
+    def delete_model(uuid, user=None):
+        from ai_provider.services.commands import AIModelCommands
+        from ai_provider.services.selectors import AIModelSelector
+        model = AIModelSelector.get(uuid)
+        AIModelCommands.delete_model(model, user=user)
+
+    @staticmethod
+    def get_channel_config(channel='support_chat'):
+        from ai_provider.services.selectors import AIChannelConfigSelector
+        return AIChannelConfigSelector.get_or_create_config(channel)
+
+    @staticmethod
+    def set_primary_model(model_uuid, user, channel='support_chat'):
+        from ai_provider.services.commands import AIChannelConfigCommands
+        from ai_provider.services.selectors import AIChannelConfigSelector, AIModelSelector
+        config = AIChannelConfigSelector.get_or_create_config(channel)
+        model = AIModelSelector.get(model_uuid) if model_uuid else None
+        return AIChannelConfigCommands.set_primary(config, model, user=user)
+
+    @staticmethod
+    def set_fallback_chain(model_uuids, user, channel='support_chat'):
+        from ai_provider.services.commands import AIChannelConfigCommands
+        from ai_provider.services.selectors import AIChannelConfigSelector, AIModelSelector
+        config = AIChannelConfigSelector.get_or_create_config(channel)
+        models = [AIModelSelector.get(u) for u in model_uuids]
+        return AIChannelConfigCommands.set_fallback_chain(config, models, user=user)
+

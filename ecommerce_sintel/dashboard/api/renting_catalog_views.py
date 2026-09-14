@@ -19,12 +19,12 @@ Contrato comun:
   POST   <recurso>/<uuid>/duplicate/           duplica (no aplica a imagenes/videos/documentos)
   POST   <recurso>/reorder/                    reordena (body: equipment, ordered_uuids)
 """
-from rest_framework import viewsets, status
+from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 
-from users.api.permissions import IsAdminUser
+from dashboard.api.catalog_child_views import GenericCatalogChildViewSet
 from dashboard.services.admin_orchestrators import RentingAdminOrchestrator, RentingCatalogChildOrchestrator
 from renting.services import EquipmentImageCommands
 from renting.api.serializers import (
@@ -43,74 +43,14 @@ from renting.api.serializers import (
     RentalDocumentSerializer, RentalDocumentInputSerializer,
 )
 
-ADMIN_PERMISSIONS = [IsAdminUser]
-
-
-class EquipmentCatalogChildViewSet(viewsets.ViewSet):
+class EquipmentCatalogChildViewSet(GenericCatalogChildViewSet):
     """Base generica -- ver docstring del modulo."""
-    permission_classes = ADMIN_PERMISSIONS
-    lookup_field = 'uuid'
-    resource = None
-    output_serializer_class = None
-    input_serializer_class = None
-    supports_duplicate = True
+    orchestrator_class = RentingCatalogChildOrchestrator
+    parent_field = 'equipment'
+    reorder_serializer_class = ReorderInputSerializer
 
-    def _serialize(self, instance, many=False):
-        return self.output_serializer_class(instance, many=many, context={'request': self.request}).data
-
-    def list(self, request):
-        equipment_uuid = request.query_params.get('equipment')
-        if not equipment_uuid:
-            return Response({'detail': 'Parametro equipment (uuid) es requerido.'}, status=status.HTTP_400_BAD_REQUEST)
-        qs = RentingCatalogChildOrchestrator.list_for_equipment(self.resource, equipment_uuid)
-        return Response(self._serialize(qs, many=True))
-
-    def create(self, request):
-        equipment_uuid = request.data.get('equipment')
-        if not equipment_uuid:
-            return Response({'detail': 'equipment es requerido.'}, status=status.HTTP_400_BAD_REQUEST)
-        equipment = RentingAdminOrchestrator.get_equipment(equipment_uuid)
-        ser = self.input_serializer_class(data=request.data)
-        ser.is_valid(raise_exception=True)
-        instance = RentingCatalogChildOrchestrator.create(self.resource, equipment, ser.validated_data)
-        return Response(self._serialize(instance), status=status.HTTP_201_CREATED)
-
-    def partial_update(self, request, uuid=None):
-        instance = RentingCatalogChildOrchestrator.get(self.resource, uuid)
-        ser = self.input_serializer_class(data=request.data, partial=True)
-        ser.is_valid(raise_exception=True)
-        updated = RentingCatalogChildOrchestrator.update(self.resource, instance, ser.validated_data)
-        return Response(self._serialize(updated))
-
-    def destroy(self, request, uuid=None):
-        instance = RentingCatalogChildOrchestrator.get(self.resource, uuid)
-        RentingCatalogChildOrchestrator.delete(self.resource, instance)
-        return Response(status=status.HTTP_204_NO_CONTENT)
-
-    @action(detail=True, methods=['post'], url_path='toggle-active')
-    def toggle_active(self, request, uuid=None):
-        instance = RentingCatalogChildOrchestrator.get(self.resource, uuid)
-        updated = RentingCatalogChildOrchestrator.toggle_active(self.resource, instance)
-        return Response(self._serialize(updated))
-
-    @action(detail=True, methods=['post'], url_path='duplicate')
-    def duplicate(self, request, uuid=None):
-        if not self.supports_duplicate:
-            return Response(status=status.HTTP_405_METHOD_NOT_ALLOWED)
-        instance = RentingCatalogChildOrchestrator.get(self.resource, uuid)
-        copy = RentingCatalogChildOrchestrator.duplicate(self.resource, instance)
-        return Response(self._serialize(copy), status=status.HTTP_201_CREATED)
-
-    @action(detail=False, methods=['post'], url_path='reorder')
-    def reorder(self, request):
-        equipment_uuid = request.data.get('equipment')
-        if not equipment_uuid:
-            return Response({'detail': 'equipment es requerido.'}, status=status.HTTP_400_BAD_REQUEST)
-        equipment = RentingAdminOrchestrator.get_equipment(equipment_uuid)
-        ser = ReorderInputSerializer(data=request.data)
-        ser.is_valid(raise_exception=True)
-        RentingCatalogChildOrchestrator.reorder(self.resource, equipment.id, ser.validated_data['ordered_uuids'])
-        return Response(status=status.HTTP_204_NO_CONTENT)
+    def get_parent(self, parent_uuid):
+        return RentingAdminOrchestrator.get_equipment(parent_uuid)
 
 
 class AdminRentalIncludedItemViewSet(EquipmentCatalogChildViewSet):
