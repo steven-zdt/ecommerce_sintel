@@ -1,47 +1,15 @@
-# ── Entornos virtuales y dependencias ────────────────────────────────────────
-venv/
-.venv/
-__pycache__/
-*.pyc
-*.pyo
-*.egg-info/
-dist/
-build/
-
-# ── Control de versiones ──────────────────────────────────────────────────────
-.git/
-.gitignore
-.gitattributes
-
-# ── Entorno y secretos ───────────────────────────────────────────────────────
-.env
-.env.*
-*.env
-
-# ── IDE y editores ───────────────────────────────────────────────────────────
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# ── Archivos estáticos/media (se generan en tiempo de ejecución) ─────────────
-staticfiles/
-media/
-
-# ── Migraciones locales (se aplican en el contenedor) ────────────────────────
-# No ignorar migraciones — deben incluirse para reproducibilidad
-
-# ── Logs y temporales ────────────────────────────────────────────────────────
-*.log
-logs/
-tmp/
-*.sqlite3
-
-# ── Documentación y tests ────────────────────────────────────────────────────
-docs/
-Documentacion/
-*.md
-README*
-
-# ── Docker ───────────────────────────────────────────────────────────────────
-docker-compose.override.yml
+# =============================================================================
+# ⚠️  ESTE ARCHIVO NO SE APLICA A NADA.
+#
+# El build de la imagen de Django usa "context: .." (la raiz del repo, ver
+# docker-compose.yml / docker-compose.prod.yml) -- Docker solo lee el
+# .dockerignore desde la RAIZ del contexto de build, que es
+#   ../.dockerignore   (raiz del repo)
+# no este.
+#
+# El build de sintel_ai usa "context: ./ai_engine" -> ai_engine/.dockerignore.
+#
+# Se deja este stub (en vez de borrarlo) para que nadie vuelva a agregar reglas
+# aqui pensando que surten efecto -- ya paso (hallazgo Fase 22 del roadmap de
+# despliegue). Editar ../.dockerignore o ai_engine/.dockerignore segun el caso.
+# =============================================================================

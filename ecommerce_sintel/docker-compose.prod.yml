@@ -6,14 +6,20 @@
 # puertos al host: cloudflared entra por la red interna a nginx, y nginx
 # proxea a django. Ver docs/deployment/ROADMAP_CLOUDFLARE_TUNNEL.md.
 #
-# Servicios (7, segun Fase 2 del roadmap): nginx, django, db, redis,
-# celery_worker, celery_beat, cloudflared.
+# Servicios (8, segun Fase 2 del roadmap + auditoria de puesta en produccion del
+# AI Engine, 2026-08-17): nginx, django, db, redis, celery_worker, celery_beat,
+# cloudflared, sintel_ai.
 #
-# NO incluye (permanecen privados, solo en docker-compose.yml de desarrollo):
-# sintel_ollama, sintel_chromadb, sintel_ai, frontend (vite dev server).
-# El bundle de Vue ya viene compilado dentro de la imagen runtime (ver
-# Dockerfile, stage frontend-builder), por lo que no hace falta un
-# contenedor de frontend en produccion.
+# sintel_ai NUNCA se publica al host (sin "ports", ver ese servicio abajo) --
+# solo Django le habla, dentro de sintel-network. AI_SUPPORT_CHAT_ENABLED sigue
+# en false hasta activacion explicita posterior (fuera de alcance de este
+# cambio de infraestructura).
+#
+# NO incluye todavia (permanecen privados, solo en docker-compose.yml de
+# desarrollo): sintel_ollama, sintel_chromadb -- decision de proveedor LLM
+# diferida a proposito, ver comentario del servicio sintel_ai abajo. frontend
+# (vite dev server) tampoco aplica: el bundle de Vue ya viene compilado dentro
+# de la imagen runtime (ver Dockerfile, stage frontend-builder).
 #
 # Requiere (se completan en fases posteriores del roadmap):
 #   - .env.production            (Fase 16)
@@ -52,10 +58,20 @@ services:
     container_name: sintel_prod_redis
     restart: unless-stopped
     logging: *default-logging
+    # [AGREGADO 2026-08-04, hallazgo M1 de AUDITORIA_INTEGRAL_PRODUCCION_2026-08-04.md]:
+    # antes sin autenticacion -- cualquier proceso con acceso a sintel-network (ej. un
+    # contenedor comprometido) podia leer/escribir tareas Celery, inyectar mensajes en
+    # el WebSocket de soporte, o vaciar la cache sin credenciales. REDIS_PASSWORD viene
+    # de .env.production, sustituido por Docker Compose (--env-file), no por env_file:.
+    command: redis-server --requirepass ${REDIS_PASSWORD}
     volumes:
       - sintel_prod_redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      # Con requirepass activo, el ping sin credenciales devuelve NOAUTH -- el
+      # healthcheck debe autenticarse tambien o queda "unhealthy" para siempre,
+      # bloqueando el arranque de django/celery_worker/celery_beat (depends_on:
+      # condition: service_healthy).
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -87,7 +103,16 @@ services:
       context: ..
       dockerfile: ecommerce_sintel/Dockerfile
       target: runtime
-    image: ecommerce_sintel:runtime
+    # Tag propio de produccion (2026-08-08, hallazgo de auditoria) -- antes
+    # este tag ("ecommerce_sintel:runtime") era IDENTICO al que usa
+    # docker-compose.yml (dev), y Docker no separa nombres de imagen por
+    # proyecto/compose: cualquier build de dev sobreescribia el tag que
+    # produccion resolveria en su proximo restart, sin que produccion se
+    # enterara. El contenedor ya corriendo queda anclado a su propia imagen
+    # (no le afecta retroactivamente), pero el proximo restart/recreate SI
+    # heredaria lo ultimo que dev haya construido. Nunca volver a compartir
+    # este tag con docker-compose.yml.
+    image: ecommerce_sintel:prod-runtime
     container_name: sintel_prod_django
     restart: unless-stopped
     logging: *default-logging
@@ -117,12 +142,21 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
+    # DNS publicos explicitos (no el resolver por defecto del host/Docker):
+    # encontrado 2026-07-31 que el resolver del host puede quedar con una
+    # cache negativa de un dominio recien dado de alta (ej. correo.sintel.net.co)
+    # que Django necesita resolver para enviar email por SMTP -- esto evita
+    # que ese tipo de cache stale del host bloquee resoluciones DNS reales
+    # de los contenedores de produccion.
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
     networks:
       - sintel-network
 
   # ─── WORKERS ASINCRONOS ────────────────────────────────────────────────────
   celery_worker:
-    image: ecommerce_sintel:runtime
+    image: ecommerce_sintel:prod-runtime
     container_name: sintel_prod_celery_worker
     restart: unless-stopped
     logging: *default-logging
@@ -143,11 +177,14 @@ services:
       start_period: 40s
     volumes:
       - sintel_prod_media_volume:/code/media
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
     networks:
       - sintel-network
 
   celery_beat:
-    image: ecommerce_sintel:runtime
+    image: ecommerce_sintel:prod-runtime
     container_name: sintel_prod_celery_beat
     restart: unless-stopped
     logging: *default-logging
@@ -162,6 +199,111 @@ services:
         condition: service_healthy
     volumes:
       - sintel_prod_beat_schedule:/tmp/celery_beat
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
+    healthcheck:
+      # Repaso de backlog (AUDITORIA/18_AUDITORIA_PRODUCCION_RESILIENCIA_WS.md B4, 2026-08-03):
+      # a diferencia de celery_worker, celery_beat nunca tuvo HEALTHCHECK -- nada distinguia "no
+      # habia nada que notificar" de "el scheduler murio". `celery beat` no responde a `inspect
+      # ping` (eso es solo para workers). La imagen de runtime (Python slim) no trae `pgrep` ni
+      # `ps` -- verificado en vivo, ambos ausentes -- asi que se lee /proc directo con
+      # grep/cat (si presentes en toda imagen POSIX minima). Check parcial (no confirma que siga
+      # encolando tareas), pero es una mejora real sobre CERO monitoreo -- y ahora hay 2
+      # PeriodicTask reales dependiendo de este proceso (notify-unattended-escalated-tickets de
+      # Fase 1, notify-stale-operation-tickets de Fase 14).
+      test: ["CMD-SHELL", "grep -a -l celery /proc/[0-9]*/cmdline >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - sintel-network
+
+  # ─── AI ENGINE (privado -- NUNCA expuesto a Internet) ──────────────────────
+  # Auditoria de puesta en produccion (2026-08-17): agregado deliberadamente SIN
+  # sintel_ollama/sintel_chromadb (ver docs/deployment o el informe de esa
+  # auditoria) -- decision de proveedor LLM diferida a proposito. El motor
+  # arranca igual sin ChromaDB (RAG se degrada con gracia, ver
+  # ai_engine/main.py::lifespan y retrievers.py::retrieve_knowledge_for_chat,
+  # mismo fix de esta auditoria) y sin Ollama (get_llm()/ChatOllama no hacen red
+  # al construirse, solo al primer uso real -- y AI_SUPPORT_CHAT_ENABLED queda
+  # en false, asi que /chat no se invoca todavia). Si mas adelante se decide
+  # Ollama local, agregar aqui un servicio "sintel_ollama" identico al de
+  # docker-compose.yml (con su propia reserva de GPU) y listo -- si se decide un
+  # proveedor externo (OpenAI/Anthropic), configurarlo desde
+  # /panel/soporte/ia-config (app ai_provider, ya construida) sin tocar este
+  # archivo. Este servicio se agrega ahora para poder validarlo (`docker compose
+  # config`) y tenerlo listo -- activarlo con trafico real de Customers es un
+  # paso posterior explicito (AI_SUPPORT_CHAT_ENABLED sigue en false).
+  sintel_ai:
+    build:
+      context: ./ai_engine
+      dockerfile: Dockerfile
+    image: ecommerce_sintel_ai:prod
+    container_name: sintel_prod_ai
+    restart: unless-stopped
+    logging: *default-logging
+    # Sin --reload (a diferencia del Dockerfile, pensado para dev): en
+    # produccion el codigo va horneado en la imagen, igual que django --reload
+    # solo agrega el proceso supervisor de watchfiles sin ningun beneficio real.
+    command: uvicorn main:app --host 0.0.0.0 --port 8100
+    # Sin "ports": AI Engine NO se publica al host bajo ninguna circunstancia
+    # (Fase 7 de la auditoria) -- solo alcanzable dentro de sintel-network, y
+    # unicamente Django (support/services/ai_bridge.py) le habla, nunca el
+    # Customer directo.
+    volumes:
+      - .:/workspace:ro
+      - ../docs/specs:/docs/specs:ro
+      # FASE 10: refresh token OAuth del MCP de Meta Ads (mcp_client/storage.py).
+      # Se autoriza una vez con `python -m mcp_client.authorize`; despues el
+      # cliente refresca solo. MCP_META_ADS_ENABLED debe ponerse en .env.production.
+      - sintel_prod_mcp_tokens:/data/mcp
+    env_file: .env.production
+    environment:
+      MCP_TOKEN_STORE_DIR: "/data/mcp"
+      # CERRADO 2026-08-17 (auditoria "LM Studio como unico proveedor
+      # productivo"): decision tomada -- LM Studio Server (Windows HOST,
+      # 127.0.0.1:1234, API OpenAI-compatible), SIN Ollama como dependencia
+      # productiva ni cadena hibrida. dev y produccion corren en el MISMO host
+      # Windows (confirmado -- ambos stacks de contenedores viven en el mismo
+      # Docker Desktop), asi que host.docker.internal:1234 aplica igual aca.
+      # Ningun secreto: LM Studio local no exige API key real. Model ID real
+      # confirmado via GET /v1/models, no inventado -- ver
+      # ai_engine/.AGENT/LM_STUDIO_MIGRATION_2026-08-17.md para el detalle
+      # completo (conectividad, hallazgos, concurrencia medida).
+      LOCAL_MODEL_CHAIN: "lmstudio|openai-compatible|http://host.docker.internal:1234/v1|qwen/qwen3.5-9b"
+      EMBEDDING_PROVIDER: "openai"
+      EMBEDDING_MODEL: "text-embedding-nomic-embed-text-v1.5"
+      EMBEDDING_BASE_URL: "http://host.docker.internal:1234/v1"
+      CHROMA_HOST: "sintel_chromadb"
+      CHROMA_PORT: "8000"
+      CHROMA_AUTH_TOKEN: ""
+      DOCS_SPECS_PATH: "/docs/specs"
+      CODEBASE_PATH: "/workspace"
+      DJANGO_INTERNAL_API_URL: "http://django:8000/api/v1"
+      # Checkpointer del Action Graph (DB 2 de Redis, separada de Channels/Cache
+      # de Django) -- a diferencia de dev, Redis de produccion exige auth
+      # (requirepass, ver servicio "redis" arriba); sin la password aqui, el
+      # checkpointer fallaria con NOAUTH en cada turno de conversacion.
+      CHECKPOINTER_REDIS_URL: "redis://:${REDIS_PASSWORD}@redis:6379/2"
+      # AI_TOOLS_DEBUG deliberadamente NO definida (default False en config.py)
+      # -- ese endpoint de debug nunca debe existir en produccion.
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8100/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      # El arranque real (carga de documentos/indices desde CODEBASE_PATH) tardo
+      # mas de 90s en una corrida en vivo durante esta auditoria -- start_period
+      # generoso para no marcar "unhealthy" en pleno arranque normal.
+      start_period: 150s
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
     networks:
       - sintel-network
 
@@ -244,6 +386,8 @@ volumes:
   sintel_prod_kyc_volume:
     driver: local
   sintel_prod_beat_schedule:
+    driver: local
+  sintel_prod_mcp_tokens:
     driver: local
 
 # ═════════════════════════════════════════════════════════════════════════════

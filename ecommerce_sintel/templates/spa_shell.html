@@ -1,10 +1,15 @@
-{% load django_vite %}<!DOCTYPE html>
+{% load django_vite %}{% load seo_tags %}<!DOCTYPE html>
 <html lang="es">
 <head>
     <meta charset="UTF-8">
     <link rel="icon" type="image/svg+xml" href="/favicon.ico">
+    <link rel="manifest" href="/manifest.json">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sintel | E-Commerce Ecosystem</title>
+    {% render_canonical %}
+    {% render_meta_tags %}
+    {% render_seo_meta %}
+    {% render_organization_jsonld %}
+    {% render_title %}
 
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -31,8 +36,8 @@
         <div class="d-flex justify-content-center align-items-center vh-100 bg-white">
             <div class="text-center">
                 <div class="spinner-border text-primary mb-3" style="width: 3rem; height: 3rem;" role="status"></div>
-                <div class="fw-bold text-dark h5">Sintel</div>
-                <div class="text-muted small">Cargando ecosistema inteligente...</div>
+                <div class="fw-bold text-dark h5">{% render_site_name %}</div>
+                <div class="text-muted small">Cargando...</div>
             </div>
         </div>
     </div>

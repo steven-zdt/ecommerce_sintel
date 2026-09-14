@@ -152,6 +152,17 @@ jobs:
         # correr en 0 hallazgos reales; si aparece uno nuevo, es señal real.
         run: poetry run bandit -c pyproject.toml -r . -ll
 
+      - name: AI_TOOLS_DEBUG nunca en un compose de produccion
+        # F1 (AUDITORIA/16_AUDITORIA_AI_ENGINE_SYNC.md, 2026-08-01): ese flag habilita un
+        # endpoint del AI Engine con menos capas de Policy Layer que el flujo normal de /chat.
+        # Hoy solo vive en docker-compose.yml (dev) -- este check falla el job si alguna vez
+        # aparece en el compose de produccion (ej. al fusionar archivos compose a futuro).
+        run: |
+          if grep -q "AI_TOOLS_DEBUG" docker-compose.prod.yml; then
+            echo "AI_TOOLS_DEBUG no debe aparecer en docker-compose.prod.yml" >&2
+            exit 1
+          fi
+
   graph-audit:
     name: Grafo de conocimiento (advertencia, no bloqueante)
     runs-on: ubuntu-latest
@@ -165,9 +176,10 @@ jobs:
     # del resto del stack.
     defaults:
       run:
-        # Override del default del workflow (ecommerce_sintel) -- este job trabaja
-        # en ai_engine/, un directorio hermano, no dentro de ecommerce_sintel/.
-        working-directory: ai_engine
+        # ai_engine se movio dentro de ecommerce_sintel/ (2026-07-31) -- ya NO es un
+        # directorio hermano, es ecommerce_sintel/ai_engine. Override del default del
+        # workflow (ecommerce_sintel) para seguir parado en ai_engine/ mismo.
+        working-directory: ecommerce_sintel/ai_engine
     permissions:
       pull-requests: write
     steps:
@@ -184,9 +196,10 @@ jobs:
           python-version: "3.13"
 
       - name: Instalar dependencias minimas
-        # Deliberado: NO se instala ai_engine/requirements.txt completo (stack RAG pesado --
-        # langchain/chromadb/etc) porque auditor.py + graph_validator.py no lo necesitan; solo
-        # pyyaml (usado por docker_graph.py/agent_graph.py). El resto son imports de stdlib.
+        # Deliberado: NO se instala ecommerce_sintel/ai_engine/requirements.txt completo
+        # (stack RAG pesado -- langchain/chromadb/etc) porque auditor.py + graph_validator.py
+        # no lo necesitan; solo pyyaml (usado por docker_graph.py/agent_graph.py). El resto
+        # son imports de stdlib.
         run: pip install pyyaml
 
       - name: Construir grafo y correr las 6 validaciones
@@ -198,7 +211,7 @@ jobs:
         with:
           script: |
             const fs = require('fs');
-            const report = JSON.parse(fs.readFileSync('ai_engine/GRAPH_VALIDATION_REPORT.json', 'utf8'));
+            const report = JSON.parse(fs.readFileSync('ecommerce_sintel/ai_engine/GRAPH_VALIDATION_REPORT.json', 'utf8'));
             const s = report.summary;
             const marker = '### Grafo de conocimiento — resumen automatico';
             const body = [
@@ -238,9 +251,10 @@ jobs:
         with:
           name: graph-validation-report
           # Igual que en el job `test`: rutas de artifact relativas a $GITHUB_WORKSPACE,
-          # no al working-directory del job (ai_engine) -- por eso el prefijo aqui tambien.
+          # no al working-directory del job (ecommerce_sintel/ai_engine) -- por eso el
+          # prefijo completo aqui tambien.
           path: |
-            ai_engine/GRAPH_VALIDATION_REPORT.json
-            ai_engine/GRAPH_VIEW.html
-            ai_engine/KNOWLEDGE_GRAPH.json
+            ecommerce_sintel/ai_engine/GRAPH_VALIDATION_REPORT.json
+            ecommerce_sintel/ai_engine/GRAPH_VIEW.html
+            ecommerce_sintel/ai_engine/KNOWLEDGE_GRAPH.json
           retention-days: 14

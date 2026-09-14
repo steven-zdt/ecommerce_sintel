@@ -63,7 +63,11 @@ docs/
 **/*.md
 
 # ── Otros proyectos/carpetas del monorepo no usadas por esta imagen ─────────
-ai_engine/
+# ai_engine se movio dentro de ecommerce_sintel/ (2026-07-31) -- "ai_engine/"
+# a secas ya NO matchea (ver nota de "**/" arriba: sin el prefijo solo ancla a
+# la raiz del contexto). "**/" lo excluye a cualquier profundidad, cubriendo
+# tanto la ubicacion nueva como si algun dia vuelve a moverse.
+**/ai_engine/
 ai_skills/
 .claude/
 .antigravity/

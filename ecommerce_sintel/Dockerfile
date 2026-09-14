@@ -54,7 +54,9 @@ FROM node:24-alpine AS frontend-builder
 
 WORKDIR /app
 COPY ecommerce_sintel/frontend/package*.json ./
-RUN npm install
+# npm ci (no npm install): build reproducible -- respeta package-lock.json exacto
+# y falla si esta desincronizado, en vez de mutarlo silenciosamente.
+RUN npm ci
 COPY ecommerce_sintel/frontend/ ./
 RUN npm run build
 

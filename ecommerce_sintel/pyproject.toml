@@ -36,7 +36,8 @@ dependencies = [
     "click>=8.1.8",
     "whitenoise>=6.9.0",
     "django-vite (>=3.1.0,<4.0.0)",
-    "watchdog>=4.0.0,<5.0.0"
+    "watchdog>=4.0.0,<5.0.0",
+    "cryptography>=42.0.0,<47.0.0"
 ]
 
 [dependency-groups]
@@ -59,14 +60,22 @@ omit = [
     "*/asgi.py",
     "*/wsgi.py",
     "ecommerce/settings/*",
+    # ai_engine es un microservicio FastAPI/RAG aparte (puerto 8100), nunca importado
+    # por pytest de Django -- se movio DENTRO de ecommerce_sintel/ el 2026-07-31, asi
+    # que sin este omit "--cov=." lo barreria como codigo 0% cubierto y hundiria el
+    # umbral real (--cov-fail-under en pytest.ini).
+    "ai_engine/*",
 ]
 
 [tool.bandit]
 # Excluye migraciones (generadas, no logica de negocio) y tests. El CI corre
 # con -ll (solo severidad MEDIUM+) para no ahogar el primer diagnostico en
 # falsos positivos de severidad LOW -- endurecer una vez que el equipo haya
-# revisado el reporte base al menos una vez.
-exclude_dirs = ["migrations", "tests", "frontend", "node_modules", ".venv"]
+# revisado el reporte base al menos una vez. "ai_engine" excluido por la misma razon
+# que en [tool.coverage.run]: subsistema aparte, ya tiene su propio job de CI
+# (graph-audit) -- se agrego aqui al moverse DENTRO de ecommerce_sintel/ (2026-07-31),
+# antes "bandit -r ." (corrido desde ecommerce_sintel/) ni siquiera lo alcanzaba.
+exclude_dirs = ["migrations", "tests", "frontend", "node_modules", ".venv", "ai_engine"]
 skips = ["B101"]  # assert_used: uso normal en tests de Django, no un riesgo real aqui
 
 

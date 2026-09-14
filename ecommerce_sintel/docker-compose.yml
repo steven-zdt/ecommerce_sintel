@@ -99,11 +99,27 @@ services:
     image: node:24-bookworm-slim
     container_name: ecommerce_sintel_frontend
     working_dir: /app
+    # 2026-08-10 (AUDITORIA E2E CHATBOT): CHOKIDAR_USEPOLLING (abajo) mitiga el
+    # EIO pero no lo elimina -- el proceso de Vite volvio a morir con la misma
+    # excepcion no capturada (confirmado en logs reales) y, sin restart policy,
+    # el contenedor quedo caido 18 horas sin que nada lo notara ni lo levantara
+    # -- toda la SPA (incluido el chat de soporte) inalcanzable durante ese
+    # tiempo. unless-stopped iguala esto al resto de los servicios (django,
+    # celery_worker, etc., que ya lo tenian) para que un crash se autorecupere
+    # en vez de quedar silencioso.
+    restart: unless-stopped
     volumes:
       - ./frontend:/app
       - /app/node_modules
     ports:
       - "5173:5173"
+    environment:
+      # 2026-08-08: el bind-mount de Docker Desktop en Windows es inestable con
+      # la vigilancia nativa de archivos de chokidar (Vite) -- "Error: EIO: i/o
+      # error, stat '/app'" tumbaba el proceso de Vite entero cada tanto
+      # (excepcion no capturada), dejando el frontend caido. Polling evita
+      # depender de eventos nativos del filesystem del host.
+      CHOKIDAR_USEPOLLING: "true"
     command: sh -c "npm install && npm run dev -- --host"
     networks:
       - ecommerce_sintel_network
@@ -188,7 +204,7 @@ services:
 
   sintel_ai:
     build:
-      context: ../ai_engine
+      context: ./ai_engine
       dockerfile: Dockerfile
     image: ecommerce_sintel_ai:latest
     container_name: ecommerce_sintel_ai
@@ -198,6 +214,9 @@ services:
     volumes:
       - .:/workspace:ro
       - ../docs/specs:/docs/specs:ro
+      # FASE 10: tokens OAuth del MCP de Meta Ads (mcp_client/storage.py).
+      # Persisten fuera de la imagen y no se versionan.
+      - ecommerce_sintel_mcp_tokens:/data/mcp
     env_file: .env
     environment:
       OLLAMA_BASE_URL: "http://sintel_ollama:11434"
@@ -206,15 +225,21 @@ services:
       CHROMA_AUTH_TOKEN: ""
       DOCS_SPECS_PATH: "/docs/specs"
       CODEBASE_PATH: "/workspace"
+      MCP_TOKEN_STORE_DIR: "/data/mcp"
       # Fase 1 AI Core: URL interna hacia Django para resolver identidad
       # (JWT_SECRET_KEY ya llega via env_file compartido, no se duplica aqui)
       DJANGO_INTERNAL_API_URL: "http://django:8000/api/v1"
       # Fase 2: endpoint /tools/debug habilitado SOLO en dev
       AI_TOOLS_DEBUG: "true"
+      # B2 (AUDITORIA/16): checkpointer del Action Graph -- DB 2, separada de Channels (0) y
+      # Cache (1) de Django, mismo Redis del proyecto (ver redis_checkpointer.py).
+      CHECKPOINTER_REDIS_URL: "redis://redis:6379/2"
     depends_on:
       sintel_ollama:
         condition: service_started
       sintel_chromadb:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     networks:
       - ecommerce_sintel_network
@@ -225,7 +250,10 @@ services:
     container_name: ecommerce_sintel_nginx
     restart: unless-stopped
     ports:
-      - "80:80"
+      # Puerto 80 del host ocupado por IIS (World Wide Web Publishing Service)
+      # en esta maquina Windows -- remapeado a 8080, sin tocar el puerto 80
+      # interno del contenedor ni la config de nginx.conf.
+      - "8080:80"
     volumes:
       - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
       - ./nginx-upgrade-map.conf:/etc/nginx/conf.d/00-upgrade-map.conf:ro
@@ -255,6 +283,8 @@ volumes:
   ecommerce_sintel_ollama_models:
     driver: local
   ecommerce_sintel_chromadb_data:
+    driver: local
+  ecommerce_sintel_mcp_tokens:
     driver: local
 
 # ═════════════════════════════════════════════════════════════════════════════
