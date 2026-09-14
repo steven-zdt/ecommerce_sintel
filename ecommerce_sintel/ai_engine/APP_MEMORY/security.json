@@ -1,0 +1,51 @@
+{
+  "app": "security",
+  "api_prefix": "api/v1/security",
+  "purpose": "Security event logging/audit trail across the platform (SecurityEvent) — not authentication itself",
+  "architecture": {
+    "models": [
+      "SecurityEvent"
+    ],
+    "viewsets": [
+      "SecurityHealthView",
+      "SecurityEventViewSet"
+    ],
+    "serializers": [
+      "SecurityEventSerializer"
+    ],
+    "url_patterns": [
+      "security/events",
+      ""
+    ],
+    "management_commands": [],
+    "celery_tasks": [],
+    "consumers": [],
+    "migrations": 7
+  },
+  "key_models": [
+    "SecurityEvent"
+  ],
+  "services": [
+    "SecurityCommands",
+    "SecuritySelector"
+  ],
+  "constraints": [
+    "log_event() NUNCA debe llamarse dentro de un bloque @transaction.atomic que pueda hacer rollback — el evento se perdia silenciosamente (bug real corregido)",
+    "log_event() NO pasa por dispatch_notification — escribe directo el modelo SecurityEvent, no dispara notificaciones WS/Email/WhatsApp",
+    "Sanitizacion XSS con strip_tags aplicada en 7 serializers de core tras la certificacion 'CON OBSERVACIONES'",
+    "Mapeado en api/v1/security/health/ (montado en api/v1/, no en un prefijo api/v1/security propio a nivel de include)"
+  ],
+  "events": [],
+  "patterns": {
+    "command_class": "SecurityCommands",
+    "selector_class": "SecuritySelector",
+    "service_layer": true,
+    "soft_delete": true
+  },
+  "known_issues": [],
+  "TODO": [],
+  "BUG": [],
+  "HOT_FIX": [],
+  "decisions": [],
+  "generated_at": "2026-08-09T17:56:13.518782+00:00"
+}

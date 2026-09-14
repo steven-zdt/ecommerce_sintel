@@ -1,0 +1,48 @@
+# =============================================================================
+# .dockerignore del build de sintel_ai (context: ./ai_engine).
+#
+# Sin este archivo la imagen horneaba tests/, e2e_*, .AGENT/ (docs), .pytest_cache
+# y __pycache__ -- material que el runtime nunca usa. Solo se excluye lo que es
+# claramente seguro.
+#
+# OJO -- NO se excluyen: PROJECT_MAP.json / KNOWLEDGE_GRAPH.json /
+# DEPENDENCY_GRAPH.json / GLOBAL_MEMORY.json / MASTER_MANIFEST.json /
+# AI_MANIFESTS/ / APP_MEMORY/. Son datos de runtime horneados A PROPOSITO en la
+# imagen desde el desacople de project_knowledge_graph (2026-08-10): ai_manifest.py,
+# memory_builder.py y specialized_retrieval.py los leen desde AI_ENGINE_DIR (= /app).
+# =============================================================================
+
+# ── Bytecode / caches ───────────────────────────────────────────────────────
+**/__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# ── E2E scripts (PowerShell/host, no corren dentro del contenedor) ──────────
+e2e_http/
+e2e_ui/
+# NOTA: tests/ SE MANTIENE en la imagen a proposito -- el flujo documentado es
+# `docker compose exec sintel_ai pytest` (working_dir /app, pytest.ini
+# testpaths=tests), igual que la imagen de Django conserva sus tests.py.
+
+# ── Documentacion y notas de agente ─────────────────────────────────────────
+.AGENT/
+*.md
+lm_studio.txt
+
+# ── VCS / entorno / secretos ────────────────────────────────────────────────
+.git/
+.gitignore
+.venv/
+venv/
+.env
+.env.*
+*.env
+*.pem
+*.key
+
+# ── El propio Dockerfile no hace falta dentro de la imagen ───────────────────
+Dockerfile
+.dockerignore

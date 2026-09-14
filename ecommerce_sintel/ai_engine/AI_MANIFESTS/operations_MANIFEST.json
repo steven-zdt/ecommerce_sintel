@@ -1,0 +1,543 @@
+{
+  "app": "operations",
+  "generated_at": "2026-08-04T20:05:26.323463+00:00",
+  "api_prefix": "api/v1/operations",
+  "purpose": "Operational scheduling, field operations tracking",
+  "architecture": {
+    "models": [
+      {
+        "name": "DispatcherProfile",
+        "file": "operations/models.py",
+        "fk_relations": [
+          {
+            "name": "user",
+            "field_type": "OneToOneField",
+            "related_model": "settings.AUTH_USER_MODEL"
+          }
+        ]
+      },
+      {
+        "name": "OperationTicket",
+        "file": "operations/models.py",
+        "fk_relations": [
+          {
+            "name": "customer",
+            "field_type": "ForeignKey",
+            "related_model": "settings.AUTH_USER_MODEL"
+          },
+          {
+            "name": "source_order",
+            "field_type": "ForeignKey",
+            "related_model": "orders.Order"
+          },
+          {
+            "name": "source_rental_request",
+            "field_type": "OneToOneField",
+            "related_model": "renting.RentalRequest"
+          },
+          {
+            "name": "service_operation",
+            "field_type": "OneToOneField",
+            "related_model": "technical_services.ServiceOperation"
+          },
+          {
+            "name": "rental_operation",
+            "field_type": "OneToOneField",
+            "related_model": "renting.RentalOperation"
+          },
+          {
+            "name": "shipment",
+            "field_type": "OneToOneField",
+            "related_model": "orders.Shipment"
+          }
+        ]
+      },
+      {
+        "name": "OperationAssignment",
+        "file": "operations/models.py",
+        "fk_relations": [
+          {
+            "name": "ticket",
+            "field_type": "ForeignKey",
+            "related_model": "OperationTicket"
+          },
+          {
+            "name": "assignee",
+            "field_type": "ForeignKey",
+            "related_model": "settings.AUTH_USER_MODEL"
+          },
+          {
+            "name": "assigned_by",
+            "field_type": "ForeignKey",
+            "related_model": "settings.AUTH_USER_MODEL"
+          },
+          {
+            "name": "availability_slot",
+            "field_type": "ForeignKey",
+            "related_model": "accounts.ProfessionalAvailability"
+          }
+        ]
+      },
+      {
+        "name": "TrackingEvent",
+        "file": "operations/models.py",
+        "fk_relations": [
+          {
+            "name": "ticket",
+            "field_type": "ForeignKey",
+            "related_model": "OperationTicket"
+          },
+          {
+            "name": "created_by",
+            "field_type": "ForeignKey",
+            "related_model": "settings.AUTH_USER_MODEL"
+          }
+        ]
+      },
+      {
+        "name": "OperationDocument",
+        "file": "operations/models.py",
+        "fk_relations": [
+          {
+            "name": "ticket",
+            "field_type": "ForeignKey",
+            "related_model": "OperationTicket"
+          },
+          {
+            "name": "uploaded_by",
+            "field_type": "ForeignKey",
+            "related_model": "settings.AUTH_USER_MODEL"
+          },
+          {
+            "name": "reviewed_by",
+            "field_type": "ForeignKey",
+            "related_model": "settings.AUTH_USER_MODEL"
+          }
+        ]
+      },
+      {
+        "name": "OperationReview",
+        "file": "operations/models.py",
+        "fk_relations": [
+          {
+            "name": "ticket",
+            "field_type": "OneToOneField",
+            "related_model": "OperationTicket"
+          },
+          {
+            "name": "reviewer",
+            "field_type": "ForeignKey",
+            "related_model": "settings.AUTH_USER_MODEL"
+          }
+        ]
+      }
+    ],
+    "serializers": [
+      {
+        "name": "TrackingEventSerializer",
+        "file": "operations/api/serializers.py"
+      },
+      {
+        "name": "OperationDocumentSerializer",
+        "file": "operations/api/serializers.py"
+      },
+      {
+        "name": "OperationAssignmentSerializer",
+        "file": "operations/api/serializers.py"
+      },
+      {
+        "name": "OperationReviewSerializer",
+        "file": "operations/api/serializers.py"
+      },
+      {
+        "name": "OperationTicketListSerializer",
+        "file": "operations/api/serializers.py"
+      },
+      {
+        "name": "OperationTicketDetailSerializer",
+        "file": "operations/api/serializers.py"
+      },
+      {
+        "name": "DocumentUploadSerializer",
+        "file": "operations/api/serializers.py"
+      },
+      {
+        "name": "ReviewSubmitSerializer",
+        "file": "operations/api/serializers.py"
+      },
+      {
+        "name": "DispatcherProfileSerializer",
+        "file": "operations/api/serializers.py"
+      },
+      {
+        "name": "AdminTicketBoardSerializer",
+        "file": "operations/api/serializers.py"
+      },
+      {
+        "name": "AdminAssignSerializer",
+        "file": "operations/api/serializers.py"
+      },
+      {
+        "name": "AdminScheduleSerializer",
+        "file": "operations/api/serializers.py"
+      },
+      {
+        "name": "AdminTransitionSerializer",
+        "file": "operations/api/serializers.py"
+      },
+      {
+        "name": "AdminDocReviewSerializer",
+        "file": "operations/api/serializers.py"
+      }
+    ],
+    "viewsets": [
+      {
+        "name": "CustomerOperationViewSet",
+        "file": "operations/api/views.py",
+        "bases": [
+          "mixins.ListModelMixin",
+          "mixins.RetrieveModelMixin",
+          "viewsets.GenericViewSet"
+        ],
+        "actions": [
+          "get_object",
+          "timeline",
+          "upload_document",
+          "submit_review"
+        ]
+      },
+      {
+        "name": "OperationalTaskViewSet",
+        "file": "operations/api/views.py",
+        "bases": [
+          "mixins.ListModelMixin",
+          "mixins.RetrieveModelMixin",
+          "viewsets.GenericViewSet"
+        ],
+        "actions": [
+          "get_object",
+          "transition_status"
+        ]
+      },
+      {
+        "name": "AdminOperationViewSet",
+        "file": "operations/api/views.py",
+        "bases": [
+          "viewsets.GenericViewSet"
+        ],
+        "actions": [
+          "list",
+          "retrieve",
+          "assign",
+          "available_staff",
+          "auto_assign",
+          "schedule",
+          "transition_status",
+          "review_document",
+          "metrics"
+        ]
+      },
+      {
+        "name": "AdminDispatcherViewSet",
+        "file": "operations/api/views.py",
+        "bases": [
+          "mixins.ListModelMixin",
+          "mixins.RetrieveModelMixin",
+          "mixins.DestroyModelMixin",
+          "viewsets.GenericViewSet"
+        ],
+        "actions": [
+          "create",
+          "partial_update",
+          "destroy"
+        ]
+      }
+    ],
+    "services": [
+      {
+        "name": "OperationCommands",
+        "file": "operations/services/commands.py",
+        "role": "command",
+        "methods": [
+          "ensure_tickets_for_order",
+          "ensure_ticket_for_order",
+          "_create_ticket_for_order",
+          "ensure_ticket_for_rental",
+          "assign_resource",
+          "auto_assign",
+          "schedule",
+          "transition_status",
+          "_transition",
+          "_on_completed",
+          "_release_assignments",
+          "upload_document",
+          "review_document",
+          "submit_review",
+          "_generate_invoice_doc"
+        ]
+      },
+      {
+        "name": "DispatcherCommands",
+        "file": "operations/services/commands.py",
+        "role": "command",
+        "methods": [
+          "create",
+          "update",
+          "delete"
+        ]
+      },
+      {
+        "name": "OperationSelector",
+        "file": "operations/services/selectors.py",
+        "role": "selector",
+        "methods": [
+          "get_ticket_for_user",
+          "list_for_user",
+          "list_for_assignee",
+          "get_ticket_for_assignee",
+          "get_timeline",
+          "list_for_board",
+          "get_document",
+          "metrics"
+        ]
+      },
+      {
+        "name": "DispatcherSelector",
+        "file": "operations/services/selectors.py",
+        "role": "selector",
+        "methods": [
+          "get_available",
+          "list_board",
+          "get_by_uuid"
+        ]
+      },
+      {
+        "name": "OperationStaffSelector",
+        "file": "operations/services/selectors.py",
+        "role": "selector",
+        "methods": [
+          "get_user",
+          "get_active_user",
+          "list_available_technicians",
+          "list_assignable_contractors",
+          "list_field_ops_dispatchers"
+        ]
+      }
+    ],
+    "selectors": [],
+    "management_commands": [
+      {
+        "name": "backfill_operation_satellite_links",
+        "file": "operations/management/commands/backfill_operation_satellite_links.py"
+      }
+    ],
+    "consumers": [
+      {
+        "name": "OperationTrackingConsumer",
+        "file": "operations/consumers.py",
+        "bases": [
+          "AsyncWebsocketConsumer"
+        ],
+        "methods": [
+          "async connect",
+          "async disconnect",
+          "async receive",
+          "async operation_tracking_update",
+          "async _send_tracking_update",
+          "async operation_created",
+          "async operation_assigned",
+          "async operation_scheduled",
+          "async operation_en_route",
+          "async operation_in_progress",
+          "async operation_completed",
+          "async operation_cancelled"
+        ]
+      }
+    ],
+    "tasks": [
+      {
+        "name": "notify_stale_operation_tickets",
+        "file": "operations/tasks.py"
+      }
+    ],
+    "permissions": [],
+    "file_map": {
+      "misc": [
+        "operations/__init__.py",
+        "operations/api/__init__.py",
+        "operations/management/__init__.py",
+        "operations/management/commands/__init__.py",
+        "operations/migrations/__init__.py",
+        "operations/services/__init__.py",
+        "operations/services/config.py",
+        "operations/services/fsm.py"
+      ],
+      "admin": [
+        "operations/admin.py"
+      ],
+      "serializer": [
+        "operations/api/serializers.py"
+      ],
+      "url": [
+        "operations/api/urls.py"
+      ],
+      "viewset": [
+        "operations/api/views.py"
+      ],
+      "app_config": [
+        "operations/apps.py"
+      ],
+      "consumer": [
+        "operations/consumers.py"
+      ],
+      "management_cmd": [
+        "operations/management/commands/backfill_operation_satellite_links.py"
+      ],
+      "model": [
+        "operations/models.py"
+      ],
+      "routing": [
+        "operations/routing.py"
+      ],
+      "command": [
+        "operations/services/commands.py"
+      ],
+      "selector": [
+        "operations/services/selectors.py"
+      ],
+      "task": [
+        "operations/tasks.py"
+      ],
+      "test": [
+        "operations/tests.py"
+      ]
+    },
+    "migrations": 7
+  },
+  "endpoints": [
+    {
+      "endpoint": "api/v1/operations/my",
+      "app": "operations",
+      "viewset": "CustomerOperationViewSet",
+      "actions": [
+        "get_object",
+        "timeline",
+        "upload_document",
+        "submit_review"
+      ],
+      "basename": "customer-operations",
+      "http_methods": [
+        "GET"
+      ]
+    },
+    {
+      "endpoint": "api/v1/operations/tasks",
+      "app": "operations",
+      "viewset": "OperationalTaskViewSet",
+      "actions": [
+        "get_object",
+        "transition_status"
+      ],
+      "basename": "operational-tasks",
+      "http_methods": [
+        "GET"
+      ]
+    }
+  ],
+  "frontend_consumers": {},
+  "dependencies": {
+    "depends_on": [
+      "accounts",
+      "orders",
+      "renting",
+      "technical_services"
+    ],
+    "depended_by": [
+      "orders",
+      "renting"
+    ]
+  },
+  "blast_radius": {
+    "DispatcherProfile": {
+      "types_affected": [
+        "Serializer",
+        "Model",
+        "ViewSet"
+      ],
+      "total": 21
+    },
+    "OperationTicket": {
+      "types_affected": [
+        "Model",
+        "Serializer"
+      ],
+      "total": 8
+    },
+    "OperationAssignment": {
+      "types_affected": [
+        "Serializer"
+      ],
+      "total": 1
+    },
+    "TrackingEvent": {
+      "types_affected": [
+        "Serializer"
+      ],
+      "total": 1
+    },
+    "OperationDocument": {
+      "types_affected": [
+        "Serializer"
+      ],
+      "total": 1
+    },
+    "OperationReview": {
+      "types_affected": [
+        "Serializer"
+      ],
+      "total": 1
+    }
+  },
+  "service_contracts": {
+    "commands": [
+      "OperationCommands",
+      "DispatcherCommands"
+    ],
+    "selectors": [
+      "OperationSelector",
+      "DispatcherSelector",
+      "OperationStaffSelector"
+    ]
+  },
+  "events": {
+    "produces": [],
+    "consumes": []
+  },
+  "constraints": [],
+  "known_issues": [],
+  "business_rules": [],
+  "url_patterns": [
+    {
+      "type": "router",
+      "prefix": "my",
+      "viewset": "CustomerOperationViewSet",
+      "basename": "customer-operations"
+    },
+    {
+      "type": "router",
+      "prefix": "tasks",
+      "viewset": "OperationalTaskViewSet",
+      "basename": "operational-tasks"
+    }
+  ],
+  "patterns": {
+    "command_class": "OperationsCommands",
+    "selector_class": "OperationsSelector",
+    "service_layer": true,
+    "soft_delete": true
+  },
+  "TODO": [],
+  "BUG": [],
+  "HOT_FIX": [],
+  "decisions": []
+}

@@ -1,0 +1,193 @@
+{
+  "app": "security",
+  "generated_at": "2026-08-04T20:05:26.588347+00:00",
+  "api_prefix": "api/v1/security",
+  "purpose": "Security event logging/audit trail across the platform (SecurityEvent) — not authentication itself",
+  "architecture": {
+    "models": [
+      {
+        "name": "SecurityEvent",
+        "file": "security/models.py",
+        "fk_relations": [
+          {
+            "name": "user",
+            "field_type": "ForeignKey",
+            "related_model": "settings.AUTH_USER_MODEL"
+          }
+        ]
+      }
+    ],
+    "serializers": [
+      {
+        "name": "SecurityEventSerializer",
+        "file": "security/api/serializers.py"
+      }
+    ],
+    "viewsets": [
+      {
+        "name": "SecurityHealthView",
+        "file": "security/api/views.py",
+        "bases": [
+          "APIView"
+        ],
+        "actions": [
+          "get"
+        ]
+      },
+      {
+        "name": "SecurityEventViewSet",
+        "file": "security/api/views.py",
+        "bases": [
+          "viewsets.ReadOnlyModelViewSet"
+        ],
+        "actions": []
+      }
+    ],
+    "services": [
+      {
+        "name": "SecurityCommands",
+        "file": "security/services/commands.py",
+        "role": "command",
+        "methods": [
+          "log_event"
+        ]
+      },
+      {
+        "name": "SecuritySelector",
+        "file": "security/services/selectors.py",
+        "role": "selector",
+        "methods": [
+          "list_events",
+          "get_health_snapshot"
+        ]
+      }
+    ],
+    "selectors": [],
+    "management_commands": [],
+    "consumers": [],
+    "tasks": [],
+    "permissions": [],
+    "file_map": {
+      "misc": [
+        "security/__init__.py",
+        "security/api/__init__.py",
+        "security/migrations/__init__.py",
+        "security/services/__init__.py"
+      ],
+      "admin": [
+        "security/admin.py"
+      ],
+      "serializer": [
+        "security/api/serializers.py"
+      ],
+      "url": [
+        "security/api/urls.py"
+      ],
+      "viewset": [
+        "security/api/views.py"
+      ],
+      "app_config": [
+        "security/apps.py"
+      ],
+      "model": [
+        "security/models.py"
+      ],
+      "command": [
+        "security/services/commands.py"
+      ],
+      "selector": [
+        "security/services/selectors.py"
+      ],
+      "test": [
+        "security/tests.py"
+      ]
+    },
+    "migrations": 7
+  },
+  "endpoints": [
+    {
+      "endpoint": "api/v1/security/security/events",
+      "app": "security",
+      "viewset": "SecurityEventViewSet",
+      "actions": [],
+      "basename": "security-event",
+      "http_methods": [
+        "GET",
+        "POST",
+        "PUT",
+        "PATCH",
+        "DELETE"
+      ]
+    }
+  ],
+  "frontend_consumers": {
+    "api/v1/security/security/events": [
+      {
+        "type": "Composable",
+        "name": "useCommunication",
+        "file": "composables/useCommunication.js"
+      }
+    ]
+  },
+  "dependencies": {
+    "depends_on": [],
+    "depended_by": []
+  },
+  "blast_radius": {
+    "SecurityEvent": {
+      "types_affected": [
+        "ViewSet",
+        "Serializer"
+      ],
+      "total": 2
+    }
+  },
+  "service_contracts": {
+    "commands": [
+      "SecurityCommands"
+    ],
+    "selectors": [
+      "SecuritySelector"
+    ]
+  },
+  "events": {
+    "produces": [],
+    "consumes": []
+  },
+  "constraints": [
+    "log_event() NUNCA debe llamarse dentro de un bloque @transaction.atomic que pueda hacer rollback — el evento se perdia silenciosamente (bug real corregido)",
+    "log_event() NO pasa por dispatch_notification — escribe directo el modelo SecurityEvent, no dispara notificaciones WS/Email/WhatsApp",
+    "Sanitizacion XSS con strip_tags aplicada en 7 serializers de core tras la certificacion 'CON OBSERVACIONES'",
+    "Mapeado en api/v1/security/health/ (montado en api/v1/, no en un prefijo api/v1/security propio a nivel de include)"
+  ],
+  "known_issues": [],
+  "business_rules": [
+    {
+      "id": "UUID_IN_URLS",
+      "rule": "Use UUID in public URLs, never integer PK. SintelBaseModel provides uuid.",
+      "why": "Security: prevents enumeration attacks on resource IDs."
+    }
+  ],
+  "url_patterns": [
+    {
+      "type": "router",
+      "prefix": "security/events",
+      "viewset": "SecurityEventViewSet",
+      "basename": "security-event"
+    },
+    {
+      "type": "path",
+      "route": "security/health/"
+    }
+  ],
+  "patterns": {
+    "command_class": "SecurityCommands",
+    "selector_class": "SecuritySelector",
+    "service_layer": true,
+    "soft_delete": true
+  },
+  "TODO": [],
+  "BUG": [],
+  "HOT_FIX": [],
+  "decisions": []
+}

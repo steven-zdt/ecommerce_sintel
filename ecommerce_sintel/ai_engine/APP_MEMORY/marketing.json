@@ -1,0 +1,59 @@
+{
+  "app": "marketing",
+  "api_prefix": "api/v1/marketing",
+  "purpose": "Campaigns, flash offers, promotional pricing",
+  "architecture": {
+    "models": [
+      "FlashOffer",
+      "PersonalOffer",
+      "MarketingCampaign",
+      "SalesAnalysis",
+      "CampaignLog",
+      "AgentRun"
+    ],
+    "viewsets": [
+      "MarketingCampaignViewSet",
+      "FlashOfferViewSet",
+      "AgentRunViewSet",
+      "DashboardViewSet"
+    ],
+    "serializers": [
+      "CampaignLogSerializer",
+      "MarketingCampaignSerializer",
+      "FlashOfferSerializer",
+      "AgentRunSerializer",
+      "ConsolidatedDashboardSerializer"
+    ],
+    "url_patterns": [
+      "campaigns",
+      "offers",
+      "agent-runs",
+      "dashboard"
+    ],
+    "management_commands": [],
+    "celery_tasks": [],
+    "consumers": [],
+    "migrations": 5
+  },
+  "key_models": [
+    "MarketingCampaign",
+    "FlashOffer"
+  ],
+  "services": [
+    "MarketingCommands"
+  ],
+  "constraints": [],
+  "events": [],
+  "patterns": {
+    "command_class": "MarketingCommands",
+    "selector_class": "MarketingSelector",
+    "service_layer": true,
+    "soft_delete": true
+  },
+  "known_issues": [],
+  "TODO": [],
+  "BUG": [],
+  "HOT_FIX": [],
+  "decisions": [],
+  "generated_at": "2026-08-09T17:56:13.518782+00:00"
+}

@@ -16,14 +16,12 @@ from action_graph import run_action_chat
 
 from embeddings_factory import get_embeddings
 from vectorstore_factory import get_vectorstore
-from llm_factory import get_llm
+from llm_factory import get_llm, get_dynamic_llm
 from loaders import load_all_documents
 from splitters import split_all
 from guardrails import SintelArchitectureGuard, ValidationReport
 from graph import run_code_generation
 from retrievers import detect_task_type
-from project_map import build_impact_report, build_impact_context
-from dependency_graph import get_dependency_graph, what_breaks_if_i_change, build_impact_analysis_text
 from memory_builder import get_global_memory, get_app_memory
 from planner import build_plan
 from specialized_retrieval import retrieve_with_routing, get_registry
@@ -40,6 +38,33 @@ logging.basicConfig(
 logger = logging.getLogger("main")
 
 _STATE: dict = {}
+
+
+# ---------------------------------------------------------------------------
+# Stubs de project_knowledge_graph (FASE 0, 2026-08-10) -- ai_engine ya no
+# importa project_knowledge_graph ("AI Engine no conoce ni importa
+# project_knowledge_graph", separacion Site Knowledge Graph / AI Editor
+# Runtime). /impact y /breakage devuelven estructura vacia valida en vez de
+# fallar; su version real debe reconstruirse en el futuro AI Editor Runtime.
+# ---------------------------------------------------------------------------
+
+def build_impact_report(task: str, extra_apps: list[str] | None = None) -> dict:
+    return {
+        "apps": [], "models": [], "serializers": [], "viewsets": [],
+        "endpoints": [], "frontend_files": [], "stores": [], "services": [],
+    }
+
+
+def build_impact_context(task: str, extra_apps: list[str] | None = None) -> str:
+    return ""
+
+
+def what_breaks_if_i_change(entity: str) -> dict:
+    return {}
+
+
+def build_impact_analysis_text(entity: str) -> str:
+    return ""
 
 
 async def _ensure_ollama_models() -> None:
@@ -82,14 +107,29 @@ async def lifespan(app: FastAPI):
     logger.info("[startup] Inicializando motor cognitivo...")
     try:
         await _ensure_ollama_models()  # no-op limpio si LOCAL_MODEL_CHAIN no tiene entradas ollama-nativo
-        embeddings       = get_embeddings()
-        vectorstore      = get_vectorstore(embeddings)
         llm              = get_llm()
         raw_docs         = load_all_documents(DOCS_SPECS_PATH, CODEBASE_PATH)
         all_chunks       = split_all(raw_docs)
-        _STATE["vectorstore"] = vectorstore
         _STATE["all_docs"]    = all_chunks
         _STATE["llm"]         = llm
+
+        # Fallback de produccion (auditoria de puesta en produccion, 2026-08-17):
+        # chromadb.HttpClient valida la conexion al construirse -- si ChromaDB no
+        # esta disponible, get_vectorstore() lanza y (antes de este fix) tumbaba
+        # el arranque ENTERO del proceso, no solo el RAG. /chat ya pasa
+        # vectorstore=_STATE.get("vectorstore") (None-safe) y
+        # retrieve_knowledge_for_chat ya tolera vectorstore=None -- el unico punto
+        # que faltaba blindar era este. Motor sigue arrancando sin RAG si Chroma
+        # esta caido; /generate (que si necesita vectorstore) sigue devolviendo
+        # 503 explicito como ya hacia (linea ~331), no un crash de proceso.
+        try:
+            embeddings  = get_embeddings()
+            vectorstore = get_vectorstore(embeddings)
+            _STATE["vectorstore"] = vectorstore
+        except Exception as exc:
+            _STATE["vectorstore"] = None
+            logger.warning("[startup] ChromaDB no disponible, RAG degradado (motor sigue arrancando): %s", exc)
+
         logger.info("[startup] Motor listo. Chunks en memoria: %d", len(all_chunks))
 
         # Pre-build specialized indices (Phase 5/6)
@@ -248,12 +288,19 @@ async def chat(req: ChatRequest, token: str = Depends(get_validated_token)):
         raise HTTPException(503, "Motor no inicializado. Esperar al lifespan startup.")
     payload = decode_django_jwt(token)
     try:
+        # FASE 4 (plan "CONFIGURACION DINAMICA DE MODELOS LOCALES", 2026-08-13):
+        # get_dynamic_llm() consulta ai_provider (Postgres via Django) en vez de usar
+        # el LLM fijo de _STATE construido una sola vez al arrancar -- cae sola a
+        # LOCAL_MODEL_CHAIN/_STATE['llm'] si no hay config real o Django no responde,
+        # asi que el guard de arriba (_STATE['llm'] inicializado) sigue siendo valido
+        # como senal de que el proceso arranco bien.
+        chat_llm = await get_dynamic_llm()
         result = await run_action_chat(
             message=req.message,
             conversation_id=req.conversation_id,
             token=token,
             user_id=payload["user_id"],
-            llm=_STATE["llm"],
+            llm=chat_llm,
             vectorstore=_STATE.get("vectorstore"),
             all_docs=_STATE.get("all_docs", []),
             confirm=req.confirm,
@@ -286,11 +333,24 @@ async def chat(req: ChatRequest, token: str = Depends(get_validated_token)):
 
 @app.get("/health")
 async def health():
-    chunks_count = len(_STATE.get("all_docs", []))
+    """
+    Fase 10 (auditoria de puesta en produccion, 2026-08-17): antes devolvia
+    "status": "ok" fijo + un conteo de chunks -- no distinguia liveness (el
+    proceso esta vivo) de readiness real de sus dependencias. `llm`/`all_docs`
+    siempre quedan poblados si el proceso llego a aceptar requests (el lifespan
+    los construye fuera del bloque tolerante a fallos); lo unico que puede faltar
+    es `vectorstore` (RAG degradado si ChromaDB no estaba disponible al
+    arrancar, ver lifespan). Deliberadamente sin hacer una llamada de red nueva
+    aqui -- un healthcheck que depende de red puede volverse su propio punto de
+    falla bajo latencia/saturacion; reporta el estado ya conocido de `_STATE`.
+    """
+    vectorstore_ok = _STATE.get("vectorstore") is not None
+    llm_ok = _STATE.get("llm") is not None
     return {
-        "status": "ok",
-        "chunks_indexed": chunks_count,
-        "vectorstore": "chromadb",
+        "status": "ok" if llm_ok else "starting",
+        "llm_ready": llm_ok,
+        "rag_ready": vectorstore_ok,
+        "chunks_indexed": len(_STATE.get("all_docs", [])),
     }
 
 
@@ -393,27 +453,23 @@ async def get_memory(app: str | None = None):
 @app.get("/graph/node/{entity_name}")
 async def graph_node(entity_name: str, depth: int = 2):
     """
-    Devuelve el vecindario del knowledge graph para una entidad.
-    GET /graph/node/Product?depth=2
+    [RETIRADO 2026-08-10, FASE 0] ai_engine ya no importa project_knowledge_graph
+    -- esta consulta debe hacerse via `python -m project_knowledge_graph.cli node
+    <entidad>` o el futuro AI Editor Runtime, no desde este servicio.
     """
-    try:
-        from knowledge_graph import find_node_context
-        return find_node_context(entity_name, depth=depth)
-    except Exception as exc:
-        raise HTTPException(500, str(exc))
+    raise HTTPException(501, "Retirado: ai_engine ya no depende de project_knowledge_graph. "
+                              "Usar `python -m project_knowledge_graph.cli node <entidad>`.")
 
 
 @app.get("/graph/impact/{entity_name}")
 async def graph_impact(entity_name: str):
     """
-    Devuelve la cadena de impacto transitivo si se modifica entity_name.
-    GET /graph/impact/Product
+    [RETIRADO 2026-08-10, FASE 0] ai_engine ya no importa project_knowledge_graph
+    -- esta consulta debe hacerse via `python -m project_knowledge_graph.cli
+    impact <entidad>` o el futuro AI Editor Runtime, no desde este servicio.
     """
-    try:
-        from knowledge_graph import impact_chain
-        return {"entity": entity_name, "impact_chain": impact_chain(entity_name)}
-    except Exception as exc:
-        raise HTTPException(500, str(exc))
+    raise HTTPException(501, "Retirado: ai_engine ya no depende de project_knowledge_graph. "
+                              "Usar `python -m project_knowledge_graph.cli impact <entidad>`.")
 
 
 @app.post("/search")
@@ -453,46 +509,22 @@ async def app_manifest(app_name: str):
 @app.post("/refresh")
 async def refresh_knowledge_base(req: RefreshRequest):
     """
-    Actualiza incrementalmente la base de conocimiento (Phase 11).
-    Detecta cambios automaticamente o acepta lista de apps cambiadas.
+    Actualiza incrementalmente la memoria del motor (APP_MEMORY/indices
+    especializados -- Fases 10 y 12). Detecta cambios automaticamente o acepta
+    lista de apps cambiadas.
 
-    [EXTENDIDO 2026-07-30, AUDITORIA/14_GRAPHIFY_KNOWLEDGE_GRAPH.md §16 "Graphify
-    Orchestrator"] `run_code_generation()` (graph.py) solo PROPONE codigo -- nunca lo
-    escribe a disco, eso requiere aprobacion humana (mismo patron de "confirmacion humana
-    para escrituras" que ya usa el resto del AI Core). Este endpoint, ya llamado
-    manualmente despues de aplicar un cambio, es por lo tanto el unico punto real donde
-    "cerrar el ciclo" tiene sentido -- no dentro del grafo de generacion, que corre ANTES
-    de que el archivo exista en disco. Ahora, ademas del refresco incremental que ya hacia
-    (KG/DependencyGraph/Memory -- Fases 10 y 12), corre gobernanza (`graph_validator.py`,
-    Fase 13 -- no existia antes de esa auditoria) y marca la documentacion de Nivel 2 de
-    las apps tocadas que conviene revisar (Fase 11 -- nunca la edita sola, solo la señala),
-    en la misma llamada.
+    [DEGRADADO 2026-08-10, FASE 0 -- desacoplamiento ai_engine <->
+    project_knowledge_graph] Este endpoint corria ademas gobernanza
+    (`graph_validator.py`) y marcaba documentacion de Nivel 2 a revisar --
+    ambas dependian de project_knowledge_graph, que ai_engine ya no debe
+    importar. Ese analisis sigue existiendo, pero via
+    `python -m project_knowledge_graph.cli validate`, fuera de este servicio.
     """
     result = update_changed_apps(
         app_names=req.apps,
         frontend=req.frontend,
         force_full=req.force_full,
     )
-
-    changed_apps = result.get("changed_apps", [])
-    if changed_apps:
-        try:
-            from graph_validator import run_all_validations
-            result["governance"] = run_all_validations()["summary"]
-        except Exception as exc:
-            logger.error("[refresh] Gobernanza fallo: %s", exc)
-            result["governance"] = {"error": str(exc)}
-
-        try:
-            from documentation_graph import build_documentation_index
-            result["docs_to_review"] = [
-                d["path"] for d in build_documentation_index()
-                if d["app"] in changed_apps and d["scope"] == "nivel2"
-            ]
-        except Exception as exc:
-            logger.error("[refresh] Listado de docs a revisar fallo: %s", exc)
-            result["docs_to_review"] = []
-
     return result
 
 

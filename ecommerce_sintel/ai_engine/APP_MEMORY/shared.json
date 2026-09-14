@@ -1,0 +1,35 @@
+{
+  "app": "shared",
+  "api_prefix": "api/v1/shared",
+  "purpose": "",
+  "architecture": {
+    "models": [],
+    "viewsets": [
+      "UnifiedPublicDetailViewSet"
+    ],
+    "serializers": [],
+    "url_patterns": [
+      ""
+    ],
+    "management_commands": [],
+    "celery_tasks": [],
+    "consumers": [],
+    "migrations": 0
+  },
+  "key_models": [],
+  "services": [],
+  "constraints": [],
+  "events": [],
+  "patterns": {
+    "command_class": "SharedCommands",
+    "selector_class": "SharedSelector",
+    "service_layer": true,
+    "soft_delete": true
+  },
+  "known_issues": [],
+  "TODO": [],
+  "BUG": [],
+  "HOT_FIX": [],
+  "decisions": [],
+  "generated_at": "2026-08-09T17:56:13.518782+00:00"
+}

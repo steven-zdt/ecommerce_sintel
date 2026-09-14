@@ -1,0 +1,73 @@
+{
+  "app": "payment",
+  "api_prefix": "api/v1/payment",
+  "purpose": "Multi-method payment: Wompi online, Nequi, COD (cash-on-delivery)",
+  "architecture": {
+    "models": [
+      "Transaction",
+      "TransactionEvent",
+      "PaymentFeatureFlags",
+      "CodTransaction",
+      "NequiTransaction",
+      "TokenizedCard"
+    ],
+    "viewsets": [
+      "TokenizedCardViewSet",
+      "NequiPaymentViewSet",
+      "WompiPaymentViewSet"
+    ],
+    "serializers": [
+      "CodTransactionSerializer",
+      "NequiInitializeSerializer",
+      "NequiTransactionSerializer",
+      "TransactionSerializer",
+      "TransactionEventSerializer"
+    ],
+    "url_patterns": [
+      "",
+      "",
+      ""
+    ],
+    "management_commands": [],
+    "celery_tasks": [
+      "reconcile_pending_wompi_transactions",
+      "notify_declined_payments_followup"
+    ],
+    "consumers": [],
+    "migrations": 13
+  },
+  "key_models": [
+    "TokenizedCard",
+    "CodTransaction",
+    "NequiTransaction"
+  ],
+  "services": [
+    "WompiCommands",
+    "NequiCommands",
+    "CodCommands",
+    "confirm_order_payment"
+  ],
+  "constraints": [
+    "confirm_order_payment() is idempotent SSoT for post-payment (inventory, notifications)",
+    "Wompi webhooks MUST call _verify_wompi_event_signature() before any DB mutation",
+    "COD does NOT use confirm_order_payment() — handled by CodCommands separately"
+  ],
+  "events": [
+    "payment_confirmed",
+    "payment_failed"
+  ],
+  "patterns": {
+    "command_class": "PaymentCommands",
+    "selector_class": "PaymentSelector",
+    "service_layer": true,
+    "soft_delete": true
+  },
+  "known_issues": [
+    "Wompi sandbox webhooks cannot reach localhost — /orden-confirmada shows PENDING status in dev"
+  ],
+  "TODO": [],
+  "BUG": [],
+  "HOT_FIX": [],
+  "decisions": [],
+  "generated_at": "2026-08-09T17:56:13.518782+00:00"
+}

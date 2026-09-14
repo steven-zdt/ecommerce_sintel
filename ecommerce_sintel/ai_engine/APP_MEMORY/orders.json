@@ -1,0 +1,88 @@
+{
+  "app": "orders",
+  "api_prefix": "api/v1/orders",
+  "purpose": "Purchase order lifecycle: creation from cart, status tracking, shipping addresses",
+  "architecture": {
+    "models": [
+      "ShippingAddress",
+      "Coupon",
+      "Order",
+      "DispatchCenter",
+      "Carrier",
+      "DeliveryDriver",
+      "Shipment",
+      "ShipmentTimeline",
+      "ShipmentTrackingEvent",
+      "OrderItem",
+      "OrderItemCostSnapshot"
+    ],
+    "viewsets": [
+      "ShippingAddressViewSet",
+      "OrderViewSet"
+    ],
+    "serializers": [
+      "ShippingAddressSerializer",
+      "OrderItemSerializer",
+      "OrderSerializer",
+      "ShipmentSerializer",
+      "ShipmentOrderSummarySerializer",
+      "ShipmentBoardSerializer",
+      "ShipmentTimelineSerializer",
+      "ShipmentTrackingSerializer",
+      "OrderActionCommentSerializer",
+      "OrderTimelineInputSerializer",
+      "OrderTrackingInputSerializer",
+      "AssignDispatchCenterSerializer",
+      "AssignCarrierSerializer",
+      "AssignDriverSerializer",
+      "AssignDispatcherSerializer",
+      "PackingInputSerializer",
+      "ScheduleDispatchSerializer",
+      "OrderCreateInputSerializer",
+      "Meta"
+    ],
+    "url_patterns": [
+      "",
+      "orders",
+      "addresses",
+      "service-orders"
+    ],
+    "management_commands": [],
+    "celery_tasks": [
+      "notify_frequent_customers_cross_sell"
+    ],
+    "consumers": [],
+    "migrations": 17
+  },
+  "key_models": [
+    "Order",
+    "OrderItem",
+    "ShippingAddress"
+  ],
+  "services": [
+    "OrderCommands",
+    "OrderSelector"
+  ],
+  "constraints": [
+    "create_from_cart() is the only valid way to create an Order — never create directly",
+    "Coupon: filter by active=True + valid_from__lte=now + valid_to__gte=now",
+    "Discount capped: min(coupon_discount, total_items_price)"
+  ],
+  "events": [
+    "order_created",
+    "order_paid",
+    "order_cod_confirmed"
+  ],
+  "patterns": {
+    "command_class": "OrdersCommands",
+    "selector_class": "OrdersSelector",
+    "service_layer": true,
+    "soft_delete": true
+  },
+  "known_issues": [],
+  "TODO": [],
+  "BUG": [],
+  "HOT_FIX": [],
+  "decisions": [],
+  "generated_at": "2026-08-09T17:56:13.518782+00:00"
+}

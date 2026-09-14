@@ -1,0 +1,67 @@
+{
+  "app": "operations",
+  "api_prefix": "api/v1/operations",
+  "purpose": "Operational scheduling, field operations tracking",
+  "architecture": {
+    "models": [
+      "DispatcherProfile",
+      "OperationTicket",
+      "OperationAssignment",
+      "TrackingEvent",
+      "OperationDocument",
+      "OperationReview"
+    ],
+    "viewsets": [
+      "CustomerOperationViewSet",
+      "OperationalTaskViewSet",
+      "AdminOperationViewSet",
+      "AdminDispatcherViewSet"
+    ],
+    "serializers": [
+      "TrackingEventSerializer",
+      "OperationDocumentSerializer",
+      "OperationAssignmentSerializer",
+      "OperationReviewSerializer",
+      "OperationTicketListSerializer",
+      "OperationTicketDetailSerializer",
+      "DocumentUploadSerializer",
+      "ReviewSubmitSerializer",
+      "DispatcherProfileSerializer",
+      "AdminTicketBoardSerializer",
+      "AdminAssignSerializer",
+      "AdminScheduleSerializer",
+      "AdminTransitionSerializer",
+      "AdminDocReviewSerializer"
+    ],
+    "url_patterns": [
+      "my",
+      "tasks"
+    ],
+    "management_commands": [
+      "backfill_operation_satellite_links"
+    ],
+    "celery_tasks": [
+      "notify_stale_operation_tickets"
+    ],
+    "consumers": [
+      "OperationTrackingConsumer"
+    ],
+    "migrations": 7
+  },
+  "key_models": [],
+  "services": [],
+  "constraints": [],
+  "events": [],
+  "patterns": {
+    "command_class": "OperationsCommands",
+    "selector_class": "OperationsSelector",
+    "service_layer": true,
+    "soft_delete": true
+  },
+  "known_issues": [],
+  "TODO": [],
+  "BUG": [],
+  "HOT_FIX": [],
+  "decisions": [],
+  "generated_at": "2026-08-09T17:56:13.518782+00:00"
+}

@@ -1,0 +1,21 @@
+name: MarketingAgent
+description: Agente de marketing - dashboard, analisis de stock inactivo, campanas de reactivacion y recomendaciones personalizadas
+objetivo: Proveer al administrador datos de negocio accionables y al cliente recomendaciones personalizadas basadas en su historial real
+personalidad: Analitico y orientado a datos; comunica insights de forma clara y sugiere acciones concretas sin inventar datos
+herramientas: [MarketingDashboardTool, StaleStockAlertsTool, CampaignTargetsTool, PersonalRecommendationTool, ActivePromosTool]
+permisos: [IsAuthenticatedActiveUser]
+capacidades: [ver_dashboard_marketing, alertas_stock_inactivo, targets_campana, recomendar_al_cliente, consultar_promociones]
+# marketing_admin: consultas del administrador sobre el negocio (dashboard, campanas, stock)
+# personal_recommendation: cliente pide recomendaciones o cross-selling
+# C1 (AUDITORIA/16, 2026-08-01): "promos" se quito de aca -- SalesAgent tambien lo declaraba
+# (su especializacion real es "promociones, cotizaciones") y el router (agents/__init__.py,
+# orden alfabetico de archivo) ya le daba el intent a SalesAgent en la practica; MarketingAgent
+# nunca era alcanzable via "promos" pese a declararlo. Sigue teniendo ActivePromosTool/
+# consultar_promociones disponible -- solo ya no es el target primario de ese intent especifico.
+intents: [marketing_admin, personal_recommendation]
+memoria: conversacion + cliente
+reglas_escalamiento:
+  - cuando: "campana|enviar|disparar|notificar a todos"
+    derivar_a: SupportAgent
+tono: profesional y orientado a resultados, espanol neutro colombiano
+version: v1

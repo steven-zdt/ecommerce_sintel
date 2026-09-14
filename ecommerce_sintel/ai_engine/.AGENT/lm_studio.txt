@@ -1,0 +1,284 @@
+Sí. Con la documentación que acabas de compartir considero que ya tengo el contexto suficiente para diseñar un plan de nivel Enterprise.
+
+Ahora dispongo de:
+
+Arquitectura General de SINTEL ERP.
+Core (última versión).
+Accounts.
+Users.
+Support.
+Flujo completo del AI Engine.
+Docker actual.
+AI Engine.
+Planner.
+LangGraph.
+Action Graph.
+Gateway.
+Tool Registry.
+Capability Registry.
+Agent Profiles.
+Auditor.
+Knowledge Graph.
+Dependency Graph.
+Manifest Builder.
+RAG.
+Embeddings.
+ChromaDB.
+Ollama.
+Mi conclusión después de la auditoría
+
+El problema principal de la arquitectura no es Ollama.
+
+Después de revisar el flujo del AI Engine, considero que el cuello de botella es que el motor mezcla varias responsabilidades:
+
+Motor de inferencia.
+Gateway.
+Orquestación.
+LangGraph.
+Gestión de modelos.
+RAG.
+Observabilidad.
+Herramientas.
+Agentes.
+
+Todo esto vive dentro del mismo microservicio FastAPI. Aunque el diseño está bien organizado por módulos, a medida que aumente el tamaño de los modelos y el número de agentes, ese acoplamiento dificultará el escalado. El propio documento muestra que el AI Engine concentra el gateway, el Action Graph, el registro de herramientas y la integración con Ollama.
+
+Mi recomendación cambia
+
+Ya no recomendaría migrar únicamente a LM Studio.
+
+Recomendaría construir la siguiente generación del motor.
+
+SINTEL AI PLATFORM 2.0
+
+Con una arquitectura basada en servicios especializados.
+
+Cliente
+
+↓
+
+Gateway IA
+
+↓
+
+AI Orchestrator
+
+↓
+
+Inference Gateway
+
+↓
+
+Model Router
+
+↓
+
+Provider
+
+↓
+
+LM Studio
+
+↓
+
+vLLM
+
+↓
+
+OpenAI
+
+↓
+
+Anthropic
+
+↓
+
+llama.cpp
+
+El AI Engine deja de conocer el proveedor concreto.
+
+El plan que construiría
+
+Este no sería un proyecto pequeño.
+
+Sería una transformación arquitectónica completa dividida en 24 fases, cada una con:
+
+objetivo
+entregables
+criterios de aceptación
+riesgos
+rollback
+pruebas
+auditoría
+Bloque I — Auditoría y estabilización
+
+Fase 0. Auditoría completa de la plataforma actual.
+
+Fase 1. Inventario de dependencias.
+
+Fase 2. Eliminación de acoplamientos.
+
+Bloque II — Plataforma de Inferencia
+
+Fase 3. Crear Inference Gateway.
+
+Fase 4. Crear Provider Registry.
+
+Fase 5. Crear Provider Interface.
+
+Fase 6. Implementar proveedor LM Studio.
+
+Fase 7. Mantener compatibilidad con Ollama.
+
+Bloque III — Modernización del AI Engine
+
+Fase 8. Separar Action Graph.
+
+Fase 9. Separar Planner.
+
+Fase 10. Separar RAG.
+
+Fase 11. Separar Memory.
+
+Fase 12. Separar Tool Runtime.
+
+Bloque IV — Infraestructura
+
+Fase 13. Docker Enterprise.
+
+Fase 14. GPU Runtime.
+
+Fase 15. Observabilidad.
+
+Fase 16. Alta disponibilidad.
+
+Bloque V — Escalabilidad
+
+Fase 17. Router de modelos.
+
+Fase 18. Multi-modelo.
+
+Fase 19. VLM.
+
+Fase 20. Embeddings dedicados.
+
+Bloque VI — Producción
+
+Fase 21. Migración a vLLM.
+
+Fase 22. Balanceo de inferencia.
+
+Fase 23. Optimización para modelos grandes.
+
+Fase 24. Certificación Enterprise.
+
+Pero haría un cambio importante
+
+Después de leer el flujo completo del AI Engine, no haría una migración "en caliente".
+
+Primero construiría una nueva infraestructura paralela.
+
+AI Engine actual
+
+↓
+
+Inference Gateway
+
+↓
+
+LM Studio
+
+↓
+
+Pruebas
+
+↓
+
+vLLM
+
+↓
+
+Producción
+
+Mientras tanto el AI Engine seguiría funcionando con Ollama.
+
+Cuando todas las pruebas pasen, cambiaría únicamente:
+
+LLM_PROVIDER=lmstudio
+
+o
+
+LLM_PROVIDER=vllm
+
+sin tocar el resto del código.
+
+Además cambiaría la estructura del proyecto
+
+Actualmente el AI Engine contiene tanto la lógica de negocio como la de inferencia. El siguiente paso sería separar estas responsabilidades.
+
+ai_platform/
+
+    gateway/
+
+    inference/
+
+        providers/
+
+            lmstudio.py
+
+            ollama.py
+
+            vllm.py
+
+            openai.py
+
+            anthropic.py
+
+        router.py
+
+        registry.py
+
+        health.py
+
+        metrics.py
+
+    orchestration/
+
+        planner/
+
+        action_graph/
+
+        agents/
+
+        capabilities/
+
+        tools/
+
+    rag/
+
+    memory/
+
+    observability/
+
+El resultado sería una plataforma preparada para crecer sin depender de un proveedor específico.
+
+Mi propuesta final
+
+Con toda la documentación que ya tengo, no veo necesario solicitar más archivos para diseñar el plan.
+
+Lo que sí propongo es elaborar un documento de arquitectura de aproximadamente 300–500 páginas técnicas, dividido en unas 24 fases ejecutables, donde cada fase incluya:
+
+Objetivos y alcance.
+Cambios de arquitectura.
+Estructura de directorios.
+Refactorizaciones archivo por archivo.
+Cambios en Docker y Docker Compose.
+Migración de Ollama a LM Studio sin interrupción del servicio.
+Preparación para vLLM en producción.
+Diseño de Inference Gateway, Model Router y Provider Registry.
+Estrategia para múltiples modelos (chat, razonamiento, visión y embeddings).
+Observabilidad, métricas, alta disponibilidad y escalabilidad horizontal.
+Planes de prueba, criterios de aceptación y rollback para cada fase.
+Prompts específicos para que tu IA editora pueda ejecutar cada fase de manera incremental y verificable.
+
+Considero que esa es la evolución natural de la arquitectura actual del AI Engine y la que mejor prepara a SINTEL ERP para incorporar modelos más grandes, agentes especializados y capacidades de visión sin necesidad de rediseñar nuevamente la plataforma

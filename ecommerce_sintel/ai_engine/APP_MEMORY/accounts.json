@@ -1,0 +1,107 @@
+{
+  "app": "accounts",
+  "api_prefix": "api/v1/auth",
+  "purpose": "User profiles: UserProfile (user_type), TechnicianProfile, customer dashboard",
+  "architecture": {
+    "models": [
+      "UserProfile",
+      "TechnicianProfile",
+      "ContractorSpecialty",
+      "ContractorSkill",
+      "AcademicTraining",
+      "ProfessionalCourse",
+      "ProfessionalCertification",
+      "ProfessionalExperience",
+      "SuccessCase",
+      "SuccessCaseImage",
+      "ContractorReview",
+      "ProfessionalAvailability"
+    ],
+    "viewsets": [
+      "AccountViewSet",
+      "ContractorProfileViewSet",
+      "ContractorSpecialtyViewSet",
+      "ContractorSkillViewSet",
+      "ProfessionalExperienceViewSet",
+      "AcademicTrainingViewSet",
+      "ProfessionalCourseViewSet",
+      "ProfessionalCertificationViewSet",
+      "SuccessCaseViewSet",
+      "AvailabilityViewSet",
+      "AdminContractorViewSet"
+    ],
+    "serializers": [
+      "UserRegisterSerializer",
+      "RegisterRequestSerializer",
+      "VerifyCodeSerializer",
+      "ResendCodeSerializer",
+      "ForgotPasswordRequestSerializer",
+      "ResetPasswordSerializer",
+      "VerifyEmailLinkSerializer",
+      "UserLoginSerializer",
+      "LogoutSerializer",
+      "ChangePasswordSerializer",
+      "ServiceCategorySerializer",
+      "ContractorSpecialtySerializer",
+      "ContractorSkillSerializer",
+      "AcademicTrainingSerializer",
+      "ProfessionalCourseSerializer",
+      "ProfessionalCertificationSerializer",
+      "ProfessionalExperienceSerializer",
+      "SuccessCaseImageSerializer",
+      "SuccessCaseSerializer",
+      "ContractorReviewSerializer",
+      "PublicContractorProfileSerializer",
+      "AdminContractorSerializer",
+      "UserProfileUpdateSerializer",
+      "AvailabilityOutputSerializer",
+      "AvailabilityBulkCreateSerializer",
+      "AvailabilityStatusUpdateSerializer"
+    ],
+    "url_patterns": [
+      "contractors",
+      "specialties",
+      "skills",
+      "experiences",
+      "academic-training",
+      "courses",
+      "certifications",
+      "success-cases",
+      "availability",
+      "admin/professionals",
+      "",
+      ""
+    ],
+    "management_commands": [],
+    "celery_tasks": [],
+    "consumers": [],
+    "migrations": 13
+  },
+  "key_models": [
+    "UserProfile",
+    "TechnicianProfile"
+  ],
+  "services": [
+    "ProfileCommands",
+    "ProfileSelector"
+  ],
+  "constraints": [
+    "No 'role' field on User — use accounts.UserProfile.user_type",
+    "user_type choices: CUSTOMER | TECHNICIAN | PROFESSIONAL | SPECIALIST",
+    "Admins identified by is_staff=True AND is_superuser=True",
+    "TechnicianProfile.specialties related_name='technician_profiles'"
+  ],
+  "events": [],
+  "patterns": {
+    "command_class": "AccountsCommands",
+    "selector_class": "AccountsSelector",
+    "service_layer": true,
+    "soft_delete": true
+  },
+  "known_issues": [],
+  "TODO": [],
+  "BUG": [],
+  "HOT_FIX": [],
+  "decisions": [],
+  "generated_at": "2026-08-09T17:56:13.518782+00:00"
+}

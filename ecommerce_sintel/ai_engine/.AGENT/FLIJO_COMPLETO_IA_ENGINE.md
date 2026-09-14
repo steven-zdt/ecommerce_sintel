@@ -41,24 +41,41 @@ ai_engine/
 ├── guardrails_frontend.py   # Guardian frontend Vue (6 CRITICAL + 3 WARNING)
 ├── retrievers.py            # Ensemble BM25 + MMR + detección de apps/tipo
 ├── specialized_retrieval.py # 9 índices especializados (Model/Serializer/ViewSet/...)
-├── planner.py               # build_plan() — pipeline de 14 pasos implementados (de 17 documentados)
-├── project_map.py           # Query interface sobre PROJECT_MAP.json
-├── knowledge_graph.py       # Construye KNOWLEDGE_GRAPH.json desde PROJECT_MAP.json
-├── dependency_graph.py      # Blast-radius/impacto desde KNOWLEDGE_GRAPH.json
+├── planner.py               # build_plan() — pipeline de 14 pasos implementados (de 17 documentados);
+│                            #   [DEGRADADO 2026-08-10, FASE 0] los pasos que dependian de
+│                            #   project_map.py/knowledge_graph.py/dependency_graph.py (abajo) ahora
+│                            #   corren en stub local, ver `ai_engine/.AGENT/AI_ENGINE_KG_DECOUPLING_FASE0.md`
 ├── memory_builder.py        # GLOBAL_MEMORY.json + APP_MEMORY/*.json (conocimiento estático por app)
 ├── ai_manifest.py           # AI_MANIFESTS/*.json + MASTER_MANIFEST.json (manifiestos por app)
-├── incremental_updater.py   # Re-auditoría incremental (detect_changed_apps/update_changed_apps)
-├── auditor.py               # Genera PROJECT_MAP.json auditando todo el codebase (+ encadena KG/DG/memory/manifests)
-│                            #   **CRITICO: correr SIEMPRE desde el HOST** (`cd ecommerce_sintel_rest && python
-│                            #   ai_engine/auditor.py`), NUNCA con `docker exec` dentro del contenedor -- su
-│                            #   `BASE_DIR` se calcula relativo a `__file__` y espera encontrar
-│                            #   `ecommerce_sintel_rest/ecommerce_sintel/` en disco; dentro del contenedor esa
-│                            #   ruta no existe (el codigo Django vive montado en `/workspace`, no en `/ecommerce_sintel`)
-│                            #   y el auditor calla el error, reportando 0 apps/modelos/endpoints en vez de fallar
-│                            #   ruidosamente (hallazgo real 2026-07-19, ver seccion 17.2).
-├── PROJECT_MAP.json         # Grafo completo del proyecto (auto-generado, ~960 KB)
-├── KNOWLEDGE_GRAPH.json     # Grafo tipado de entidades de código (auto-generado)
-├── DEPENDENCY_GRAPH.json    # Blast-radius precalculado (auto-generado)
+├── incremental_updater.py   # Re-auditoría incremental (detect_changed_apps/update_changed_apps);
+│                            #   [DEGRADADO 2026-08-10, FASE 0] ya no delega en project_knowledge_graph
+│
+│  [RETIRADOS 2026-08-09/10 -- NO EXISTEN MAS EN ai_engine/, corregido en Fase 20 "Limpieza
+│  Documental" del rediseno Site Knowledge Graph, 2026-08-10. Esta seccion los describia como
+│  archivos actuales; ya no lo son. Su funcionalidad real vive ahora en
+│  `project_knowledge_graph/` (paquete independiente, `ecommerce_sintel/project_knowledge_graph/`
+│  -- ver `project_knowledge_graph/.AGENT/ARQUITECTURA_COMPLETA_GRAFO.md`), que `ai_engine` NO
+│  importa (regla arquitectonica de Fase 0: "AI Engine no conoce ni importa
+│  project_knowledge_graph"). Se dejan las 4 lineas originales COMENTADAS abajo, no borradas, para
+│  que quede registro de donde vivia cada cosa antes de la extraccion:]
+│  project_map.py           # (RETIRADO) Query interface sobre PROJECT_MAP.json -- ahora
+│                            #   project_knowledge_graph/project_map/
+│  knowledge_graph.py       # (RETIRADO) Construia KNOWLEDGE_GRAPH.json -- ahora
+│                            #   project_knowledge_graph/knowledge_graph/
+│  dependency_graph.py      # (RETIRADO) Blast-radius/impacto -- ahora
+│                            #   project_knowledge_graph/dependency_graph/
+│  auditor.py               # (RETIRADO) Generaba PROJECT_MAP.json auditando el codebase -- ahora
+│                            #   `python -m project_knowledge_graph.cli audit` (corre desde
+│                            #   `ecommerce_sintel/`, mismo criterio de "SIEMPRE desde el HOST,
+│                            #   nunca docker exec" que tenia el auditor.py original -- ver
+│                            #   `project_knowledge_graph/config.py`)
+│
+├── PROJECT_MAP.json         # [FOTO ESTATICA, ya no se regenera desde ai_engine -- Fase 0] Grafo
+│                            #   completo del proyecto (~960 KB, generado por ULTIMA VEZ por el
+│                            #   auditor.py ya retirado; para un grafo actual usar
+│                            #   `project_knowledge_graph/data/PROJECT_MAP.json`)
+├── KNOWLEDGE_GRAPH.json     # [FOTO ESTATICA, idem] Grafo tipado de entidades de código
+├── DEPENDENCY_GRAPH.json    # [FOTO ESTATICA, idem] Blast-radius precalculado
 ├── GLOBAL_MEMORY.json       # Conocimiento estático global (auto-generado)
 ├── AI_MANIFESTS/            # Un manifest JSON por app + MASTER_MANIFEST.json (auto-generado)
 ├── APP_MEMORY/              # Memoria estática por app (auto-generado)
@@ -577,7 +594,11 @@ ENTRY
 ### 8.3 Nodos
 
 **`node_analyze_impact`** (NUEVO — nodo 1)
-- Llama `find_affected_apps(task)` de `project_map.py` para detectar apps via keyword matching bidireccional (dominio + AST estructural)
+- [CORREGIDO, Fase 20, 2026-08-10] Llama `build_plan(task, apps_hint)` de `planner.py`, que
+  internamente llama `find_affected_apps(task)` -- **`find_affected_apps` ya NO vive en
+  `project_map.py`** (ese archivo fue retirado 2026-08-09, ver seccion 17); desde la Fase 0
+  (2026-08-10) es un stub LOCAL definido dentro del propio `planner.py`, degradado sin importar
+  `project_knowledge_graph`
 - Llama `build_impact_context(task)` para generar un bloque de texto con modelos, serializers, viewsets, endpoints y archivos Vue afectados
 - Enriquece `state["apps"]` fusionando apps auto-detectadas con las pasadas por el cliente
 - Guarda el bloque en `state["impact_context"]`
@@ -714,10 +735,13 @@ Tarea original: ...
 - `EMBEDDING_PROVIDER=ollama` → `OllamaEmbeddings(model="bge-m3", base_url=OLLAMA_BASE_URL)`
 - `EMBEDDING_PROVIDER=openai` → `OpenAIEmbeddings(model=..., api_key=...)`
 
-### `llm_factory.py` — `get_llm()`
-- `LLM_PROVIDER=ollama` → `ChatOllama(model="llama3.1:8b", temperature=0.1, num_predict=1500, num_ctx=8192)`
-- `LLM_PROVIDER=openai` → `ChatOpenAI(temperature=0.1)`
-- `LLM_PROVIDER=anthropic` → `ChatAnthropic(temperature=0.1)`
+### `llm_factory.py` — `get_llm()` [reescrito, Nivel A 2026-08-07 — ver sección 3bis]
+- Parsea `LOCAL_MODEL_CHAIN` (`parse_local_model_chain()`) en una lista ordenada de entradas.
+- Construye un modelo por entrada (`_build_model()`) según su `tipo`:
+  - `ollama-nativo` → `ChatOllama(model=..., base_url=..., temperature=0.1, num_predict=1500, num_ctx=8192)`
+  - `openai-compatible` → `ChatOpenAI(model=..., base_url=..., api_key=..., temperature=0.1)` — cualquier motor que hable `/v1/chat/completions`
+  - `anthropic` → `ChatAnthropic(model=..., api_key=..., temperature=0.1)`
+- Combina el primero (primario) con el resto (fallback) vía `primario.with_fallbacks([...])` — si el primario no responde, LangChain conmuta al siguiente por request.
 
 ### `vectorstore_factory.py` — `get_vectorstore(embeddings)`
 - `chromadb.HttpClient(host=CHROMA_HOST, port=CHROMA_PORT)` (con o sin auth token)
@@ -840,11 +864,59 @@ curl -X POST http://localhost:8100/validate \
 7. **El `VIEWSET_DIRECT_DB_WRITE`** es la única regla que usa AST parsing — el resto son regex
 8. **Startup**: si Ollama no responde al pre-pull, el motor continúa (warning, no error fatal)
 9. **`analyze_impact`** es el primer nodo del grafo — enriquece `apps` y genera `impact_context` ANTES de llamar al LLM
-10. **PROJECT_MAP.json** se carga en memoria con `@lru_cache(maxsize=1)` — no hay I/O en cada petición; regenerar con `python ai_engine/auditor.py`
+10. **PROJECT_MAP.json** se carga en memoria con `@lru_cache(maxsize=1)` — no hay I/O en cada petición; [CORREGIDO, Fase 20, 2026-08-10] `ai_engine/auditor.py` ya NO EXISTE (retirado 2026-08-09) -- el `ai_engine/PROJECT_MAP.json` que este engine sirve es ahora una FOTO ESTATICA que nadie regenera desde aca (ver Fase 0, `ai_engine/.AGENT/AI_ENGINE_KG_DECOUPLING_FASE0.md`); un grafo actual vive en `project_knowledge_graph/data/PROJECT_MAP.json`, regenerado con `python -m project_knowledge_graph.cli audit`
 
 ---
 
-## 17. Auditor del proyecto (`auditor.py`) y PROJECT_MAP.json
+## 16b. `mcp_client/` — MCP de Meta Ads (FASE 10, 2026-08-31)
+
+Plan maestro: `../../../Documentacion/Arquitectura_general/META_BUSINESS_INTEGRATION_MASTER_PLAN.md`.
+
+Cliente del MCP oficial y remoto de Meta Ads (`https://mcp.facebook.com/ads`, OAuth
+2.1 auth-code + PKCE + dynamic client registration). **Se llama `mcp_client` y NO
+`mcp`**: ai_engine mete su raiz al frente de `sys.path` (imports planos), un paquete
+`mcp` ensombreceria el SDK oficial (`import mcp`).
+
+| Archivo | Rol |
+|---|---|
+| `client.py` | `MetaAdsMCPClient`: `list_tools()` / `call_tool(name, args)` / `ping()`. Solo protocolo (transporte streamable-HTTP + OAuth). Nunca propaga excepciones (dict `{"error": ...}`, igual que `tools/http_bridge.py`). Imports del SDK `mcp` perezosos -> el modulo se importa/testea sin el paquete. |
+| `policy.py` | `classify_mcp_tool()` -> `allow`/`confirm`/`deny`. Con `MCP_META_ADS_ALLOW_WRITES=False` (FASE 10) TODO lo que no sea lectura clara se deniega; facturacion/pago/cuenta -> `deny` siempre. |
+| `registry.py` | `MCPServerRegistry` (solo `meta_ads` hoy). |
+| `storage.py` | `FileTokenStorage` (Protocol `TokenStorage` del SDK) -> `/data/mcp/*.json` 0600, volumen `*_mcp_tokens`. |
+| `authorize.py` | `python -m mcp_client.authorize` -- flujo OAuth interactivo one-shot (callback HTTP local en `MCP_OAUTH_CALLBACK_PORT`). |
+
+- Config nueva en `config.py`: `MCP_META_ADS_URL/_ENABLED/_ALLOW_WRITES/_CLIENT_ID/_SCOPE`,
+  `MCP_TOKEN_STORE_DIR`, `MCP_OAUTH_CALLBACK_PORT` (8766 -- 8765 lo usa el SMS bridge),
+  `MCP_CALL_TIMEOUT_S`.
+- **El MCP de Meta NO permite dynamic client registration** (verificado 2026-08-31:
+  `/register/ads` -> 400). Hace falta un App de Meta -> su App ID = `MCP_META_ADS_CLIENT_ID`
+  (cae a `META_APP_ID`). `storage.py::seed_client_info()` lo siembra para que el SDK
+  salte el `/register`. Redirect URI a registrar en el App: `http://localhost:8766/callback`.
+- `requirements.txt`: `mcp>=1.24,<1.25` (>=1.25 rompe el `fastapi 0.115` del engine via
+  starlette 1.x). **Rebuild:** `docker compose build sintel_ai`.
+- Endpoints dev (`gateway/router.py`, detras de `AI_TOOLS_DEBUG`):
+  `GET /api/v1/ai/mcp/status`, `POST /api/v1/ai/mcp/ping` (admin).
+- **Invariantes:** el refresh token vive solo en `mcp_client/storage.py` (`/data/mcp`);
+  Django no lo conoce, el LLM no lo ve, no aparece en logs. `mcp_client` NO importa
+  Django/ORM. El LLM sigue sin ver el MCP -- FASE 11-14 lo cablean via
+  capabilities/tools/Policy Layer.
+- **Estado:** codigo + tests listos (24 tests propios; `pytest tests/` 158/16). Falta la
+  autorizacion OAuth del usuario (seccion 9 del plan maestro) y `MCP_META_ADS_ENABLED=true`.
+
+---
+
+## 17. Auditor del proyecto (`auditor.py`) y PROJECT_MAP.json — **RETIRADO 2026-08-09, seccion historica**
+
+> **[CORREGIDO, Fase 20 "Limpieza Documental", 2026-08-10]** `ai_engine/auditor.py` fue
+> **eliminado por completo** durante la extraccion a `project_knowledge_graph/` (2026-08-09) --
+> ya no existe ningun archivo con ese path. Toda esta seccion 17 describe una herramienta que YA
+> NO CORRE DESDE `ai_engine/`. Se deja el contenido original abajo SIN BORRAR (valor historico:
+> documenta como crecio el proyecto entre 2026-06-29 y 2026-07-19, seccion 17.3), pero **para
+> regenerar un grafo actual usar `python -m project_knowledge_graph.cli audit` desde
+> `ecommerce_sintel/`** (ver `project_knowledge_graph/.AGENT/ARQUITECTURA_COMPLETA_GRAFO.md`), NO
+> los comandos `python ai_engine/auditor.py` citados abajo -- fallarian con `FileNotFoundError`.
+> `ai_engine/PROJECT_MAP.json` sigue existiendo en disco pero es una foto estatica del ultimo
+> `auditor.py` corrido antes de retirarlo, nadie la regenera desde `ai_engine` hoy.
 
 ### 17.1 Propósito
 

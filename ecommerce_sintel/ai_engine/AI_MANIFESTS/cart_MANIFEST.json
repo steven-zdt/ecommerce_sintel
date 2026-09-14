@@ -1,0 +1,272 @@
+{
+  "app": "cart",
+  "generated_at": "2026-08-04T20:05:25.964225+00:00",
+  "api_prefix": "api/v1/cart",
+  "purpose": "Shopping cart: add/remove items, quantity updates, cart summary",
+  "architecture": {
+    "models": [
+      {
+        "name": "Cart",
+        "file": "cart/models.py",
+        "fk_relations": [
+          {
+            "name": "user",
+            "field_type": "ForeignKey",
+            "related_model": "settings.AUTH_USER_MODEL"
+          }
+        ]
+      },
+      {
+        "name": "CartItem",
+        "file": "cart/models.py",
+        "fk_relations": [
+          {
+            "name": "cart",
+            "field_type": "ForeignKey",
+            "related_model": "Cart"
+          },
+          {
+            "name": "variant",
+            "field_type": "ForeignKey",
+            "related_model": "ProductVariant"
+          },
+          {
+            "name": "service_variant",
+            "field_type": "ForeignKey",
+            "related_model": "ServiceVariant"
+          }
+        ]
+      },
+      {
+        "name": "WishlistItem",
+        "file": "cart/models.py",
+        "fk_relations": [
+          {
+            "name": "user",
+            "field_type": "ForeignKey",
+            "related_model": "settings.AUTH_USER_MODEL"
+          },
+          {
+            "name": "variant",
+            "field_type": "ForeignKey",
+            "related_model": "ProductVariant"
+          }
+        ]
+      }
+    ],
+    "serializers": [
+      {
+        "name": "CartItemSerializer",
+        "file": "cart/api/serializers.py"
+      },
+      {
+        "name": "CartSerializer",
+        "file": "cart/api/serializers.py"
+      },
+      {
+        "name": "AddCartItemSerializer",
+        "file": "cart/api/serializers.py"
+      },
+      {
+        "name": "UpdateCartItemSerializer",
+        "file": "cart/api/serializers.py"
+      }
+    ],
+    "viewsets": [
+      {
+        "name": "CartViewSet",
+        "file": "cart/api/views.py",
+        "bases": [
+          "viewsets.ViewSet"
+        ],
+        "actions": [
+          "get_throttles",
+          "get_cart",
+          "list",
+          "add_item",
+          "update_item",
+          "clear",
+          "remove_item",
+          "checkout"
+        ]
+      },
+      {
+        "name": "WishlistViewSet",
+        "file": "cart/api/views.py",
+        "bases": [
+          "viewsets.ViewSet"
+        ],
+        "actions": [
+          "list",
+          "create",
+          "destroy"
+        ]
+      }
+    ],
+    "services": [
+      {
+        "name": "CartCommands",
+        "file": "cart/services/commands.py",
+        "role": "command",
+        "methods": [
+          "add_item",
+          "update_item_quantity",
+          "remove_item",
+          "clear_cart",
+          "checkout_cart"
+        ]
+      },
+      {
+        "name": "WishlistCommands",
+        "file": "cart/services/commands.py",
+        "role": "command",
+        "methods": [
+          "add_to_wishlist",
+          "remove_from_wishlist"
+        ]
+      },
+      {
+        "name": "CartSelector",
+        "file": "cart/services/selectors.py",
+        "role": "selector",
+        "methods": [
+          "get_for_user",
+          "get_by_guest_id",
+          "get_cart_queryset"
+        ]
+      }
+    ],
+    "selectors": [],
+    "management_commands": [],
+    "consumers": [],
+    "tasks": [],
+    "permissions": [],
+    "file_map": {
+      "admin": [
+        "cart/admin.py"
+      ],
+      "serializer": [
+        "cart/api/serializers.py"
+      ],
+      "url": [
+        "cart/api/urls.py",
+        "cart/urls.py"
+      ],
+      "viewset": [
+        "cart/api/views.py"
+      ],
+      "app_config": [
+        "cart/apps.py"
+      ],
+      "misc": [
+        "cart/migrations/__init__.py",
+        "cart/services/__init__.py"
+      ],
+      "model": [
+        "cart/models.py"
+      ],
+      "command": [
+        "cart/services/commands.py"
+      ],
+      "selector": [
+        "cart/services/selectors.py"
+      ],
+      "test": [
+        "cart/tests.py"
+      ]
+    },
+    "migrations": 5
+  },
+  "endpoints": [
+    {
+      "endpoint": "api/v1/cart/wishlist",
+      "app": "cart",
+      "viewset": "WishlistViewSet",
+      "actions": [
+        "list",
+        "create",
+        "destroy"
+      ],
+      "basename": "wishlist",
+      "http_methods": [
+        "GET"
+      ]
+    }
+  ],
+  "frontend_consumers": {
+    "api/v1/cart/wishlist": [
+      {
+        "type": "PiniaStore",
+        "name": "wishlist",
+        "file": "store/wishlist.js"
+      }
+    ]
+  },
+  "dependencies": {
+    "depends_on": [
+      "shop",
+      "technical_services"
+    ],
+    "depended_by": []
+  },
+  "blast_radius": {
+    "Cart": {
+      "types_affected": [
+        "ViewSet",
+        "Serializer",
+        "Model"
+      ],
+      "total": 4
+    },
+    "CartItem": {
+      "types_affected": [
+        "ViewSet",
+        "Serializer",
+        "Model"
+      ],
+      "total": 3
+    }
+  },
+  "service_contracts": {
+    "commands": [
+      "CartCommands",
+      "WishlistCommands"
+    ],
+    "selectors": [
+      "CartSelector"
+    ]
+  },
+  "events": {
+    "produces": [],
+    "consumes": []
+  },
+  "constraints": [
+    "CartItem is one of 2 exceptions to soft-delete — cart.items.all().delete() is allowed"
+  ],
+  "known_issues": [],
+  "business_rules": [
+    {
+      "id": "SOFT_DELETE",
+      "rule": "Never call .delete() on business entities. Use is_active=False + is_deleted=True.",
+      "why": "Maintains audit trail. Exception: CartItem and management commands."
+    }
+  ],
+  "url_patterns": [
+    {
+      "type": "router",
+      "prefix": "wishlist",
+      "viewset": "WishlistViewSet",
+      "basename": "wishlist"
+    }
+  ],
+  "patterns": {
+    "command_class": "CartCommands",
+    "selector_class": "CartSelector",
+    "service_layer": true,
+    "soft_delete": true
+  },
+  "TODO": [],
+  "BUG": [],
+  "HOT_FIX": [],
+  "decisions": []
+}

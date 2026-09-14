@@ -1,5 +1,29 @@
 # SUPPORT AI CERTIFICATION
 
+> **[Actualizado 2026-08-17, mas tarde — CORREGIDO la misma noche]** Migracion del
+> proveedor LLM: **Ollama -> LM Studio Server** (Windows HOST, puerto 1234, API
+> OpenAI-compatible). Modelo real: `qwen/qwen3.5-9b` (confirmado via `GET /v1/models`,
+> no inventado — es un modelo "razonador" que emite `reasoning_content` antes de la
+> respuesta final). Embeddings tambien migrados (`text-embedding-nomic-embed-text-v1.5`,
+> 768-dim, coleccion ChromaDB vieja de 1024-dim limpiada). Conectividad
+> `Docker -> host.docker.internal:1234 -> LM Studio` verificada (127.0.0.1, sin
+> exposicion LAN/Internet).
+>
+> **Hallazgo real y no resuelto todavia**: la primera pasada de esta certificacion
+> reporto un E2E y una matriz de concurrencia "exitosos" que en realidad corrieron
+> contra **Ollama**, no LM Studio — una configuracion dinamica preexistente en
+> `ai_provider` (de otra sesion) tenia precedencia sobre `LOCAL_MODEL_CHAIN` y el
+> canal `support_chat` seguia apuntando a Ollama. Corregido (ver
+> `LM_STUDIO_MIGRATION_2026-08-17.md` seccion 10). **Con LM Studio genuino, un turno
+> real tarda ~100-289s y termina en fallback** (`node_generate_response` excede
+> `LLM_TIMEOUT_SECONDS=90` de forma consistente, confirmado con traceback real) — el
+> mecanismo de fallback funciona bien, pero la latencia es inaceptable para un chat en
+> vivo. **NO se corrio una matriz de concurrencia real contra LM Studio** (cada turno
+> ya tarda demasiado individualmente). Esto es un hallazgo de viabilidad de
+> modelo/hardware, no un bug de configuracion — pendiente de decision (modelo mas
+> liviano, mejor hardware, o timeouts mas altos). Detalle completo en
+> `ai_engine/.AGENT/LM_STUDIO_MIGRATION_2026-08-17.md`.
+>
 > Fase 35 del `PLAN_MAESTRO_SINTEL_AI_SUPPORT`. Checklist de certificación del Support
 > Agent, consolidado a partir de la auditoría completa hecha el 2026-08-08 (11 Bloques
 > del plan original de separación Support/Engineering + las fases genuinamente nuevas

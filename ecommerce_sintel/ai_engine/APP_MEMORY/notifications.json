@@ -1,0 +1,63 @@
+{
+  "app": "notifications",
+  "api_prefix": "api/v1/notifications",
+  "purpose": "Centralized notification dispatch: WebSocket, Email, WhatsApp channels",
+  "architecture": {
+    "models": [
+      "NotificationTemplate",
+      "UserNotificationPreference",
+      "NotificationLog"
+    ],
+    "viewsets": [
+      "NotificationLogViewSet",
+      "UserNotificationPreferenceViewSet"
+    ],
+    "serializers": [
+      "NotificationTemplateSerializer",
+      "NotificationLogSerializer",
+      "UserNotificationPreferenceSerializer"
+    ],
+    "url_patterns": [
+      "logs",
+      "preferences",
+      ""
+    ],
+    "management_commands": [
+      "audit_notifications"
+    ],
+    "celery_tasks": [],
+    "consumers": [],
+    "migrations": 7
+  },
+  "key_models": [
+    "Notification",
+    "NotificationTemplate",
+    "NotificationChannel"
+  ],
+  "services": [
+    "NotificationCommands",
+    "dispatch_notification"
+  ],
+  "constraints": [
+    "Always use dispatch_notification() — never direct ws_notify() anymore",
+    "dispatch_notification MUST be called inside transaction.on_commit(lambda: ...)",
+    "8 NotificationTemplate seeds in BD (order_created, order_paid, etc.)"
+  ],
+  "events": [
+    "order_created",
+    "order_paid",
+    "order_cod_confirmed"
+  ],
+  "patterns": {
+    "command_class": "NotificationsCommands",
+    "selector_class": "NotificationsSelector",
+    "service_layer": true,
+    "soft_delete": true
+  },
+  "known_issues": [],
+  "TODO": [],
+  "BUG": [],
+  "HOT_FIX": [],
+  "decisions": [],
+  "generated_at": "2026-08-09T17:56:13.518782+00:00"
+}

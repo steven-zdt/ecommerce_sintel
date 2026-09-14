@@ -1,0 +1,79 @@
+{
+  "app": "kyc",
+  "api_prefix": "api/v1/auth",
+  "purpose": "Identity verification (KYC) — required only for CUSTOMER-to-professional upgrade, not for base registration",
+  "architecture": {
+    "models": [
+      "UserVerification",
+      "VerificationDocument",
+      "VerificationEvent",
+      "ConsentRecord"
+    ],
+    "viewsets": [
+      "KycViewSet",
+      "VerificationDocumentViewSet",
+      "AdminKycViewSet"
+    ],
+    "serializers": [
+      "KycRegistrationFieldsMixin",
+      "VerificationEventSerializer",
+      "VerificationDocumentSerializer",
+      "UserVerificationSerializer",
+      "AdminVerificationListSerializer",
+      "AdminVerificationDetailSerializer",
+      "DocumentUploadSerializer",
+      "RequestUpgradeSerializer",
+      "AdminForceApproveSerializer",
+      "AdminRejectSerializer",
+      "AdminRequestInfoSerializer",
+      "AdminBlockSerializer",
+      "AdminDocReviewSerializer",
+      "Meta"
+    ],
+    "url_patterns": [
+      "documents",
+      "admin/verifications"
+    ],
+    "management_commands": [],
+    "celery_tasks": [],
+    "consumers": [],
+    "migrations": 7
+  },
+  "key_models": [
+    "UserVerification",
+    "VerificationDocument",
+    "VerificationEvent",
+    "ConsentRecord"
+  ],
+  "services": [
+    "KycCommands",
+    "KycSelector"
+  ],
+  "constraints": [
+    "SSoT identidad CUSTOMER-first: el registro SIEMPRE crea un CUSTOMER instantaneo — KYC ya no es un gate universal de registro",
+    "El upgrade a profesional (request_upgrade) reabre la MISMA UserVerification en vez de crear una nueva",
+    "first_approved_at (no reviewed_at) es la senal correcta de 'aprobado alguna vez' — reviewed_at cambia en cada revision",
+    "force_approve permite aprobacion manual desde /panel/usuarios sin pasar por el flujo de documentos",
+    "REQUIRED_DOC_TYPES_BY_TYPE define los documentos requeridos segun el tipo de perfil solicitado",
+    "kyc.api.urls esta montado en api/v1/auth/ — comparte namespace con accounts, no tiene prefijo propio"
+  ],
+  "events": [
+    "kyc_submitted_for_review",
+    "kyc_approved",
+    "kyc_rejected",
+    "kyc_info_requested",
+    "kyc_blocked"
+  ],
+  "patterns": {
+    "command_class": "KycCommands",
+    "selector_class": "KycSelector",
+    "service_layer": true,
+    "soft_delete": true
+  },
+  "known_issues": [],
+  "TODO": [],
+  "BUG": [],
+  "HOT_FIX": [],
+  "decisions": [],
+  "generated_at": "2026-08-09T17:56:13.518782+00:00"
+}

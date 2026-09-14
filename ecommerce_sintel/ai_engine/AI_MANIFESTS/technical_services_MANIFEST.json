@@ -1,0 +1,1584 @@
+{
+  "app": "technical_services",
+  "generated_at": "2026-08-04T20:05:26.783152+00:00",
+  "api_prefix": "api/v1/services",
+  "purpose": "Technician services: catalog, booking, service variants, cost rules",
+  "architecture": {
+    "models": [
+      {
+        "name": "ServiceCategory",
+        "file": "technical_services/models.py",
+        "fk_relations": [
+          {
+            "name": "parent",
+            "field_type": "ForeignKey",
+            "related_model": "self"
+          }
+        ]
+      },
+      {
+        "name": "ServiceLevel",
+        "file": "technical_services/models.py",
+        "fk_relations": []
+      },
+      {
+        "name": "ServiceConfiguration",
+        "file": "technical_services/models.py",
+        "fk_relations": []
+      },
+      {
+        "name": "TechnicalService",
+        "file": "technical_services/models.py",
+        "fk_relations": [
+          {
+            "name": "vendor",
+            "field_type": "ForeignKey",
+            "related_model": "settings.AUTH_USER_MODEL"
+          },
+          {
+            "name": "category",
+            "field_type": "ForeignKey",
+            "related_model": "ServiceCategory"
+          },
+          {
+            "name": "level",
+            "field_type": "ForeignKey",
+            "related_model": "ServiceLevel"
+          }
+        ]
+      },
+      {
+        "name": "ServiceVariant",
+        "file": "technical_services/models.py",
+        "fk_relations": [
+          {
+            "name": "service",
+            "field_type": "ForeignKey",
+            "related_model": "TechnicalService"
+          }
+        ]
+      },
+      {
+        "name": "ServiceMaterial",
+        "file": "technical_services/models.py",
+        "fk_relations": [
+          {
+            "name": "variant",
+            "field_type": "ForeignKey",
+            "related_model": "ServiceVariant"
+          },
+          {
+            "name": "product_variant",
+            "field_type": "ForeignKey",
+            "related_model": "shop.ProductVariant"
+          }
+        ]
+      },
+      {
+        "name": "ServiceImage",
+        "file": "technical_services/models.py",
+        "fk_relations": [
+          {
+            "name": "service",
+            "field_type": "ForeignKey",
+            "related_model": "TechnicalService"
+          },
+          {
+            "name": "variant",
+            "field_type": "ForeignKey",
+            "related_model": "ServiceVariant"
+          }
+        ]
+      },
+      {
+        "name": "ServiceReview",
+        "file": "technical_services/models.py",
+        "fk_relations": [
+          {
+            "name": "user",
+            "field_type": "ForeignKey",
+            "related_model": "settings.AUTH_USER_MODEL"
+          },
+          {
+            "name": "service",
+            "field_type": "ForeignKey",
+            "related_model": "TechnicalService"
+          }
+        ]
+      },
+      {
+        "name": "ServiceFAQ",
+        "file": "technical_services/models.py",
+        "fk_relations": [
+          {
+            "name": "service",
+            "field_type": "ForeignKey",
+            "related_model": "TechnicalService"
+          }
+        ]
+      },
+      {
+        "name": "ServiceMarketing",
+        "file": "technical_services/models.py",
+        "fk_relations": [
+          {
+            "name": "service",
+            "field_type": "OneToOneField",
+            "related_model": "TechnicalService"
+          }
+        ]
+      },
+      {
+        "name": "OrderServiceDetail",
+        "file": "technical_services/models.py",
+        "fk_relations": [
+          {
+            "name": "order",
+            "field_type": "OneToOneField",
+            "related_model": "orders.Order"
+          },
+          {
+            "name": "technician",
+            "field_type": "ForeignKey",
+            "related_model": "settings.AUTH_USER_MODEL"
+          }
+        ]
+      },
+      {
+        "name": "OrderServiceTimeline",
+        "file": "technical_services/models.py",
+        "fk_relations": [
+          {
+            "name": "order",
+            "field_type": "ForeignKey",
+            "related_model": "orders.Order"
+          },
+          {
+            "name": "created_by",
+            "field_type": "ForeignKey",
+            "related_model": "settings.AUTH_USER_MODEL"
+          }
+        ]
+      },
+      {
+        "name": "ServiceAttachment",
+        "file": "technical_services/models.py",
+        "fk_relations": [
+          {
+            "name": "order",
+            "field_type": "ForeignKey",
+            "related_model": "orders.Order"
+          },
+          {
+            "name": "uploaded_by",
+            "field_type": "ForeignKey",
+            "related_model": "settings.AUTH_USER_MODEL"
+          }
+        ]
+      },
+      {
+        "name": "ServiceBooking",
+        "file": "technical_services/models.py",
+        "fk_relations": [
+          {
+            "name": "order_service_detail",
+            "field_type": "ForeignKey",
+            "related_model": "OrderServiceDetail"
+          },
+          {
+            "name": "service_variant",
+            "field_type": "ForeignKey",
+            "related_model": "ServiceVariant"
+          }
+        ]
+      },
+      {
+        "name": "ServiceCostRule",
+        "file": "technical_services/models.py",
+        "fk_relations": []
+      },
+      {
+        "name": "ServiceCostAssignment",
+        "file": "technical_services/models.py",
+        "fk_relations": [
+          {
+            "name": "rule",
+            "field_type": "ForeignKey",
+            "related_model": "ServiceCostRule"
+          },
+          {
+            "name": "variant",
+            "field_type": "ForeignKey",
+            "related_model": "technical_services.ServiceVariant"
+          }
+        ]
+      },
+      {
+        "name": "ServicePriceHistory",
+        "file": "technical_services/models.py",
+        "fk_relations": [
+          {
+            "name": "variant",
+            "field_type": "ForeignKey",
+            "related_model": "ServiceVariant"
+          },
+          {
+            "name": "changed_by",
+            "field_type": "ForeignKey",
+            "related_model": "settings.AUTH_USER_MODEL"
+          }
+        ]
+      },
+      {
+        "name": "ServiceOperation",
+        "file": "technical_services/models.py",
+        "fk_relations": [
+          {
+            "name": "order",
+            "field_type": "OneToOneField",
+            "related_model": "orders.Order"
+          },
+          {
+            "name": "technician",
+            "field_type": "ForeignKey",
+            "related_model": "settings.AUTH_USER_MODEL"
+          },
+          {
+            "name": "availability_slot",
+            "field_type": "ForeignKey",
+            "related_model": "accounts.ProfessionalAvailability"
+          }
+        ]
+      },
+      {
+        "name": "ServiceOperationEvent",
+        "file": "technical_services/models.py",
+        "fk_relations": [
+          {
+            "name": "operation",
+            "field_type": "ForeignKey",
+            "related_model": "ServiceOperation"
+          },
+          {
+            "name": "actor",
+            "field_type": "ForeignKey",
+            "related_model": "settings.AUTH_USER_MODEL"
+          }
+        ]
+      },
+      {
+        "name": "WorkingSchedule",
+        "file": "technical_services/models.py",
+        "fk_relations": [
+          {
+            "name": "technician",
+            "field_type": "ForeignKey",
+            "related_model": "settings.AUTH_USER_MODEL"
+          }
+        ]
+      },
+      {
+        "name": "WorkingException",
+        "file": "technical_services/models.py",
+        "fk_relations": [
+          {
+            "name": "technician",
+            "field_type": "ForeignKey",
+            "related_model": "settings.AUTH_USER_MODEL"
+          },
+          {
+            "name": "created_by",
+            "field_type": "ForeignKey",
+            "related_model": "settings.AUTH_USER_MODEL"
+          }
+        ]
+      },
+      {
+        "name": "ServicePackage",
+        "file": "technical_services/models.py",
+        "fk_relations": [
+          {
+            "name": "service",
+            "field_type": "ForeignKey",
+            "related_model": "TechnicalService"
+          }
+        ]
+      },
+      {
+        "name": "PackageIncludedItem",
+        "file": "technical_services/models.py",
+        "fk_relations": [
+          {
+            "name": "package",
+            "field_type": "ForeignKey",
+            "related_model": "ServicePackage"
+          }
+        ]
+      },
+      {
+        "name": "PackageAdditionalCost",
+        "file": "technical_services/models.py",
+        "fk_relations": [
+          {
+            "name": "package",
+            "field_type": "ForeignKey",
+            "related_model": "ServicePackage"
+          }
+        ]
+      },
+      {
+        "name": "ServiceRequestPackage",
+        "file": "technical_services/models.py",
+        "fk_relations": [
+          {
+            "name": "order",
+            "field_type": "OneToOneField",
+            "related_model": "orders.Order"
+          },
+          {
+            "name": "package",
+            "field_type": "ForeignKey",
+            "related_model": "ServicePackage"
+          }
+        ]
+      },
+      {
+        "name": "ServiceRequestAdditionalCost",
+        "file": "technical_services/models.py",
+        "fk_relations": [
+          {
+            "name": "request_package",
+            "field_type": "ForeignKey",
+            "related_model": "ServiceRequestPackage"
+          },
+          {
+            "name": "additional_cost",
+            "field_type": "ForeignKey",
+            "related_model": "PackageAdditionalCost"
+          }
+        ]
+      }
+    ],
+    "serializers": [
+      {
+        "name": "WorkingScheduleSerializer",
+        "file": "technical_services/api/availability_serializers.py"
+      },
+      {
+        "name": "WorkingScheduleInputSerializer",
+        "file": "technical_services/api/availability_serializers.py"
+      },
+      {
+        "name": "WorkingExceptionSerializer",
+        "file": "technical_services/api/availability_serializers.py"
+      },
+      {
+        "name": "WorkingExceptionInputSerializer",
+        "file": "technical_services/api/availability_serializers.py"
+      },
+      {
+        "name": "AvailableTechnicianSerializer",
+        "file": "technical_services/api/availability_serializers.py"
+      },
+      {
+        "name": "CapacitySummarySerializer",
+        "file": "technical_services/api/availability_serializers.py"
+      },
+      {
+        "name": "CapacitySummaryTotalsSerializer",
+        "file": "technical_services/api/availability_serializers.py"
+      },
+      {
+        "name": "CapacitySummaryRangeSerializer",
+        "file": "technical_services/api/availability_serializers.py"
+      },
+      {
+        "name": "CalendarWorkingWindowSerializer",
+        "file": "technical_services/api/availability_serializers.py"
+      },
+      {
+        "name": "CalendarExceptionSerializer",
+        "file": "technical_services/api/availability_serializers.py"
+      },
+      {
+        "name": "CalendarOperationSerializer",
+        "file": "technical_services/api/availability_serializers.py"
+      },
+      {
+        "name": "CalendarDaySerializer",
+        "file": "technical_services/api/availability_serializers.py"
+      },
+      {
+        "name": "CalendarTechnicianSerializer",
+        "file": "technical_services/api/availability_serializers.py"
+      },
+      {
+        "name": "CalendarFeedSerializer",
+        "file": "technical_services/api/availability_serializers.py"
+      },
+      {
+        "name": "ServiceOperationEventSerializer",
+        "file": "technical_services/api/operation_serializers.py"
+      },
+      {
+        "name": "ServiceOperationOrderSummarySerializer",
+        "file": "technical_services/api/operation_serializers.py"
+      },
+      {
+        "name": "ServiceOperationSerializer",
+        "file": "technical_services/api/operation_serializers.py"
+      },
+      {
+        "name": "ServiceOperationPlanSerializer",
+        "file": "technical_services/api/operation_serializers.py"
+      },
+      {
+        "name": "ServiceOperationAssignSerializer",
+        "file": "technical_services/api/operation_serializers.py"
+      },
+      {
+        "name": "ServiceOperationRescheduleSerializer",
+        "file": "technical_services/api/operation_serializers.py"
+      },
+      {
+        "name": "ServiceOperationCancelSerializer",
+        "file": "technical_services/api/operation_serializers.py"
+      },
+      {
+        "name": "ServiceOperationIncidentSerializer",
+        "file": "technical_services/api/operation_serializers.py"
+      },
+      {
+        "name": "ServiceOperationCloseSerializer",
+        "file": "technical_services/api/operation_serializers.py"
+      },
+      {
+        "name": "ServiceOperationTechnicianCandidateSerializer",
+        "file": "technical_services/api/operation_serializers.py"
+      },
+      {
+        "name": "PackageIncludedItemSerializer",
+        "file": "technical_services/api/package_serializers.py"
+      },
+      {
+        "name": "PackageAdditionalCostSerializer",
+        "file": "technical_services/api/package_serializers.py"
+      },
+      {
+        "name": "ServicePackageSerializer",
+        "file": "technical_services/api/package_serializers.py"
+      },
+      {
+        "name": "ServiceRequestAdditionalCostSerializer",
+        "file": "technical_services/api/package_serializers.py"
+      },
+      {
+        "name": "ServiceRequestPackageSerializer",
+        "file": "technical_services/api/package_serializers.py"
+      },
+      {
+        "name": "PackageIncludedItemInputSerializer",
+        "file": "technical_services/api/package_serializers.py"
+      },
+      {
+        "name": "PackageAdditionalCostInputSerializer",
+        "file": "technical_services/api/package_serializers.py"
+      },
+      {
+        "name": "ServicePackageInputSerializer",
+        "file": "technical_services/api/package_serializers.py"
+      },
+      {
+        "name": "ReorderInputSerializer",
+        "file": "technical_services/api/package_serializers.py"
+      },
+      {
+        "name": "AdditionalCostSelectionInputSerializer",
+        "file": "technical_services/api/package_serializers.py"
+      },
+      {
+        "name": "ServiceCategorySerializer",
+        "file": "technical_services/api/serializers.py"
+      },
+      {
+        "name": "ServiceLevelSerializer",
+        "file": "technical_services/api/serializers.py"
+      },
+      {
+        "name": "ServiceConfigurationSerializer",
+        "file": "technical_services/api/serializers.py"
+      },
+      {
+        "name": "ServiceImageSerializer",
+        "file": "technical_services/api/serializers.py"
+      },
+      {
+        "name": "ServiceMaterialSerializer",
+        "file": "technical_services/api/serializers.py"
+      },
+      {
+        "name": "ServiceVariantSerializer",
+        "file": "technical_services/api/serializers.py"
+      },
+      {
+        "name": "ServicePriceHistorySerializer",
+        "file": "technical_services/api/serializers.py"
+      },
+      {
+        "name": "ServiceFAQSerializer",
+        "file": "technical_services/api/serializers.py"
+      },
+      {
+        "name": "ServiceFAQInputSerializer",
+        "file": "technical_services/api/serializers.py"
+      },
+      {
+        "name": "ServiceMarketingSerializer",
+        "file": "technical_services/api/serializers.py"
+      },
+      {
+        "name": "ServiceMarketingInputSerializer",
+        "file": "technical_services/api/serializers.py"
+      },
+      {
+        "name": "ServiceReviewSerializer",
+        "file": "technical_services/api/serializers.py"
+      },
+      {
+        "name": "ServiceReviewInputSerializer",
+        "file": "technical_services/api/serializers.py"
+      },
+      {
+        "name": "AvailableTechnicianSerializer",
+        "file": "technical_services/api/serializers.py"
+      },
+      {
+        "name": "TechnicalServiceSerializer",
+        "file": "technical_services/api/serializers.py"
+      },
+      {
+        "name": "ServiceCategoryInputSerializer",
+        "file": "technical_services/api/serializers.py"
+      },
+      {
+        "name": "ServiceLevelInputSerializer",
+        "file": "technical_services/api/serializers.py"
+      },
+      {
+        "name": "TechnicalServiceInputSerializer",
+        "file": "technical_services/api/serializers.py"
+      },
+      {
+        "name": "ServiceVariantInputSerializer",
+        "file": "technical_services/api/serializers.py"
+      },
+      {
+        "name": "TechnicalServiceAdminCreateSerializer",
+        "file": "technical_services/api/serializers.py"
+      },
+      {
+        "name": "ServiceMaterialInputSerializer",
+        "file": "technical_services/api/serializers.py"
+      },
+      {
+        "name": "ServiceConfigurationInputSerializer",
+        "file": "technical_services/api/serializers.py"
+      },
+      {
+        "name": "ContactPersonSerializer",
+        "file": "technical_services/api/serializers.py"
+      },
+      {
+        "name": "OrderServiceDetailSerializer",
+        "file": "technical_services/api/serializers.py"
+      },
+      {
+        "name": "OrderServiceTimelineSerializer",
+        "file": "technical_services/api/serializers.py"
+      },
+      {
+        "name": "ServiceAttachmentSerializer",
+        "file": "technical_services/api/serializers.py"
+      },
+      {
+        "name": "ServiceOrderSerializer",
+        "file": "technical_services/api/serializers.py"
+      },
+      {
+        "name": "TechnicianCandidateSerializer",
+        "file": "technical_services/api/serializers.py"
+      },
+      {
+        "name": "PriorityChangeInputSerializer",
+        "file": "technical_services/api/serializers.py"
+      },
+      {
+        "name": "ServiceAssignmentQueueSerializer",
+        "file": "technical_services/api/serializers.py"
+      },
+      {
+        "name": "ServiceRequestInputSerializer",
+        "file": "technical_services/api/serializers.py"
+      },
+      {
+        "name": "ServiceTimelineInputSerializer",
+        "file": "technical_services/api/serializers.py"
+      },
+      {
+        "name": "ServiceAttachmentInputSerializer",
+        "file": "technical_services/api/serializers.py"
+      },
+      {
+        "name": "TechnicianAssignmentInputSerializer",
+        "file": "technical_services/api/serializers.py"
+      },
+      {
+        "name": "ServiceCostRuleSerializer",
+        "file": "technical_services/api/serializers.py"
+      },
+      {
+        "name": "ServiceCostRuleInputSerializer",
+        "file": "technical_services/api/serializers.py"
+      },
+      {
+        "name": "ServiceCostAssignmentInputSerializer",
+        "file": "technical_services/api/serializers.py"
+      }
+    ],
+    "viewsets": [
+      {
+        "name": "TechnicianAvailabilityViewSet",
+        "file": "technical_services/api/availability_views.py",
+        "bases": [
+          "viewsets.ViewSet"
+        ],
+        "actions": [
+          "technicians",
+          "list",
+          "summary",
+          "range_summary",
+          "calendar"
+        ]
+      },
+      {
+        "name": "WorkingScheduleViewSet",
+        "file": "technical_services/api/availability_views.py",
+        "bases": [
+          "mixins.ListModelMixin",
+          "mixins.CreateModelMixin",
+          "mixins.DestroyModelMixin",
+          "viewsets.GenericViewSet"
+        ],
+        "actions": [
+          "create"
+        ]
+      },
+      {
+        "name": "WorkingExceptionViewSet",
+        "file": "technical_services/api/availability_views.py",
+        "bases": [
+          "mixins.ListModelMixin",
+          "mixins.CreateModelMixin",
+          "mixins.DestroyModelMixin",
+          "viewsets.GenericViewSet"
+        ],
+        "actions": [
+          "create"
+        ]
+      },
+      {
+        "name": "ServiceOperationViewSet",
+        "file": "technical_services/api/operation_views.py",
+        "bases": [
+          "viewsets.ReadOnlyModelViewSet"
+        ],
+        "actions": [
+          "get_object",
+          "dashboard",
+          "available_technicians",
+          "technician_agenda",
+          "plan",
+          "assign_technician",
+          "auto_assign",
+          "unassign_technician",
+          "reschedule",
+          "cancel",
+          "notify_client",
+          "ready_to_visit",
+          "start",
+          "arrive",
+          "start_service",
+          "complete",
+          "close",
+          "report_incident",
+          "resolve_incident"
+        ]
+      },
+      {
+        "name": "TechnicalServiceViewSet",
+        "file": "technical_services/api/views.py",
+        "bases": [
+          "viewsets.ReadOnlyModelViewSet"
+        ],
+        "actions": [
+          "get_object",
+          "quotation",
+          "packages",
+          "quote_package",
+          "reviews",
+          "review",
+          "technicians",
+          "full_detail"
+        ]
+      },
+      {
+        "name": "ServiceCategoryViewSet",
+        "file": "technical_services/api/views.py",
+        "bases": [
+          "viewsets.ReadOnlyModelViewSet"
+        ],
+        "actions": [
+          "get_object"
+        ]
+      },
+      {
+        "name": "ServiceLevelViewSet",
+        "file": "technical_services/api/views.py",
+        "bases": [
+          "viewsets.ReadOnlyModelViewSet"
+        ],
+        "actions": [
+          "get_object"
+        ]
+      },
+      {
+        "name": "ServiceVariantViewSet",
+        "file": "technical_services/api/views.py",
+        "bases": [
+          "viewsets.ViewSet"
+        ],
+        "actions": [
+          "list",
+          "price_history"
+        ]
+      },
+      {
+        "name": "ServiceMaterialViewSet",
+        "file": "technical_services/api/views.py",
+        "bases": [
+          "viewsets.ViewSet"
+        ],
+        "actions": [
+          "list"
+        ]
+      },
+      {
+        "name": "ServiceConfigurationViewSet",
+        "file": "technical_services/api/views.py",
+        "bases": [
+          "viewsets.ReadOnlyModelViewSet"
+        ],
+        "actions": [
+          "get_object"
+        ]
+      }
+    ],
+    "services": [
+      {
+        "name": "ServiceCommands",
+        "file": "technical_services/services/commands.py",
+        "role": "command",
+        "methods": [
+          "request_service",
+          "confirm_slot_on_payment",
+          "release_slot_on_failure"
+        ]
+      },
+      {
+        "name": "ServiceCategoryCommands",
+        "file": "technical_services/services/commands.py",
+        "role": "command",
+        "methods": [
+          "create_category",
+          "update_category",
+          "delete_category"
+        ]
+      },
+      {
+        "name": "ServiceLevelCommands",
+        "file": "technical_services/services/commands.py",
+        "role": "command",
+        "methods": [
+          "create_level",
+          "update_level",
+          "delete_level"
+        ]
+      },
+      {
+        "name": "ServiceImageCommands",
+        "file": "technical_services/services/commands.py",
+        "role": "command",
+        "methods": [
+          "add_image",
+          "delete_image",
+          "set_primary"
+        ]
+      },
+      {
+        "name": "TechnicalServiceCommands",
+        "file": "technical_services/services/commands.py",
+        "role": "command",
+        "methods": [
+          "create_service",
+          "create_service_with_default_variant",
+          "update_service",
+          "delete_service"
+        ]
+      },
+      {
+        "name": "ServiceVariantCommands",
+        "file": "technical_services/services/commands.py",
+        "role": "command",
+        "methods": [
+          "create_variant",
+          "update_variant",
+          "delete_variant"
+        ]
+      },
+      {
+        "name": "ServiceMaterialCommands",
+        "file": "technical_services/services/commands.py",
+        "role": "command",
+        "methods": [
+          "add_material",
+          "remove_material"
+        ]
+      },
+      {
+        "name": "ServiceConfigurationCommands",
+        "file": "technical_services/services/commands.py",
+        "role": "command",
+        "methods": [
+          "create_configuration",
+          "update_configuration"
+        ]
+      },
+      {
+        "name": "ServiceTimelineCommands",
+        "file": "technical_services/services/commands.py",
+        "role": "command",
+        "methods": [
+          "add_timeline_event"
+        ]
+      },
+      {
+        "name": "ServiceAttachmentCommands",
+        "file": "technical_services/services/commands.py",
+        "role": "command",
+        "methods": [
+          "add_attachment"
+        ]
+      },
+      {
+        "name": "ServiceAssignmentCommands",
+        "file": "technical_services/services/commands.py",
+        "role": "command",
+        "methods": [
+          "_release_technician",
+          "assign_technician",
+          "unassign_technician",
+          "change_priority",
+          "auto_assign_technician"
+        ]
+      },
+      {
+        "name": "WorkingScheduleCommands",
+        "file": "technical_services/services/commands.py",
+        "role": "command",
+        "methods": [
+          "upsert_schedule",
+          "delete_schedule"
+        ]
+      },
+      {
+        "name": "WorkingExceptionCommands",
+        "file": "technical_services/services/commands.py",
+        "role": "command",
+        "methods": [
+          "create_exception",
+          "delete_exception"
+        ]
+      },
+      {
+        "name": "ServiceCostRuleSelector",
+        "file": "technical_services/services/pricing.py",
+        "role": "pricing",
+        "methods": [
+          "list_all_for_admin",
+          "list_active",
+          "get_by_uuid",
+          "get_rules_for_variant"
+        ]
+      },
+      {
+        "name": "ServiceCostRuleCommands",
+        "file": "technical_services/services/pricing.py",
+        "role": "pricing",
+        "methods": [
+          "create_rule",
+          "update_rule",
+          "deactivate_rule",
+          "assign_to_variant",
+          "remove_from_variant"
+        ]
+      },
+      {
+        "name": "ServicePricingCalculator",
+        "file": "technical_services/services/pricing.py",
+        "role": "pricing",
+        "methods": [
+          "calculate_breakdown"
+        ]
+      },
+      {
+        "name": "ServiceCategorySelector",
+        "file": "technical_services/services/selectors.py",
+        "role": "selector",
+        "methods": [
+          "list_all",
+          "list_all_for_admin",
+          "get_by_uuid"
+        ]
+      },
+      {
+        "name": "ServiceLevelSelector",
+        "file": "technical_services/services/selectors.py",
+        "role": "selector",
+        "methods": [
+          "list_all",
+          "get_by_uuid"
+        ]
+      },
+      {
+        "name": "ServiceVariantSelector",
+        "file": "technical_services/services/selectors.py",
+        "role": "selector",
+        "methods": [
+          "list_for_service",
+          "get_by_uuid",
+          "get_price_history"
+        ]
+      },
+      {
+        "name": "ServiceMaterialSelector",
+        "file": "technical_services/services/selectors.py",
+        "role": "selector",
+        "methods": [
+          "list_for_variant",
+          "get_by_uuid"
+        ]
+      },
+      {
+        "name": "ServiceConfigurationSelector",
+        "file": "technical_services/services/selectors.py",
+        "role": "selector",
+        "methods": [
+          "get_active",
+          "list_all",
+          "get_by_uuid"
+        ]
+      },
+      {
+        "name": "ServiceSelector",
+        "file": "technical_services/services/selectors.py",
+        "role": "selector",
+        "methods": [
+          "list_all_for_admin",
+          "get_by_uuid",
+          "list_active_services",
+          "list_featured",
+          "get_variant_quotation",
+          "check_time_availability"
+        ]
+      },
+      {
+        "name": "TechnicianSelector",
+        "file": "technical_services/services/selectors.py",
+        "role": "selector",
+        "methods": [
+          "get_all_active_technicians",
+          "get_active_technicians_for_category",
+          "get_available_for_category",
+          "get_candidates_for_order",
+          "find_best_technician"
+        ]
+      },
+      {
+        "name": "WorkingScheduleSelector",
+        "file": "technical_services/services/selectors.py",
+        "role": "selector",
+        "methods": [
+          "list_for_technician"
+        ]
+      },
+      {
+        "name": "WorkingExceptionSelector",
+        "file": "technical_services/services/selectors.py",
+        "role": "selector",
+        "methods": [
+          "list_for_technician"
+        ]
+      }
+    ],
+    "selectors": [],
+    "management_commands": [],
+    "consumers": [],
+    "tasks": [],
+    "permissions": [],
+    "file_map": {
+      "misc": [
+        "technical_services/__init__.py",
+        "technical_services/api/internal_ai.py",
+        "technical_services/migrations/__init__.py",
+        "technical_services/services/__init__.py",
+        "technical_services/services/calculator.py",
+        "technical_services/services/calendar.py",
+        "technical_services/services/marketing.py",
+        "technical_services/services/operations.py",
+        "technical_services/services/packages.py",
+        "technical_services/services/summary.py",
+        "technical_services/services/technician_availability.py",
+        "technical_services/tests_operations.py",
+        "technical_services/tests_packages.py",
+        "technical_services/tests_technician_availability.py"
+      ],
+      "admin": [
+        "technical_services/admin.py"
+      ],
+      "serializer": [
+        "technical_services/api/availability_serializers.py",
+        "technical_services/api/operation_serializers.py",
+        "technical_services/api/package_serializers.py",
+        "technical_services/api/serializers.py"
+      ],
+      "url": [
+        "technical_services/api/availability_urls.py",
+        "technical_services/api/operation_urls.py",
+        "technical_services/api/urls.py",
+        "technical_services/urls.py"
+      ],
+      "viewset": [
+        "technical_services/api/availability_views.py",
+        "technical_services/api/operation_views.py",
+        "technical_services/api/views.py"
+      ],
+      "app_config": [
+        "technical_services/apps.py"
+      ],
+      "model": [
+        "technical_services/models.py"
+      ],
+      "command": [
+        "technical_services/services/commands.py"
+      ],
+      "pricing": [
+        "technical_services/services/pricing.py"
+      ],
+      "selector": [
+        "technical_services/services/selectors.py"
+      ],
+      "signal": [
+        "technical_services/signals.py"
+      ],
+      "test": [
+        "technical_services/tests.py"
+      ]
+    },
+    "migrations": 27
+  },
+  "endpoints": [
+    {
+      "endpoint": "api/v1/services/technician-availability",
+      "app": "technical_services",
+      "viewset": "TechnicianAvailabilityViewSet",
+      "actions": [
+        "technicians",
+        "list",
+        "summary",
+        "range_summary",
+        "calendar"
+      ],
+      "basename": "technician-availability",
+      "http_methods": [
+        "GET"
+      ]
+    },
+    {
+      "endpoint": "api/v1/services/working-schedules",
+      "app": "technical_services",
+      "viewset": "WorkingScheduleViewSet",
+      "actions": [
+        "create"
+      ],
+      "basename": "working-schedule",
+      "http_methods": [
+        "POST"
+      ]
+    },
+    {
+      "endpoint": "api/v1/services/working-exceptions",
+      "app": "technical_services",
+      "viewset": "WorkingExceptionViewSet",
+      "actions": [
+        "create"
+      ],
+      "basename": "working-exception",
+      "http_methods": [
+        "POST"
+      ]
+    },
+    {
+      "endpoint": "api/v1/services/services",
+      "app": "technical_services",
+      "viewset": "TechnicalServiceViewSet",
+      "actions": [
+        "get_object",
+        "quotation",
+        "packages",
+        "quote_package",
+        "reviews",
+        "review",
+        "technicians",
+        "full_detail"
+      ],
+      "basename": "technical-service",
+      "http_methods": [
+        "GET",
+        "POST",
+        "PUT",
+        "PATCH",
+        "DELETE"
+      ]
+    },
+    {
+      "endpoint": "api/v1/services/categories",
+      "app": "technical_services",
+      "viewset": "ServiceCategoryViewSet",
+      "actions": [
+        "get_object"
+      ],
+      "basename": "service-category",
+      "http_methods": [
+        "GET",
+        "POST",
+        "PUT",
+        "PATCH",
+        "DELETE"
+      ]
+    },
+    {
+      "endpoint": "api/v1/services/levels",
+      "app": "technical_services",
+      "viewset": "ServiceLevelViewSet",
+      "actions": [
+        "get_object"
+      ],
+      "basename": "service-level",
+      "http_methods": [
+        "GET",
+        "POST",
+        "PUT",
+        "PATCH",
+        "DELETE"
+      ]
+    },
+    {
+      "endpoint": "api/v1/services/variants",
+      "app": "technical_services",
+      "viewset": "ServiceVariantViewSet",
+      "actions": [
+        "list",
+        "price_history"
+      ],
+      "basename": "service-variant",
+      "http_methods": [
+        "GET"
+      ]
+    },
+    {
+      "endpoint": "api/v1/services/materials",
+      "app": "technical_services",
+      "viewset": "ServiceMaterialViewSet",
+      "actions": [
+        "list"
+      ],
+      "basename": "service-material",
+      "http_methods": [
+        "GET"
+      ]
+    },
+    {
+      "endpoint": "api/v1/services/configurations",
+      "app": "technical_services",
+      "viewset": "ServiceConfigurationViewSet",
+      "actions": [
+        "get_object"
+      ],
+      "basename": "service-configuration",
+      "http_methods": [
+        "GET",
+        "POST",
+        "PUT",
+        "PATCH",
+        "DELETE"
+      ]
+    }
+  ],
+  "frontend_consumers": {
+    "api/v1/services/working-schedules": [
+      {
+        "type": "FrontendComponent",
+        "name": "TechnicianScheduleAdmin",
+        "file": "modules/technical_services/TechnicianScheduleAdmin.vue"
+      }
+    ],
+    "api/v1/services/working-exceptions": [
+      {
+        "type": "FrontendComponent",
+        "name": "TechnicianScheduleAdmin",
+        "file": "modules/technical_services/TechnicianScheduleAdmin.vue"
+      }
+    ],
+    "api/v1/services/categories": [
+      {
+        "type": "FrontendView",
+        "name": "ContractorOnboardingWizard",
+        "file": "views/customer/account/ContractorOnboardingWizard.vue"
+      },
+      {
+        "type": "FrontendView",
+        "name": "RentalCatalogView",
+        "file": "views/customer/renting/RentalCatalogView.vue"
+      },
+      {
+        "type": "FrontendComponent",
+        "name": "RentingCategoryList",
+        "file": "modules/renting/RentingCategoryList.vue"
+      },
+      {
+        "type": "FrontendComponent",
+        "name": "RentingForm",
+        "file": "modules/renting/RentingForm.vue"
+      },
+      {
+        "type": "FrontendComponent",
+        "name": "RentingList",
+        "file": "modules/renting/RentingList.vue"
+      },
+      {
+        "type": "FrontendComponent",
+        "name": "TechnicianAssignmentBoard",
+        "file": "modules/technical_services/TechnicianAssignmentBoard.vue"
+      }
+    ],
+    "api/v1/services/variants": [
+      {
+        "type": "FrontendComponent",
+        "name": "RentingForm",
+        "file": "modules/renting/RentingForm.vue"
+      }
+    ]
+  },
+  "dependencies": {
+    "depends_on": [
+      "accounts",
+      "orders",
+      "shop"
+    ],
+    "depended_by": [
+      "accounts",
+      "cart",
+      "marketing",
+      "operations",
+      "orders",
+      "quotes"
+    ]
+  },
+  "blast_radius": {
+    "ServiceCategory": {
+      "types_affected": [
+        "ViewSet",
+        "Model",
+        "Serializer"
+      ],
+      "total": 128
+    },
+    "ServiceLevel": {
+      "types_affected": [
+        "ViewSet",
+        "Model",
+        "Serializer"
+      ],
+      "total": 90
+    },
+    "ServiceConfiguration": {
+      "types_affected": [
+        "ViewSet",
+        "Serializer"
+      ],
+      "total": 2
+    },
+    "TechnicalService": {
+      "types_affected": [
+        "ViewSet",
+        "Model",
+        "Serializer"
+      ],
+      "total": 95
+    },
+    "ServiceVariant": {
+      "types_affected": [
+        "Serializer",
+        "Model",
+        "ViewSet"
+      ],
+      "total": 65
+    },
+    "ServiceMaterial": {
+      "types_affected": [
+        "Serializer",
+        "ViewSet"
+      ],
+      "total": 2
+    },
+    "ServiceImage": {
+      "types_affected": [
+        "Serializer"
+      ],
+      "total": 1
+    },
+    "ServiceReview": {
+      "types_affected": [
+        "Serializer"
+      ],
+      "total": 1
+    },
+    "ServiceFAQ": {
+      "types_affected": [
+        "Serializer"
+      ],
+      "total": 1
+    },
+    "ServiceMarketing": {
+      "types_affected": [
+        "Serializer"
+      ],
+      "total": 1
+    },
+    "OrderServiceDetail": {
+      "types_affected": [
+        "Serializer",
+        "Model",
+        "ViewSet"
+      ],
+      "total": 47
+    },
+    "OrderServiceTimeline": {
+      "types_affected": [
+        "Serializer",
+        "Model",
+        "ViewSet"
+      ],
+      "total": 47
+    },
+    "ServiceAttachment": {
+      "types_affected": [
+        "Serializer"
+      ],
+      "total": 1
+    },
+    "ServiceCostRule": {
+      "types_affected": [
+        "Serializer",
+        "Model"
+      ],
+      "total": 2
+    },
+    "ServicePriceHistory": {
+      "types_affected": [
+        "Serializer"
+      ],
+      "total": 1
+    },
+    "ServiceOperation": {
+      "types_affected": [
+        "Serializer",
+        "Model",
+        "ViewSet"
+      ],
+      "total": 13
+    },
+    "ServiceOperationEvent": {
+      "types_affected": [
+        "Serializer",
+        "Model",
+        "ViewSet"
+      ],
+      "total": 12
+    },
+    "WorkingSchedule": {
+      "types_affected": [
+        "ViewSet",
+        "Serializer"
+      ],
+      "total": 2
+    },
+    "WorkingException": {
+      "types_affected": [
+        "ViewSet",
+        "Serializer"
+      ],
+      "total": 2
+    },
+    "ServicePackage": {
+      "types_affected": [
+        "Model",
+        "Serializer"
+      ],
+      "total": 9
+    },
+    "PackageIncludedItem": {
+      "types_affected": [
+        "Serializer"
+      ],
+      "total": 1
+    },
+    "PackageAdditionalCost": {
+      "types_affected": [
+        "Model",
+        "Serializer"
+      ],
+      "total": 3
+    },
+    "ServiceRequestPackage": {
+      "types_affected": [
+        "Model",
+        "Serializer"
+      ],
+      "total": 3
+    },
+    "ServiceRequestAdditionalCost": {
+      "types_affected": [
+        "Serializer"
+      ],
+      "total": 1
+    }
+  },
+  "service_contracts": {
+    "commands": [
+      "ServiceCommands",
+      "ServiceCategoryCommands",
+      "ServiceLevelCommands",
+      "ServiceImageCommands",
+      "TechnicalServiceCommands",
+      "ServiceVariantCommands",
+      "ServiceMaterialCommands",
+      "ServiceConfigurationCommands",
+      "ServiceTimelineCommands",
+      "ServiceAttachmentCommands",
+      "ServiceAssignmentCommands",
+      "WorkingScheduleCommands",
+      "WorkingExceptionCommands"
+    ],
+    "selectors": [
+      "ServiceCategorySelector",
+      "ServiceLevelSelector",
+      "ServiceVariantSelector",
+      "ServiceMaterialSelector",
+      "ServiceConfigurationSelector",
+      "ServiceSelector",
+      "TechnicianSelector",
+      "WorkingScheduleSelector",
+      "WorkingExceptionSelector"
+    ]
+  },
+  "events": {
+    "produces": [
+      "service_booked"
+    ],
+    "consumes": []
+  },
+  "constraints": [
+    "vendor/category/level are null=True (optional)",
+    "ServiceVariant requires sku + pricing_strategy; FIXED requires fixed_price",
+    "API prefix is 'services/' not 'technical_services/'"
+  ],
+  "known_issues": [],
+  "business_rules": [],
+  "url_patterns": [
+    {
+      "type": "router",
+      "prefix": "technician-availability",
+      "viewset": "TechnicianAvailabilityViewSet",
+      "basename": "technician-availability"
+    },
+    {
+      "type": "router",
+      "prefix": "working-schedules",
+      "viewset": "WorkingScheduleViewSet",
+      "basename": "working-schedule"
+    },
+    {
+      "type": "router",
+      "prefix": "working-exceptions",
+      "viewset": "WorkingExceptionViewSet",
+      "basename": "working-exception"
+    },
+    {
+      "type": "router",
+      "prefix": "services",
+      "viewset": "TechnicalServiceViewSet",
+      "basename": "technical-service"
+    },
+    {
+      "type": "router",
+      "prefix": "categories",
+      "viewset": "ServiceCategoryViewSet",
+      "basename": "service-category"
+    },
+    {
+      "type": "router",
+      "prefix": "levels",
+      "viewset": "ServiceLevelViewSet",
+      "basename": "service-level"
+    },
+    {
+      "type": "router",
+      "prefix": "variants",
+      "viewset": "ServiceVariantViewSet",
+      "basename": "service-variant"
+    },
+    {
+      "type": "router",
+      "prefix": "materials",
+      "viewset": "ServiceMaterialViewSet",
+      "basename": "service-material"
+    },
+    {
+      "type": "router",
+      "prefix": "configurations",
+      "viewset": "ServiceConfigurationViewSet",
+      "basename": "service-configuration"
+    }
+  ],
+  "patterns": {
+    "command_class": "Technical_servicesCommands",
+    "selector_class": "Technical_servicesSelector",
+    "service_layer": true,
+    "soft_delete": true
+  },
+  "TODO": [],
+  "BUG": [],
+  "HOT_FIX": [],
+  "decisions": []
+}
