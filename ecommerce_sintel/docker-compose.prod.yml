@@ -79,7 +79,11 @@ services:
       - sintel-network
 
   db:
-    image: postgres:16-alpine
+    # FASE 1 (mision de simplificacion arquitectonica, 2026-09-14): mismo cambio que
+    # docker-compose.yml (dev) -- pgvector/pgvector:pg16 es postgres:16 (Debian) con la
+    # extension pgvector ya compilada, drop-in sobre el volumen de datos existente. NO
+    # aplicar a produccion manualmente -- va por el flujo normal de deploy.sh.
+    image: pgvector/pgvector:pg16
     container_name: sintel_prod_db
     restart: unless-stopped
     logging: *default-logging

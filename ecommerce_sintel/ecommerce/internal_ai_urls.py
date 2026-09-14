@@ -8,6 +8,7 @@ Selectors/Commands ya existentes. Nginx no proxea /internal/ hacia afuera.
 from django.urls import path
 
 from accounts.api.internal_ai import AiCustomerContextView
+from ai_knowledge.api.views import AiKnowledgeRetrieveView
 from ai_provider.api.internal_ai import AiProviderConfigView
 from core.api.internal_ai import (
     AiCoreHomeConfigView,
@@ -64,6 +65,8 @@ urlpatterns = [
     path("customer-context/",     AiCustomerContextView.as_view(),     name="ai-customer-context"),
     # Config dinamica de modelos locales, FASE 2 (2026-08-13)
     path("provider-config/",      AiProviderConfigView.as_view(),      name="ai-provider-config"),
+    # RAG sobre pgvector, FASE 1 de la mision de simplificacion arquitectonica (2026-09-14)
+    path("knowledge/retrieve/",   AiKnowledgeRetrieveView.as_view(),   name="ai-knowledge-retrieve"),
     # Fase 4 - escritura (permission classes reales + SecurityEvent audit)
     path("rentals/create/",       AiCreateRentalRequestView.as_view(), name="ai-rentals-create"),
     path("rentals/cancel/",       AiCancelRentalView.as_view(),        name="ai-rentals-cancel"),

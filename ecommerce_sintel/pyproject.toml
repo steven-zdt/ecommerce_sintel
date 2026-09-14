@@ -37,7 +37,12 @@ dependencies = [
     "whitenoise>=6.9.0",
     "django-vite (>=3.1.0,<4.0.0)",
     "watchdog>=4.0.0,<5.0.0",
-    "cryptography>=42.0.0,<47.0.0"
+    "cryptography>=42.0.0,<47.0.0",
+    # FASE 1 (mision de simplificacion arquitectonica, 2026-09-14): pgvector.django.VectorField
+    # para ai_knowledge/models.py -- reemplazo de ChromaDB como vector store (ver
+    # AUDITORIA/ARCHITECTURE_SIMPLIFICATION_AUDIT.md). Requiere `CREATE EXTENSION vector`
+    # en Postgres (imagen pgvector/pgvector:pg16, ver docker-compose.yml).
+    "pgvector>=0.3.6,<0.4.0"
 ]
 
 [dependency-groups]

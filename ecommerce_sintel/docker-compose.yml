@@ -39,7 +39,12 @@ services:
       - ecommerce_sintel_network
 
   db:
-    image: postgres:16-alpine
+    # FASE 1 (mision de simplificacion arquitectonica, 2026-09-14): postgres:16-alpine
+    # no trae la extension pgvector. pgvector/pgvector:pg16 es la imagen oficial del
+    # proyecto pgvector, construida sobre el mismo postgres:16 (Debian, no alpine) con
+    # la extension ya compilada -- mismo formato de datos, drop-in sobre el volumen
+    # existente. No confundir con un cambio de motor de BD: sigue siendo Postgres 16.
+    image: pgvector/pgvector:pg16
     container_name: ecommerce_sintel_db
     restart: unless-stopped
     environment:

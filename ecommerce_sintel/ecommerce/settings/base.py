@@ -59,6 +59,7 @@ INSTALLED_APPS = [
     'seo',
     'shared',
     'ai_provider',
+    'ai_knowledge',
     'django_vite',
 ]
 

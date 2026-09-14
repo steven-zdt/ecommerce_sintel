@@ -148,8 +148,18 @@ class AIChannelConfig(SintelBaseModel):
     en runtime desde /panel/soporte sin tocar .env ni reiniciar contenedores."""
 
     CHANNEL_SUPPORT_CHAT = 'support_chat'
+    # FASE 1 (mision de simplificacion arquitectonica, 2026-09-14): reusa
+    # AIProvider/AIModel/AIChannelConfig/AIChannelFallback tal cual -- un
+    # proveedor de embeddings es exactamente lo mismo que un proveedor de chat
+    # (base_url/api_key/kind), la unica diferencia es QUE modelo eligio el
+    # canal. Evita crear un "AIEmbeddingProvider" paralelo que duplicaria este
+    # modelo entero (ver AUDITORIA/ARCHITECTURE_SIMPLIFICATION_AUDIT.md
+    # seccion 11 del prompt original: "no duplicar contexto"). Consumido por
+    # ai_knowledge.services.embedding_service.EmbeddingService.
+    CHANNEL_EMBEDDINGS = 'embeddings'
     CHANNEL_CHOICES = [
         (CHANNEL_SUPPORT_CHAT, 'Chat de Soporte'),
+        (CHANNEL_EMBEDDINGS, 'Embeddings (RAG)'),
     ]
 
     channel = models.CharField(max_length=50, choices=CHANNEL_CHOICES, unique=True)
