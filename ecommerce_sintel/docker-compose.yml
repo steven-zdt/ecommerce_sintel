@@ -227,6 +227,38 @@ services:
     networks:
       - ecommerce_sintel_network
 
+  # ADK-11 (Cutover, ver AUDITORIA/ADK_CUTOVER_PLAN.md): servicio NUEVO,
+  # orquestacion via Google ADK -- desplegado JUNTO a `sintel_ai` (arriba),
+  # puerto propio (8101), SIN recibir trafico real todavia
+  # (`support/services/ai_bridge.py` sigue apuntando a `settings.
+  # AI_ENGINE_URL` = http://sintel_ai:8100, sin cambios). El swap de trafico
+  # y el apagado de `sintel_ai` son pasos SEPARADOS, cada uno con su propia
+  # autorizacion explicita -- ver el plan de cutover, seccion 3 "Opcion A".
+  sintel_ai_adk:
+    build:
+      context: .
+      dockerfile: ai_engine_adk/Dockerfile
+    image: ecommerce_sintel_ai_adk:latest
+    container_name: ecommerce_sintel_ai_adk
+    restart: unless-stopped
+    ports:
+      - "8101:8101"
+    env_file: .env
+    environment:
+      OLLAMA_BASE_URL: "http://sintel_ollama:11434"
+      DJANGO_INTERNAL_API_URL: "http://django:8000/api/v1"
+      # Mismo Redis/DB que el checkpointer de `sintel_ai` (cost_control.py
+      # usa prefijos de clave propios, sin colision -- ver
+      # ai_engine/cost_control.py).
+      CHECKPOINTER_REDIS_URL: "redis://redis:6379/2"
+    depends_on:
+      sintel_ollama:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    networks:
+      - ecommerce_sintel_network
+
   # ─── REVERSE PROXY ─────────────────────────────────────────────────────────
   nginx:
     image: nginx:1.26-alpine

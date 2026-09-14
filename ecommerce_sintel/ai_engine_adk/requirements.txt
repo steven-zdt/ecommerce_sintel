@@ -1,0 +1,30 @@
+# ai_engine_adk -- servicio NUEVO, orquestacion via Google ADK (mision
+# "ADK-SINTEL", ADK-11 Cutover, ver AUDITORIA/ADK_CUTOVER_PLAN.md).
+#
+# Deliberadamente SIN langchain-core/langchain-ollama/langchain-openai/
+# langchain-anthropic/langgraph: conflicto de dependencias real confirmado
+# en ADK-10 (adk_poc/) -- litellm (usado por google-adk) exige
+# openai>=2.20.0, langchain-openai exige openai<2.0.0, rangos que no se
+# solapan. Correr OLD (ai_engine/, LangChain) y NEW (este servicio,
+# ADK/LiteLLM) en procesos/venvs SEPARADOS resuelve el conflicto por
+# construccion, sin parchear ninguno de los dos stacks.
+google-adk==2.9.0
+litellm==1.100.1
+
+# fastapi/uvicorn/pydantic: SIN los pines del sistema OLD -- conflicto real
+# y duro con google-adk==2.9.0, que exige fastapi>=0.133 y uvicorn>=0.34
+# (confirmado via pip durante el build de esta imagen). google-adk ya trae
+# FastAPI/uvicorn como dependencias reales (los usa para su propio
+# `google.adk.cli`) -- se deja que pip resuelva las versiones compatibles a
+# partir de lo que google-adk exige, sin re-pinnear encima.
+python-multipart>=0.0.12
+httpx>=0.28.0
+python-decouple>=3.8,<4.0
+PyJWT>=2.9.0,<3.0.0
+
+# Backend de sesion de google-adk (InMemorySessionService por ahora --
+# eleccion de backend persistente real, pendiente, ver
+# AUDITORIA/ADK_CUTOVER_PLAN.md seccion 4).
+
+pytest>=8.0,<9.0
+pytest-asyncio>=0.24,<0.25
