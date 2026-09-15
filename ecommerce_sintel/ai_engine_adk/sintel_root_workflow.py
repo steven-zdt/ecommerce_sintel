@@ -75,6 +75,7 @@ from sintel_adapter import (
     clear_ephemeral_token,
     clear_tool_call_count,
     deny_after_max_tool_calls_per_turn,
+    handle_tool_error,
     set_ephemeral_token,
 )
 from sintel_rag_adapter import SINTEL_KNOWLEDGE_CONTEXT_STATE_KEY, build_knowledge_context
@@ -211,6 +212,9 @@ def get_domain_agent(profile_name: str) -> LlmAgent:
         # Auditoria de hardening (2026-09-14): cap real de tool calls por turno,
         # ver deny_after_max_tool_calls_per_turn() en sintel_adapter.py.
         before_tool_callback=deny_after_max_tool_calls_per_turn,
+        # Auditoria de hardening (2026-09-14): degradacion por-Tool en vez de
+        # matar el turno completo, ver handle_tool_error() en sintel_adapter.py.
+        on_tool_error_callback=handle_tool_error,
     )
     _domain_agent_cache[profile_name] = agent
     return agent

@@ -129,6 +129,32 @@ def deny_after_max_tool_calls_per_turn(*, tool, args, tool_context, **_ignored):
     return None
 
 
+# Auditoria de hardening (2026-09-14, "PROMPT MAESTRO" seccion 43 caso 8 / seccion
+# 45 "Fail-safe"). Hallazgo real confirmado empiricamente (no teorico): una Tool
+# real que levanta una excepcion (ej. Django cae, timeout de red) NO se atrapa en
+# ningun punto de la libreria ADK por defecto -- `_tool_caller.py` la vuelve a
+# levantar (`raise tool_error`) y se propaga hasta afuera de `run_sintel_turn()`.
+# El catch-all de `main.py::chat()` ya evita un 500 crudo (degrada con gracia,
+# nunca expone el traceback al cliente -- confirmado, no es un hueco de
+# seguridad), pero mata el TURNO COMPLETO por un fallo de UNA sola Tool, perdiendo
+# cualquier otro resultado ya obtenido en el mismo turno -- el sistema OLD
+# (action_graph.py::_execute_capability) SI degradaba por-Tool, dejando que el LLM
+# siguiera con lo que ya tenia. `on_tool_error_callback` (hook real de ADK,
+# confirmado via lectura directa de _tool_error_handler.py) cierra esa brecha:
+# devolver un dict aqui evita que la excepcion se vuelva a levantar, el LLM ve un
+# resultado de error para ESA Tool nada mas y puede seguir el turno.
+def handle_tool_error(*, tool, args, tool_context, error, **_ignored):
+    logger.exception(
+        "[policy] error real en Tool %s (turno continua degradado, invocation_id=%s): %s",
+        tool.name, getattr(tool_context, "invocation_id", "?"), error,
+    )
+    return {
+        "error": "No se pudo completar esta accion en este momento. Intenta de nuevo "
+                  "o pide hablar con un agente humano.",
+        "status_code": 502,
+    }
+
+
 # ADK-04: 5 tools reales de ai_engine (core_tools.py -- Core*Update/Create)
 # usan `**kwargs` para overrides opcionales (ver ToolMetadata.args_schema,
 # que SI declara cada campo real: title/subtitle/link_url/...). inspect.
