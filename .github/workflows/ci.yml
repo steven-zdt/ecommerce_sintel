@@ -171,15 +171,23 @@ jobs:
     # hace sys.exit(1) en ningun caso, solo si el propio script crashea). Igual que Bandit se
     # dejo correr un tiempo antes de ser gate, esto se promueve a bloqueante mas adelante solo
     # si no hay falsos positivos reportados por el equipo -- ver doc §9 Fase 7 "Riesgos".
-    # No usa Poetry/Postgres/Redis: los scripts de ai_engine/ leen el codigo como texto/AST,
-    # no importan Django -- mantenerlo asi es intencional, lo hace rapido y sin dependencias
-    # del resto del stack.
+    #
+    # [CORREGIDO 2026-09-14, auditoria "PROMPT MAESTRO" de hardening] Este job seguia
+    # apuntando a `ai_engine/auditor.py`, retirado del repo desde la Fase 8 del plan de
+    # separacion project_knowledge_graph (2026-08-08, `project_knowledge_graph/audit/
+    # auditor.py` lo reemplazo explicitamente, ver su propio docstring: "Reemplaza a
+    # ai_engine/auditor.py::ProjectAuditor.run()"). El job llevaba mas de un mes fallando
+    # en cada PR (no bloqueante, pero roto) sin que nadie lo notara -- la propia definicion
+    # de "divergencia doc/codigo no detectada" que esta auditoria buscaba. Misma logica, 6
+    # validaciones, mismo esquema de `summary` (confirmado: `validator.py::run_all_
+    # validations()` sigue devolviendo las mismas 6 claves). Sin Django/Postgres/Redis --
+    # `project_knowledge_graph/audit/auditor.py` no importa Django (confirmado), mismo
+    # criterio que el job original.
     defaults:
       run:
-        # ai_engine se movio dentro de ecommerce_sintel/ (2026-07-31) -- ya NO es un
-        # directorio hermano, es ecommerce_sintel/ai_engine. Override del default del
-        # workflow (ecommerce_sintel) para seguir parado en ai_engine/ mismo.
-        working-directory: ecommerce_sintel/ai_engine
+        # project_knowledge_graph vive en la raiz de ecommerce_sintel/ (no dentro de
+        # ai_engine/) -- usa el working-directory por defecto del workflow.
+        working-directory: ecommerce_sintel
     permissions:
       pull-requests: write
     steps:
@@ -196,14 +204,12 @@ jobs:
           python-version: "3.13"
 
       - name: Instalar dependencias minimas
-        # Deliberado: NO se instala ecommerce_sintel/ai_engine/requirements.txt completo
-        # (stack RAG pesado -- langchain/chromadb/etc) porque auditor.py + graph_validator.py
-        # no lo necesitan; solo pyyaml (usado por docker_graph.py/agent_graph.py). El resto
-        # son imports de stdlib.
+        # Deliberado: project_knowledge_graph/audit/auditor.py + validator.py son
+        # stdlib puro salvo pyyaml (usado por sus enrichers de docker/nginx/agents).
         run: pip install pyyaml
 
       - name: Construir grafo y correr las 6 validaciones
-        run: python auditor.py
+        run: python -m project_knowledge_graph.cli audit
 
       - name: Comentar resumen en el PR (crea o actualiza un unico comentario, no acumula)
         if: github.event_name == 'pull_request'
@@ -211,7 +217,7 @@ jobs:
         with:
           script: |
             const fs = require('fs');
-            const report = JSON.parse(fs.readFileSync('ecommerce_sintel/ai_engine/GRAPH_VALIDATION_REPORT.json', 'utf8'));
+            const report = JSON.parse(fs.readFileSync('ecommerce_sintel/project_knowledge_graph/data/GRAPH_VALIDATION_REPORT.json', 'utf8'));
             const s = report.summary;
             const marker = '### Grafo de conocimiento — resumen automatico';
             const body = [
@@ -251,10 +257,10 @@ jobs:
         with:
           name: graph-validation-report
           # Igual que en el job `test`: rutas de artifact relativas a $GITHUB_WORKSPACE,
-          # no al working-directory del job (ecommerce_sintel/ai_engine) -- por eso el
-          # prefijo completo aqui tambien.
+          # no al working-directory del job (ecommerce_sintel) -- por eso el prefijo
+          # completo aqui tambien. Ver project_knowledge_graph/config.py::DATA_DIR.
           path: |
-            ecommerce_sintel/ai_engine/GRAPH_VALIDATION_REPORT.json
-            ecommerce_sintel/ai_engine/GRAPH_VIEW.html
-            ecommerce_sintel/ai_engine/KNOWLEDGE_GRAPH.json
+            ecommerce_sintel/project_knowledge_graph/data/GRAPH_VALIDATION_REPORT.json
+            ecommerce_sintel/project_knowledge_graph/data/GRAPH_VIEW.html
+            ecommerce_sintel/project_knowledge_graph/data/KNOWLEDGE_GRAPH.json
           retention-days: 14

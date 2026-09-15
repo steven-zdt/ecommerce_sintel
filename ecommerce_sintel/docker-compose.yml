@@ -175,7 +175,13 @@ services:
     container_name: ecommerce_sintel_ollama
     restart: unless-stopped
     ports:
-      - "11434:11434"
+      # Auditoria de hardening (2026-09-14, "PROMPT MAESTRO"): "11434:11434" ataba a
+      # 0.0.0.0 -- alcanzable desde cualquier interfaz/red de este host, no solo
+      # localhost. Ollama nunca debe exponerse mas alla de lo que sus consumidores
+      # reales (contenedores en ecommerce_sintel_network) necesitan; el bind a
+      # 127.0.0.1 solo mantiene el acceso conveniente desde el propio host para
+      # debug manual (`curl localhost:11434/...`), nunca desde la LAN/Internet.
+      - "127.0.0.1:11434:11434"
     volumes:
       - ecommerce_sintel_ollama_models:/root/.ollama
     networks:

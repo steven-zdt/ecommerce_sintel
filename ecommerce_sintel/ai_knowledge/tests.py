@@ -10,6 +10,8 @@ para el mismo criterio ya aplicado en ai_engine/tests/test_retrieve_knowledge_fo
 """
 from unittest.mock import patch
 
+from django.db import transaction
+from django.db.utils import DataError
 from django.test import TestCase
 from rest_framework.test import APIClient
 
@@ -138,3 +140,31 @@ class EmbeddingCommandsTests(TestCase):
 
         self.assertEqual(AIKnowledgeChunkSelector.count_stale_embeddings('new-model'), 1)
         self.assertEqual(AIKnowledgeChunkSelector.count_stale_embeddings('old-model'), 0)
+
+
+class EmbeddingDimensionMismatchTests(TestCase):
+    """Auditoria de hardening (2026-09-14, "PROMPT MAESTRO"): la columna real es
+    `vector(EMBEDDING_DIMENSIONS)` (1024, bge-m3, ver models.py) -- un vector de
+    otra dimension (ej. un proveedor de embeddings mal configurado, o un
+    modelo distinto sin re-embeber toda la coleccion) NUNCA debe guardarse en
+    silencio ni mezclarse con vectores de la dimension correcta. Confirma que
+    pgvector rechaza esto a nivel de columna (DataError real de Postgres), no
+    solo que el codigo de la app lo valide -- la regla de la mision explicita
+    ("nunca mezclar embeddings incompatibles dentro de la misma coleccion
+    logica") queda garantizada por el schema, no por disciplina."""
+
+    def test_vector_de_dimension_incorrecta_es_rechazado_por_la_columna(self):
+        doc = AIKnowledgeDocumentCommands.upsert_document(title='Doc', content='contenido')
+        chunk = doc.chunks.first()
+        chunk.embedding = [0.1] * 5   # dimension incorrecta a proposito (real=1024)
+        with self.assertRaises(DataError):
+            with transaction.atomic():
+                chunk.save(update_fields=['embedding'])
+
+    def test_vector_de_dimension_correcta_si_se_guarda(self):
+        doc = AIKnowledgeDocumentCommands.upsert_document(title='Doc', content='contenido')
+        chunk = doc.chunks.first()
+        chunk.embedding = _fake_vector(0.5)
+        chunk.save(update_fields=['embedding'])
+        chunk.refresh_from_db()
+        self.assertEqual(len(chunk.embedding), _FAKE_DIM)

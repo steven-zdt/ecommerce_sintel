@@ -81,6 +81,19 @@ from public_response import REQUEST_CONFIRMATION_FUNCTION_CALL_NAME, extract_pub
 APP_NAME = "sintel_ai_adk"
 
 
+# Auditoria de hardening (2026-09-14, "PROMPT MAESTRO"): el sistema OLD tenia un
+# timeout propio por llamada al LLM (`llm_factory.py::LLM_TIMEOUT_SECONDS = 90`,
+# real desde G2/AUDITORIA/16, 2026-08-01 -- "ninguna llamada al LLM tenia
+# timeout propio, el unico corte end-to-end era AI_CHAT_TIMEOUT_SECONDS=300 del
+# lado Django"). Se perdio al retirar `llm_factory.py` en ADK-12 (2026-09-14) --
+# `ai_engine_adk` quedo sin ningun timeout propio para la llamada al LLM, solo
+# el limite externo de 300s de `support/services/ai_bridge.py`. Restaurado aqui
+# con el mismo valor -- `LiteLlm(**kwargs)` reenvia `timeout` tal cual a
+# `litellm.acompletion()` (confirmado via introspeccion real de
+# `LiteLlm.__init__`, que guarda `**kwargs` como `_additional_args`).
+_LLM_TIMEOUT_SECONDS = 90
+
+
 def _build_litellm_model():
     """Lee el LOCAL_MODEL_CHAIN real (mismo formato/modulo que llm_factory.py
     del sistema OLD) y construye el LiteLlm de la entrada PRIMARIA."""
@@ -96,15 +109,17 @@ def _build_litellm_model():
     entry = entries[0]
     kind = entry["kind"]
     if kind == "ollama-nativo":
-        return LiteLlm(model=f"ollama_chat/{entry['model']}", api_base=entry["base_url"])
+        return LiteLlm(model=f"ollama_chat/{entry['model']}", api_base=entry["base_url"],
+                        timeout=_LLM_TIMEOUT_SECONDS)
     if kind == "openai-compatible":
-        return LiteLlm(model=f"openai/{entry['model']}", api_base=entry["base_url"], api_key="not-needed")
+        return LiteLlm(model=f"openai/{entry['model']}", api_base=entry["base_url"], api_key="not-needed",
+                        timeout=_LLM_TIMEOUT_SECONDS)
     if kind == "anthropic":
         from decouple import config as env
         from config import ANTHROPIC_API_KEY
 
         api_key = env(entry["api_key_env"], default=ANTHROPIC_API_KEY) if entry.get("api_key_env") else ANTHROPIC_API_KEY
-        return LiteLlm(model=f"anthropic/{entry['model']}", api_key=api_key)
+        return LiteLlm(model=f"anthropic/{entry['model']}", api_key=api_key, timeout=_LLM_TIMEOUT_SECONDS)
     raise RuntimeError(f"kind desconocido en LOCAL_MODEL_CHAIN: {kind!r}")
 
 
