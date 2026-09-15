@@ -24,7 +24,6 @@ import hashlib
 import logging
 
 from django.conf import settings
-from django.core.cache import cache
 from django.http import HttpResponse
 from rest_framework.permissions import AllowAny
 from rest_framework.views import APIView
@@ -32,16 +31,19 @@ from rest_framework.response import Response
 
 from marketing.integrations.meta.signatures import verify_meta_webhook_signature
 from notifications.models import MetaWebhookEvent
+from whatsapp.domain.idempotency import WhatsAppIdempotencyGuard
 
 logger = logging.getLogger(__name__)
 
+# Mision "Refactorizacion Arquitectonica del Modulo WhatsApp" (2026-09-16):
+# el guard de deduplicacion real vive ahora en whatsapp/domain/idempotency.py
+# (provider-agnostic, por channel+external_message_id) -- este webhook es
+# el punto de entrada REAL del adapter REST, y es donde corresponde
+# invocarlo (una sola vez, antes de encolar) segun FASE 14 de la mision.
 # Meta reintrega el mismo webhook si no recibe 200 a tiempo (timeouts,
 # picos de carga) -- sin dedupe, un reintento dispararia process_whatsapp_inbound_task
 # de nuevo, consultaria a la IA otra vez y mandaria una respuesta duplicada
-# por WhatsApp. TTL generoso (Meta reintenta durante horas, no dias, en sus
-# escenarios documentados) via el mismo cache (Redis) que ya usa
-# _channel_rate_limited() en notifications/services/commands.py.
-_INBOUND_DEDUPE_TIMEOUT_SECONDS = 60 * 60 * 24
+# por WhatsApp.
 
 # Tope de tamano del payload que se guarda parseado en MetaWebhookEvent.payload
 # para un evento con firma INVALIDA (forense sin abrir un vector de abuso con
@@ -147,15 +149,12 @@ class WhatsAppInboundWebhookView(APIView):
 
                         is_new = True
                         if message_id:
-                            # cache.add() es atomico: si la clave ya existe (mismo
-                            # message_id ya visto), devuelve False sin sobreescribir
-                            # -- evita la ventana de carrera de un get()+set()
-                            # separado ante dos entregas casi simultaneas.
-                            is_new = cache.add(
-                                f'whatsapp_inbound_msg:{message_id}',
-                                True,
-                                timeout=_INBOUND_DEDUPE_TIMEOUT_SECONDS,
-                            )
+                            # WhatsAppIdempotencyGuard.is_duplicate usa cache.add()
+                            # internamente -- atomico, evita la ventana de carrera
+                            # de un get()+set() separado ante dos entregas casi
+                            # simultaneas. "rest" es el nombre del adapter/channel
+                            # real que produce este evento.
+                            is_new = not WhatsAppIdempotencyGuard.is_duplicate('rest', message_id)
                         else:
                             logger.warning(
                                 '[whatsapp-webhook] mensaje sin "id" -- no se puede '
@@ -185,7 +184,7 @@ class WhatsAppInboundWebhookView(APIView):
                             continue
 
                         process_whatsapp_inbound_task.delay(
-                            wa_id=wa_id, text=text, event_id=event.id,
+                            wa_id=wa_id, text=text, event_id=event.id, message_id=message_id,
                         )
         except Exception:
             # Nunca devolver 5xx a Meta por un payload inesperado (reintenta

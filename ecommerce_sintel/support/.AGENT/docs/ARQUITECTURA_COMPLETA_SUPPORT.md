@@ -537,6 +537,30 @@ if is_ai_mode_active(room) and not is_ai_rate_limited(room):
 
 ## Cambios Recientes
 
+### 2026-09-16 — Refactorización arquitectónica del módulo WhatsApp (dominio + Connection Adapter)
+- **Qué cambió y por qué**: la lógica de negocio de WhatsApp (resolución de cliente por
+  teléfono, `ChatRoom`, persistencia, deduplicación, respeto de `ai_paused`/`is_ai_mode_active`/
+  `is_ai_rate_limited`, llamada a `ask_ai()`) vivía inline dentro de `notifications/tasks.py`,
+  mezclada con la llamada de transporte directa (`WhatsAppClient().send_text(...)`). Se extrajo
+  a un módulo nuevo `whatsapp/` (dominio + puerto + adapters, arquitectura hexagonal) para que el
+  mecanismo de conexión (REST/Meta Cloud API hoy, QR estructuralmente soportado pero sin gateway
+  real) sea intercambiable por configuración (`WHATSAPP_CONNECTION_TYPE`) sin tocar la lógica de
+  negocio.
+- **Hallazgo real de la auditoría de esa misión**: no existe ni existió nunca un mecanismo QR en
+  este repo — el único mecanismo real es REST (Meta Cloud API), ya en producción. Ver
+  `AUDITORIA/WHATSAPP_CONNECTION_BASELINE.md`.
+- **Sin cambios de comportamiento observable**: `notifications/tasks.py::process_whatsapp_
+  inbound_task`/`send_whatsapp_agent_reply_task` mantienen su `name` de Celery, sus argumentos
+  (uno nuevo, `message_id`, aditivo con default), y el orden exacto de sus chequeos —
+  `support.services.ai_bridge` (`ask_ai`, `is_ai_mode_active`, `is_ai_rate_limited`,
+  `get_ai_bot_user`) y `support.services.commands.ChatCommands` se siguen consultando/reusando
+  tal cual, sin duplicar esa lógica dentro de `whatsapp/`.
+- **Tests**: `whatsapp/tests/` (31, contrato/aislamiento/inversión/fallos), regresión completa de
+  `notifications` (44/44, sin cambios de comportamiento).
+- **Doc de detalle**: `AUDITORIA/WHATSAPP_CONNECTION_ARCHITECTURE.md`,
+  `WHATSAPP_CONNECTION_MIGRATION.md`, `WHATSAPP_CONNECTION_SECURITY.md`,
+  `WHATSAPP_CONNECTION_FINAL_CERTIFICATION.md`.
+
 ### 2026-09-16 — Confirmado en produccion Y desarrollo: `ai_paused` sin forma de reanudarse silencia el chat para siempre
 - **Que paso**: usuario reporto "el chat de soporte no contesta" en ambos entornos. Diagnostico
   real (no asumido): en los dos casos la sala tenia `ai_paused=True` desde un Human Handoff

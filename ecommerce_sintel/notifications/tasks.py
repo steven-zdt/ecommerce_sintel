@@ -304,97 +304,69 @@ def send_sms_notification_task(
     queue='notifications',
     acks_late=True,
 )
-def process_whatsapp_inbound_task(self, wa_id: str, text: str, event_id: int | None = None):
+def process_whatsapp_inbound_task(self, wa_id: str, text: str, event_id: int | None = None, message_id: str = ''):
     """
     Mensaje entrante de WhatsApp -> Action Graph -> respuesta por WhatsApp.
-    El usuario se resuelve por los ultimos 10 digitos del telefono del
-    UserProfile (celular colombiano); si no hay match, se ignora con log
-    (no se responde a numeros desconocidos).
 
-    M2 (AUDITORIA/19_AUDITORIA_COMMUNICATION_CENTER_CANALES.md, 2026-08-01): antes esta
-    conversacion no dejaba NINGUN rastro en BD -- invisible para cualquier agente humano en
-    /panel/soporte y para Customer 360, a diferencia de todo lo demas en el proyecto (que se
-    audita via SecurityEvent/NotificationLog). Ahora se persiste ambos lados (mensaje del
-    cliente + respuesta de la IA) en la ChatRoom del usuario, reusando ChatCommands -- mismo
-    patron que ai_proactive_room_message_task ya usa en sentido inverso (notificacion -> sala).
-    Deliberadamente FUERA de alcance de este fix (evaluado y pospuesto en AUDITORIA/19 §2, no
-    es un olvido): unificar el conversation_id de IA con el canal web (sigue siendo
-    'wa-{user_id}', namespace separado de 'room-{uuid}').
+    Mision "Refactorizacion Arquitectonica del Modulo WhatsApp" (2026-09-16):
+    esta tarea ahora es un wrapper DELGADO -- toda la logica de negocio real
+    (resolucion de cliente, ChatRoom, persistencia, human handoff, llamada a
+    la IA, envio de la respuesta) vive en `whatsapp.domain.service.
+    WhatsAppService`, construido via `whatsapp.factory.WhatsAppConnectionFactory`
+    (lee `settings.WHATSAPP_CONNECTION_TYPE`). Esta tarea solo: construye el
+    mensaje canonico, invoca al servicio, y traduce el resultado a las
+    acciones especificas de infraestructura (reintento de Celery,
+    actualizacion de MetaWebhookEvent) que el dominio NO debe conocer.
 
-    CERRADO (auditoria E2E AI Engine, 2026-08-17): este canal SI respeta ahora
-    is_ai_mode_active/ai_paused y is_ai_rate_limited de la sala -- mismo criterio que
-    SupportChatConsumer._ai_mode_active/_ai_rate_limited (support/consumers.py). Antes, un
-    cliente cuyo chat web ya habia escalado a un humano (ai_paused=True) seguia recibiendo
-    auto-respuestas de la IA si escribia por WhatsApp, sin que el agente humano se enterara.
-    El mensaje del cliente se guarda y se difunde a /panel/soporte de todas formas -- solo se
-    omite la llamada a ask_ai() y la respuesta automatica.
+    Mismo comportamiento real preservado (ver AUDITORIA/
+    WHATSAPP_CONNECTION_BASELINE.md, migracion incremental sin breaking
+    change): mismo nombre/firma de tarea (mas `message_id`, nuevo parametro
+    opcional con default '' para no romper llamadores existentes), mismo
+    guard de "solo persistir el mensaje entrante en el primer intento",
+    mismo respeto de is_ai_mode_active/ai_paused/is_ai_rate_limited, mismo
+    reintento de Celery ante un fallo de ask_ai().
     """
-    from accounts.models import UserProfile
-    from notifications.clients.whatsapp import WhatsAppClient, WhatsAppApiError
-    from support.services.ai_bridge import ask_ai, get_ai_bot_user, is_ai_mode_active, is_ai_rate_limited
-    from support.services.commands import ChatCommands
+    from whatsapp.domain.contracts import MessageType, WhatsAppInboundMessage
+    from whatsapp.domain.service import WhatsAppService
+    from whatsapp.factory import WhatsAppConnectionFactory
 
-    digits = ''.join(c for c in wa_id if c.isdigit())[-10:]
-    profile = (
-        UserProfile.objects
-        .filter(phone_number__isnull=False, user__is_active=True)
-        .filter(phone_number__endswith=digits)
-        .select_related('user')
-        .first()
+    message = WhatsAppInboundMessage(
+        channel='rest',
+        external_message_id=message_id,
+        external_conversation_id=wa_id,
+        sender_phone=wa_id,
+        message_type=MessageType.TEXT,
+        text=text,
     )
-    if profile is None:
-        logger.warning('[wa-inbound] numero sin usuario asociado: ...%s', digits[-4:])
-        _mark_meta_webhook_event(event_id, 'PROCESSED', error_code='no_user_for_number')
-        return
-
-    room = ChatCommands.get_or_create_room(profile.user)
-    if self.request.retries == 0:
-        # Fase 9 (AUDITORIA/24_AUDITORIA_NOTIFICATIONS_SUPPORT.md, 2026-08-01): solo en el
-        # primer intento -- si ask_ai() falla mas abajo y la tarea reintenta, Celery
-        # re-ejecuta la funcion completa desde el inicio; sin este guard, el mensaje del
-        # cliente se duplicaria una vez por cada reintento.
-        ChatCommands.save_message(room, profile.user, text)
-        _broadcast_chat_message(room, profile.user, text, profile.user.email, is_admin=False)
-
-    room.refresh_from_db(fields=['status', 'ai_paused', 'assigned_admin'])
-    if not is_ai_mode_active(room):
-        logger.info('[wa-inbound] IA inactiva para room=%s (handoff activo) -- sin auto-respuesta', room.uuid)
-        _mark_meta_webhook_event(event_id, 'PROCESSED', error_code='handoff_active')
-        return
-    if is_ai_rate_limited(room):
-        logger.warning('[wa-inbound] rate limit de IA alcanzado para room=%s -- sin auto-respuesta', room.uuid)
-        _mark_meta_webhook_event(event_id, 'PROCESSED', error_code='ai_rate_limited')
-        return
+    service = WhatsAppService(WhatsAppConnectionFactory.create())
 
     try:
-        ai_response = ask_ai(profile.user, text, conversation_id=f'wa-{profile.user_id}')
+        result = service.process_inbound_message(message, persist_inbound=(self.request.retries == 0))
     except Exception as exc:
         # Antes: max_retries=1 sin autoretry_for ni self.retry() -- un fallo transitorio del
         # AI Engine (timeout, red) perdia el mensaje del cliente de forma permanente y
         # silenciosa (el webhook ya habia dedupe por message_id, no hay una segunda entrega).
         logger.error(
-            '[wa-inbound] ask_ai fallo (intento %s/%s) user=%s: %s',
-            self.request.retries, self.max_retries, profile.user.email, exc,
+            '[wa-inbound] ask_ai fallo (intento %s/%s) wa_id=...%s: %s',
+            self.request.retries, self.max_retries, wa_id[-4:], exc,
         )
         _mark_meta_webhook_event(event_id, 'FAILED', error_code='ai_engine_error', bump_retry=True)
         raise self.retry(exc=exc)
 
-    reply = (ai_response or {}).get('response') or ''
-    if not reply.strip():
-        logger.warning('[wa-inbound] AI sin respuesta para user=%s', profile.user.email)
+    status = result.get('status')
+    if status == 'no_user':
+        _mark_meta_webhook_event(event_id, 'PROCESSED', error_code='no_user_for_number')
+    elif status == 'handoff_active':
+        _mark_meta_webhook_event(event_id, 'PROCESSED', error_code='handoff_active')
+    elif status == 'ai_rate_limited':
+        _mark_meta_webhook_event(event_id, 'PROCESSED', error_code='ai_rate_limited')
+    elif status == 'ai_empty_response':
         _mark_meta_webhook_event(event_id, 'PROCESSED', error_code='ai_empty_response')
-        return
-
-    bot = get_ai_bot_user()
-    msg = ChatCommands.save_message(room, bot, reply, ai_metrics=(ai_response or {}).get('metrics'))
-    _broadcast_chat_message(room, profile.user, reply, bot.email, is_admin=True, created_at=msg.created_at)
-
-    try:
-        WhatsAppClient().send_text(wa_id, reply)
+    elif status == 'sent':
         _mark_meta_webhook_event(event_id, 'PROCESSED')
-    except WhatsAppApiError as exc:
-        # Config/token de Meta invalido: se registra, no se reintenta en loop.
-        logger.error('[wa-inbound] no se pudo responder por WhatsApp: %s', exc)
+    elif status == 'send_failed':
+        # Config/token de Meta invalido u otro fallo de transporte: se registra, no se
+        # reintenta en loop (mismo criterio real de siempre).
         _mark_meta_webhook_event(event_id, 'FAILED', error_code='whatsapp_send_failed')
 
 
@@ -512,17 +484,19 @@ def send_whatsapp_agent_reply_task(self, user_id: int, text: str):
     UNICAMENTE por WhatsApp (sin el widget web abierto, sin conexion WS activa) nunca la recibia
     -- se quedaba esperando en WhatsApp una respuesta que solo existia en el dashboard.
 
-    Bridge minimo: si el usuario tiene un telefono colombiano valido (misma resolucion --
-    _resolve_phone -- que ya usa dispatch_notification para el canal WhatsApp transaccional), se
-    reenvia el texto del agente por el mismo canal freeform que ya usa
-    process_whatsapp_inbound_task para la respuesta de la IA. Sujeto a la ventana de servicio de
-    24h de Meta (si esta cerrada, la API rechaza el envio) -- se registra como fallo no
-    bloqueante, mismo criterio que el resto de WhatsAppApiError en el proyecto (no se reintenta
-    en loop infinito ante un error de la API, solo ante fallos transitorios de red).
+    Bridge minimo: si el usuario tiene un telefono colombiano valido, se reenvia el texto del
+    agente por el mismo canal freeform que ya usa process_whatsapp_inbound_task para la respuesta
+    de la IA. Sujeto a la ventana de servicio de 24h de Meta (si esta cerrada, la API rechaza el
+    envio) -- se registra como fallo no bloqueante.
+
+    Mision "Refactorizacion Arquitectonica del Modulo WhatsApp" (2026-09-16): delega en
+    `WhatsAppService.send_agent_reply` (misma resolucion de telefono -- _resolve_phone, mismo
+    prefijo de pais, mismo criterio de fallo no bloqueante -- ahora vive en el dominio, no en
+    esta tarea).
     """
     from django.contrib.auth import get_user_model
-    from notifications.clients.whatsapp import WhatsAppClient, WhatsAppApiError
-    from notifications.services.commands import _resolve_phone
+    from whatsapp.domain.service import WhatsAppService
+    from whatsapp.factory import WhatsAppConnectionFactory
 
     User = get_user_model()
     try:
@@ -530,14 +504,10 @@ def send_whatsapp_agent_reply_task(self, user_id: int, text: str):
     except User.DoesNotExist:
         return
 
-    phone = _resolve_phone(user)
-    if not phone:
-        return
-
-    try:
-        WhatsAppClient().send_text(f'57{phone}', text)
-    except WhatsAppApiError as exc:
-        logger.error('[agent-reply] no se pudo reenviar por WhatsApp a %s: %s', user.email, exc)
+    service = WhatsAppService(WhatsAppConnectionFactory.create())
+    result = service.send_agent_reply(user=user, text=text)
+    if result.get('status') == 'send_failed':
+        logger.error('[agent-reply] no se pudo reenviar por WhatsApp a %s: %s', user.email, result.get('error'))
 
 
 # Retencion de MetaWebhookEvent (FASE 6.1 integracion Meta Business). El campo

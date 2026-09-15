@@ -61,6 +61,7 @@ INSTALLED_APPS = [
     'ai_provider',
     'ai_knowledge',
     'customer_memory',
+    'whatsapp',
     'django_vite',
 ]
 
@@ -352,6 +353,15 @@ AI_BOT_EMAIL = config('AI_BOT_EMAIL', default='asistente.ia@sintel.internal')
 # (funciona en dev sin configuracion extra) -- en produccion se recomienda fijar
 # esta variable de forma independiente para poder rotarla sin tocar SECRET_KEY.
 AI_PROVIDER_ENCRYPTION_KEY = config('AI_PROVIDER_ENCRYPTION_KEY', default='')
+# Mision "Refactorizacion Arquitectonica del Modulo WhatsApp" (2026-09-16):
+# unico switch real de mecanismo de conexion -- "QR" o "REST", nunca
+# variables dispersas (USE_QR/ENABLE_WHATSAPP_API/etc, Regla FASE 9 de la
+# mision). Default "REST": es el UNICO mecanismo real que existe hoy en
+# este repo (Meta Cloud API, ver whatsapp/adapters/rest_adapter.py) -- "QR"
+# esta estructuralmente soportado pero es NOT_IMPLEMENTED (ver
+# whatsapp/adapters/qr_adapter.py y AUDITORIA/WHATSAPP_CONNECTION_BASELINE.md).
+WHATSAPP_CONNECTION_TYPE = config('WHATSAPP_CONNECTION_TYPE', default='REST')
+
 # Verify token del webhook entrante de WhatsApp (Meta Cloud API).
 WHATSAPP_WEBHOOK_VERIFY_TOKEN = config('WHATSAPP_WEBHOOK_VERIFY_TOKEN', default='')
 # FASE 2 (auditoria WS/consumer/AI bridge, 2026-08-07): las trazas [WS]/[CHAT] de
