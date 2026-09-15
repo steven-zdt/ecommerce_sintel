@@ -23,6 +23,12 @@ Mapeo:
                                         permissions.py (ADK-13, mismo criterio
                                         que la Policy Layer de action_graph.py)
                                         antes de llamar a la funcion real.
+
+Ademas de este adapter, `deny_after_max_tool_calls_per_turn()` (mas abajo) es un
+`before_tool_callback` real de ADK que limita cuantas Tools se pueden invocar
+dentro de un mismo turno -- gap real que no tenia equivalente nativo en ADK,
+ver auditoria de hardening 2026-09-14.
+
   ToolContext(user, token) de Sintel -> `user` se reconstruye desde
                                         tool_context.state (no sensible,
                                         perfil ya resuelto por Django);
@@ -76,6 +82,52 @@ def set_ephemeral_token(session_id: str, token: str) -> None:
 
 def clear_ephemeral_token(session_id: str) -> None:
     _EPHEMERAL_TOKENS.pop(session_id, None)
+
+
+# Auditoria de hardening (2026-09-14, "PROMPT MAESTRO" seccion 34, "Seguridad del
+# Agente" -- "Definir max tool calls, max iterations... cuando el runtime lo
+# soporte"). Introspeccion real confirmo que `LlmAgent`/`Runner` de Google ADK NO
+# exponen un limite nativo de tool calls/iteraciones por turno (a diferencia del
+# sistema OLD, `action_graph.py::tool_calls[:4]`) -- solo hooks
+# (`before_tool_callback`) donde el runtime que lo usa debe implementar su propio
+# contador. A diferencia de OLD (un solo paso, sin loop real de tool-calling),
+# ADK SI soporta rondas iterativas reales de tool-calling dentro de un mismo turno
+# -- un modelo comprometido/en loop podria en teoria encadenar llamadas
+# indefinidamente. `ToolContext.invocation_id` (real, confirmado via
+# introspeccion) es unico por turno (por llamada a `runner.run_async()`), no por
+# sesion -- clave correcta para un cap por-turno, no acumulativo entre turnos.
+# `sintel_root_workflow.py::run_sintel_turn()` limpia la entrada en su bloque
+# `finally`, igual que `_EPHEMERAL_TOKENS` de arriba.
+MAX_TOOL_CALLS_PER_TURN = 6
+_TOOL_CALL_COUNTS: dict[str, int] = {}
+
+
+def clear_tool_call_count(invocation_id: str) -> None:
+    _TOOL_CALL_COUNTS.pop(invocation_id, None)
+
+
+def deny_after_max_tool_calls_per_turn(*, tool, args, tool_context, **_ignored):
+    """`before_tool_callback` real de ADK: devolver un dict (no None) aqui
+    salta la ejecucion real de la Tool y usa ese dict como su resultado
+    (confirmado via lectura directa de
+    `google.adk.flows.llm_flows._tool_caller`, "Step 2: ... funcion es
+    respondida sin llegar a ejecutarse"). Devolver `None` deja pasar la
+    llamada normalmente -- unico caso donde este callback actua."""
+    invocation_id = tool_context.invocation_id
+    count = _TOOL_CALL_COUNTS.get(invocation_id, 0) + 1
+    _TOOL_CALL_COUNTS[invocation_id] = count
+    if count > MAX_TOOL_CALLS_PER_TURN:
+        logger.warning(
+            "[policy] limite de tool calls por turno alcanzado (%d) en invocation_id=%s, "
+            "tool=%s denegada", MAX_TOOL_CALLS_PER_TURN, invocation_id, tool.name,
+        )
+        return {
+            "error": "Este turno ya alcanzo el limite de acciones permitidas. "
+                      "Reformula tu pregunta en un mensaje nuevo.",
+            "status_code": 429,
+        }
+    return None
+
 
 # ADK-04: 5 tools reales de ai_engine (core_tools.py -- Core*Update/Create)
 # usan `**kwargs` para overrides opcionales (ver ToolMetadata.args_schema,

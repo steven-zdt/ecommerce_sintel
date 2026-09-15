@@ -73,6 +73,8 @@ from sintel_adapter import (
     SINTEL_USER_STATE_KEY,
     adapt_sintel_tool,
     clear_ephemeral_token,
+    clear_tool_call_count,
+    deny_after_max_tool_calls_per_turn,
     set_ephemeral_token,
 )
 from sintel_rag_adapter import SINTEL_KNOWLEDGE_CONTEXT_STATE_KEY, build_knowledge_context
@@ -206,6 +208,9 @@ def get_domain_agent(profile_name: str) -> LlmAgent:
         description=profile.description,
         instruction=instruction_provider,
         tools=tools,
+        # Auditoria de hardening (2026-09-14): cap real de tool calls por turno,
+        # ver deny_after_max_tool_calls_per_turn() en sintel_adapter.py.
+        before_tool_callback=deny_after_max_tool_calls_per_turn,
     )
     _domain_agent_cache[profile_name] = agent
     return agent
@@ -304,6 +309,13 @@ async def run_sintel_turn(
             events.append(event)
     finally:
         clear_ephemeral_token(session_id)
+        # Auditoria de hardening (2026-09-14): limpia el contador de
+        # deny_after_max_tool_calls_per_turn() -- invocation_id es unico por
+        # turno, sin este cleanup el dict de proceso crece sin limite.
+        for event in events:
+            if event.invocation_id:
+                clear_tool_call_count(event.invocation_id)
+                break
 
     _LAST_TURN_AGENT[session_id] = (intent, agent_name, handoff)
 
