@@ -4,7 +4,7 @@ from datetime import timedelta
 from django.db.models import Avg, Count
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
-from support.models import ChatRoom, ChatMessage, ChatRoomContext
+from support.models import ChatRoom, ChatMessage, ChatRoomContext, SupportTicket
 
 _CONTEXT_PREFETCH = 'contexts__order', 'contexts__rental_request'
 
@@ -48,6 +48,44 @@ class ChatSelector:
             .select_related('order', 'rental_request')
             .order_by('-created_at')
         )
+
+
+class SupportTicketSelector:
+
+    @staticmethod
+    def get_by_uuid(uuid):
+        return get_object_or_404(
+            SupportTicket.objects
+            .select_related('chat_room', 'chat_room__user', 'assigned_admin')
+            .filter(is_deleted=False),
+            uuid=uuid,
+        )
+
+    @staticmethod
+    def get_by_chat_room(room: ChatRoom) -> SupportTicket | None:
+        return SupportTicket.objects.filter(chat_room=room, is_deleted=False).first()
+
+    @staticmethod
+    def list_for_admin(status: str | None = None, priority: str | None = None,
+                        assigned_admin_id=None):
+        # Orden por -created_at solamente: PRIORITY_CHOICES ordena alfabetico
+        # (HIGH, LOW, NORMAL, URGENT), no por severidad real -- un ORDER BY
+        # -priority literal dejaria URGENT despues de NORMAL. Cola priorizada
+        # de verdad (Case/When por severidad) es alcance de FASE 8, no de este
+        # selector base.
+        qs = (
+            SupportTicket.objects
+            .filter(is_deleted=False)
+            .select_related('chat_room', 'chat_room__user', 'assigned_admin')
+            .order_by('-created_at')
+        )
+        if status:
+            qs = qs.filter(status=status)
+        if priority:
+            qs = qs.filter(priority=priority)
+        if assigned_admin_id is not None:
+            qs = qs.filter(assigned_admin_id=assigned_admin_id)
+        return qs
 
 
 class ChatAnalyticsSelector:

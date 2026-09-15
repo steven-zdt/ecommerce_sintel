@@ -156,6 +156,63 @@ misma rama `ORDER->Pedido #.../RENTAL->Alquiler #...` estaba duplicada, con codi
 pero independiente, en `consumers.py::_get_room_contexts` (payload WS) y en
 `ChatRoomContextSerializer` (payload REST).
 
+### SupportTicket (2026-09-15 -- objeto de trabajo, separado de la conversacion)
+
+```python
+class SupportTicket(SintelBaseModel):
+    ticket_number  = CharField(unique=True, null=True, blank=True)  # 'SUP-000123', pk-based
+    chat_room      = OneToOneField(ChatRoom, related_name='ticket')
+
+    subject        = CharField(max_length=200, blank=True, default='')
+    summary        = TextField(blank=True, default='')
+
+    status         = CharField(choices=[NEW,OPEN,IN_PROGRESS,WAITING_CUSTOMER,RESOLVED,CLOSED,CANCELLED], default=NEW)
+    priority       = CharField(choices=[LOW,NORMAL,HIGH,URGENT], default=NORMAL)
+    category       = CharField(choices=[ACCOUNT,ORDER,PAYMENT,PRODUCT,RENTING,TECHNICAL,DELIVERY,OTHER], blank=True)
+
+    assigned_admin = ForeignKey(AUTH_USER_MODEL, null=True, blank=True, related_name='assigned_support_tickets')
+    contact_phone  = CharField(max_length=20, blank=True, default='')  # SNAPSHOT, no FK viva
+    contact_email  = EmailField(blank=True, default='')                # SNAPSHOT, no FK viva
+
+    resolved_at    = DateTimeField(null=True, blank=True)
+    closed_at      = DateTimeField(null=True, blank=True)
+```
+
+**Por que existe:** antes de esto, "abrir un ticket" (`OpenSupportTicketTool`) solo dejaba
+`ChatRoom.ai_paused=True` -- no habia ninguna entidad de negocio con asunto, prioridad,
+categoria o numero visible para el operador humano; lo que se veia en `/panel/soporte` era una
+conversacion, no un objeto de trabajo. `ChatRoom`/`ChatMessage` siguen siendo la SSoT de la
+conversacion en si, sin cambios.
+
+- **OneToOne deliberado** (no ForeignKey): hoy solo hay UN flujo real de creacion (Human Handoff
+  via `OpenSupportTicketTool`), siempre sobre la sala resuelta por
+  `ChatCommands.get_or_create_room()` -- una sala nunca tiene mas de un ticket de trabajo activo.
+- **`ticket_number`**: generado a partir del `pk` autoincremental real (`SUP-{pk:06d}`), NO
+  aleatorio -- deliberadamente distinto del patron de `operations.OperationTicket`
+  (`OP-{año}-{uuid4().hex[:8]}`, ver `operations/services/commands.py::_generate_ticket_number`)
+  porque el objetivo aca es que sea memorable/secuencial para el cliente y el operador, no unico
+  por azar. `null=True` hasta el primer `save()` posterior al INSERT (Postgres permite varios
+  NULL bajo `unique=True` sin chocar).
+- **`contact_phone`/`contact_email` son SNAPSHOT**, no `ticket.chat_room.user.profile.
+  phone_number` en vivo -- si el cliente cambia su telefono despues, el ticket debe seguir
+  mostrando el dato de contacto real que tenia al momento de abrirse. El campo maestro real de
+  telefono es `accounts.UserProfile.phone_number` (mismo que ya usa
+  `notifications.tasks.process_whatsapp_inbound_task` para resolver el usuario por WhatsApp) --
+  `users.User` NO tiene telefono propio. `UserProfile` puede no existir (sin señal `post_save`
+  en `User` que lo garantice) -- el snapshot usa `getattr` seguro, nunca rompe la creacion.
+- **`SupportTicketCommands.create_ticket()`** (`support/services/commands.py`) es idempotente por
+  sala: si el cliente vuelve a escribir sobre una sala ya escalada, reusa el ticket existente y
+  solo completa `subject`/`summary`/`category` si venian vacios -- nunca pisa lo que un humano ya
+  edito despues.
+- **`OpenSupportTicketTool`** (`ai_engine/tools/support_tools.py`) ahora acepta `subject`/
+  `summary` opcionales del LLM (ademas de `message`, que sigue siendo obligatorio) -- el backend
+  sigue siendo la autoridad que crea el ticket, el LLM nunca toca el ORM.
+- **Dashboard/BFF de tickets: NO CONSTRUIDO todavia** (`AdminSupportChatViewSet` sigue exactamente
+  igual que antes, sin tocar) -- `SupportTicket` hoy solo es consultable via Django Admin o ORM
+  directo. Cola/asignacion/SLA/auditoria de eventos (equivalentes a FASE 6-10 de un plan de mesa
+  de ayuda completo) quedan pendientes, requieren decision de producto explicita antes de
+  construirse (superficie nueva de API + UI, no solo el modelo).
+
 ---
 
 ## WebSocket (el unico canal de interaccion del cliente)
@@ -444,6 +501,40 @@ if is_ai_mode_active(room) and not is_ai_rate_limited(room):
 ---
 
 ## Cambios Recientes
+
+### 2026-09-15 — Modelo `SupportTicket` (objeto de trabajo, separado de ChatRoom)
+- **Que cambio y por que**: `OpenSupportTicketTool` solo pausaba la IA en `ChatRoom` -- no
+  existia ninguna entidad de negocio con asunto/prioridad/categoria/numero para el operador
+  humano. Nuevo modelo `SupportTicket` (OneToOne con `ChatRoom`) + `SupportTicketCommands`/
+  `SupportTicketSelector` en `support/services/`. Ver seccion "Modelos" arriba para el detalle
+  completo (ticket_number, snapshot de contacto, idempotencia).
+- **Archivos afectados**: `support/models.py` (+`SupportTicket`), `support/migrations/
+  0010_supportticket.py`, `support/services/commands.py` (+`SupportTicketCommands`),
+  `support/services/selectors.py` (+`SupportTicketSelector`), `support/admin.py` (+registro),
+  `support/api/internal_ai.py::AiOpenSupportTicketView` (crea el ticket, snapshot de contacto,
+  `ticket_number`/`subject` en la respuesta -- `room_uuid`/`status`/`attached_context`/`detail`
+  se mantienen intactos, retrocompatible), `ai_engine/tools/support_tools.py::
+  OpenSupportTicketTool` (+`subject`/`summary` opcionales en `args_schema`).
+- **Contrato API**: `POST /api/v1/internal/ai/support/ticket/` ahora acepta `subject`/`summary`
+  opcionales en el body y devuelve `ticket.ticket_number`/`ticket.subject` ademas de los campos
+  previos (aditivo, nada se quito ni se renombro).
+- **Tests**: 7 tests nuevos en `support/tests.py` (creacion con numero/asunto/contacto real via
+  el endpoint, usuario sin `UserProfile` no rompe, idempotencia sin pisar subject, generacion de
+  numero, transiciones de estado, filtros del selector). Suite completa `support` verificada
+  real contra el contenedor dev (pytest no estaba instalado en la imagen -- instalado ad-hoc para
+  poder correr la suite de verdad, no asumir): **37/37 passed**. Regresion `ai_engine`(OLD)
+  112/16, `ai_engine_adk` smoke real end-to-end (Tool Registry -> http_bridge -> Django ->
+  `SupportTicketCommands`) devolvio `SUP-000001` real contra el contenedor dev.
+- **Migracion**: `0010_supportticket.py`, aditiva (tabla nueva), aplicada solo en dev, NO en
+  produccion todavia.
+- **Riesgos**: ninguno estructural -- tabla nueva, no toca `ChatRoom`/`ChatMessage`/
+  `ChatRoomContext` ni ninguna vista/consumer existente. `AdminSupportChatViewSet` (dashboard) NO
+  se toco -- el ticket hoy solo es visible via Django Admin/ORM, sin UI de mesa de ayuda.
+- **Pendiente, requiere decision de producto separada**: dashboard de tickets (cola, asignacion,
+  filtros), API BFF dedicada (`/api/v1/dashboard/support/tickets/...`), SLA/notificaciones sobre
+  `SupportTicket` (hoy `notify_unattended_escalated_tickets` sigue mirando `ChatRoom.ai_paused`,
+  sin tocar), y un `SupportTicketEvent` de auditoria de cambios de estado -- ninguno construido
+  en esta sesion, deliberadamente, dado el alcance (nueva superficie de API + UI).
 
 ### 2026-07-31 — Auditoria Enterprise (AUDITORIA/15) — doc desincronizada + 8 correcciones reales
 - **Documentacion**: corregidos 5 puntos desincronizados con el codigo real (este documento

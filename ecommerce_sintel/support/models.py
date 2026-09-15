@@ -160,3 +160,109 @@ class ChatRoomContext(SintelBaseModel):
         if self.context_type == self.CONTEXT_RENTAL and self.rental_request:
             return f'Alquiler #{self.rental_request.id}'
         return ''
+
+
+class SupportTicket(SintelBaseModel):
+    """
+    Objeto de trabajo para un humano, separado de la conversacion (ChatRoom).
+
+    Antes del 2026-09-15, "abrir un ticket" via OpenSupportTicketTool solo
+    pausaba la IA en la ChatRoom (ai_paused=True) -- no existia ninguna
+    entidad de negocio con asunto/prioridad/categoria/numero visible al
+    operador. Este modelo la crea, sin tocar ChatRoom/ChatMessage (que
+    siguen siendo la SSoT de la conversacion en si).
+
+    Relacion OneToOne deliberada (no ForeignKey): hoy solo existe UN flujo
+    real de creacion (Human Handoff via el AI), siempre sobre la sala ya
+    resuelta por ChatCommands.get_or_create_room -- una sala nunca tiene mas
+    de un ticket de trabajo activo. Si en el futuro se necesita reabrir un
+    caso distinto sobre la misma sala, esa es una decision de producto
+    nueva, no algo que este modelo deba anticipar hoy.
+    """
+    STATUS_NEW              = 'NEW'
+    STATUS_OPEN              = 'OPEN'
+    STATUS_IN_PROGRESS       = 'IN_PROGRESS'
+    STATUS_WAITING_CUSTOMER  = 'WAITING_CUSTOMER'
+    STATUS_RESOLVED          = 'RESOLVED'
+    STATUS_CLOSED            = 'CLOSED'
+    STATUS_CANCELLED         = 'CANCELLED'
+    STATUS_CHOICES = [
+        (STATUS_NEW,             'Nuevo'),
+        (STATUS_OPEN,             'Abierto'),
+        (STATUS_IN_PROGRESS,      'En proceso'),
+        (STATUS_WAITING_CUSTOMER, 'Esperando cliente'),
+        (STATUS_RESOLVED,         'Resuelto'),
+        (STATUS_CLOSED,           'Cerrado'),
+        (STATUS_CANCELLED,        'Cancelado'),
+    ]
+
+    PRIORITY_LOW    = 'LOW'
+    PRIORITY_NORMAL = 'NORMAL'
+    PRIORITY_HIGH   = 'HIGH'
+    PRIORITY_URGENT = 'URGENT'
+    PRIORITY_CHOICES = [
+        (PRIORITY_LOW,    'Baja'),
+        (PRIORITY_NORMAL, 'Normal'),
+        (PRIORITY_HIGH,   'Alta'),
+        (PRIORITY_URGENT, 'Urgente'),
+    ]
+
+    CATEGORY_ACCOUNT   = 'ACCOUNT'
+    CATEGORY_ORDER     = 'ORDER'
+    CATEGORY_PAYMENT   = 'PAYMENT'
+    CATEGORY_PRODUCT   = 'PRODUCT'
+    CATEGORY_RENTING   = 'RENTING'
+    CATEGORY_TECHNICAL = 'TECHNICAL'
+    CATEGORY_DELIVERY  = 'DELIVERY'
+    CATEGORY_OTHER     = 'OTHER'
+    CATEGORY_CHOICES = [
+        (CATEGORY_ACCOUNT,   'Cuenta'),
+        (CATEGORY_ORDER,     'Pedido'),
+        (CATEGORY_PAYMENT,   'Pago'),
+        (CATEGORY_PRODUCT,   'Producto'),
+        (CATEGORY_RENTING,   'Alquiler'),
+        (CATEGORY_TECHNICAL, 'Tecnico'),
+        (CATEGORY_DELIVERY,  'Entrega'),
+        (CATEGORY_OTHER,     'Otro'),
+    ]
+
+    # Nulo hasta justo despues del INSERT (necesita el pk autoincremental real
+    # para el formato SUP-000123) -- unique=True + null=True es seguro en
+    # Postgres, varias filas NULL no chocan entre si; SupportTicketCommands.
+    # create_ticket() lo completa en la misma transaccion atomica, nunca
+    # queda una fila visible con el numero vacio.
+    ticket_number = models.CharField(max_length=20, unique=True, null=True, blank=True, db_index=True)
+    chat_room = models.OneToOneField(ChatRoom, on_delete=models.CASCADE, related_name='ticket')
+
+    subject = models.CharField(max_length=200, blank=True, default='')
+    summary = models.TextField(blank=True, default='')
+
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_NEW, db_index=True)
+    priority = models.CharField(max_length=10, choices=PRIORITY_CHOICES, default=PRIORITY_NORMAL, db_index=True)
+    category = models.CharField(max_length=20, choices=CATEGORY_CHOICES, blank=True, default='')
+
+    assigned_admin = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='assigned_support_tickets',
+    )
+
+    # Snapshot deliberado (no ticket.chat_room.user.profile.phone_number en vivo):
+    # si el cliente cambia su telefono/email despues, el ticket debe seguir
+    # mostrando el dato de contacto real que tenia AL MOMENTO de abrirse.
+    contact_phone = models.CharField(max_length=20, blank=True, default='')
+    contact_email = models.EmailField(blank=True, default='')
+
+    resolved_at = models.DateTimeField(null=True, blank=True)
+    closed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['status', 'priority', 'is_deleted']),
+        ]
+
+    def __str__(self):
+        return f'SupportTicket({self.ticket_number or self.pk})'

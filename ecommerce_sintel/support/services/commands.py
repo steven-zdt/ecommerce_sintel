@@ -1,7 +1,7 @@
 from django.core.cache import cache
 from django.db import transaction
 from django.utils import timezone
-from support.models import ChatRoom, ChatMessage, ChatRoomContext
+from support.models import ChatRoom, ChatMessage, ChatRoomContext, SupportTicket
 
 # Fase 11 (AUDITORIA/23_AUDITORIA_SEGURIDAD.md, 2026-08-01): antes SupportChatConsumer.receive()
 # no tenia NINGUN limite de frecuencia ni de tamano por mensaje -- distinto del rate-limit de
@@ -122,3 +122,76 @@ class ChatCommands:
                 return existing
             return ChatRoomContext.objects.create(room=room, context_type=context_type, rental_request=rental_request, added_by=added_by)
         return None
+
+
+class SupportTicketCommands:
+
+    @staticmethod
+    @transaction.atomic
+    def create_ticket(room: ChatRoom, subject: str = '', summary: str = '',
+                       category: str = '', contact_phone: str = '', contact_email: str = '') -> SupportTicket:
+        """
+        Idempotente por sala: una ChatRoom nunca tiene mas de un SupportTicket
+        (OneToOne). Si ya existe (ej. el cliente vuelve a escribir y el AI
+        vuelve a invocar la Tool sobre la misma sala ya escalada), actualiza
+        subject/summary/category solo si venian vacios -- nunca pisa lo que
+        un humano ya haya editado despues.
+        """
+        existing = SupportTicket.objects.filter(chat_room=room).first()
+        if existing:
+            update_fields = []
+            if subject and not existing.subject:
+                existing.subject = subject
+                update_fields.append('subject')
+            if summary and not existing.summary:
+                existing.summary = summary
+                update_fields.append('summary')
+            if category and not existing.category:
+                existing.category = category
+                update_fields.append('category')
+            if update_fields:
+                update_fields.append('updated_at')
+                existing.save(update_fields=update_fields)
+            return existing
+
+        ticket = SupportTicket.objects.create(
+            chat_room=room, subject=subject, summary=summary, category=category,
+            contact_phone=contact_phone, contact_email=contact_email,
+        )
+        ticket.ticket_number = f'SUP-{ticket.pk:06d}'
+        ticket.save(update_fields=['ticket_number', 'updated_at'])
+        return ticket
+
+    @staticmethod
+    @transaction.atomic
+    def assign_ticket(ticket: SupportTicket, admin) -> SupportTicket:
+        ticket.assigned_admin = admin
+        if ticket.status == SupportTicket.STATUS_NEW:
+            ticket.status = SupportTicket.STATUS_OPEN
+        ticket.save(update_fields=['assigned_admin', 'status', 'updated_at'])
+        return ticket
+
+    @staticmethod
+    @transaction.atomic
+    def change_status(ticket: SupportTicket, status: str) -> SupportTicket:
+        if status not in dict(SupportTicket.STATUS_CHOICES):
+            raise ValueError(f'Estado invalido: {status}')
+        ticket.status = status
+        update_fields = ['status', 'updated_at']
+        if status == SupportTicket.STATUS_RESOLVED and ticket.resolved_at is None:
+            ticket.resolved_at = timezone.now()
+            update_fields.append('resolved_at')
+        if status == SupportTicket.STATUS_CLOSED and ticket.closed_at is None:
+            ticket.closed_at = timezone.now()
+            update_fields.append('closed_at')
+        ticket.save(update_fields=update_fields)
+        return ticket
+
+    @staticmethod
+    @transaction.atomic
+    def set_priority(ticket: SupportTicket, priority: str) -> SupportTicket:
+        if priority not in dict(SupportTicket.PRIORITY_CHOICES):
+            raise ValueError(f'Prioridad invalida: {priority}')
+        ticket.priority = priority
+        ticket.save(update_fields=['priority', 'updated_at'])
+        return ticket

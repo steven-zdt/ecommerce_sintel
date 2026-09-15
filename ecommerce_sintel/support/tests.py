@@ -42,7 +42,7 @@ from rest_framework_simplejwt.tokens import AccessToken
 
 from support.channels_auth import JWTAuthMiddlewareStack
 from support.routing import support_websocket_patterns
-from support.models import ChatRoom, ChatMessage, ChatRoomContext
+from support.models import ChatRoom, ChatMessage, ChatRoomContext, SupportTicket
 from orders.models import Order
 
 application = JWTAuthMiddlewareStack(URLRouter(support_websocket_patterns))
@@ -892,6 +892,79 @@ def test_ai_open_support_ticket_adjunta_orden_propia_y_rechaza_ajena():
     assert forbidden.status_code == status.HTTP_404_NOT_FOUND
 
 
+# ── 13b. SupportTicket real -- creado por AiOpenSupportTicketView (2026-09-15).
+# El ticket es una entidad separada de ChatRoom (ver support/models.py::SupportTicket
+# docstring); antes de esto el "ticket" que veia el operador era solo ChatRoom+
+# ai_paused=True, sin asunto/numero/contacto propios.
+
+@pytest.mark.django_db
+def test_ai_open_support_ticket_crea_supportticket_con_numero_asunto_y_contacto():
+    from accounts.models import UserProfile
+
+    user = get_user_model().objects.create_user(email='ticket.completo@test.sintel', password='x')
+    UserProfile.objects.create(user=user, phone_number='+573001112233')
+    client = APIClient()
+    client.force_authenticate(user=user)
+
+    response = client.post(
+        reverse('internal_ai:ai-support-ticket'),
+        {'message': 'El pago no se aplico a mi pedido',
+         'subject': 'Pago no aplicado', 'summary': 'Cliente reporta pago descontado sin confirmar pedido.'},
+        format='json',
+    )
+
+    assert response.status_code == status.HTTP_201_CREATED
+    assert response.data['ticket']['ticket_number'].startswith('SUP-')
+    assert response.data['ticket']['subject'] == 'Pago no aplicado'
+
+    room = ChatRoom.objects.get(user=user)
+    ticket = SupportTicket.objects.get(chat_room=room)
+    assert ticket.ticket_number == response.data['ticket']['ticket_number']
+    assert ticket.subject == 'Pago no aplicado'
+    assert ticket.summary == 'Cliente reporta pago descontado sin confirmar pedido.'
+    assert ticket.status == SupportTicket.STATUS_NEW
+    # Snapshot al momento de creacion, no una FK viva al perfil.
+    assert ticket.contact_phone == '+573001112233'
+    assert ticket.contact_email == user.email
+
+
+@pytest.mark.django_db
+def test_ai_open_support_ticket_sin_profile_no_rompe():
+    """Un usuario sin UserProfile (nunca creado) no debe romper la creacion del
+    ticket -- contact_phone simplemente queda vacio, nunca un 500."""
+    user = get_user_model().objects.create_user(email='ticket.sinperfil@test.sintel', password='x')
+    client = APIClient()
+    client.force_authenticate(user=user)
+
+    response = client.post(
+        reverse('internal_ai:ai-support-ticket'), {'message': 'necesito ayuda'}, format='json',
+    )
+
+    assert response.status_code == status.HTTP_201_CREATED
+    ticket = SupportTicket.objects.get(ticket_number=response.data['ticket']['ticket_number'])
+    assert ticket.contact_phone == ''
+    assert ticket.contact_email == user.email
+
+
+@pytest.mark.django_db
+def test_ai_open_support_ticket_reusa_ticket_existente_sin_pisar_subject():
+    """Dos mensajes del cliente sobre la misma sala ya escalada (ai_paused=True)
+    no deben crear un segundo SupportTicket -- y si el segundo mensaje llega sin
+    subject/summary, no debe borrar lo que ya se habia guardado."""
+    user = get_user_model().objects.create_user(email='ticket.reusa@test.sintel', password='x')
+    client = APIClient()
+    client.force_authenticate(user=user)
+    url = reverse('internal_ai:ai-support-ticket')
+
+    first = client.post(url, {'message': 'primer mensaje', 'subject': 'Asunto original'}, format='json')
+    second = client.post(url, {'message': 'segundo mensaje'}, format='json')
+
+    assert first.data['ticket']['ticket_number'] == second.data['ticket']['ticket_number']
+    assert SupportTicket.objects.filter(chat_room__user=user).count() == 1
+    ticket = SupportTicket.objects.get(chat_room__user=user)
+    assert ticket.subject == 'Asunto original'
+
+
 # ── 14. Cron de tickets escalados sin seguimiento (E3, auditoria enterprise
 # 2026-07-31). Sin cobertura previa -- se mockea NotificationCommands.dispatch_notification
 # (el envio real por canal, ya cubierto en notifications/tests.py) para probar solo la
@@ -1126,3 +1199,88 @@ async def test_flood_de_mensajes_se_limita_por_usuario():
             lambda: ChatMessage.objects.filter(room=room, sender=user).count()
         )()
         assert count == MESSAGE_FLOOD_LIMIT
+
+
+# ── 18. SupportTicketCommands / SupportTicketSelector (2026-09-15) ──────────
+# Sincrono (sin WebSocket): solo ORM + service layer.
+
+@pytest.mark.django_db
+def test_supportticket_create_ticket_genera_numero_secuencial_unico():
+    from support.services.commands import SupportTicketCommands
+
+    User = get_user_model()
+    room1 = ChatRoom.objects.create(user=User.objects.create_user(email='num1@test.sintel', password='x'))
+    room2 = ChatRoom.objects.create(user=User.objects.create_user(email='num2@test.sintel', password='x'))
+
+    t1 = SupportTicketCommands.create_ticket(room1)
+    t2 = SupportTicketCommands.create_ticket(room2)
+
+    assert t1.ticket_number == f'SUP-{t1.pk:06d}'
+    assert t2.ticket_number == f'SUP-{t2.pk:06d}'
+    assert t1.ticket_number != t2.ticket_number
+
+
+@pytest.mark.django_db
+def test_supportticket_create_ticket_idempotente_por_sala():
+    from support.services.commands import SupportTicketCommands
+
+    room = ChatRoom.objects.create(user=get_user_model().objects.create_user(email='idem@test.sintel', password='x'))
+
+    first = SupportTicketCommands.create_ticket(room, subject='Primero', summary='Resumen original')
+    second = SupportTicketCommands.create_ticket(room, subject='Segundo intento', summary='')
+
+    assert first.pk == second.pk
+    assert SupportTicket.objects.filter(chat_room=room).count() == 1
+    second.refresh_from_db()
+    # subject NO se pisa porque ya tenia valor; summary tampoco (vino vacio).
+    assert second.subject == 'Primero'
+    assert second.summary == 'Resumen original'
+
+
+@pytest.mark.django_db
+def test_supportticket_assign_change_status_set_priority():
+    from support.services.commands import SupportTicketCommands
+
+    User = get_user_model()
+    room = ChatRoom.objects.create(user=User.objects.create_user(email='estados@test.sintel', password='x'))
+    admin = User.objects.create_user(email='admin.estados@test.sintel', password='x', is_staff=True, is_superuser=True)
+    ticket = SupportTicketCommands.create_ticket(room)
+    assert ticket.status == SupportTicket.STATUS_NEW
+
+    ticket = SupportTicketCommands.assign_ticket(ticket, admin)
+    assert ticket.assigned_admin_id == admin.id
+    assert ticket.status == SupportTicket.STATUS_OPEN  # NEW -> OPEN automatico al asignar
+
+    ticket = SupportTicketCommands.set_priority(ticket, SupportTicket.PRIORITY_URGENT)
+    assert ticket.priority == SupportTicket.PRIORITY_URGENT
+
+    ticket = SupportTicketCommands.change_status(ticket, SupportTicket.STATUS_RESOLVED)
+    assert ticket.resolved_at is not None
+    ticket = SupportTicketCommands.change_status(ticket, SupportTicket.STATUS_CLOSED)
+    assert ticket.closed_at is not None
+
+    with pytest.raises(ValueError):
+        SupportTicketCommands.change_status(ticket, 'NOT_A_REAL_STATUS')
+    with pytest.raises(ValueError):
+        SupportTicketCommands.set_priority(ticket, 'NOT_A_REAL_PRIORITY')
+
+
+@pytest.mark.django_db
+def test_supportticket_selector_list_for_admin_filtra():
+    from support.services.commands import SupportTicketCommands
+    from support.services.selectors import SupportTicketSelector
+
+    User = get_user_model()
+    admin = User.objects.create_user(email='admin.filtro@test.sintel', password='x', is_staff=True, is_superuser=True)
+    room_open = ChatRoom.objects.create(user=User.objects.create_user(email='filtro1@test.sintel', password='x'))
+    room_closed = ChatRoom.objects.create(user=User.objects.create_user(email='filtro2@test.sintel', password='x'))
+
+    open_ticket = SupportTicketCommands.create_ticket(room_open)
+    SupportTicketCommands.assign_ticket(open_ticket, admin)
+    closed_ticket = SupportTicketCommands.create_ticket(room_closed)
+    SupportTicketCommands.change_status(closed_ticket, SupportTicket.STATUS_CLOSED)
+
+    assert list(SupportTicketSelector.list_for_admin(status=SupportTicket.STATUS_CLOSED)) == [closed_ticket]
+    assert list(SupportTicketSelector.list_for_admin(assigned_admin_id=admin.id)) == [open_ticket]
+    assert SupportTicketSelector.get_by_chat_room(room_open) == open_ticket
+    assert SupportTicketSelector.get_by_chat_room(room_closed) == closed_ticket

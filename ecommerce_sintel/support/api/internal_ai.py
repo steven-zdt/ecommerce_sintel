@@ -17,7 +17,7 @@ from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
 
 from support.models import ChatRoomContext
-from support.services.commands import ChatCommands
+from support.services.commands import ChatCommands, SupportTicketCommands
 from users.api.permissions import IsAuthenticatedActiveUser
 
 
@@ -78,6 +78,8 @@ class AiOpenSupportTicketView(APIView):
         message = str(request.data.get('message', '')).strip()
         if not message:
             return Response({'error': 'Parametro message requerido.'}, status=http_status.HTTP_400_BAD_REQUEST)
+        subject = str(request.data.get('subject', '')).strip()[:200]
+        summary = str(request.data.get('summary', '')).strip()
 
         room = ChatCommands.get_or_create_room(request.user)
         _dump_ai_transcript(room, request.data.get('history'))
@@ -87,6 +89,16 @@ class AiOpenSupportTicketView(APIView):
             room.ai_paused = True
             room.save(update_fields=['ai_paused', 'updated_at'])
         _notify_support_admins(room, request.user, message)
+
+        # Snapshot deliberado del contacto AL MOMENTO de abrir el ticket (ver
+        # docstring de SupportTicket) -- profile puede no existir (no hay
+        # senal post_save en User que lo garantice), por eso getattr seguro.
+        profile = getattr(request.user, 'profile', None)
+        ticket = SupportTicketCommands.create_ticket(
+            room, subject=subject, summary=summary,
+            contact_phone=getattr(profile, 'phone_number', '') or '',
+            contact_email=request.user.email or '',
+        )
 
         attached = None
         rental_uuid = str(request.data.get('rental_uuid', '')).strip()
@@ -114,11 +126,13 @@ class AiOpenSupportTicketView(APIView):
             SecurityEvent.AI_ACTION_EXECUTED,
             request=request,
             metadata={'tool': 'OpenSupportTicketTool', 'room_uuid': str(room.uuid),
-                      'attached_context': attached},
+                      'ticket_number': ticket.ticket_number, 'attached_context': attached},
         )
         return Response({'ticket': {
+            'ticket_number': ticket.ticket_number,
             'room_uuid': str(room.uuid),
             'status': room.status,
+            'subject': ticket.subject,
             'attached_context': attached,
             'detail': 'Mensaje registrado. Un agente humano atendera la sala de soporte.',
         }}, status=http_status.HTTP_201_CREATED)

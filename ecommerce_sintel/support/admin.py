@@ -1,5 +1,5 @@
 from django.contrib import admin
-from support.models import ChatRoom, ChatMessage, ChatRoomContext
+from support.models import ChatRoom, ChatMessage, ChatRoomContext, SupportTicket
 
 
 @admin.register(ChatRoom)
@@ -26,3 +26,11 @@ class ChatRoomContextAdmin(admin.ModelAdmin):
     list_display = ('room', 'context_type', 'order', 'rental_request', 'created_at')
     list_filter = ('context_type',)
     raw_id_fields = ('room', 'order', 'rental_request')
+
+
+@admin.register(SupportTicket)
+class SupportTicketAdmin(admin.ModelAdmin):
+    list_display = ('ticket_number', 'subject', 'status', 'priority', 'category', 'assigned_admin', 'created_at')
+    list_filter = ('status', 'priority', 'category')
+    search_fields = ('ticket_number', 'subject', 'chat_room__user__email', 'contact_phone', 'contact_email')
+    raw_id_fields = ('chat_room', 'assigned_admin')
