@@ -101,11 +101,19 @@ industria; no se audita como hecho del proyecto.
   (mismo hallazgo de esta sesión, severidad estimada baja porque Django es la autoridad final
   para tools que proxean vía `http_bridge.py`) -- riesgo abierto, documentado, no resuelto
   todavía (ver `ADK_CUTOVER_PLAN.md` 4nonies, "Riesgo pendiente").
-- **Secretos (`notas.txt`):** **REAL, confirmado, sigue abierto.** `notas.txt` sigue existiendo
-  en la raíz del repo (363 líneas, contiene texto con forma de credencial). Documentado como
-  pendiente en `IMPLEMENTATION_SUMMARY.md:1983` ("Rotar credenciales expuestas en `notas.txt`,
-  P1-03 de AUDITORIA/33"). **No se rotó en esta sesión** -- requiere decisión explícita del
-  usuario sobre qué credenciales y cómo.
+- **Secretos (`notas.txt`):** **PARCIALMENTE CERRADO 2026-09-14.** `notas.txt` sigue existiendo
+  en la raíz del repo (363 líneas, contiene texto con forma de credencial), NUNCA trackeado
+  por git (`.gitignore:55`) -- eso ya estaba bien. Pedido explícito del usuario ("excluye de
+  toda imagen de produccion y/o desarrollo el archivo notas.txt, es para control solo mio")
+  encontró un hallazgo real: `.dockerignore` (raíz del repo, el que aplica al build context
+  `..` de `django`) tenía un typo -- `.notas.txt` (con punto) en vez de `notas.txt` (sin
+  punto), el patrón nunca coincidía. No causaba fuga activa hoy (`Dockerfile` hace
+  `COPY ecommerce_sintel/ /code/`, `notas.txt` vive fuera de ese subdirectorio) pero era una
+  capa de defensa rota -- **corregido**. Lo que sigue sin rotar (documentado como pendiente en
+  `IMPLEMENTATION_SUMMARY.md:1983`, "Rotar credenciales expuestas en `notas.txt`, P1-03 de
+  AUDITORIA/33") es la rotación real de las credenciales que ese archivo pudo haber expuesto
+  -- pedido distinto ("excluir el archivo de las imágenes" vs "rotar las credenciales que
+  contiene"), requiere decisión explícita del usuario sobre cuáles y cómo.
 - **Backups off-host:** **REAL, confirmado, sigue abierto.**
   `IMPLEMENTATION_SUMMARY.md:1984`: backups hoy en `C:\Users\Administrator\sintel_backups`,
   mismo host que los datos (P2-01 de AUDITORIA/33). No se tocó en esta sesión.
