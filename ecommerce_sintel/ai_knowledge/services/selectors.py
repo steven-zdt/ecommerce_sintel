@@ -97,8 +97,14 @@ class RetrievalService:
 
         # cosine_distance: 0 = identico, 2 = opuesto -- ordenar ascendente
         # es "mas parecido primero", igual semantica que la similitud coseno
-        # que Chroma exponia como score.
-        results = qs.order_by(CosineDistance('embedding', query_vector))[:k]
+        # que Chroma exponia como score. Se anota y se devuelve (campo
+        # "distance") -- Mision RAG Enterprise FASE 6: retrieval confidence/
+        # answerability necesita la distancia real, no solo el orden, para
+        # decidir si hay evidencia suficiente (ver sintel_rag_adapter.py).
+        results = (
+            qs.annotate(distance=CosineDistance('embedding', query_vector))
+            .order_by('distance')[:k]
+        )
 
         return [
             {
@@ -107,6 +113,7 @@ class RetrievalService:
                 'app_name': chunk.document.app_name,
                 'title': chunk.document.title,
                 'updated_at': chunk.document.updated_at.isoformat(),
+                'distance': float(chunk.distance),
             }
             for chunk in results
         ]

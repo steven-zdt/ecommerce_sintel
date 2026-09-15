@@ -92,6 +92,51 @@ class RetrievalVisibilityTests(TestCase):
         self.assertEqual(results, [])
 
 
+class RetrievalDistanceTests(TestCase):
+    """Mision RAG Enterprise (2026-09-16, FASE 6): RetrievalService ahora
+    anota y devuelve la distancia coseno real de cada chunk -- necesaria
+    para retrieval confidence/answerability en sintel_rag_adapter.py. Antes
+    de esto, el campo no existia en la respuesta; el orden ya era correcto
+    pero no habia forma de saber CUANTO mejor era el primer resultado."""
+
+    def setUp(self):
+        self.close_doc = AIKnowledgeDocumentCommands.upsert_document(
+            title='Cercano', content='contenido cercano', visibility=AIKnowledgeDocument.VISIBILITY_PUBLIC,
+        )
+        self.far_doc = AIKnowledgeDocumentCommands.upsert_document(
+            title='Lejano', content='contenido lejano', visibility=AIKnowledgeDocument.VISIBILITY_PUBLIC,
+        )
+        close_chunk = self.close_doc.chunks.first()
+        close_chunk.embedding = _fake_vector(1.0)
+        close_chunk.embedding_model = 'fake-model'
+        close_chunk.save()
+        far_chunk = self.far_doc.chunks.first()
+        far_chunk.embedding = _fake_vector(-1.0)
+        far_chunk.embedding_model = 'fake-model'
+        far_chunk.save()
+
+    @patch('ai_knowledge.services.selectors.EmbeddingService.embed_text')
+    def test_cada_resultado_incluye_distance_como_float(self, mock_embed):
+        mock_embed.return_value = (_fake_vector(1.0), 'fake-model')
+        results = RetrievalService.retrieve_public_knowledge('consulta')
+        self.assertEqual(len(results), 2)
+        for r in results:
+            self.assertIn('distance', r)
+            self.assertIsInstance(r['distance'], float)
+
+    @patch('ai_knowledge.services.selectors.EmbeddingService.embed_text')
+    def test_distance_menor_para_el_resultado_mas_cercano(self, mock_embed):
+        # Query identico al vector "cercano" -- su distancia coseno debe ser
+        # ~0 (identico), la del "lejano" (vector opuesto) debe ser ~2.
+        mock_embed.return_value = (_fake_vector(1.0), 'fake-model')
+        results = RetrievalService.retrieve_public_knowledge('consulta')
+        by_title = {r['title']: r['distance'] for r in results}
+        self.assertLess(by_title['Cercano'], 0.01)
+        self.assertGreater(by_title['Lejano'], 1.9)
+        # Y el orden real de la lista debe reflejar esto (mas cercano primero).
+        self.assertEqual(results[0]['title'], 'Cercano')
+
+
 class RetrievalDegradationTests(TestCase):
     @patch('ai_knowledge.services.selectors.EmbeddingService.embed_text')
     def test_retrieval_returns_empty_list_without_provider(self, mock_embed):

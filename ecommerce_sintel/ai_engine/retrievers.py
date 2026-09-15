@@ -81,9 +81,13 @@ async def retrieve_knowledge_for_chat(query: str, apps: list[str] | None = None,
     relevante -- mismo criterio de degradacion con gracia que ya tenia esta
     funcion con vectorstore=None sobre ChromaDB.
 
-    Cada elemento: {"content", "source", "app_name", "title", "updated_at"}
-    -- ya NO son langchain Document (sin .page_content); ver
+    Cada elemento: {"content", "source", "app_name", "title", "updated_at",
+    "distance"} -- ya NO son langchain Document (sin .page_content); ver
     action_graph.py::node_retrieve_knowledge para el consumidor real.
+    "distance" (Mision RAG Enterprise FASE 6, 2026-09-16): distancia coseno
+    real de pgvector (0=identico, 2=opuesto), usada por
+    sintel_rag_adapter.py para retrieval confidence/answerability -- nunca
+    se recalcula aqui, solo se reenvia tal cual la devuelve Django.
     """
     if not apps:
         apps = detect_apps_from_text(query)

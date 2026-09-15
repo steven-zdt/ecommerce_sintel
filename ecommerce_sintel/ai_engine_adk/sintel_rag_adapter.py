@@ -39,19 +39,71 @@ SINTEL_KNOWLEDGE_CONTEXT_STATE_KEY = "sintel_knowledge_context"
 
 _NO_KNOWLEDGE_MARKER = "NINGUNO -- no se encontro informacion verificada sobre este tema."
 
+# Mision RAG Enterprise FASE 6 (2026-09-16, ver AUDITORIA/RAG_SUPPORT_BASELINE.md):
+# retrieval confidence / answerability check. Antes de esto, la unica senal era
+# "hay chunks" vs "no hay chunks" -- un chunk semanticamente lejano pero devuelto
+# igual (top-k siempre rellena k resultados si existen, sin piso de calidad) se
+# trataba identico a uno realmente relevante. El LLM no debe responder con
+# confianza cuando la evidencia recuperada es debil -- mismo espiritu que el
+# marcador de Fase 17 de abajo, extendido con una senal real de similitud.
+_LOW_CONFIDENCE_MARKER = (
+    "EVIDENCIA INSUFICIENTE -- se encontro informacion relacionada pero con baja "
+    "similitud a la pregunta. No la uses para afirmar datos concretos (precios, "
+    "politicas, horarios, plazos). Indica que no tienes informacion verificada "
+    "suficiente sobre eso y ofrece escalar con un agente humano si el cliente insiste."
+)
+
+# Umbral de similitud minima para considerar la evidencia suficiente.
+# similarity = 1 - cosine_distance (convencion pgvector: 0=identico, 2=opuesto).
+# Valor de partida conservador, DOCUMENTADO COMO NO CALIBRADO: ai_knowledge esta
+# vacio en este momento (hallazgo F-1 del baseline) -- no hay corpus real contra
+# el cual medir un umbral optimo. Recalibrar con evaluacion real (Fase 10 de la
+# mision) en cuanto exista contenido real ingerido.
+MIN_ANSWERABLE_SIMILARITY = 0.35
+
+
+def _similarity(distance: float) -> float:
+    """cosine_distance real de pgvector -> similitud (1=identico, mas alto=mejor)."""
+    return 1.0 - distance
+
 
 async def build_knowledge_context(message: str, apps: list[str] | None = None) -> str:
     """Reutiliza `retrievers.retrieve_knowledge_for_chat` real (import
     diferido, mismo criterio que `sintel_adapter.py`: el modulo de
     ai_engine solo debe existir en sys.path cuando se usa este adapter).
-    Replica EXACTAMENTE el recorte/formato/gobernanza real de
-    `action_graph.py::node_retrieve_knowledge` -- mismo truncado a
-    `MAX_KNOWLEDGE_CHUNKS` chunks de 800 chars, mismo separador, mismo
-    marcador de Fase 17 cuando no hay resultados."""
+
+    Mision RAG Enterprise (2026-09-16), sobre la base de Fase 17 original:
+    1. Retrieval confidence / answerability: si ni el mejor candidato supera
+       MIN_ANSWERABLE_SIMILARITY, se trata igual que "sin evidencia" (marcador
+       explicito) en vez de dejar que el LLM improvise sobre un chunk lejano.
+    2. Context assembly estructurado (Fase 5): antes se enviaba solo
+       `d["content"]` crudo -- title/source/app_name/updated_at que Django ya
+       devuelve se pedian y se descartaban (hallazgo F-5 del baseline). Ahora
+       cada fuente lleva un encabezado con esa metadata real, para que el LLM
+       pueda valorar autoridad/vigencia de la evidencia, no solo su contenido.
+
+    Mismo truncado a `MAX_KNOWLEDGE_CHUNKS` chunks de 800 chars y mismo
+    presupuesto total `MAX_CONTEXT_CHARS` que la version original."""
     from routing import MAX_CONTEXT_CHARS, MAX_KNOWLEDGE_CHUNKS
     from retrievers import retrieve_knowledge_for_chat
 
     docs: list[dict[str, Any]] = (await retrieve_knowledge_for_chat(message, apps=apps))[:MAX_KNOWLEDGE_CHUNKS]
     if not docs:
         return _NO_KNOWLEDGE_MARKER
-    return "\n---\n".join(d["content"][:800] for d in docs)[:MAX_CONTEXT_CHARS]
+
+    # default=2.0 (maxima distancia posible -> similarity=-1.0, "insuficiente")
+    # si algun caller no incluye "distance" -- tratar dato ausente como
+    # evidencia NO confiable, nunca como el mejor caso posible (bug real
+    # encontrado por el propio test de esta mision: 0.0 por defecto daba
+    # similarity=1.0, lo opuesto de lo pretendido).
+    best_similarity = max(_similarity(d.get("distance", 2.0)) for d in docs)
+    if best_similarity < MIN_ANSWERABLE_SIMILARITY:
+        return _LOW_CONFIDENCE_MARKER
+
+    blocks = []
+    for i, d in enumerate(docs, start=1):
+        domain = d.get("app_name") or "general"
+        updated = (d.get("updated_at") or "")[:10]
+        header = f"[Fuente {i}] {d['title']} (dominio: {domain}, actualizado: {updated})"
+        blocks.append(f"{header}\n{d['content'][:800]}")
+    return "\n---\n".join(blocks)[:MAX_CONTEXT_CHARS]
