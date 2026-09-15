@@ -37,6 +37,17 @@ from typing import Any
 
 SINTEL_KNOWLEDGE_CONTEXT_STATE_KEY = "sintel_knowledge_context"
 
+# Diagnosticos por defecto cuando el turno NO es intent=="knowledge" -- nunca
+# se llama a fetch_and_assemble_knowledge en ese caso (mismo criterio de
+# siempre: retrieval solo corre si el router determinista lo decide).
+EMPTY_KNOWLEDGE_DIAGNOSTICS: dict = {
+    "metadata_filters": None,
+    "retrieval_candidates": None,
+    "retrieval_latency_ms": None,
+    "best_similarity": None,
+    "selected_sources": [],
+}
+
 _NO_KNOWLEDGE_MARKER = "NINGUNO -- no se encontro informacion verificada sobre este tema."
 
 # Mision RAG Enterprise FASE 6 (2026-09-16, ver AUDITORIA/RAG_SUPPORT_BASELINE.md):
@@ -67,8 +78,23 @@ def _similarity(distance: float) -> float:
     return 1.0 - distance
 
 
-async def build_knowledge_context(message: str, apps: list[str] | None = None) -> str:
-    """Reutiliza `retrievers.retrieve_knowledge_for_chat` real (import
+async def fetch_and_assemble_knowledge(message: str, apps: list[str] | None = None) -> tuple[str, dict]:
+    """Nucleo real de la construccion de contexto -- devuelve tambien
+    diagnosticos de observabilidad (Mision RAG-POST2, FASE 5, 2026-09-16):
+    `metadata_filters` (apps resueltos, mismo criterio de fallback que
+    `retrievers.retrieve_knowledge_for_chat` -- replicado aqui, NO se cambia
+    la firma de esa funcion porque tambien la usa `ai_engine/action_graph.py`
+    del runtime OLD), `retrieval_candidates` (cuantos chunks devolvio Django
+    antes de truncar a MAX_KNOWLEDGE_CHUNKS), `retrieval_latency_ms`
+    (tiempo real de la llamada HTTP interna), `best_similarity` y
+    `selected_sources` (titulos de las fuentes que realmente entraron al
+    contexto -- [] si el turno fue no_knowledge/low_confidence).
+
+    `build_knowledge_context()` (abajo) sigue siendo un wrapper delgado que
+    devuelve SOLO el texto -- contrato sin cambios para no romper
+    `test_rag_confidence_and_assembly.py` ni ningun otro caller existente.
+
+    Reutiliza `retrievers.retrieve_knowledge_for_chat` real (import
     diferido, mismo criterio que `sintel_adapter.py`: el modulo de
     ai_engine solo debe existir en sys.path cuando se usa este adapter).
 
@@ -84,12 +110,28 @@ async def build_knowledge_context(message: str, apps: list[str] | None = None) -
 
     Mismo truncado a `MAX_KNOWLEDGE_CHUNKS` chunks de 800 chars y mismo
     presupuesto total `MAX_CONTEXT_CHARS` que la version original."""
-    from routing import MAX_CONTEXT_CHARS, MAX_KNOWLEDGE_CHUNKS
-    from retrievers import retrieve_knowledge_for_chat
+    import time
 
-    docs: list[dict[str, Any]] = (await retrieve_knowledge_for_chat(message, apps=apps))[:MAX_KNOWLEDGE_CHUNKS]
+    from routing import MAX_CONTEXT_CHARS, MAX_KNOWLEDGE_CHUNKS
+    from retrievers import detect_apps_from_text, retrieve_knowledge_for_chat
+
+    resolved_apps = apps if apps else detect_apps_from_text(message)
+
+    started = time.monotonic()
+    docs_all: list[dict[str, Any]] = await retrieve_knowledge_for_chat(message, apps=apps)
+    retrieval_latency_ms = round((time.monotonic() - started) * 1000)
+    docs = docs_all[:MAX_KNOWLEDGE_CHUNKS]
+
+    diagnostics: dict[str, Any] = {
+        "metadata_filters": resolved_apps,
+        "retrieval_candidates": len(docs_all),
+        "retrieval_latency_ms": retrieval_latency_ms,
+        "best_similarity": None,
+        "selected_sources": [],
+    }
+
     if not docs:
-        return _NO_KNOWLEDGE_MARKER
+        return _NO_KNOWLEDGE_MARKER, diagnostics
 
     # default=2.0 (maxima distancia posible -> similarity=-1.0, "insuficiente")
     # si algun caller no incluye "distance" -- tratar dato ausente como
@@ -97,13 +139,26 @@ async def build_knowledge_context(message: str, apps: list[str] | None = None) -
     # encontrado por el propio test de esta mision: 0.0 por defecto daba
     # similarity=1.0, lo opuesto de lo pretendido).
     best_similarity = max(_similarity(d.get("distance", 2.0)) for d in docs)
+    diagnostics["best_similarity"] = round(best_similarity, 4)
     if best_similarity < MIN_ANSWERABLE_SIMILARITY:
-        return _LOW_CONFIDENCE_MARKER
+        return _LOW_CONFIDENCE_MARKER, diagnostics
 
     blocks = []
+    selected_sources = []
     for i, d in enumerate(docs, start=1):
         domain = d.get("app_name") or "general"
         updated = (d.get("updated_at") or "")[:10]
         header = f"[Fuente {i}] {d['title']} (dominio: {domain}, actualizado: {updated})"
         blocks.append(f"{header}\n{d['content'][:800]}")
-    return "\n---\n".join(blocks)[:MAX_CONTEXT_CHARS]
+        selected_sources.append(d["title"])
+    diagnostics["selected_sources"] = selected_sources
+    return "\n---\n".join(blocks)[:MAX_CONTEXT_CHARS], diagnostics
+
+
+async def build_knowledge_context(message: str, apps: list[str] | None = None) -> str:
+    """Wrapper delgado sobre `fetch_and_assemble_knowledge` -- contrato sin
+    cambios (str) para no romper callers/tests existentes. Usar
+    `fetch_and_assemble_knowledge` directamente cuando se necesiten los
+    diagnosticos de observabilidad (ver `sintel_root_workflow.py`)."""
+    text, _diagnostics = await fetch_and_assemble_knowledge(message, apps)
+    return text

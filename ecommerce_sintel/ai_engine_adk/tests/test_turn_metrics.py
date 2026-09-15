@@ -89,3 +89,70 @@ async def test_metrics_nunca_incluye_datos_sensibles():
     metrics_keys = set(result["metrics"].keys())
     forbidden = {"token", "jwt", "reasoning", "internal_reasoning", "password", "secret"}
     assert not (metrics_keys & forbidden)
+
+
+# ── Mision RAG-POST2 (FASE 5, 2026-09-16): observabilidad extendida ────────
+
+
+@pytest.mark.asyncio
+async def test_metrics_request_id_es_unico_por_turno():
+    r1 = await _turn("hola", [], user_id=74, conversation_id="tm5-conv")
+    r2 = await _turn("hola de nuevo", [], user_id=74, conversation_id="tm5-conv")
+    assert r1["metrics"]["request_id"]
+    assert r2["metrics"]["request_id"]
+    assert r1["metrics"]["request_id"] != r2["metrics"]["request_id"]
+
+
+@pytest.mark.asyncio
+async def test_metrics_retrieval_diagnostics_con_evidencia_real():
+    evidence = [{"content": "La garantia es de 12 meses.", "source": "manual",
+                 "app_name": "shop", "title": "Politica de garantia",
+                 "updated_at": "2026-09-15T00:00:00+00:00", "distance": 0.05}]
+    result = await _turn(
+        "cual es la garantia?", evidence, user_id=75, conversation_id="tm6-conv",
+        extra_patches=[patch("sintel_root_workflow.check_grounding", new=AsyncMock(return_value="SUPPORTED"))],
+    )
+    metrics = result["metrics"]
+    assert metrics["retrieval_candidates"] == 1
+    assert metrics["selected_sources"] == ["Politica de garantia"]
+    assert metrics["best_similarity"] is not None and metrics["best_similarity"] > 0.9
+    assert isinstance(metrics["retrieval_latency_ms"], int)
+    assert isinstance(metrics["agent_latency_ms"], int) and metrics["agent_latency_ms"] >= 0
+    assert isinstance(metrics["grounding_latency_ms"], int) and metrics["grounding_latency_ms"] >= 0
+    assert isinstance(metrics["metadata_filters"], list)
+
+
+@pytest.mark.asyncio
+async def test_metrics_retrieval_diagnostics_vacios_si_intent_no_es_knowledge():
+    result = await _turn("hola, necesito ayuda con mi pedido", [], user_id=76, conversation_id="tm7-conv")
+    metrics = result["metrics"]
+    assert metrics["retrieval_candidates"] is None
+    assert metrics["selected_sources"] == []
+    assert metrics["best_similarity"] is None
+    assert metrics["retrieval_latency_ms"] is None
+    assert metrics["grounding_latency_ms"] is None
+    # agent_latency_ms SI corre siempre (el Runner de ADK corre para todo
+    # intent, no solo "knowledge") -- unico campo de latencia no condicionado
+    # a retrieval.
+    assert isinstance(metrics["agent_latency_ms"], int)
+
+
+@pytest.mark.asyncio
+async def test_metrics_escalation_true_cuando_se_abre_ticket_de_soporte():
+    result = await _turn(
+        "quiero hablar con un humano, tengo un reclamo", [], user_id=77, conversation_id="tm8-conv",
+        extra_patches=[patch(
+            "sintel_root_workflow.extract_public_response",
+            return_value=(
+                "Te conecto con un agente humano.", None, ["abrir_ticket_soporte"],
+                [{"capability": "abrir_ticket_soporte", "result": {"ticket_number": "SUP-1"}}],
+            ),
+        )],
+    )
+    assert result["metrics"]["escalation"] is True
+
+
+@pytest.mark.asyncio
+async def test_metrics_escalation_false_sin_ticket():
+    result = await _turn("hola", [], user_id=78, conversation_id="tm9-conv")
+    assert result["metrics"]["escalation"] is False

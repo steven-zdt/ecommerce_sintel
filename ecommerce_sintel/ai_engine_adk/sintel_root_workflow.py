@@ -59,6 +59,7 @@ riesgo heredado y documentado, no resuelto silenciosamente aqui.
 """
 import logging
 import time
+import uuid
 
 from google.adk.features._feature_registry import FeatureName, override_feature_enabled
 
@@ -83,10 +84,11 @@ from sintel_adapter import (
     set_ephemeral_token,
 )
 from sintel_rag_adapter import (
+    EMPTY_KNOWLEDGE_DIAGNOSTICS,
     SINTEL_KNOWLEDGE_CONTEXT_STATE_KEY,
     _LOW_CONFIDENCE_MARKER,
     _NO_KNOWLEDGE_MARKER,
-    build_knowledge_context,
+    fetch_and_assemble_knowledge,
 )
 from public_response import REQUEST_CONFIRMATION_FUNCTION_CALL_NAME, extract_public_response
 from grounding import UNGROUNDED_FALLBACK_RESPONSE, UNSUPPORTED, check_grounding
@@ -302,6 +304,10 @@ async def run_sintel_turn(
     # Mision RAG Enterprise (2026-09-16, FASE 11 -- observabilidad): duracion
     # real del turno completo (identidad -> retrieval -> ADK -> grounding).
     turn_started_at = time.monotonic()
+    # Mision RAG-POST2 (FASE 5, 2026-09-16): id real de correlacion por
+    # turno -- ADK no expone uno propio estable entre eventos de un mismo
+    # turno, se genera aqui, antes de cualquier rama de retorno.
+    request_id = f"req-{uuid.uuid4()}"
 
     context = await resolve_identity(token)
     user_id = context["user_id"]
@@ -324,6 +330,7 @@ async def run_sintel_turn(
             "tool_calls": [], "tool_results": [], "needs_confirmation": False,
             "confirmation": None, "events": [],
             "metrics": {
+                "request_id": request_id,
                 "rate_limited": True,
                 "duration_ms": round((time.monotonic() - turn_started_at) * 1000),
             },
@@ -335,6 +342,7 @@ async def run_sintel_turn(
     if is_resume:
         intent, agent_name, handoff = _LAST_TURN_AGENT.get(session_id, ("unknown", None, None))
         knowledge_context = ""
+        knowledge_diagnostics = dict(EMPTY_KNOWLEDGE_DIAGNOSTICS)
         confirmation_payload = ToolConfirmation(confirmed=bool(confirm))
         adk_message = types.Content(
             role="user",
@@ -346,7 +354,11 @@ async def run_sintel_turn(
         _PENDING_CONFIRMATIONS.pop(session_id, None)
     else:
         intent, agent_name, handoff = resolve_turn_agent(message)
-        knowledge_context = await build_knowledge_context(message) if intent == "knowledge" else ""
+        if intent == "knowledge":
+            knowledge_context, knowledge_diagnostics = await fetch_and_assemble_knowledge(message)
+        else:
+            knowledge_context = ""
+            knowledge_diagnostics = dict(EMPTY_KNOWLEDGE_DIAGNOSTICS)
         adk_message = types.Content(role="user", parts=[types.Part(text=message)])
 
     domain_agent = get_domain_agent(agent_name)
@@ -365,6 +377,7 @@ async def run_sintel_turn(
 
     events = []
     set_ephemeral_token(session_id, token)
+    agent_started_at = time.monotonic()
     try:
         async for event in runner.run_async(
             user_id=str(user_id), session_id=session_id, new_message=adk_message,
@@ -372,6 +385,7 @@ async def run_sintel_turn(
         ):
             events.append(event)
     finally:
+        agent_latency_ms = round((time.monotonic() - agent_started_at) * 1000)
         clear_ephemeral_token(session_id)
         # Auditoria de hardening (2026-09-14): limpia el contador de
         # deny_after_max_tool_calls_per_turn() -- invocation_id es unico por
@@ -417,10 +431,13 @@ async def run_sintel_turn(
         and knowledge_context
         and knowledge_context not in (_NO_KNOWLEDGE_MARKER, _LOW_CONFIDENCE_MARKER)
     )
+    grounding_latency_ms: int | None = None
     if has_real_knowledge_evidence and final_text:
+        grounding_started_at = time.monotonic()
         grounding_verdict = await check_grounding(
             response=final_text, evidence=knowledge_context, **_resolve_primary_llm_params(),
         )
+        grounding_latency_ms = round((time.monotonic() - grounding_started_at) * 1000)
         if grounding_verdict == UNSUPPORTED:
             logger.warning(
                 "[grounding] respuesta NO sustentada por la evidencia recuperada, "
@@ -447,15 +464,39 @@ async def run_sintel_turn(
     else:
         knowledge_state = "answered"
 
+    # Mision RAG-POST2 (FASE 5, 2026-09-16): observabilidad extendida --
+    # request_id (correlacion real por turno, generado aqui porque ADK no
+    # expone uno propio de forma estable entre eventos), metadata_filters/
+    # retrieval_candidates/selected_sources/best_similarity (de
+    # fetch_and_assemble_knowledge), desglose de latencia por segmento
+    # (antes solo existia duration_ms total) y escalation (True si el turno
+    # abrio un ticket de soporte -- mismo criterio real que
+    # support/services/ai_bridge.py::ai_response_opened_ticket, replicado
+    # aqui porque ai_engine_adk no puede importar codigo de Django).
+    escalation = any(
+        isinstance(r, dict) and r.get("capability") == "abrir_ticket_soporte"
+        and isinstance(r.get("result"), dict) and not r["result"].get("error")
+        for r in tool_results
+    )
+
     metrics = {
+        "request_id": request_id,
         "agent": agent_name,
         "intent": intent,
         "handoff": handoff,
+        "escalation": escalation,
         "tool_calls": len(tool_calls),
         "needs_confirmation": needs_confirmation,
         "retrieval_used": has_real_knowledge_evidence,
         "knowledge_state": knowledge_state,
+        "metadata_filters": knowledge_diagnostics.get("metadata_filters"),
+        "retrieval_candidates": knowledge_diagnostics.get("retrieval_candidates"),
+        "selected_sources": knowledge_diagnostics.get("selected_sources"),
+        "best_similarity": knowledge_diagnostics.get("best_similarity"),
         "grounding_result": grounding_verdict,
+        "retrieval_latency_ms": knowledge_diagnostics.get("retrieval_latency_ms"),
+        "agent_latency_ms": agent_latency_ms,
+        "grounding_latency_ms": grounding_latency_ms,
         "duration_ms": round((time.monotonic() - turn_started_at) * 1000),
     }
 
