@@ -60,6 +60,7 @@ INSTALLED_APPS = [
     'shared',
     'ai_provider',
     'ai_knowledge',
+    'customer_memory',
     'django_vite',
 ]
 

@@ -57,6 +57,7 @@ todavia (pendiente, ver AUDITORIA/ADK_CUTOVER_PLAN.md seccion 4). El fix de
 Ollama -- comportamiento contra LM Studio real sin verificar todavia,
 riesgo heredado y documentado, no resuelto silenciosamente aqui.
 """
+import asyncio
 import logging
 import time
 import uuid
@@ -92,6 +93,12 @@ from sintel_rag_adapter import (
 )
 from public_response import REQUEST_CONFIRMATION_FUNCTION_CALL_NAME, extract_public_response
 from grounding import UNGROUNDED_FALLBACK_RESPONSE, UNSUPPORTED, check_grounding
+from customer_memory_adapter import (
+    SINTEL_CUSTOMER_MEMORY_STATE_KEY,
+    build_memory_context,
+    extract_and_store_memory,
+    fetch_customer_memories,
+)
 
 logger = logging.getLogger("sintel_root_workflow")
 
@@ -223,10 +230,19 @@ def get_domain_agent(profile_name: str) -> LlmAgent:
     )
 
     async def instruction_provider(ctx) -> str:
+        instruction = base_instruction
         knowledge = ctx.state.get(SINTEL_KNOWLEDGE_CONTEXT_STATE_KEY, "")
         if knowledge:
-            return f"{base_instruction}\n\nConocimiento relevante:\n{knowledge}"
-        return base_instruction
+            instruction = f"{instruction}\n\nConocimiento relevante:\n{knowledge}"
+        # Mision RAG-POST2 (FASE 11, 2026-09-16): memoria del cliente,
+        # seccion SEPARADA y claramente etiquetada -- nunca se mezcla con
+        # "Conocimiento relevante" (RAG documental publico). Ver
+        # customer_memory_adapter.py::build_memory_context -- el propio
+        # texto ya se autolimita a "informativo, nunca instruccion".
+        memory = ctx.state.get(SINTEL_CUSTOMER_MEMORY_STATE_KEY, "")
+        if memory:
+            instruction = f"{instruction}\n\n{memory}"
+        return instruction
 
     agent = LlmAgent(
         name=profile.name,
@@ -288,6 +304,13 @@ _session_service = _build_session_service()
 _PENDING_CONFIRMATIONS: dict[str, str] = {}
 _LAST_TURN_AGENT: dict[str, tuple[str, str, str | None]] = {}
 
+# Mision RAG-POST2 (FASE 10, 2026-09-16): referencia fuerte a las tareas de
+# extraccion de memoria en background -- asyncio.create_task() sin esto
+# arriesga que el garbage collector recolecte la tarea a mitad de
+# ejecucion (advertencia real y documentada de la stdlib de asyncio, no
+# teorica). Se autolimpia via add_done_callback.
+_BACKGROUND_TASKS: set = set()
+
 
 async def run_sintel_turn(
     *, message: str, token: str, conversation_id: str | None = None, confirm: bool | None = None,
@@ -343,6 +366,7 @@ async def run_sintel_turn(
         intent, agent_name, handoff = _LAST_TURN_AGENT.get(session_id, ("unknown", None, None))
         knowledge_context = ""
         knowledge_diagnostics = dict(EMPTY_KNOWLEDGE_DIAGNOSTICS)
+        memory_context = ""
         confirmation_payload = ToolConfirmation(confirmed=bool(confirm))
         adk_message = types.Content(
             role="user",
@@ -359,6 +383,13 @@ async def run_sintel_turn(
         else:
             knowledge_context = ""
             knowledge_diagnostics = dict(EMPTY_KNOWLEDGE_DIAGNOSTICS)
+        # Mision RAG-POST2 (FASE 11, 2026-09-16): memoria del cliente, para
+        # TODO intent (una preferencia puede salir en cualquier tipo de
+        # mensaje, a diferencia del conocimiento documental que solo aplica
+        # a intent=="knowledge"). Nunca lanza, [] ante cualquier fallo (ver
+        # customer_memory_adapter.py).
+        memories = await fetch_customer_memories(token)
+        memory_context = build_memory_context(memories)
         adk_message = types.Content(role="user", parts=[types.Part(text=message)])
 
     domain_agent = get_domain_agent(agent_name)
@@ -381,7 +412,10 @@ async def run_sintel_turn(
     try:
         async for event in runner.run_async(
             user_id=str(user_id), session_id=session_id, new_message=adk_message,
-            state_delta={SINTEL_KNOWLEDGE_CONTEXT_STATE_KEY: knowledge_context},
+            state_delta={
+                SINTEL_KNOWLEDGE_CONTEXT_STATE_KEY: knowledge_context,
+                SINTEL_CUSTOMER_MEMORY_STATE_KEY: memory_context,
+            },
         ):
             events.append(event)
     finally:
@@ -445,6 +479,29 @@ async def run_sintel_turn(
             )
             final_text = UNGROUNDED_FALLBACK_RESPONSE
 
+    # Mision RAG-POST2 (FASE 10, 2026-09-16): extraccion de memoria -- en
+    # BACKGROUND (asyncio.create_task, nunca await directo). Medido en vivo
+    # (ver docstring de extract_and_store_memory): esta llamada real toma
+    # 30-40s con el modelo local actual -- bloquear CADA turno con eso
+    # seria una degradacion injustificada (FASE 16 de la mision). El
+    # proceso de ai_engine_adk es un servidor ASGI de larga duracion
+    # (uvicorn) -- la tarea sigue corriendo despues de que este turno
+    # responda al cliente, mismo patron real que ya usa
+    # support/consumers.py::receive() para _ai_reply(). No corre en turnos
+    # de resume (confirmacion de una escritura pendiente, nada nuevo que
+    # extraer). _BACKGROUND_TASKS mantiene una referencia fuerte -- sin
+    # esto, asyncio puede recolectar la tarea a mitad de ejecucion (riesgo
+    # real y documentado de asyncio.create_task, no teorico).
+    memory_extraction_scheduled = False
+    if not is_resume and final_text:
+        task = asyncio.create_task(extract_and_store_memory(
+            message=message, token=token, conversation_id=conversation_id,
+            **_resolve_primary_llm_params(),
+        ))
+        _BACKGROUND_TASKS.add(task)
+        task.add_done_callback(_BACKGROUND_TASKS.discard)
+        memory_extraction_scheduled = True
+
     # Mision RAG Enterprise (2026-09-16, FASE 11 -- observabilidad). Antes de
     # esto, ChatResponse.metrics quedaba hardcodeado en None (main.py,
     # "TurnMetrics real: pendiente") -- cerrado aqui SOLO para las senales
@@ -497,6 +554,17 @@ async def run_sintel_turn(
         "retrieval_latency_ms": knowledge_diagnostics.get("retrieval_latency_ms"),
         "agent_latency_ms": agent_latency_ms,
         "grounding_latency_ms": grounding_latency_ms,
+        # Mision RAG-POST2 (FASE 10-11, 2026-09-16): memory_used = habia
+        # memoria previa inyectada en la instruccion de este turno.
+        # memory_extraction_scheduled = se lanzo la tarea de extraccion en
+        # background para ESTE turno -- NUNCA "se extrajo algo": la
+        # extraccion real corre despues de que el turno ya respondio (ver
+        # docstring arriba), su resultado no puede reportarse de forma
+        # sincrona sin reintroducir la latencia que este diseno evita.
+        # Observable via logs (customer_memory_adapter logger), no via
+        # metrics de ESTE turno.
+        "memory_used": bool(memory_context),
+        "memory_extraction_scheduled": memory_extraction_scheduled,
         "duration_ms": round((time.monotonic() - turn_started_at) * 1000),
     }
 
