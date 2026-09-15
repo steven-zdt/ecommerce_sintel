@@ -1606,9 +1606,20 @@ Meta → `support/services/ai_bridge.py` (identidad JWT real del usuario, nunca 
 `POST /chat` de `ai_engine_adk` → `sintel_root_workflow.py::run_sintel_turn` → router
 determinista (`resolve_turn_agent`, regex, mismo codigo que `action_graph.py` via
 `routing.py`) → **9 Agent Profiles** (`agents/profiles/*.yaml`, mismos de siempre) → RAG
-(`sintel_rag_adapter.py`, reusa `retrieve_knowledge_for_chat` tal cual, retrieval SOLO si
-`intent=="knowledge"`, decidido ANTES de invocar al LLM — nunca puede re-enrutar la
-conversacion) → Google ADK (`LlmAgent` real, LiteLLM contra `LOCAL_MODEL_CHAIN`) con Tools
+(`sintel_rag_adapter.py`, retrieval SOLO si `intent=="knowledge"`, decidido ANTES de invocar
+al LLM — nunca puede re-enrutar la conversacion) → memoria del cliente (`customer_memory_
+adapter.py`, cualquier intent) → Google ADK (`LlmAgent` real, LiteLLM contra
+`LOCAL_MODEL_CHAIN`) con Tools
+
+> **[ACTUALIZADO 2026-09-16, Mision RAG-POST2]** La frase "reusa `retrieve_knowledge_for_chat`
+> tal cual" describia el estado del 2026-09-14 (cutover) y **ya no es cierta**: el RAG evolucionó
+> con hybrid retrieval (capa exacta + vectorial), reranking (similitud+vigencia), retrieval
+> confidence/answerability, context assembly con metadata, y grounding/claim validation
+> post-generación. Se sumó además la capa de memoria del cliente (`customer_memory/`, nueva app
+> Django) y sesión ADK persistente (`DatabaseSessionService`, ya no `InMemorySessionService` por
+> defecto en dev/prod). Ver `ai_engine_adk/.AGENT/ARQUITECTURA_COMPLETA_AI_ENGINE_ADK.md` para el
+> pipeline real completo — no duplicado aquí a propósito.
+
 adaptadas 1:1 (`sintel_adapter.py::adapt_sintel_tool`, cada Tool solo se le declara al LLM si
 esta en `profile.herramientas` — un agente nunca "ve" una Tool fuera de su scope, no es un
 filtro post-hoc) → Policy Layer portada (rate limit + `IsAdminUser`, ambos chequeados en el
@@ -1660,9 +1671,15 @@ permisos estructuralmente inmunes al contenido del mensaje, routing regex inmune
 como admin"). `ai_engine/tests/` (runtime OLD, detenido pero mantenido como regresion de la
 Policy Layer de referencia): 104 passed, 16 skipped.
 
-**Gap conocido, no bloqueante**: `ChatResponse.metrics` sigue `None` en `ai_engine_adk`
-(`TurnMetrics` real de `ai_engine/observability.py` todavia no se porto ahi). Backend de
-sesion de ADK sigue en `InMemorySessionService` (no sobrevive un reinicio del contenedor).
+**[CORREGIDO 2026-09-16, Mision RAG-POST2]** Los 2 gaps de abajo, documentados aquí el
+2026-09-14, **ya están cerrados** — no se borra el texto original para que quede el registro
+de cuándo se resolvió cada uno:
+- ~~`ChatResponse.metrics` sigue `None`~~ → real desde la Mision RAG Enterprise (FASE 11,
+  2026-09-16) y extendido en RAG-POST2 (FASE 5) con retrieval/grounding/memoria/latencias
+  granulares.
+- ~~Backend de sesión sigue en `InMemorySessionService`~~ → `DatabaseSessionService` real
+  (Postgres, `sintel_adk_sessions`) desde RAG-POST2 FASE 7, verificado con un reinicio de
+  contenedor real.
 
 Documentacion de detalle completo (no duplicada aqui): plan de migracion + cutover + estado
 real de ambos entornos, hallazgos, riesgos abiertos —

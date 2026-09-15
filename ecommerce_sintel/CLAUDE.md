@@ -65,6 +65,8 @@ Cuando trabajes en cualquier archivo de una app, lee primero el documento de arq
 | `ecommerce_sintel/users/` | `ecommerce_sintel/users/.AGENT/docs/ARQUITECTURA_COMPLETA_USER.md` |
 | `frontend/` | `frontend/.AGENT/doc/ARQUITECTURA_COMPLETAFRONEND.md` |
 | `ai_engine/` | `ai_engine/.AGENT/FLIJO_COMPLETO_IA_ENGINE.md` |
+| `ai_engine_adk/` *(runtime real del chat de soporte, reemplaza a `ai_engine/` para ese tráfico desde 2026-09-14)* | `ai_engine_adk/.AGENT/ARQUITECTURA_COMPLETA_AI_ENGINE_ADK.md` |
+| `customer_memory/` *(nueva, 2026-09-16)* | `AUDITORIA/RAG_POST2_MEMORY_DEFINITION.md` (no tiene doc `.AGENT/` propio todavía — app pequeña, 1 modelo) |
 | `docs/.AGENT/` (auditorias y guias cross-app) [ROTO 2026-08-04] | `docs/.AGENT/GUIA_AI_ENGINE.md`, `docs/.AGENT/AUDITORIA_FLUJO_VENTA_PAGO_CONFIRMACION.md` — **ninguno de los dos existe en este checkout** (ni el directorio `docs/`); ver `ai_engine/.AGENT/AUDITORIA_KNOWLEDGE_GRAPH_SSOT_2026-08-04.md` hallazgo H4. Mientras se decide si se recrean, para AI Engine usar `ai_engine/.AGENT/FLIJO_COMPLETO_IA_ENGINE.md` |
 | CORE v4 — certificacion arquitectura por dominios | `Documentacion/Arquitectura_general/MIGRACION_CORE_V4_DOMINIOS_FASE9_CERTIFICACION.md` (alcance real vs. backlog; ver `.AGENT.md` para el detalle) |
 

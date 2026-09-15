@@ -205,16 +205,39 @@
               <div v-if="msg.ai_metrics" class="ai-metrics">
                 <span class="ai-metrics-badge">IA · {{ msg.ai_metrics.agent || 'sin agente' }}</span>
                 <span v-if="msg.ai_metrics.intent" class="ai-metrics-badge">{{ msg.ai_metrics.intent }}</span>
+                <!-- Campos del runtime OLD (ai_engine/observability.py) -- solo apareceran en
+                     mensajes historicos de antes de la migracion a ADK (2026-09-14), ese runtime
+                     ya no produce metrics nuevos. Se conservan para no romper el historial viejo. -->
                 <span v-if="msg.ai_metrics.tools?.length" class="ai-metrics-badge">
                   {{ msg.ai_metrics.tools.map(t => t.tool).join(', ') }}
                 </span>
                 <span v-if="msg.ai_metrics.llm_tokens_in || msg.ai_metrics.llm_tokens_out" class="ai-metrics-badge">
                   {{ msg.ai_metrics.llm_tokens_in }}→{{ msg.ai_metrics.llm_tokens_out }} tokens
                 </span>
-                <span v-if="msg.ai_metrics.duration_ms != null" class="ai-metrics-badge">{{ msg.ai_metrics.duration_ms }} ms</span>
+                <span v-if="msg.ai_metrics.fallback_used" class="ai-metrics-badge ai-metrics-warn">fallback</span>
+                <!-- Mision RAG-POST2 (FASE 18, 2026-09-16): observabilidad real del runtime
+                     actual (ai_engine_adk) -- antes esta vista no mostraba NADA de retrieval/
+                     grounding/memoria, aunque ya se calculaba y persistia en ai_metrics. -->
+                <span v-if="msg.ai_metrics.knowledge_state" class="ai-metrics-badge" :title="'Estado del RAG para este turno'">
+                  RAG: {{ knowledgeStateLabel(msg.ai_metrics.knowledge_state) }}
+                </span>
+                <span
+                  v-if="msg.ai_metrics.grounding_result"
+                  class="ai-metrics-badge"
+                  :class="{ 'ai-metrics-warn': msg.ai_metrics.grounding_result !== 'SUPPORTED' }"
+                  :title="'Validacion post-generacion: la respuesta esta sustentada por la evidencia recuperada'"
+                >
+                  grounding: {{ msg.ai_metrics.grounding_result }}
+                </span>
+                <span v-if="msg.ai_metrics.retrieval_candidates != null" class="ai-metrics-badge" :title="(msg.ai_metrics.selected_sources || []).join(', ') || 'sin fuentes seleccionadas'">
+                  {{ msg.ai_metrics.retrieval_candidates }} candidato(s)
+                </span>
+                <span v-if="msg.ai_metrics.memory_used" class="ai-metrics-badge" title="Se inyecto memoria del cliente en este turno">memoria usada</span>
+                <span v-if="msg.ai_metrics.escalation" class="ai-metrics-badge ai-metrics-warn">escalado a humano</span>
+                <span v-if="msg.ai_metrics.duration_ms != null" class="ai-metrics-badge" :title="latencyBreakdown(msg.ai_metrics)">{{ msg.ai_metrics.duration_ms }} ms</span>
                 <span v-if="msg.ai_metrics.handoff" class="ai-metrics-badge ai-metrics-warn">handoff: {{ msg.ai_metrics.handoff }}</span>
                 <span v-if="msg.ai_metrics.needs_confirmation" class="ai-metrics-badge ai-metrics-warn">confirmacion pendiente</span>
-                <span v-if="msg.ai_metrics.fallback_used" class="ai-metrics-badge ai-metrics-warn">fallback</span>
+                <span v-if="msg.ai_metrics.rate_limited" class="ai-metrics-badge ai-metrics-warn">limite diario alcanzado</span>
               </div>
               <small class="bubble-time">{{ formatTime(msg.created_at) }}</small>
             </div>
@@ -560,6 +583,26 @@ function formatTime(iso) {
       day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
     });
   } catch { return ''; }
+}
+
+// Mision RAG-POST2 (FASE 18, 2026-09-16): valores reales de
+// sintel_root_workflow.py -- no traducir a texto que sugiera mas
+// certeza de la que hay (ej. "sin datos" en vez de "no_knowledge" crudo).
+const KNOWLEDGE_STATE_LABELS = {
+  no_knowledge: 'sin evidencia',
+  low_confidence: 'evidencia debil',
+  answered: 'respondido con evidencia',
+};
+function knowledgeStateLabel(state) {
+  return KNOWLEDGE_STATE_LABELS[state] || state;
+}
+
+function latencyBreakdown(metrics) {
+  const parts = [];
+  if (metrics.retrieval_latency_ms != null) parts.push(`retrieval: ${metrics.retrieval_latency_ms}ms`);
+  if (metrics.agent_latency_ms != null) parts.push(`agente/LLM: ${metrics.agent_latency_ms}ms`);
+  if (metrics.grounding_latency_ms != null) parts.push(`grounding: ${metrics.grounding_latency_ms}ms`);
+  return parts.join(' · ') || 'sin desglose de latencia';
 }
 
 onMounted(() => { fetchRooms(); fetchAnalytics(); connectWs(); });
