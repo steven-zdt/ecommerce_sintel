@@ -33,6 +33,7 @@ const CustomerWishlistView  = () => import('@/views/customer/account/CustomerWis
 const CustomerAddressView   = () => import('@/views/customer/account/CustomerAddressView.vue');
 const CustomerCardsView     = () => import('@/views/customer/account/CustomerCardsView.vue');
 const CustomerQuotesView    = () => import('@/views/customer/account/CustomerQuotesView.vue');
+const CustomerSupportTicketView = () => import('@/views/customer/account/CustomerSupportTicketView.vue');
 const ContractorOnboardingWizard = () => import('@/views/customer/account/ContractorOnboardingWizard.vue');
 const KycVerificationView = () => import('@/views/customer/account/KycVerificationView.vue');
 const ContractorScheduleView  = () => import('@/views/customer/account/ContractorScheduleView.vue');
@@ -90,6 +91,7 @@ export const customerRoutes = {
         { path: 'direcciones',         name: 'customer-addresses',     component: CustomerAddressView,         meta: { requiresAuth: true } },
         { path: 'tarjetas',            name: 'customer-cards',         component: CustomerCardsView,           meta: { requiresAuth: true } },
         { path: 'cotizaciones',        name: 'customer-quotes',        component: CustomerQuotesView,          meta: { requiresAuth: true } },
+        { path: 'soporte',             name: 'customer-support-ticket', component: CustomerSupportTicketView,  meta: { requiresAuth: true } },
         { path: 'perfil-profesional',  name: 'contractor-onboarding',  component: ContractorOnboardingWizard,  meta: { requiresAuth: true } },
         { path: 'verificacion',        name: 'kyc-verification',       component: KycVerificationView,         meta: { requiresAuth: true } },
         { path: 'mi-agenda',           name: 'contractor-schedule',    component: ContractorScheduleView,      meta: { requiresAuth: true } },

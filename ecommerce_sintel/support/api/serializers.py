@@ -10,6 +10,17 @@ class RateConversationInputSerializer(serializers.Serializer):
     comment = serializers.CharField(max_length=2000, required=False, allow_blank=True, default='')
 
 
+class CreateSupportTicketInputSerializer(serializers.Serializer):
+    """Ticket abierto DIRECTAMENTE por el cliente desde su perfil (2026-09-16)
+    -- segundo flujo real de creacion de SupportTicket, distinto del Human
+    Handoff via IA (AiOpenSupportTicketView). subject/description son el
+    minimo real para que un operador humano pueda empezar a trabajar el
+    caso sin tener que pedirle al cliente que repita lo que ya escribio."""
+    subject = serializers.CharField(max_length=200)
+    description = serializers.CharField(max_length=4000)
+    category = serializers.ChoiceField(choices=SupportTicket.CATEGORY_CHOICES, required=False, allow_blank=True, default='')
+
+
 class ChatRoomContextSerializer(serializers.Serializer):
     context_type = serializers.CharField()
     uuid = serializers.SerializerMethodField()

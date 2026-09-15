@@ -61,6 +61,7 @@ const baseNavItems = [
   { to: '/mi-cuenta/direcciones', icon: 'bi-geo-alt',        label: 'Mis direcciones' },
   { to: '/mi-cuenta/tarjetas',    icon: 'bi-credit-card',    label: 'Metodos de pago' },
   { to: '/mi-cuenta/cotizaciones',icon: 'bi-clipboard-check',label: 'Cotizaciones' },
+  { to: '/mi-cuenta/soporte',     icon: 'bi-headset',        label: 'Soporte' },
 ];
 
 const navItems = computed(() => {

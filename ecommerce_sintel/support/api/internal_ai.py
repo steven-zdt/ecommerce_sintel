@@ -41,8 +41,14 @@ def _dump_ai_transcript(room, history) -> None:
     ChatCommands.save_message(room, get_ai_bot_user(), '\n'.join(lines))
 
 
-def _notify_support_admins(room, user, message: str) -> None:
-    """Aviso en vivo al grupo support_admins (ya existe en SupportChatConsumer)."""
+def _notify_support_admins(room, user, message: str, *, label: str = '[Escalado por el asistente IA]') -> None:
+    """Aviso en vivo al grupo support_admins (ya existe en SupportChatConsumer).
+
+    `label` (2026-09-16): generalizado para que support/api/views.py::
+    CreateSupportTicketView pueda reusar esta misma funcion con un aviso
+    honesto ("[Ticket abierto por el cliente]") en vez del texto de
+    escalamiento por IA -- default preserva el comportamiento exacto de
+    antes para este call site (AiOpenSupportTicketView)."""
     from django.utils import timezone
     from asgiref.sync import async_to_sync
     from channels.layers import get_channel_layer
@@ -51,7 +57,7 @@ def _notify_support_admins(room, user, message: str) -> None:
         return
     async_to_sync(layer.group_send)('support_admins', {
         'type': 'chat.message',
-        'message': f'[Escalado por el asistente IA] {message}',
+        'message': f'{label} {message}',
         'sender_email': user.email,
         'is_admin': False,
         'room_uuid': str(room.uuid),

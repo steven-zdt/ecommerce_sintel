@@ -5,8 +5,8 @@ from rest_framework.views import APIView
 from drf_spectacular.utils import extend_schema
 
 from support.models import ChatRoom
-from support.services.commands import ChatCommands
-from support.api.serializers import RateConversationInputSerializer
+from support.services.commands import ChatCommands, SupportTicketCommands
+from support.api.serializers import CreateSupportTicketInputSerializer, RateConversationInputSerializer, SupportTicketSerializer
 
 
 class RateConversationView(APIView):
@@ -48,3 +48,59 @@ class RateConversationView(APIView):
             'csat_comment': room.csat_comment,
             'csat_rated_at': room.csat_rated_at,
         })
+
+
+class CreateSupportTicketView(APIView):
+    """
+    POST /api/v1/support/tickets/create/
+    body: {"subject": "...", "description": "...", "category": "..." (opcional)}
+    -> 201 {"ticket": {...}, "room_uuid": "..."}
+
+    Segundo flujo REAL de creacion de SupportTicket (2026-09-16) -- hasta
+    ahora el UNICO camino era Human Handoff via el AI Engine
+    (AiOpenSupportTicketView, support/api/internal_ai.py). Este es el
+    directo: el cliente abre un ticket desde su perfil sin pasar por el
+    chat. Misma logica real de fondo (get_or_create_room + save_message +
+    pausar IA + notificar admins + SupportTicketCommands.create_ticket),
+    reusada, no reimplementada -- solo cambia quien dispara el flujo y la
+    fuente del texto (un formulario, no un mensaje de chat).
+    """
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        summary="Abre un ticket de soporte directamente desde el perfil del cliente",
+        request=CreateSupportTicketInputSerializer,
+        responses={201: dict, 400: dict},
+    )
+    def post(self, request):
+        serializer = CreateSupportTicketInputSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        subject = serializer.validated_data['subject']
+        description = serializer.validated_data['description']
+        category = serializer.validated_data.get('category', '')
+
+        from support.api.internal_ai import _notify_support_admins
+
+        room = ChatCommands.get_or_create_room(request.user)
+        ChatCommands.save_message(room, request.user, description)
+        # Human Handoff: un ticket abierto a mano por el cliente tambien
+        # implica que quiere atencion humana -- mismo criterio real que la
+        # rama de IA (ai_paused=True), sin inventar un estado nuevo.
+        if not room.ai_paused:
+            room.ai_paused = True
+            room.save(update_fields=['ai_paused', 'updated_at'])
+        _notify_support_admins(room, request.user, description, label='[Ticket abierto por el cliente]')
+
+        # Snapshot deliberado del contacto AL MOMENTO de abrir el ticket
+        # (ver docstring de SupportTicket) -- mismo criterio que
+        # AiOpenSupportTicketView.
+        profile = getattr(request.user, 'profile', None)
+        ticket = SupportTicketCommands.create_ticket(
+            room, subject=subject, summary=description, category=category,
+            contact_phone=getattr(profile, 'phone_number', '') or '',
+            contact_email=request.user.email or '',
+        )
+        return Response(
+            {'ticket': SupportTicketSerializer(ticket).data, 'room_uuid': str(room.uuid)},
+            status=status.HTTP_201_CREATED,
+        )
