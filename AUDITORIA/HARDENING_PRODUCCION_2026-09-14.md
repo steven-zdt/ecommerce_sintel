@@ -78,19 +78,30 @@ trackeado por git, el único `password:`/`token:` hardcodeado en YAML es
 `sintel_ci_password` (CI de GitHub Actions, Postgres desechable que solo existe durante el
 run, no una credencial real).
 
-**1 hallazgo real, nuevo, fuera de lo ya conocido:** `sms_bridge/bridge.py` (proceso Python
-en el HOST Windows, fuera de Docker, sin contenedor -- expone `0.0.0.0:8765` a propósito,
-`# nosec B104` ya documentado, necesario para que `host.docker.internal` lo alcance desde
-Django) **falla ABIERTO si `SMS_BRIDGE_TOKEN` no está configurado** -- el código solo
-advierte (`logger.warning`) y sigue aceptando peticiones sin autenticación, en vez de
-rechazarlas. Confirmado que `.env` (dev) SÍ tiene `SMS_BRIDGE_TOKEN` configurado, pero
-**`.env.production` NO** -- si el bridge llegara a correr en el host de producción real, hoy
-aceptaría enviar SMS reales (costo real, abuso real) a cualquiera que lo alcance en esa red,
-sin ningún token. **No se modificó el código** (cambiar el comportamiento de un puente que
-corre en el host de producción real, fuera de Docker, sin poder verificar por este medio si
-está corriendo ahora mismo ni cómo lo usa el flujo real, es una acción que requiere
-confirmación explícita del usuario antes de tocarla -- mismo criterio que el resto de esta
-sesión para acciones de blast radius alto e imposibles de verificar del todo).
+**1 hallazgo real, más severo de lo que parecía al principio -- CERRADO 2026-09-14:**
+`sms_bridge/bridge.py` (proceso Python en el HOST Windows, fuera de Docker, expone
+`0.0.0.0:8765` a propósito, `# nosec B104` ya documentado, necesario para que
+`host.docker.internal` lo alcance desde Django) falla ABIERTO si `SMS_BRIDGE_TOKEN` no está
+configurado -- confirmado que `.env.production` no lo tenía. Al investigar por qué (¿de
+dónde saca el token real la Tarea Programada "SintelSmsBridge" del host?) apareció el
+hallazgo real: **`sms_bridge/run_bridge.ps1` (el envoltorio de esa Tarea Programada) tenía
+el token real hardcodeado en texto plano, TRACKEADO por git** -- un secreto real, no
+hipotético, expuesto en el repositorio, mismo patrón que `notas.txt` y la password del
+script E2E de certificación (ambos ya corregidos esta misma sesión). Confirmado que el
+puente NO está corriendo hoy en este host (puerto 8765 sin listener) -- riesgo dormido, no
+explotado activamente.
+
+**Fix (autorizado explícitamente por el usuario: "configurar el token en
+`.env.production`"):** token nuevo generado (`secrets.token_urlsafe`), guardado en
+`C:\Users\Administrator\sintel_secrets\sms_bridge_token.txt` (mismo directorio fuera de git
+que ya usaban `backup.sh`/`restore.sh` para los certificados de origen de nginx --
+convención ya establecida en este proyecto). `run_bridge.ps1` corregido para leer de ahí en
+vez de hardcodear el valor. `.env.production` actualizado con el mismo token nuevo
+(gitignored, nunca commiteado) -- producción real recreada (`django`/`celery_worker`/
+`celery_beat`), verificado que Django lo carga (`settings.SMS_BRIDGE_TOKEN`, largo
+correcto), `sintel_prod_db` no tocado. El token viejo expuesto queda inválido desde esta
+rotación; sigue visible en el historial de git de commits previos (no reescrito, mismo
+criterio que el resto de esta sesión). Commit `339531d`.
 
 ## Gaps reales identificados, NO resueltos todavía (requieren más diseño o decisión del
 ## usuario -- ninguno bloqueante para el estado actual, documentados para la próxima fase):
@@ -102,7 +113,8 @@ sesión para acciones de blast radius alto e imposibles de verificar del todo).
    retrieval relevance medidos sistemáticamente). Los tests actuales prueban comportamiento
    estructural/seguridad, no calidad de respuesta.
 4. ~~Auditoría de secretos más profunda~~ -- **CERRADA 2026-09-14** (ver "FASE A, continuación
-   2" abajo). Resultado: código fuente limpio; 1 hallazgo real encontrado (SMS bridge).
+   2" abajo). Resultado: código fuente limpio salvo 1 hallazgo real (token del SMS bridge
+   expuesto en git) -- rotado y corregido, ver abajo.
 5. **Coordinación de retries** (§46) -- no auditado en esta pasada si LLM retry + Celery
    retry + HTTP retry pueden solaparse y producir duplicados.
 6. **Supply chain / pinning de versiones** (§30) -- `requirements.txt` de `ai_engine`/
@@ -112,10 +124,9 @@ sesión para acciones de blast radius alto e imposibles de verificar del todo).
 7. **`ChatResponse.metrics`** sigue `None` en `ai_engine_adk` (ya documentado, sin cambios).
 8. **Backend de sesión persistente para ADK** sigue en `InMemorySessionService` (ya
    documentado, sin cambios).
-9. **`sms_bridge/bridge.py` falla abierto sin `SMS_BRIDGE_TOKEN`** -- `.env.production` no lo
-   tiene configurado. Requiere decisión explícita del usuario antes de tocar el
-   comportamiento de un proceso que corre en el host de producción real, fuera de Docker
-   (¿fail-closed si falta el token, o simplemente configurarlo en `.env.production`?).
+9. ~~`sms_bridge/bridge.py` falla abierto sin `SMS_BRIDGE_TOKEN`~~ -- **CERRADO 2026-09-14**,
+   ver "FASE A, continuación 2" arriba. `SMS_BRIDGE_TOKEN` ahora configurado en
+   `.env.production`, token rotado y sacado de `run_bridge.ps1`.
 
 ## Clasificación de Gate (Sección 53/54 del prompt, provisional -- auditoría en curso)
 
@@ -124,13 +135,14 @@ READY WITH ACCEPTED RISKS
 ```
 
 No `NOT READY`: no hay bloqueadores de seguridad activos (WRITE gateado, RAG con
-autorización, reasoning separado, secrets fuera de imágenes, TLS coherente -- ya confirmado
-en la auditoría del informe externo). No `READY` sin calificar: quedan 9 ítems reales sin
+autorización, reasoning separado, secrets fuera de imágenes/repo -- incluyendo el token del
+SMS bridge, ya rotado --, TLS coherente -- ya confirmado en la auditoría del informe
+externo). No `READY` sin calificar: quedan 7 ítems reales sin
 cerrar (arriba), ninguno crítico pero todos genuinos, más ~40 secciones del prompt original
 (evaluación, retries, supply chain pinning, batería de seguridad completa de 15 casos) que
 esta pasada no alcanzó a cubrir en profundidad.
 
 ## Próxima fase sugerida (no iniciada, a la espera de indicación)
 
-Por orden de riesgo real: (a) decisión sobre `sms_bridge` (fail-open sin token), (b) batería
-de seguridad de 15 casos del §43, (c) coordinación de retries, (d) supply chain pinning.
+Por orden de riesgo real: (a) batería de seguridad de 15 casos del §43, (b) coordinación de
+retries, (c) supply chain pinning.
