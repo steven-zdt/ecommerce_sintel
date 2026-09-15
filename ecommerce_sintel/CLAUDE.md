@@ -1,6 +1,27 @@
 # Sintel E-Commerce — Instrucciones para el Editor IA
 
 ## REGLAS GLOBALES DEL PROYECTO
+
+## [CRITICAL] 0-DEV-FIRST. Toda edición/corrección se ejecuta primero en el contenedor de desarrollo
+
+**REGLA FUNDAMENTAL — DESARROLLO LOCAL PRIMERO, PRODUCCIÓN DESPUÉS (confirmada 2026-09-15)**
+
+- **[OBLIGATORIO]**: Cualquier edición o corrección de código (backend, frontend, config de nginx,
+  migraciones, lo que sea) se hace primero sobre el código local y se ejecuta/verifica contra los
+  contenedores de **desarrollo** (`ecommerce_sintel_django`, `ecommerce_sintel_ai`,
+  `ecommerce_sintel_ai_adk`, `ecommerce_sintel_frontend`, `ecommerce_sintel_nginx`, etc.) — nunca
+  directamente contra `sintel_prod_*`.
+- **[OBLIGATORIO]**: Solo después de verificar en desarrollo (tests reales corridos, rebuild si el
+  cambio toca un Dockerfile, smoke test si aplica) se sincroniza a producción por el flujo ya
+  sancionado (`./deploy/deploy.sh`, ver seccion "0-C" de `.AGENT.md` para el detalle operativo
+  completo — build `--no-cache`, health-gate, verificación post-deploy).
+- **[PROHIBIDO]**: Editar, ejecutar comandos ad-hoc (`docker exec`, instalar paquetes, aplicar
+  migraciones a mano) o probar cambios directamente contra un contenedor `sintel_prod_*`.
+- **RAZÓN**: Evitar drift entre dev y producción, y evitar que una corrección a medio probar
+  quede corriendo en el entorno que sirve clientes reales. Mismo motivo que ya fundamenta la
+  regla "0-C" de abajo (confirmada primero 2026-07-31) — esta entrada la reafirma como regla
+  fundamental de más alto nivel, explícita para TODA corrección, no solo despliegues completos.
+
 ## [CRITICAL] 0. Cero Caracteres Especiales en Código Python
 
 **REGLA FUNDAMENTAL - NO EMOJIS EN ARCHIVOS .PY**
