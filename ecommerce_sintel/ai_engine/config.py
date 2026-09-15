@@ -44,6 +44,18 @@ CHECKPOINTER_REDIS_URL = config("CHECKPOINTER_REDIS_URL", default="redis://redis
 OPENAI_API_KEY      = config("OPENAI_API_KEY", default="")
 ANTHROPIC_API_KEY   = config("ANTHROPIC_API_KEY", default="")
 
+# Mision RAG-POST2 (FASE 7, 2026-09-16): backend de sesion de google-adk,
+# solo relevante para ai_engine_adk (sintel_root_workflow.py) -- el sistema
+# OLD (este mismo config.py, compartido) no lee estas dos variables. Default
+# "memory" a proposito: cualquier entorno que no las configure explicitamente
+# (tests, un checkout nuevo sin la DB de sesiones provisionada) se comporta
+# EXACTAMENTE igual que antes de esta fase (InMemorySessionService), cero
+# cambio de comportamiento silencioso. Ver AUDITORIA/RAG_POST2_BASELINE.md
+# hallazgo PG-1 y ai_engine_adk/tests/conftest.py (fuerza "memory" siempre
+# en tests, nunca depende de un Postgres real).
+ADK_SESSION_BACKEND = config("ADK_SESSION_BACKEND", default="memory")
+ADK_SESSION_DB_URL  = config("ADK_SESSION_DB_URL", default="")
+
 # ─── AI Core Fase 1: puente seguro Django <-> AI Engine ──────────────────────
 # JWT_SECRET_KEY es la MISMA SIGNING_KEY de SimpleJWT en Django (settings/base.py,
 # SIMPLE_JWT["SIGNING_KEY"]) -- llega por env_file compartido, nunca hardcodeada.

@@ -28,9 +28,19 @@ PyJWT>=2.9.0,<3.0.0
 # CUALQUIER turno real. Misma version que ai_engine/requirements.txt.
 redis>=5.0.0,<7.0.0
 
-# Backend de sesion de google-adk (InMemorySessionService por ahora --
-# eleccion de backend persistente real, pendiente, ver
-# AUDITORIA/ADK_CUTOVER_PLAN.md seccion 4).
+# Backend de sesion persistente real (Mision RAG-POST2, FASE 7, 2026-09-16):
+# google-adk==2.9.0 trae DatabaseSessionService de fabrica (google/adk/
+# sessions/database_session_service.py), SQLAlchemy async + asyncpg contra
+# el MISMO Postgres que ya usa Django (base de datos separada,
+# `sintel_adk_sessions` -- tablas propias de ADK, nunca las de Django, ver
+# AUDITORIA/RAG_POST2_BASELINE.md hallazgo PG-1). Sin esto, importar
+# DatabaseSessionService lanza ModuleNotFoundError (confirmado en vivo antes
+# de este cambio). InMemorySessionService sigue siendo el default real si
+# ADK_SESSION_BACKEND no esta en "database" (ver config.py/
+# sintel_root_workflow.py) -- los tests fuerzan "memory" explicito
+# (tests/conftest.py), nunca dependen de un Postgres real.
+sqlalchemy[asyncio]>=2.0,<3.0
+asyncpg>=0.29,<1.0
 
 pytest>=8.0,<9.0
 pytest-asyncio>=0.24,<0.25

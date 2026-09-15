@@ -69,6 +69,7 @@ from google.genai import types
 from google.adk.agents import LlmAgent
 from google.adk.models.lite_llm import LiteLlm
 from google.adk.runners import Runner
+from google.adk.sessions.base_session_service import BaseSessionService
 from google.adk.sessions.in_memory_session_service import InMemorySessionService
 from google.adk.tools.tool_confirmation import ToolConfirmation
 
@@ -244,9 +245,38 @@ def get_domain_agent(profile_name: str) -> LlmAgent:
 
 # InMemoryRunner crea su propio InMemorySessionService AISLADO por instancia
 # -- un Runner explicito comparte un unico session_service a nivel de
-# modulo. Backend persistente real: pendiente, ver
-# AUDITORIA/ADK_CUTOVER_PLAN.md seccion 4.
-_session_service = InMemorySessionService()
+# modulo, sea cual sea el backend real.
+#
+# Mision RAG-POST2 (FASE 7, 2026-09-16): backend persistente real, resuelto.
+# ADK_SESSION_BACKEND="database" (config.py) construye un DatabaseSessionService
+# real (SQLAlchemy async + asyncpg) contra una base de datos PROPIA de ADK
+# (`sintel_adk_sessions`, tablas gestionadas por el propio google-adk via
+# create_async_engine + auto-creacion de tablas -- nunca las tablas de
+# Django, nunca via el ORM de Django, ver Regla "no tocar ORM directo desde
+# ai_engine_adk" -- esto no es el ORM de Django, es un store nativo de ADK
+# sobre un Postgres fisicamente separado). Default real ("memory") preserva
+# el comportamiento anterior a esta fase para cualquier entorno que no
+# configure las 2 variables explicitamente (ver config.py). El JWT sigue sin
+# tocar esto (ADK-08, _EPHEMERAL_TOKENS de proceso, ver arriba) -- cambiar
+# de backend de sesion NO cambia donde vive el token, a proposito.
+def _build_session_service() -> BaseSessionService:
+    from config import ADK_SESSION_BACKEND, ADK_SESSION_DB_URL
+
+    if ADK_SESSION_BACKEND != "database":
+        return InMemorySessionService()
+
+    if not ADK_SESSION_DB_URL:
+        raise RuntimeError(
+            "ADK_SESSION_BACKEND=database pero ADK_SESSION_DB_URL esta vacio -- "
+            "configuralo (postgresql+asyncpg://...) o vuelve ADK_SESSION_BACKEND a 'memory'."
+        )
+    from google.adk.sessions.database_session_service import DatabaseSessionService
+
+    logger.info("[session] backend persistente activo (DatabaseSessionService)")
+    return DatabaseSessionService(db_url=ADK_SESSION_DB_URL)
+
+
+_session_service = _build_session_service()
 
 # Registros efimeros de proceso, indexados por session_id -- mismo patron
 # que `sintel_adapter._EPHEMERAL_TOKENS` (ADK-08): nunca pasan por

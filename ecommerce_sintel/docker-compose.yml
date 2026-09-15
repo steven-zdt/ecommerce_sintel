@@ -262,10 +262,22 @@ services:
       # usa prefijos de clave propios, sin colision -- ver
       # ai_engine/cost_control.py).
       CHECKPOINTER_REDIS_URL: "redis://redis:6379/2"
+      # Mision RAG-POST2 (FASE 7, 2026-09-16): sesion persistente real de
+      # google-adk (DatabaseSessionService) -- MISMO Postgres que Django,
+      # base de datos PROPIA (`sintel_adk_sessions`, no `${DB_NAME}`),
+      # tablas gestionadas por el propio google-adk, nunca por Django/su
+      # ORM. Provisionar la base antes del primer uso (una sola vez):
+      # `docker compose exec db psql -U ${DB_USER} -d ${DB_NAME} -c
+      # "CREATE DATABASE sintel_adk_sessions;"` -- ver
+      # AUDITORIA/RAG_POST2_BASELINE.md / RAG_POST2_FINAL_CERTIFICATION.md.
+      ADK_SESSION_BACKEND: "database"
+      ADK_SESSION_DB_URL: "postgresql+asyncpg://${DB_USER}:${DB_PASSWORD}@db:5432/sintel_adk_sessions"
     depends_on:
       sintel_ollama:
         condition: service_started
       redis:
+        condition: service_healthy
+      db:
         condition: service_healthy
     networks:
       - ecommerce_sintel_network
