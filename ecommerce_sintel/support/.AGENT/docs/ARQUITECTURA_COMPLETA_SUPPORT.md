@@ -445,20 +445,37 @@ la transcripcion previa, guarda el mensaje que dispara el escalamiento, marca
 `is_ai_mode_active()` devuelve `False` y el consumer deja de invocar al AI Engine en esa sala
 hasta que un admin la reabra (flujo manual, no hay endpoint de "reanudar IA" hoy).
 
-### Telemetria por turno — `ChatMessage.ai_metrics` (Fase 8, 2026-07-20)
+### Telemetria por turno — `ChatMessage.ai_metrics` (Fase 8, 2026-07-20; fuente real reemplazada 2026-09-16)
 
-`ai_engine/observability.py::TurnMetrics` calcula por turno: `agent`, `intent`, `llm_calls`,
-`llm_tokens_in/out`, `tool_calls`, `tool_errors`, `tools` (lista `{tool, ms, ok}`),
-`fallback_used`, `handoff`, `needs_confirmation`, `write_executed`, `duration_ms`. Antes solo
-se emitia a un logger (`logging.getLogger("observability")`) y se descartaba; ahora
-`run_action_chat` lo incluye en la respuesta de `POST /chat` (campo `metrics`) y
-`_save_ai_message_and_maybe_pause` lo persiste en `ChatMessage.ai_metrics` (JSONField
-nullable — `None` para mensajes humanos). Expuesto solo en `ChatMessageSerializer`, consumido
-por `AdminSupportChatViewSet` (dashboard) y renderizado como badges en
-`SupportDashboardView.vue`. **No se toco `chat_message()` (el broadcast WS)** — sigue
-reenviando solo `message/sender_email/is_admin/room_uuid/created_at`, asi que la telemetria
-nunca viaja por el canal en vivo (ni al cliente ni al admin); solo se ve al abrir/reabrir la
-sala por REST. No existe un "confidence score" calculado por el motor.
+**[ACTUALIZADO 2026-09-16]** La descripcion original de esta seccion (`ai_engine/
+observability.py::TurnMetrics`, con `run_action_chat`) describia el runtime OLD (LangGraph,
+`sintel_ai`). Desde la migracion a Google ADK (2026-09-14, ver `ai_engine_adk/`), ese runtime
+ya NO es el que atiende `/panel/soporte` -- `ai_engine/observability.py` queda sin consumidores
+reales en este flujo (el runtime OLD solo se conserva parado, para rollback). La fuente real
+hoy es `ai_engine_adk/sintel_root_workflow.py::run_sintel_turn()`, que arma su propio dict
+`metrics` (Mision RAG Enterprise, FASE 11, 2026-09-16) con una forma **distinta** a la del
+runtime viejo -- no asumir que los campos son los mismos:
+
+```
+{agent, intent, handoff, tool_calls (int, no lista), needs_confirmation,
+ retrieval_used, knowledge_state (None|"no_knowledge"|"low_confidence"|"answered"),
+ grounding_result, duration_ms}
+```
+
+Antes de esta fase, `ChatResponse.metrics` (`ai_engine_adk/main.py`) estaba hardcodeado en
+`None` con el comentario "TurnMetrics real: pendiente" -- ya no. Persistencia y exposicion
+(`ChatMessage.ai_metrics`, `ChatMessageSerializer`, `AdminSupportChatViewSet`,
+`SupportDashboardView.vue`) siguen igual, solo cambio el productor del dato. Campos que el
+runtime viejo tenia y el nuevo NO expone todavia: `llm_calls`, `llm_tokens_in/out`,
+`tool_errors`, lista detallada `tools` (`{tool, ms, ok}`), `fallback_used`, `write_executed` --
+gap real, no fabricado (ver `AUDITORIA/RAG_V2_EVALUATION.md` seccion 4, "NOT_MEASURED
+explicito": ADK no expone `usage_metadata` por Event de forma directa).
+
+**No se toco `chat_message()` (el broadcast WS)** — sigue reenviando solo
+`message/sender_email/is_admin/room_uuid/created_at`, asi que la telemetria nunca viaja por el
+canal en vivo (ni al cliente ni al admin); solo se ve al abrir/reabrir la sala por REST. No
+existe un "confidence score" unico calculado por el motor (lo mas cercano es
+`knowledge_state`/`grounding_result`, especificos de turnos con intent `knowledge`).
 
 ---
 
@@ -519,6 +536,31 @@ if is_ai_mode_active(room) and not is_ai_rate_limited(room):
 ---
 
 ## Cambios Recientes
+
+### 2026-09-16 — Confirmado en produccion Y desarrollo: `ai_paused` sin forma de reanudarse silencia el chat para siempre
+- **Que paso**: usuario reporto "el chat de soporte no contesta" en ambos entornos. Diagnostico
+  real (no asumido): en los dos casos la sala tenia `ai_paused=True` desde un Human Handoff
+  anterior (`ai_response_opened_ticket` -> `support/consumers.py::_save_ai_message_and_maybe_
+  pause`), y como ya decia esta misma seccion arriba ("no hay endpoint de 'reanudar IA' hoy"),
+  **no existia ningun camino, ni UI ni API, para revertirlo** -- confirmado con impacto real:
+  una sala de dev llevaba silenciada desde 2026-08-08 (ningun mensaje desde entonces tuvo
+  respuesta de IA) y una sala de produccion (`ceo@sintel.net.co`) quedo silenciada durante las
+  pruebas de esta misma sesion.
+- **Fix aplicado**: operacional, no de codigo -- `room.ai_paused = False` manual via
+  `manage.py shell` en ambas salas, verificado con un turno real end-to-end en cada entorno
+  (`ask_ai_async` real, respuesta coherente, `metrics` reales presentes).
+- **Gap que sigue abierto** (recomendacion, no ejecutada -- requiere decision de producto sobre
+  el flujo deseado): construir un control real en `/panel/soporte` (boton "Reanudar IA" por
+  sala) que llame a un endpoint nuevo (`ChatCommands`/`AdminSupportChatViewSet`) para poner
+  `ai_paused=False` -- hoy es una operacion que solo un desarrollador con acceso a
+  `manage.py shell` puede revertir, lo cual es inviable para operacion real.
+- **Hallazgo relacionado (infra, no de este modulo)**: la causa por la que el chat de DEV
+  parecia no reflejar cambios recientes del motor de IA no era `ai_paused` unicamente --
+  el contenedor `ecommerce_sintel_ai_adk` de dev llevaba corriendo desde horas antes de la
+  ultima reconstruccion de su imagen (`docker compose build` no recrea un contenedor ya
+  corriendo, hace falta `docker compose up -d` despues). Ver
+  `AUDITORIA/PRODUCTION_SYNC_2026-09-15.md` para el detalle completo de este y otros hallazgos
+  del sync de produccion de ese dia.
 
 ### 2026-09-15 (FASE 6-7) — Ticket expuesto en el Dashboard admin
 - **Que cambio y por que**: FASE 1-5 (mismo dia) dejo `SupportTicket` solo consultable via
