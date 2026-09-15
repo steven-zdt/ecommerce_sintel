@@ -255,10 +255,16 @@ autorizar.** No declarar esta fase `DONE` -- ver honestidad de alcance abajo.
     -> `http_bridge` -> Django `internal_ai` real -> `MetaCampaignSelector` -> `MetaGraphClient`
     -> degrada correctamente a `503 {"configured": false}` (falta `META_AD_ACCOUNT_ID` real) --
     **nunca inventa datos**, tal como exige la regla de honestidad de este plan.
-  - Regresion: `ai_engine` (OLD) 104 passed/16 skipped (sin cambio vs. baseline conocido);
-    `ai_engine_adk` 25 passed, 6 failed -- **los 6 fallos son 100% por LM Studio apagado en este
-    host ahora mismo** (`curl localhost:1234/v1/models` -> connection refused), confirmado no
-    relacionado con este cambio (son los tests E2E reales contra el LLM local, ya existian antes).
+  - Regresion: **correccion 2026-09-15 (misma tarea, verificacion inicial estaba mal)** -- la
+    primera corrida de regresion de `ai_engine` (OLD) uso la imagen Docker vieja sin rebuild
+    (`docker compose run` no reconstruye sola), asi que en realidad NO habia probado este cambio
+    -- daba 104/16 identico al baseline solo porque corria codigo previo a este commit. Rehecho
+    con `docker compose build sintel_ai` primero: **112 passed/16 skipped** (+8 tests nuevos, 4
+    capabilities x 2 casos del `test_tool_policy_matrix.py` generico -- ver abajo). `ai_engine_adk`
+    (que si se habia rebuildeado desde el principio): 25 passed, 6 failed -- **los 6 fallos son
+    100% por LM Studio apagado en este host ahora mismo** (`curl localhost:1234/v1/models` ->
+    connection refused), confirmado no relacionado con este cambio (son los tests E2E reales
+    contra el LLM local, ya existian antes).
 
 - **Hallazgo colateral (no corregido, fuera de alcance de esta tarea):** `ai_engine/tools/http_bridge.py::_map_response()`
   no tiene rama especifica para 5xx de Meta -- el `detail` util que Django ya arma (ej. "META_AD_ACCOUNT_ID
@@ -278,9 +284,14 @@ autorizar.** No declarar esta fase `DONE` -- ver honestidad de alcance abajo.
   - Ninguna de las 4 Tools devuelve datos reales todavia -- depende de que `META_APP_ID`/
     `META_ACCESS_TOKEN`/`META_AD_ACCOUNT_ID` reales se carguen (bloqueado en FASE 0, ver seccion 3).
 
-- **Tests formales pendientes:** no se escribio un `test_tool_policy_matrix.py` dedicado para
-  estas 4 capabilities (la verificacion de arriba fue manual/directa contra el contenedor real,
-  no un test permanente) -- pendiente si se quiere cobertura de regresion automatizada.
+- **Tests formales: SI cubiertas, sin escribir nada nuevo.** `ai_engine/tests/test_tool_policy_matrix.py`
+  esta parametrizado sobre `CapabilityRegistry.list_active()` (disenado explicitamente para no
+  requerir un caso a mano por Tool nueva, ver su docstring) -- las 4 capabilities Meta quedaron
+  cubiertas automaticamente: `consultar_campanas_meta`/`consultar_detalle_campana_meta`/
+  `consultar_insights_meta`/`consultar_resumen_cuenta_meta`, 8/8 passed (deny a usuario normal,
+  allow/confirm a staff) contra la imagen `sintel_ai` (OLD) recien reconstruida. La afirmacion
+  anterior de esta seccion ("no se escribio un test dedicado, pendiente") estaba **incorrecta**
+  -- corregida tras verificar contra el contenedor real, no asumida.
 
 ### FASE 12 - MarketingAgent + Meta
 - **Archivos:** `ai_engine/agents/profiles/marketing_agent.yaml` (+intents `marketing.meta_campaign_status`, `marketing.ad_performance`, `marketing.budget_analysis`, `marketing.optimization`; +las 6 capabilities), router en `ai_engine/agents/__init__.py`.
