@@ -1575,70 +1575,108 @@ del panel admin.
 
 ---
 
-### ai_engine — Motor de IA conversacional (Support Agent) — servicio Docker separado, seccion nueva 2026-08-17 (gap real: nunca tuvo su propia seccion pese a construirse desde 2026-07-16)
+### ai_engine / ai_engine_adk — Motor de IA conversacional (Support Agent) — reescrita 2026-09-14
+(migracion completa de runtime, LangGraph -> Google ADK, mision "ADK-SINTEL" ADK-00 a ADK-13)
 
-Directorio: `ecommerce_sintel/ai_engine/` — proceso FastAPI independiente (imagen Docker propia
-`sintel_ai`, puerto 8100 interno, **NO** parte de `ecommerce/urls.py` ni del proceso
-Django/Gunicorn). **Sin bind-mount de codigo** — un cambio ahi requiere
-`docker compose build sintel_ai && docker compose up -d sintel_ai`; un `restart` simple no lo
-recoge (confirmado empiricamente 2026-08-17).
+**El chat de soporte real ya NO corre en `ai_engine` (LangGraph/`action_graph.py`) — corre
+enteramente en `ai_engine_adk/` (Google ADK), migrado el mismo dia en staging Y produccion
+real.** `ai_engine/` (imagen `sintel_ai`, puerto 8100) sigue existiendo pero **solo para el AI
+Gateway** (Meta Ads MCP, `/api/v1/ai/*`, ver mas abajo) — su endpoint `/chat` se retiro
+(ADK-12), junto con `llm_factory.py` (eliminado, sin consumidores) y los tests que ya
+duplicaban logica extraida a modulos compartidos. `action_graph.py` SI se mantiene en el
+repo (no eliminado) porque su Policy Layer (`node_evaluate_policy`) sigue siendo la
+implementacion de referencia probada mientras su gate `IsAdminUser` termina de migrar (ver
+mas abajo, ya migrado) — pero ya no se ejecuta en ningun trafico real, solo en su propia
+suite de tests como regresion.
 
-**Responsabilidad unica: inteligencia conversacional del Customer via Support Chat.** `ai_editor`
-(generacion/propuesta de codigo, ver v14-v16 arriba) es un modulo distinto y congelado — sin
-conexion directa entre ambos (verificado por test AST). `ai_engine` tampoco importa
-`project_knowledge_graph` (desacoplado FASE 0, 2026-08-10, ver
-`ai_engine/.AGENT/AI_ENGINE_KG_DECOUPLING_FASE0.md`).
+**`ai_engine_adk/` — proceso FastAPI independiente** (imagen Docker propia `sintel_ai_adk`,
+puerto 8101 interno, **NO** parte de `ecommerce/urls.py` ni del proceso Django/Daphne).
+Reusa modulos REALES de `ai_engine/` sin duplicarlos (`tools/`, `agents/`, `capabilities/`,
+`auth.py`, `retrievers.py`, `cost_control.py`, `config.py`, `observability.py`) mas 3
+modulos puros extraidos especificamente para este runtime (sin dependencia de
+LangChain/LangGraph, que rompe la resolucion de dependencias con `litellm`/ADK):
+`routing.py` (deteccion de intent + routing determinista, NUNCA decidido por el LLM —
+"ADK ORQUESTA, SINTEL EJECUTA Y CONTROLA"), `model_chain.py` (parseo de
+`LOCAL_MODEL_CHAIN`) y `rate_limit.py`/`permissions.py` (Policy Layer: rate limit por-Tool y
+gate `IsAdminUser`, Redis). `ai_editor` (generacion/propuesta de codigo) sigue siendo un
+modulo distinto y congelado, sin conexion con ninguno de los dos runtimes de chat.
 
 **Flujo real**: `SupportChatWidget.vue` (o WhatsApp) → WebSocket `ws/support/chat/` / webhook
 Meta → `support/services/ai_bridge.py` (identidad JWT real del usuario, nunca generica) →
-`POST /chat` de `ai_engine` → `action_graph.py` (LangGraph): Intent → Agent Router (**9 Agent
-Profiles** en `agents/profiles/*.yaml`: Support/Account/Admin/Marketing/Order/Payment/Rental/
-Sales/Service, con escalamiento agente-a-agente hacia SupportAgent) → Customer Context
-(`AiCustomerContextView`, cache Redis 5 min, solo 4 intents que lo necesitan) → RAG
-(`retrieve_knowledge_for_chat`, filtra `visibility=="public"` — evita que el LLM fabrique
-respuestas con documentacion tecnica interna, hallazgo real corregido 2026-08-08) → Tools
-(**29 capabilities activas**, `capabilities/registry.py` + `tools/registry.py`; el LLM nunca ve
-una Tool directa) → Policy Layer (deny/confirm/allow segun `ToolMetadata`, `interrupt()` real de
-LangGraph para confirmacion humana, rate limit por-Tool en Redis) → respuesta — y vuelve por el
-mismo camino.
+`POST /chat` de `ai_engine_adk` → `sintel_root_workflow.py::run_sintel_turn` → router
+determinista (`resolve_turn_agent`, regex, mismo codigo que `action_graph.py` via
+`routing.py`) → **9 Agent Profiles** (`agents/profiles/*.yaml`, mismos de siempre) → RAG
+(`sintel_rag_adapter.py`, reusa `retrieve_knowledge_for_chat` tal cual, retrieval SOLO si
+`intent=="knowledge"`, decidido ANTES de invocar al LLM — nunca puede re-enrutar la
+conversacion) → Google ADK (`LlmAgent` real, LiteLLM contra `LOCAL_MODEL_CHAIN`) con Tools
+adaptadas 1:1 (`sintel_adapter.py::adapt_sintel_tool`, cada Tool solo se le declara al LLM si
+esta en `profile.herramientas` — un agente nunca "ve" una Tool fuera de su scope, no es un
+filtro post-hoc) → Policy Layer portada (rate limit + `IsAdminUser`, ambos chequeados en el
+wrapper de cada Tool antes de ejecutarla; confirmacion humana via `FunctionTool
+(require_confirmation=...)` nativo de ADK) → **frontera publica explicita**
+(`public_response.py::extract_public_response`, unico punto de conversion Event→respuesta:
+solo texto con `Part.thought=False` sale al cliente, `Part.thought=True` (razonamiento
+interno de modelos como Qwen3.5) nunca cruza esa frontera, mas un filtro defensivo de
+`<think>` como segunda capa) → respuesta.
 
-**Puente con Django — `/api/v1/internal/ai/*`**: el include de `ecommerce/urls.py:70` expande a
-**31 endpoints reales** (`ecommerce/internal_ai_urls.py`, uno por capacidad de negocio: ordenes,
-alquileres, pagos, servicios, kyc, marketing, cotizaciones, core/CMS, etc.) — no "2 endpoints"
-como decia una version anterior de la seccion "Rutas API raiz" arriba. `nginx` nunca expone
-`sintel_ai` publicamente; `ai_engine` nunca toca el ORM directo, siempre pasa por estas vistas
-(que a su vez usan Selectors/Commands ya existentes de la app dueña).
+**Bug real encontrado y corregido en esta migracion**: el razonamiento interno de Qwen3.5 (via
+LM Studio, header `reasoning_content`) se filtraba a la respuesta publica del cliente — causa
+raiz en codigo propio (`sintel_root_workflow.py` no filtraba `Part.thought`, campo real de
+ADK), no en el modelo/LM Studio/LiteLLM/ADK. Cerrado con `public_response.py` + 11 tests
+reales + verificacion E2E contra LM Studio real. Detalle completo:
+[`REASONING_LEAK_FIX_REPORT.md`](../../AUDITORIA/REASONING_LEAK_FIX_REPORT.md).
 
-**Identidad y aislamiento**: `thread_id = f"{user_id}:{conversation_id}"` siempre deriva del JWT
-resuelto server-side (nunca del mensaje del cliente) — un Customer no puede colisionar con la
-conversacion de otro adivinando su `conversation_id`. `ChatRoom.ai_paused`/`assigned_admin`
-(Django) gatea el Human Handoff via `is_ai_mode_active()`; el estado de turno (checkpoint Redis,
-TTL 7 dias) lo posee `action_graph.py` — Django sigue siendo dueño de los datos de negocio.
+**Puente con Django — `/api/v1/internal/ai/*`**: sigue igual, **31 endpoints reales**
+(`ecommerce/internal_ai_urls.py`). `nginx` nunca expone `sintel_ai`/`sintel_ai_adk`
+publicamente; ninguno de los dos runtimes toca el ORM directo.
 
-**Canales**: Web (WebSocket) y WhatsApp (Meta Cloud API, `notifications/tasks.py`) llaman al
-MISMO puente — motor channel-agnostic desde 2026-07-16. **[CERRADO 2026-08-17]** WhatsApp ahora
-respeta `is_ai_mode_active()`/`is_ai_rate_limited()` de la sala antes de auto-responder — antes
-un cliente cuyo chat web ya habia escalado a un humano seguia recibiendo respuestas automaticas
-de la IA si escribia por WhatsApp.
+**Identidad y aislamiento**: igual que antes — `session_id` deriva del JWT resuelto
+server-side. Hallazgo de seguridad propio de esta migracion (ADK-08): el JWT del usuario
+**nunca se siembra en `Session.state` de ADK** (se persistiria si algun dia se cambia
+`InMemorySessionService`, hoy en uso, por un backend persistente) — vive en un dict efimero
+de proceso indexado por `session_id`, mismo rol que `config["configurable"]` de LangGraph.
 
-**Concurrencia — [CERRADO 2026-08-17]**: el widget web ahora usa `ask_ai_async()`
-(`httpx.AsyncClient`, espera nativa del event loop) en vez de `ask_ai()` sincrono envuelto en
-`database_sync_to_async` — ya no ocupa el thread pool compartido de Django Channels durante la
-llamada al AI Engine (hasta 300s). Esto cierra el item "B2" que la tabla de Tareas Pendientes de
-este documento listaba como bloqueador antes de activar la IA ampliamente (ver abajo). WhatsApp
-sigue usando `ask_ai()` sincrono sin cambios (contexto Celery, sin event loop que proteger).
+**Produccion real (`sintel_production`, `sintel.net.co`) — migrada el mismo dia,
+2026-09-14:** `sintel_ai_adk` corre ahi tambien (antes el chat de IA NUNCA habia corrido en
+produccion real). `AI_SUPPORT_CHAT_ENABLED=True` desde entonces — **la IA de soporte
+responde a clientes reales**. La migracion encontro y corrigio 3 bugs reales de
+red/seguridad preexistentes en `sintel_production` (nunca detectados porque la IA nunca se
+habia invocado ahi): `ALLOWED_HOSTS` rechazaba el Host header interno `django:8000`;
+`SECURE_SSL_REDIRECT` redirigia con 301 esas mismas llamadas internas (bypasean nginx, nunca
+traen `X-Forwarded-Proto`); `host.docker.internal` no resolvia en la red `sintel-network`
+(si en la de staging). Fix real en `ai_engine/config.py::internal_django_headers()` +
+`extra_hosts: host-gateway` en `docker-compose.prod.yml`. Detalle completo:
+[`ADK_CUTOVER_PLAN.md`](../../AUDITORIA/ADK_CUTOVER_PLAN.md) seccion 4sexies/4septies.
 
-**`AI_SUPPORT_CHAT_ENABLED`**: `True` en este entorno de desarrollo (confirmado en runtime,
-2026-08-17, `ecommerce/settings/base.py`, default `False`). Produccion **no corre `sintel_ai` en
-absoluto** — `docker-compose.prod.yml` excluye deliberadamente `sintel_ai`/`sintel_ollama`/
-`sintel_chromadb` — el flag no aplica hoy contra produccion real.
+**Canales, concurrencia**: sin cambios respecto a la version anterior de esta seccion — Web y
+WhatsApp comparten el mismo puente channel-agnostic, `ask_ai_async()` para el widget web.
 
-Documentacion de detalle completo (no duplicada aqui): contrato tecnico —
+**Suite de tests real, ambos entornos, ambos runtimes** (verificada contra infraestructura
+real, no mocks, el mismo dia de la migracion): `ai_engine_adk/tests/` —
+`test_reasoning_separation.py` (11, incluye 2 E2E reales contra LM Studio),
+`test_rate_limit.py`/`test_permissions.py` (8, Policy Layer portada),
+`test_prompt_injection_resistance.py` (4, incluye 1 E2E real — scope de Tools/decision de
+permisos estructuralmente inmunes al contenido del mensaje, routing regex inmune a "actua
+como admin"). `ai_engine/tests/` (runtime OLD, detenido pero mantenido como regresion de la
+Policy Layer de referencia): 104 passed, 16 skipped.
+
+**Gap conocido, no bloqueante**: `ChatResponse.metrics` sigue `None` en `ai_engine_adk`
+(`TurnMetrics` real de `ai_engine/observability.py` todavia no se porto ahi). Backend de
+sesion de ADK sigue en `InMemorySessionService` (no sobrevive un reinicio del contenedor).
+
+Documentacion de detalle completo (no duplicada aqui): plan de migracion + cutover + estado
+real de ambos entornos, hallazgos, riesgos abiertos —
+[`ADK_CUTOVER_PLAN.md`](../../AUDITORIA/ADK_CUTOVER_PLAN.md) (secciones 4-6);
+auditoria previa contra `adk_poc/` —
+[`ADK_MIGRATION_AUDIT.md`](../../AUDITORIA/ADK_MIGRATION_AUDIT.md); fix del leak de
+razonamiento — [`REASONING_LEAK_FIX_REPORT.md`](../../AUDITORIA/REASONING_LEAK_FIX_REPORT.md);
+auditoria de un informe de validacion externo (arquitectura multi-tenant que describia
+resulto ficticia, 3 hallazgos reales sobrevivieron) —
+[`VALIDACION_INFORME_EXTERNO_SINTEL_PROD_AI.md`](../../AUDITORIA/VALIDACION_INFORME_EXTERNO_SINTEL_PROD_AI.md);
+contrato tecnico del Support Agent (todavia valido, el comportamiento certificado no cambio) —
 [`SUPPORT_AGENT_SPEC.md`](../../ecommerce_sintel/ai_engine/.AGENT/SUPPORT_AGENT_SPEC.md);
-checklist certificado con evidencia real, `APTA` —
-[`SUPPORT_AI_CERTIFICATION.md`](../../ecommerce_sintel/ai_engine/.AGENT/SUPPORT_AI_CERTIFICATION.md);
-23 capas E2E contra el stack vivo sin mocks —
-[`CERTIFICACION_E2E_CHAT_IA_2026-08-13.md`](../../ecommerce_sintel/ai_engine/.AGENT/CERTIFICACION_E2E_CHAT_IA_2026-08-13.md).
+checklist certificado con evidencia real, `APTA`, con addendum 2026-09-14 sobre la migracion —
+[`SUPPORT_AI_CERTIFICATION.md`](../../ecommerce_sintel/ai_engine/.AGENT/SUPPORT_AI_CERTIFICATION.md).
 
 ---
 
@@ -1793,9 +1831,10 @@ Tool, 9 Agent. **120/120 tests pasan.**
 | `ecommerce_sintel_redis` | redis:7.2-alpine | 6380 (mapeado, interno 6379) | nativo redis |
 | `ecommerce_sintel_nginx` | nginx:1.26-alpine | 80 | - |
 | `ecommerce_sintel_frontend` | node:24-bookworm-slim | 5173 | - |
-| `ecommerce_sintel_ai` | `ecommerce_sintel_ai:latest` (FastAPI, AI Engine) | 8100 | — solo en dev, no en `docker-compose.prod.yml` |
-| `ecommerce_sintel_ollama` | ollama/ollama:latest | 11434 | - |
-| `ecommerce_sintel_chromadb` | chromadb/chroma:0.5.23 | 8200 | - |
+| `ecommerce_sintel_ai` | `ecommerce_sintel_ai:latest` (FastAPI, AI Gateway solamente) | 8100 | **[ACTUALIZADO 2026-09-14]** `/chat` retirado (ADK-12) — solo expone `/health` + AI Gateway (Meta Ads MCP). Contenedor detenido (`Exited`) en dev/staging desde el cutover, no eliminado — sigue en `docker-compose.prod.yml` con el mismo rol (antes decia "solo en dev", ya no es cierto) |
+| `ecommerce_sintel_ai_adk` | `ecommerce_sintel_ai_adk:latest` (FastAPI, Google ADK — chat de soporte real) | 8101 | **[NUEVO 2026-09-14]** Unico runtime real del chat de soporte desde el cutover ADK-11 — en dev/staging Y en `docker-compose.prod.yml` (`sintel_ai_adk`, produccion real) |
+| `ecommerce_sintel_ollama` | ollama/ollama:latest | 11434 | Sigue disponible como una entrada mas de `LOCAL_MODEL_CHAIN` — el proveedor principal hoy es LM Studio (host, puerto 1234, `qwen/qwen3.5-9b`), ver seccion `ai_engine`/`ai_engine_adk` |
+| ~~`ecommerce_sintel_chromadb`~~ | **RETIRADO 2026-09-14** — RAG movido a PostgreSQL+pgvector via Django `ai_knowledge` (ver `AUDITORIA/ARCHITECTURE_SIMPLIFICATION_AUDIT.md`) | - | - |
 
 **Componente fuera de Docker — `sms_bridge`** (`ecommerce_sintel/sms_bridge/bridge.py`): proceso
 Python corriendo en el HOST Windows, no en ningun contenedor. Abre el puerto COM5 (modem GSM
@@ -1980,7 +2019,7 @@ matrices de riesgo, dependencias y estrategia de rollback.
 | Media | Documentar en `frontend/.AGENT/doc/ARQUITECTURA_COMPLETAFRONEND.md` el Design System `components/base/*` al mismo nivel de detalle que `ai_skills/frontend/components/cards.md` |
 | Media | Crear doc de arquitectura para `sms_bridge` (detectado 2026-08-10, sin doc propio) — variables de entorno, protocolo AT, casos de fallo, integracion con `notifications` |
 | Media | Decidir como resolver la staleness de `ai_engine/PROJECT_MAP.json` (leido por `memory_builder.py`/`ai_manifest.py`/`specialized_retrieval.py`, ya no regenerado por nadie desde la FASE 0 de desacoplamiento de `project_knowledge_graph`, 2026-08-10) — ver `ai_engine/.AGENT/AI_ENGINE_KG_DECOUPLING_FASE0.md` seccion 3 para las 3 opciones evaluadas |
-| Media | Rotar credenciales expuestas en `notas.txt` (P1-03 de AUDITORIA/33) y verificar historial Git/backups donde pudo haber circulado el archivo |
+| Media (parcial, ver abajo) | ~~Excluir `notas.txt` de toda imagen Docker~~ **CERRADO 2026-09-14** (typo real en `.dockerignore` corregido, ver "Completadas 2026-09-14"). Sigue pendiente: rotar las credenciales que el archivo pudo haber expuesto (P1-03 de AUDITORIA/33) y verificar historial Git/backups donde pudo haber circulado |
 | Media | Replica de backups a destino fuera del host de produccion (P2-01 de AUDITORIA/33 — backups hoy en `C:\Users\Administrator\sintel_backups`, mismo host que los datos) |
 | Baja | Confirmar si `core.CACHE`/signals cubren `BrandSliderConfig`/`BrandSliderItem`/`FooterGroup`/`AboutUsConfig`/`AboutUsValue` (5 modelos sumados despues del conteo original de "9") |
 | Baja | Rate limiting en login (brute force) — verificar si el rediseno de Auth 2026-07-17 ya lo cubre |
@@ -1990,6 +2029,51 @@ matrices de riesgo, dependencias y estrategia de rollback.
 | Pendiente — requiere alcance mayor | Paginacion de historial de sala de soporte (A4 de Fase 4) — feature nueva backend+frontend |
 | Pendiente — requiere alcance mayor | Historial de cambios (`changed_by`) para `EmailSettings`/`ContactInfo` en `organization` (Fase 10) — requiere modelo de auditoria nuevo |
 | Descartado (2026-07-09) | Sistema de eventos de dominio, wizard de upgrade independiente por tipo, reorganizacion de dashboard de usuarios por tipo, libreria de 8 componentes Vue de identidad — sin consumidor concreto, ver `accounts/.AGENT/docs/ARQUITECTURA_COMPLETA_ACCOUNTS.md` |
+
+### Completadas (2026-09-14 — Migracion completa del chat de soporte a Google ADK, mision "ADK-SINTEL" ADK-00 a ADK-13, sesion larga unica)
+
+**Cambio arquitectonico mas grande del proyecto en este dominio desde que `ai_engine` se
+construyo.** Resumen ejecutivo (detalle completo, incluyendo verificacion real contra
+infraestructura en vivo en ambos entornos, en `AUDITORIA/ADK_CUTOVER_PLAN.md` y los otros
+documentos citados en la seccion `ai_engine`/`ai_engine_adk` arriba, ya reescrita con el
+estado actual):
+
+1. **Orquestador reemplazado**: LangGraph/`action_graph.py` → Google ADK (`ai_engine_adk/`,
+   servicio Docker nuevo `sintel_ai_adk`). Routing sigue siendo determinista (regex,
+   `AgentRegistry`), nunca decidido por el LLM — requisito duro del usuario. Cutover real
+   ejecutado con blue-green (swap de `AI_ENGINE_URL`), OLD detenido (no eliminado) tras
+   verificar tool-calling/multi-turn reales.
+2. **Bug real encontrado y corregido**: razonamiento interno de Qwen3.5 (LM Studio) se
+   filtraba a la respuesta publica. Fix arquitectonico (`public_response.py`, separa
+   `Part.thought` de ADK), no un `.replace("<think>", "")` cosmetico. 11 tests reales.
+3. **Migracion a produccion real** (`sintel_production`, `sintel.net.co`) el mismo dia —
+   descubierto que era un stack Docker Compose completamente separado de `ecommerce_sintel`
+   (staging), nunca antes migrado. `AI_SUPPORT_CHAT_ENABLED=True` desde entonces — primera
+   vez que la IA de soporte responde a clientes reales. 3 bugs reales de red/seguridad
+   preexistentes en produccion encontrados y corregidos en el camino (nunca detectados antes
+   porque la IA nunca se habia invocado ahi).
+4. **Policy Layer portada completa a ADK** (auditoria de consumidores reales antes de borrar
+   nada, ADK-12/13): rate limiting por-Tool y gate `IsAdminUser` — ninguno de los dos existia
+   en el runtime nuevo hasta esta sesion, pese a ya estar sirviendo produccion real. Ambos
+   cerrados, mismo patron de extraccion a modulo compartido reusado por ambos runtimes
+   (`rate_limit.py`/`permissions.py`), cero duplicacion de logica.
+5. **Codigo genuinamente muerto retirado**: `/chat` + `llm_factory.py` fuera de `ai_engine`
+   (el runtime viejo solo sirve hoy al AI Gateway de Meta Ads); 2 archivos de test que ya
+   probaban logica duplicada en otro lado. `action_graph.py` se mantiene deliberadamente
+   (Policy Layer de referencia).
+6. **Suite de resistencia a prompt injection/RAG poisoning agregada** (`ai_engine_adk/tests/
+   test_prompt_injection_resistance.py`) — no existia ninguna para este runtime.
+7. **Auditoria completa de un informe de validacion externo** (22 secciones, citaba
+   OWASP/NIST) — su arquitectura multi-tenant (`AIContext`, `AI-VECTOR-06`) resulto ficticia
+   (proyecto confirmado single-tenant), pero sobrevivieron 2-3 hallazgos reales que ya
+   quedaron reflejados arriba.
+8. **`notas.txt` excluido de toda imagen Docker** (pedido explicito del usuario) — typo real
+   encontrado y corregido en `.dockerignore` (`.notas.txt` con punto, nunca coincidia con el
+   archivo real). Rotacion de las credenciales que pudo haber expuesto sigue pendiente (ver
+   tabla de Tareas Pendientes).
+
+**No fue necesario cambiar Qwen3.5 ni el runtime elegido (Google ADK) en ningun momento de
+esta mision.**
 
 ### Completadas (2026-08-17 — Auditoria E2E de cierre del AI Engine / Support Agent)
 
