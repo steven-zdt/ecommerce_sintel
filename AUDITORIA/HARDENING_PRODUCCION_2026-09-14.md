@@ -63,6 +63,35 @@ Verificado: staging 23/23 (`ai_engine_adk`) + 12/12 (`ai_knowledge`) PASS; produ
 Verificado: staging 26/26 (suite completa, sin romper tool-calling/multi-turno real) y
 producción real 7/7, `sintel_prod_db` no tocado. Commit `0b8fbd8`.
 
+## FASE A, continuación 2 -- Auditoría de secretos más profunda (§25), 2026-09-14
+
+Barrido sistemático de todo el código fuente TRACKEADO por git (no solo `notas.txt`):
+contraseñas/API keys/tokens/claves privadas hardcodeadas en `.py`, `.yml`/`.yaml`, frontend
+(`src/`), scripts de `deploy/`, defaults de `config()`/`decouple`, archivos `.pem`/`.key`/
+`.crt` trackeados, patrones de AWS access keys, y llamadas a `logger.*` que pudieran imprimir
+un token/password crudo.
+
+**Resultado: código fuente limpio.** Cero hardcodeos reales encontrados -- `SECRET_KEY`/
+`JWT_SECRET_KEY` (Django) se leen via `config()` SIN default (falla duro si falta, nunca cae
+a un valor débil hardcodeado -- el patrón más seguro posible), ningún `.env`/`.pem`/`.key`
+trackeado por git, el único `password:`/`token:` hardcodeado en YAML es
+`sintel_ci_password` (CI de GitHub Actions, Postgres desechable que solo existe durante el
+run, no una credencial real).
+
+**1 hallazgo real, nuevo, fuera de lo ya conocido:** `sms_bridge/bridge.py` (proceso Python
+en el HOST Windows, fuera de Docker, sin contenedor -- expone `0.0.0.0:8765` a propósito,
+`# nosec B104` ya documentado, necesario para que `host.docker.internal` lo alcance desde
+Django) **falla ABIERTO si `SMS_BRIDGE_TOKEN` no está configurado** -- el código solo
+advierte (`logger.warning`) y sigue aceptando peticiones sin autenticación, en vez de
+rechazarlas. Confirmado que `.env` (dev) SÍ tiene `SMS_BRIDGE_TOKEN` configurado, pero
+**`.env.production` NO** -- si el bridge llegara a correr en el host de producción real, hoy
+aceptaría enviar SMS reales (costo real, abuso real) a cualquiera que lo alcance en esa red,
+sin ningún token. **No se modificó el código** (cambiar el comportamiento de un puente que
+corre en el host de producción real, fuera de Docker, sin poder verificar por este medio si
+está corriendo ahora mismo ni cómo lo usa el flujo real, es una acción que requiere
+confirmación explícita del usuario antes de tocarla -- mismo criterio que el resto de esta
+sesión para acciones de blast radius alto e imposibles de verificar del todo).
+
 ## Gaps reales identificados, NO resueltos todavía (requieren más diseño o decisión del
 ## usuario -- ninguno bloqueante para el estado actual, documentados para la próxima fase):
 
@@ -72,8 +101,8 @@ producción real 7/7, `sintel_prod_db` no tocado. Commit `0b8fbd8`.
 3. **Batería de evaluación del modelo** (§44) -- no existe todavía (correctness, groundedness,
    retrieval relevance medidos sistemáticamente). Los tests actuales prueban comportamiento
    estructural/seguridad, no calidad de respuesta.
-4. **Auditoría de secretos más profunda** (§25) -- más allá de `notas.txt`, no se hizo un
-   grep sistemático de todo el código fuente buscando credenciales hardcodeadas. Pendiente.
+4. ~~Auditoría de secretos más profunda~~ -- **CERRADA 2026-09-14** (ver "FASE A, continuación
+   2" abajo). Resultado: código fuente limpio; 1 hallazgo real encontrado (SMS bridge).
 5. **Coordinación de retries** (§46) -- no auditado en esta pasada si LLM retry + Celery
    retry + HTTP retry pueden solaparse y producir duplicados.
 6. **Supply chain / pinning de versiones** (§30) -- `requirements.txt` de `ai_engine`/
@@ -83,6 +112,10 @@ producción real 7/7, `sintel_prod_db` no tocado. Commit `0b8fbd8`.
 7. **`ChatResponse.metrics`** sigue `None` en `ai_engine_adk` (ya documentado, sin cambios).
 8. **Backend de sesión persistente para ADK** sigue en `InMemorySessionService` (ya
    documentado, sin cambios).
+9. **`sms_bridge/bridge.py` falla abierto sin `SMS_BRIDGE_TOKEN`** -- `.env.production` no lo
+   tiene configurado. Requiere decisión explícita del usuario antes de tocar el
+   comportamiento de un proceso que corre en el host de producción real, fuera de Docker
+   (¿fail-closed si falta el token, o simplemente configurarlo en `.env.production`?).
 
 ## Clasificación de Gate (Sección 53/54 del prompt, provisional -- auditoría en curso)
 
@@ -92,12 +125,12 @@ READY WITH ACCEPTED RISKS
 
 No `NOT READY`: no hay bloqueadores de seguridad activos (WRITE gateado, RAG con
 autorización, reasoning separado, secrets fuera de imágenes, TLS coherente -- ya confirmado
-en la auditoría del informe externo). No `READY` sin calificar: quedan 8 ítems reales sin
+en la auditoría del informe externo). No `READY` sin calificar: quedan 9 ítems reales sin
 cerrar (arriba), ninguno crítico pero todos genuinos, más ~40 secciones del prompt original
-(evaluación, retries, supply chain pinning, batería de seguridad completa de 15 casos,
-auditoría de secretos exhaustiva) que esta pasada no alcanzó a cubrir en profundidad.
+(evaluación, retries, supply chain pinning, batería de seguridad completa de 15 casos) que
+esta pasada no alcanzó a cubrir en profundidad.
 
 ## Próxima fase sugerida (no iniciada, a la espera de indicación)
 
-Por orden de riesgo real: (a) auditoría de secretos más profunda, (b) batería de seguridad
-de 15 casos del §43, (c) coordinación de retries, (d) supply chain pinning.
+Por orden de riesgo real: (a) decisión sobre `sms_bridge` (fail-open sin token), (b) batería
+de seguridad de 15 casos del §43, (c) coordinación de retries, (d) supply chain pinning.
