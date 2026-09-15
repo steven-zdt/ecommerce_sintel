@@ -87,4 +87,6 @@ def test_categorias_bloqueadas_no_tienen_casos_fabricados():
 
 def test_dataset_tiene_al_menos_un_caso_por_categoria_evaluable():
     categorias_presentes = {c.category for c in DATASET}
-    assert categorias_presentes == {"NO_ANSWER", "AMBIGUOUS", "ADVERSARIAL"}
+    assert categorias_presentes == {
+        "NO_ANSWER", "AMBIGUOUS", "ADVERSARIAL", "MULTI_TOPIC", "PROMPT_INJECTION",
+    }
