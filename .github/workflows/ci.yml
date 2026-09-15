@@ -264,3 +264,33 @@ jobs:
             ecommerce_sintel/project_knowledge_graph/data/GRAPH_VIEW.html
             ecommerce_sintel/project_knowledge_graph/data/KNOWLEDGE_GRAPH.json
           retention-days: 14
+
+  dependency-audit:
+    name: Supply chain -- vulnerabilidades conocidas (advertencia, no bloqueante)
+    runs-on: ubuntu-latest
+    # Auditoria de hardening (2026-09-14, "PROMPT MAESTRO" seccion 30, "Supply
+    # chain"). Arranca en modo "advertencia" (igual que graph-audit lo hizo al
+    # nacer, Fase 6/7 de AUDITORIA/14) -- se promueve a bloqueante mas adelante
+    # solo si no genera ruido. Corre pip-audit contra los 2 lock files reales
+    # (ai_engine/requirements.lock.txt, ai_engine_adk/requirements.lock.txt --
+    # snapshot exacto de todo el arbol resuelto, no solo las dependencias
+    # directas). Confirmado localmente (2026-09-14) que ya hay hallazgos reales:
+    # starlette/langchain-core/langgraph/mcp desactualizados en el runtime OLD
+    # -- ver AUDITORIA/HARDENING_PRODUCCION_2026-09-14.md.
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Instalar pip-audit
+        run: pip install pip-audit
+
+      - name: Auditar ai_engine (runtime OLD, Policy Layer + AI Gateway)
+        if: always()
+        run: pip-audit -r ecommerce_sintel/ai_engine/requirements.lock.txt || true
+
+      - name: Auditar ai_engine_adk (runtime NUEVO, chat de soporte real)
+        if: always()
+        run: pip-audit -r ecommerce_sintel/ai_engine_adk/requirements.lock.txt || true
