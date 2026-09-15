@@ -137,6 +137,77 @@ class RetrievalDistanceTests(TestCase):
         self.assertEqual(results[0]['title'], 'Cercano')
 
 
+class HybridRetrievalTests(TestCase):
+    """Mision RAG Enterprise (2026-09-16, FASE 3): capa exacta/lexica +
+    vectorial. Cubre deteccion de tokens tipo codigo/SKU, prioridad de un
+    match exacto sobre uno vectorial, y la degradacion con gracia MEJORADA
+    (exacto sobrevive aunque el proveedor de embeddings este caido)."""
+
+    def setUp(self):
+        self.sku_doc = AIKnowledgeDocumentCommands.upsert_document(
+            title='Ficha de producto', content='El producto SKU-39CBC020 tiene garantia de 12 meses.',
+            visibility=AIKnowledgeDocument.VISIBILITY_PUBLIC,
+        )
+        self.generic_doc = AIKnowledgeDocumentCommands.upsert_document(
+            title='FAQ general', content='Informacion general sobre politicas de la tienda.',
+            visibility=AIKnowledgeDocument.VISIBILITY_PUBLIC,
+        )
+        for doc, seed in ((self.sku_doc, -1.0), (self.generic_doc, -1.0)):
+            chunk = doc.chunks.first()
+            chunk.embedding = _fake_vector(seed)  # deliberadamente LEJOS del query vector de abajo
+            chunk.embedding_model = 'fake-model'
+            chunk.save()
+
+    @patch('ai_knowledge.services.selectors.EmbeddingService.embed_text')
+    def test_match_exacto_de_sku_tiene_prioridad_sobre_vectorial(self, mock_embed):
+        # Query vector lejano de ambos chunks (similarity baja) -- si el
+        # match exacto no tuviera prioridad, el ranking vectorial puro no
+        # garantizaria que el doc del SKU salga primero.
+        mock_embed.return_value = (_fake_vector(1.0), 'fake-model')
+        results = RetrievalService.retrieve_public_knowledge('cuanto cuesta el SKU-39CBC020')
+        self.assertEqual(results[0]['title'], 'Ficha de producto')
+        self.assertEqual(results[0]['distance'], 0.0)
+
+    @patch('ai_knowledge.services.selectors.EmbeddingService.embed_text')
+    def test_query_sin_tokens_tecnicos_usa_solo_capa_vectorial(self, mock_embed):
+        # _fake_vector es uniforme ([seed]*dim) -- cosine similarity es
+        # invariante a escala, asi que CUALQUIER escalar negativo de -1.0
+        # (ej. -0.9) sigue dando distance==0.0 (misma direccion exacta). Se
+        # necesita un vector con una direccion realmente distinta (mitad y
+        # mitad) para obtener una distancia vectorial > 0 de verdad.
+        half = _FAKE_DIM // 2
+        query_vector = [-1.0] * half + [1.0] * (_FAKE_DIM - half)
+        mock_embed.return_value = (query_vector, 'fake-model')
+        results = RetrievalService.retrieve_public_knowledge('cual es la politica de la tienda')
+        self.assertEqual(len(results), 2)
+        # Sin match exacto, ninguno deberia tener distance==0.0 "gratis".
+        self.assertTrue(all(r['distance'] > 0.0 for r in results))
+
+    def test_match_exacto_sobrevive_sin_proveedor_de_embeddings(self):
+        """Degradacion MEJORADA: antes, un proveedor de embeddings caido
+        vaciaba el resultado por completo sin importar la evidencia textual
+        exacta disponible."""
+        with patch('ai_knowledge.services.selectors.EmbeddingService.embed_text') as mock_embed:
+            mock_embed.side_effect = EmbeddingProviderUnavailable('proveedor caido')
+            results = RetrievalService.retrieve_public_knowledge('info del SKU-39CBC020 por favor')
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]['title'], 'Ficha de producto')
+
+    def test_sin_match_exacto_y_sin_proveedor_devuelve_vacio(self):
+        with patch('ai_knowledge.services.selectors.EmbeddingService.embed_text') as mock_embed:
+            mock_embed.side_effect = EmbeddingProviderUnavailable('proveedor caido')
+            results = RetrievalService.retrieve_public_knowledge('pregunta generica sin codigos')
+        self.assertEqual(results, [])
+
+    def test_extract_exact_candidates_ignora_palabras_comunes_en_espanol(self):
+        from ai_knowledge.services.selectors import _extract_exact_candidates
+        candidatos = _extract_exact_candidates('hola quiero saber sobre el producto SKU-39CBC020 gracias')
+        self.assertEqual(candidatos, ['SKU-39CBC020'])
+        self.assertNotIn('hola', candidatos)
+        self.assertNotIn('quiero', candidatos)
+        self.assertNotIn('producto', candidatos)
+
+
 class RetrievalDegradationTests(TestCase):
     @patch('ai_knowledge.services.selectors.EmbeddingService.embed_text')
     def test_retrieval_returns_empty_list_without_provider(self, mock_embed):
