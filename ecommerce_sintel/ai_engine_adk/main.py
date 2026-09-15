@@ -88,7 +88,11 @@ async def chat(req: ChatRequest, token: str = Depends(get_validated_token)):
         needs_confirmation=result["needs_confirmation"],
         confirmation=result["confirmation"],
         response=result["response"],
-        metrics=None,  # TurnMetrics real: pendiente, ver AUDITORIA/ADK_CUTOVER_PLAN.md
+        # Mision RAG Enterprise (2026-09-16, FASE 11): cerrado para las
+        # senales de RAG (retrieval_used/knowledge_state/grounding_result/
+        # duration_ms) -- ver sintel_root_workflow.py::run_sintel_turn().
+        # Token/costo del LLM siguen sin medirse (gap preexistente aparte).
+        metrics=result.get("metrics"),
     )
 
 

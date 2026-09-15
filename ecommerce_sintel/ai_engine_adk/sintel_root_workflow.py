@@ -58,6 +58,7 @@ Ollama -- comportamiento contra LM Studio real sin verificar todavia,
 riesgo heredado y documentado, no resuelto silenciosamente aqui.
 """
 import logging
+import time
 
 from google.adk.features._feature_registry import FeatureName, override_feature_enabled
 
@@ -268,6 +269,10 @@ async def run_sintel_turn(
     confirm del sistema OLD) en vez de procesar `message` como una peticion
     nueva.
     """
+    # Mision RAG Enterprise (2026-09-16, FASE 11 -- observabilidad): duracion
+    # real del turno completo (identidad -> retrieval -> ADK -> grounding).
+    turn_started_at = time.monotonic()
+
     context = await resolve_identity(token)
     user_id = context["user_id"]
     conversation_id = conversation_id or "adk-root-default"
@@ -288,6 +293,10 @@ async def run_sintel_turn(
             ),
             "tool_calls": [], "tool_results": [], "needs_confirmation": False,
             "confirmation": None, "events": [],
+            "metrics": {
+                "rate_limited": True,
+                "duration_ms": round((time.monotonic() - turn_started_at) * 1000),
+            },
         }
 
     pending_fc_id = _PENDING_CONFIRMATIONS.get(session_id)
@@ -372,21 +381,53 @@ async def run_sintel_turn(
     # recuperada, no solo que hubo evidencia disponible. Acotado a turnos
     # de intent "knowledge" con evidencia REAL (nunca sobre los marcadores
     # de "sin conocimiento"/"baja confianza" -- ahi no hay nada que validar).
-    if (
+    grounding_verdict: str | None = None
+    has_real_knowledge_evidence = bool(
         intent == "knowledge"
         and knowledge_context
         and knowledge_context not in (_NO_KNOWLEDGE_MARKER, _LOW_CONFIDENCE_MARKER)
-        and final_text
-    ):
-        verdict = await check_grounding(
+    )
+    if has_real_knowledge_evidence and final_text:
+        grounding_verdict = await check_grounding(
             response=final_text, evidence=knowledge_context, **_resolve_primary_llm_params(),
         )
-        if verdict == UNSUPPORTED:
+        if grounding_verdict == UNSUPPORTED:
             logger.warning(
                 "[grounding] respuesta NO sustentada por la evidencia recuperada, "
                 "reemplazada por fallback seguro conversation_id=%s", conversation_id,
             )
             final_text = UNGROUNDED_FALLBACK_RESPONSE
+
+    # Mision RAG Enterprise (2026-09-16, FASE 11 -- observabilidad). Antes de
+    # esto, ChatResponse.metrics quedaba hardcodeado en None (main.py,
+    # "TurnMetrics real: pendiente") -- cerrado aqui SOLO para las senales
+    # de RAG que esta mision introdujo (retrieval/confidence/grounding);
+    # token/costo del LLM siguen sin medirse (gap preexistente, documentado
+    # aparte, ADK no expone usage_metadata por Event de forma directa --
+    # no se inventa un numero, se omite el campo en vez de fingir "0").
+    # knowledge_state: cual de los 3 caminos reales de sintel_rag_adapter.py
+    # se tomo -- diagnostico honesto de por que el cliente vio (o no) una
+    # respuesta con evidencia, sin exponer el contenido del conocimiento.
+    if intent != "knowledge":
+        knowledge_state = None
+    elif not knowledge_context or knowledge_context == _NO_KNOWLEDGE_MARKER:
+        knowledge_state = "no_knowledge"
+    elif knowledge_context == _LOW_CONFIDENCE_MARKER:
+        knowledge_state = "low_confidence"
+    else:
+        knowledge_state = "answered"
+
+    metrics = {
+        "agent": agent_name,
+        "intent": intent,
+        "handoff": handoff,
+        "tool_calls": len(tool_calls),
+        "needs_confirmation": needs_confirmation,
+        "retrieval_used": has_real_knowledge_evidence,
+        "knowledge_state": knowledge_state,
+        "grounding_result": grounding_verdict,
+        "duration_ms": round((time.monotonic() - turn_started_at) * 1000),
+    }
 
     return {
         "conversation_id": conversation_id,
@@ -400,4 +441,5 @@ async def run_sintel_turn(
         "needs_confirmation": needs_confirmation,
         "confirmation": confirmation,
         "events": events,
+        "metrics": metrics,
     }
