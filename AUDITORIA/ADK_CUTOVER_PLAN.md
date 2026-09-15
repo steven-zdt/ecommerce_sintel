@@ -683,10 +683,16 @@ el estado real de ambos entornos y consolida los riesgos abiertos conocidos.
 ### 6.3 Riesgos abiertos consolidados (ninguno tocado sin autorizacion explicita)
 
 1. ~~Gate `IsAdminUser` no portado a `ai_engine_adk`~~ -- **CERRADO**, ver 6.4.
-2. **`ai_engine/e2e_http/e2e_support_ai_chat_test.ps1` apunta a un endpoint retirado**
-   (`localhost:8100/chat`, ahora 404) y esta citado en documentos de certificacion formal
-   (`SUPPORT_AI_CERTIFICATION.md` y otros) -- requiere decision explicita antes de tocar esos
-   documentos.
+2. ~~`e2e_support_ai_chat_test.ps1` apunta a un endpoint retirado~~ -- **CERRADO 2026-09-14**:
+   actualizado a `localhost:8101` (`ai_engine_adk`), `metrics` ya no se exige (gap conocido,
+   sigue `None`). Verificado en vivo: Paso 1 (`/health`) PASS contra el runtime real.
+   `SUPPORT_AI_CERTIFICATION.md` recibio un addendum fechado explicando la migracion --
+   la certificacion "APTA" en si NO se reescribio, sigue siendo el veredicto historico
+   valido. **Hallazgo colateral, nuevo, sin resolver**: el Paso 2 (login) del script falla
+   con "Credenciales invalidas" para `admin@sintel.com` -- la cuenta existe y esta activa
+   (`is_staff=True`), es la password hardcodeada en el script la que ya no es correcta
+   (pre-existente, sin relacion con la migracion ADK) -- no se intento adivinar ni resetear
+   la password de una cuenta admin real sin autorizacion explicita.
 3. **Rotacion de credenciales de `notas.txt`** -- sigue sin rotar, confirmado real en la
    auditoria del informe externo.
 4. **Backups fuera del host de produccion** -- sigue pendiente, mismo hallazgo.

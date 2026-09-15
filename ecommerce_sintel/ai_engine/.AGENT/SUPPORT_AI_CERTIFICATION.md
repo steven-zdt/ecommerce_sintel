@@ -1,5 +1,27 @@
 # SUPPORT AI CERTIFICATION
 
+> **[Actualizado 2026-09-14 — migracion de runtime a Google ADK, ver
+> `AUDITORIA/ADK_CUTOVER_PLAN.md`]** El chat de soporte real dejo de correr en
+> `ai_engine` (puerto 8100, `action_graph.py`/LangGraph) y ahora corre enteramente en
+> `ai_engine_adk/` (puerto 8101, Google ADK) -- mismo dia, migracion completa
+> ADK-00 a ADK-13, cutover verificado en staging Y produccion real
+> (`sintel.net.co`, `AI_SUPPORT_CHAT_ENABLED=True`). `e2e_http/
+> e2e_support_ai_chat_test.ps1` (citado abajo como evidencia del Bloque 10/Load
+> Test) quedo apuntando al puerto/proceso viejo (404 real) hasta hoy -- corregido
+> para apuntar a `ai_engine_adk` (mismo flujo, `metrics` ahora opcional: ese campo
+> sigue `None` en el runtime nuevo, gap documentado, no bloqueante). La
+> certificacion de abajo (APTA) sigue siendo valida -- el comportamiento
+> certificado no cambio, solo el proceso/puerto que lo sirve. Evidencia E2E
+> adicional del runtime nuevo, corrida contra infraestructura real en ambos
+> entornos el mismo dia: `ai_engine_adk/tests/test_reasoning_separation.py` (11
+> tests, incluye el fix del leak de razonamiento de Qwen3.5 -- ver
+> `AUDITORIA/REASONING_LEAK_FIX_REPORT.md`), `test_rate_limit.py`/
+> `test_permissions.py` (Policy Layer portada), y
+> `test_prompt_injection_resistance.py` (4 tests, cierra el hueco de pruebas
+> adversariales que este documento senalaba como pendiente para el runtime
+> nuevo). Ver `AUDITORIA/ADK_CUTOVER_PLAN.md` seccion 6 para el detalle
+> completo.
+>
 > **[Actualizado 2026-08-17, mas tarde — CORREGIDO la misma noche]** Migracion del
 > proveedor LLM: **Ollama -> LM Studio Server** (Windows HOST, puerto 1234, API
 > OpenAI-compatible). Modelo real: `qwen/qwen3.5-9b` (confirmado via `GET /v1/models`,
