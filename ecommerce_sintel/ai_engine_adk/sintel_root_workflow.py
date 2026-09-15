@@ -57,6 +57,8 @@ todavia (pendiente, ver AUDITORIA/ADK_CUTOVER_PLAN.md seccion 4). El fix de
 Ollama -- comportamiento contra LM Studio real sin verificar todavia,
 riesgo heredado y documentado, no resuelto silenciosamente aqui.
 """
+import logging
+
 from google.adk.features._feature_registry import FeatureName, override_feature_enabled
 
 override_feature_enabled(FeatureName.JSON_SCHEMA_FOR_FUNC_DECL, False)
@@ -78,8 +80,16 @@ from sintel_adapter import (
     handle_tool_error,
     set_ephemeral_token,
 )
-from sintel_rag_adapter import SINTEL_KNOWLEDGE_CONTEXT_STATE_KEY, build_knowledge_context
+from sintel_rag_adapter import (
+    SINTEL_KNOWLEDGE_CONTEXT_STATE_KEY,
+    _LOW_CONFIDENCE_MARKER,
+    _NO_KNOWLEDGE_MARKER,
+    build_knowledge_context,
+)
 from public_response import REQUEST_CONFIRMATION_FUNCTION_CALL_NAME, extract_public_response
+from grounding import UNGROUNDED_FALLBACK_RESPONSE, UNSUPPORTED, check_grounding
+
+logger = logging.getLogger("sintel_root_workflow")
 
 APP_NAME = "sintel_ai_adk"
 
@@ -97,9 +107,15 @@ APP_NAME = "sintel_ai_adk"
 _LLM_TIMEOUT_SECONDS = 90
 
 
-def _build_litellm_model():
+def _resolve_primary_llm_params() -> dict:
     """Lee el LOCAL_MODEL_CHAIN real (mismo formato/modulo que llm_factory.py
-    del sistema OLD) y construye el LiteLlm de la entrada PRIMARIA."""
+    del sistema OLD) y devuelve los parametros crudos (model/api_base/
+    api_key) de la entrada PRIMARIA -- extraido de _build_litellm_model()
+    (Mision RAG Enterprise, FASE 7, 2026-09-16) para que grounding.py pueda
+    hacer una llamada litellm directa con el MISMO modelo/proveedor real del
+    turno (Regla 3 de la mision: no cambiar de modelo sin evidencia), sin
+    duplicar este parseo ni crear un segundo LlmAgent/Runner completo para
+    una pregunta de si/no."""
     from config import LOCAL_MODEL_CHAIN
     from model_chain import parse_local_model_chain
 
@@ -112,18 +128,23 @@ def _build_litellm_model():
     entry = entries[0]
     kind = entry["kind"]
     if kind == "ollama-nativo":
-        return LiteLlm(model=f"ollama_chat/{entry['model']}", api_base=entry["base_url"],
-                        timeout=_LLM_TIMEOUT_SECONDS)
+        return {"model": f"ollama_chat/{entry['model']}", "api_base": entry["base_url"]}
     if kind == "openai-compatible":
-        return LiteLlm(model=f"openai/{entry['model']}", api_base=entry["base_url"], api_key="not-needed",
-                        timeout=_LLM_TIMEOUT_SECONDS)
+        return {"model": f"openai/{entry['model']}", "api_base": entry["base_url"], "api_key": "not-needed"}
     if kind == "anthropic":
         from decouple import config as env
         from config import ANTHROPIC_API_KEY
 
         api_key = env(entry["api_key_env"], default=ANTHROPIC_API_KEY) if entry.get("api_key_env") else ANTHROPIC_API_KEY
-        return LiteLlm(model=f"anthropic/{entry['model']}", api_key=api_key, timeout=_LLM_TIMEOUT_SECONDS)
+        return {"model": f"anthropic/{entry['model']}", "api_key": api_key}
     raise RuntimeError(f"kind desconocido en LOCAL_MODEL_CHAIN: {kind!r}")
+
+
+def _build_litellm_model():
+    """Construye el LiteLlm real (ADK) de la entrada PRIMARIA de
+    LOCAL_MODEL_CHAIN -- mismo comportamiento de siempre, ahora sobre
+    _resolve_primary_llm_params() (ver docstring de esa funcion)."""
+    return LiteLlm(timeout=_LLM_TIMEOUT_SECONDS, **_resolve_primary_llm_params())
 
 
 class IdentityResolutionError(Exception):
@@ -343,6 +364,29 @@ async def run_sintel_turn(
     final_text, _internal_reasoning, tool_calls, tool_results = extract_public_response(
         events, conversation_id=conversation_id,
     )
+
+    # Mision RAG Enterprise (2026-09-16, FASE 7): grounding/claim validation
+    # POST-generacion. Distinto de retrieval confidence/answerability
+    # (sintel_rag_adapter.py, FASE 6, que decide ANTES de generar) -- esto
+    # verifica que la respuesta YA generada realmente use la evidencia
+    # recuperada, no solo que hubo evidencia disponible. Acotado a turnos
+    # de intent "knowledge" con evidencia REAL (nunca sobre los marcadores
+    # de "sin conocimiento"/"baja confianza" -- ahi no hay nada que validar).
+    if (
+        intent == "knowledge"
+        and knowledge_context
+        and knowledge_context not in (_NO_KNOWLEDGE_MARKER, _LOW_CONFIDENCE_MARKER)
+        and final_text
+    ):
+        verdict = await check_grounding(
+            response=final_text, evidence=knowledge_context, **_resolve_primary_llm_params(),
+        )
+        if verdict == UNSUPPORTED:
+            logger.warning(
+                "[grounding] respuesta NO sustentada por la evidencia recuperada, "
+                "reemplazada por fallback seguro conversation_id=%s", conversation_id,
+            )
+            final_text = UNGROUNDED_FALLBACK_RESPONSE
 
     return {
         "conversation_id": conversation_id,
