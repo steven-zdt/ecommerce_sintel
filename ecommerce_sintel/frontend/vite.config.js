@@ -2,9 +2,40 @@ import { defineConfig } from 'vite';
 import vue from '@vitejs/plugin-vue';
 import { resolve } from 'path';
 
+// [CORREGIDO 2026-09-15] django-vite (get_dev_server_url(), core/asset_loader.py)
+// SIEMPRE antepone STATIC_URL + DJANGO_VITE.static_url_prefix a la URL del
+// servidor de desarrollo -- no hay forma de configurarlo distinto para dev vs
+// build (mismo self.static_url_prefix en ambos metodos, verificado leyendo el
+// paquete instalado, version 3.1.0). Con static_url_prefix='panel/js/bundle'
+// (necesario en produccion, ver el comentario de "base" mas abajo), Django
+// genera <script src="http://localhost:5173/static/panel/js/bundle/src/...">,
+// pero Vite (con base:'/' en dev, INTENCIONAL, ver mas abajo) solo sirve esos
+// modulos en /src/... (sin el prefijo) -- 404 real, la SPA nunca montaba
+// cuando se accedia via nginx/Django (localhost:8080), solo funcionaba
+// entrando directo a Vite (localhost:5173). Bug real encontrado validando por
+// que /panel/login se quedaba en el spinner de carga inicial indefinidamente.
+// Fix: middleware que reescribe el prefijo ANTES de que Vite resuelva la
+// request, sin tocar "base" (evita reintroducir el bug historico documentado
+// abajo) ni static_url_prefix (sigue siendo correcto para produccion).
+function stripDjangoVitePrefixPlugin() {
+  const PREFIX = '/static/panel/js/bundle';
+  return {
+    name: 'strip-django-vite-dev-prefix',
+    apply: 'serve',
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        if (req.url && req.url.startsWith(PREFIX)) {
+          req.url = req.url.slice(PREFIX.length) || '/';
+        }
+        next();
+      });
+    },
+  };
+}
+
 // https://vite.dev/config/
 export default defineConfig(({ command }) => ({
-  plugins: [vue()],
+  plugins: [vue(), stripDjangoVitePrefixPlugin()],
   // base: DIFERENTE segun comando -- vite.config.js es el mismo archivo para
   // "npm run dev" (command==='serve') y "npm run build" (command==='build'),
   // pero cada uno necesita un base distinto:
