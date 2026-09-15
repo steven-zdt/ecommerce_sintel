@@ -5,9 +5,11 @@ llamada litellm se construye con el modelo/proveedor pasado (nunca uno
 distinto -- Regla 3 de la mision: no cambiar de modelo sin evidencia).
 
 `litellm.acompletion` se mockea (rapido, determinista) -- el comportamiento
-E2E real (¿el validador realmente detecta una respuesta no sustentada
-contra LM Studio real?) se cubre aparte en
-ai_engine_adk/tests/test_grounding_e2e.py.
+E2E real (¿el validador realmente detecta una respuesta no sustentada, o que
+CONTRADICE la evidencia, contra LM Studio real?) se cubre aparte en
+ai_engine_adk/tests/test_grounding_integration.py (referencia corregida
+2026-09-16, Mision RAG-POST2 -- el nombre anterior, test_grounding_e2e.py,
+nunca existio en este repo).
 """
 import sys
 from pathlib import Path

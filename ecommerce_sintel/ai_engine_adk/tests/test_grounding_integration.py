@@ -16,7 +16,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from grounding import UNGROUNDED_FALLBACK_RESPONSE  # noqa: E402
+from grounding import PARTIALLY_SUPPORTED, SUPPORTED, UNGROUNDED_FALLBACK_RESPONSE, UNSUPPORTED, check_grounding  # noqa: E402
 
 
 def _poisoned_chunk(content: str) -> dict:
@@ -76,6 +76,29 @@ async def test_veredicto_supported_conserva_la_respuesta_real_generada_por_el_ll
     assert result["intent"] == "knowledge"
     assert result["response"] != UNGROUNDED_FALLBACK_RESPONSE
     assert result["response"]  # respuesta real, no vacia -- vino del LLM real, no se toco
+
+
+@pytest.mark.asyncio
+async def test_check_grounding_real_detecta_respuesta_que_contradice_la_evidencia():
+    """Mision RAG-POST2 (FASE 4, 2026-09-16): re-evaluacion explicita de si
+    hace falta un veredicto CONTRADICTED separado (ver AUDITORIA/RAG_POST2_
+    RETRIEVAL_ANSWERABILITY_GROUNDING.md -- decision: no, UNSUPPORTED ya lo
+    cubre). Esta prueba es la evidencia real de esa decision: contra el LLM
+    REAL (no mockeado, a diferencia del resto de este archivo), una
+    respuesta que CONTRADICE explicitamente la evidencia (no solo "no la
+    menciona") debe caer en UNSUPPORTED, nunca en SUPPORTED."""
+    from sintel_root_workflow import _resolve_primary_llm_params
+
+    evidence = "[Fuente 1] Politica de garantia\nLa garantia de Sintel es de 12 meses en productos nuevos."
+    contradictory_response = "La garantia de Sintel es de 30 dias unicamente, sin excepciones."
+
+    verdict = await check_grounding(
+        response=contradictory_response, evidence=evidence, **_resolve_primary_llm_params(),
+    )
+    assert verdict in (UNSUPPORTED, PARTIALLY_SUPPORTED), (
+        f"una respuesta que contradice la evidencia nunca debe evaluarse como {SUPPORTED!r}, "
+        f"el validador real devolvio {verdict!r}"
+    )
 
 
 @pytest.mark.asyncio
