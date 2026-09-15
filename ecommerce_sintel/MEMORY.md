@@ -26,6 +26,48 @@ Toda interacción y modificación de código respeta obligatoriamente los siguie
 
 ## 4. Historial Reciente y Tareas Actuales (Julio 2026)
 
+- **MIGRACION COMPLETA DEL CHAT DE SOPORTE A GOOGLE ADK (2026-09-14, mision "ADK-SINTEL"
+  ADK-00 a ADK-13, sesion larga unica):** cambio arquitectonico mayor -- reemplaza
+  LangGraph/`action_graph.py` como orquestador del chat de soporte por Google ADK
+  (`ai_engine_adk/`, servicio Docker nuevo `sintel_ai_adk`, puerto 8101). Routing sigue
+  determinista (regex + `AgentRegistry`), nunca decidido por el LLM. `ai_engine/` (OLD,
+  `sintel_ai`) se detuvo (no se elimino) -- ahora solo sirve al AI Gateway de Meta Ads;
+  `/chat` + `llm_factory.py` retirados de ahi (ADK-12), `action_graph.py` se mantiene
+  deliberadamente como referencia probada de la Policy Layer.
+  - **Bug real corregido:** razonamiento interno de Qwen3.5 (LM Studio, `reasoning_content`)
+    se filtraba a la respuesta publica. Causa raiz en codigo propio (`sintel_root_workflow.py`
+    no filtraba `Part.thought` de ADK), no en el modelo/LM Studio/LiteLLM/ADK. Fix
+    arquitectonico real (`public_response.py`), no un `.replace()` cosmetico. 11 tests reales.
+    Ver `AUDITORIA/REASONING_LEAK_FIX_REPORT.md`.
+  - **Migrado tambien a produccion real** (`sintel_production`, `sintel.net.co`, stack Docker
+    Compose SEPARADO de `ecommerce_sintel` que este cambio confirmo nunca se habia tocado
+    antes) el mismo dia. `AI_SUPPORT_CHAT_ENABLED=True` desde entonces -- primera vez que la
+    IA de soporte responde a clientes reales. 3 bugs reales de red/seguridad preexistentes en
+    produccion encontrados y corregidos en el camino (`ALLOWED_HOSTS`, `SECURE_SSL_REDIRECT`,
+    DNS de `host.docker.internal`), ninguno introducido por ADK, nunca detectados porque la IA
+    nunca se habia invocado en prod. Ver `AUDITORIA/ADK_CUTOVER_PLAN.md` secciones 4sexies/
+    4septies.
+  - **Policy Layer portada completa a ADK** (rate limiting por-Tool + gate `IsAdminUser`,
+    ninguno de los dos existia en el runtime nuevo pese a ya servir produccion real) --
+    `ai_engine/rate_limit.py`/`permissions.py`, mismo patron de extraccion a modulo
+    compartido que `routing.py`/`model_chain.py` (ADK-11), reusado por ambos runtimes.
+  - **Suite de resistencia a prompt injection/RAG poisoning agregada**
+    (`ai_engine_adk/tests/test_prompt_injection_resistance.py`), no existia ninguna.
+  - **Auditoria de un informe de validacion externo** (22 secciones, citaba OWASP/NIST): su
+    arquitectura multi-tenant (`AIContext`, `AI-VECTOR-06`) resulto ficticia (proyecto
+    confirmado single-tenant), pero sobrevivieron hallazgos reales (leak de razonamiento --
+    ya cerrado antes de este informe; rate limit/IsAdminUser -- cerrados en el camino). Ver
+    `AUDITORIA/VALIDACION_INFORME_EXTERNO_SINTEL_PROD_AI.md`.
+  - **`notas.txt` excluido de toda imagen Docker** (pedido explicito del usuario, "control
+    solo mio") -- typo real corregido en `.dockerignore` raiz (`.notas.txt` con punto nunca
+    coincidia con el archivo real `notas.txt`). Rotacion de las credenciales que el archivo
+    pudo haber expuesto sigue pendiente.
+  - Documentacion detallada completa (no duplicada aqui): seccion `ai_engine`/`ai_engine_adk`
+    de `../Documentacion/Arquitectura_general/IMPLEMENTATION_SUMMARY.md` (reescrita el mismo
+    dia) y `AUDITORIA/ADK_CUTOVER_PLAN.md` (plan + ejecucion real completa, secciones 4-6).
+  - **No fue necesario cambiar Qwen3.5 ni el runtime elegido (Google ADK) en ningun momento
+    de esta mision.**
+
 - **DESPLIEGUE A PRODUCCION 2026-08-31:** `./deploy/backup.sh` (dump BD
   verificado: `sintel_db_20260831_110616.dump`) + `./deploy/deploy.sh` (build
   django `--no-cache` desde working tree + `up -d`). Prod quedo con TODO el
