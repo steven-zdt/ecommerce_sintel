@@ -1,6 +1,6 @@
 # Integracion Meta Business en SINTEL - Plan Maestro de Implementacion
 
-> Estado: **FASE 0 bloqueada en el usuario** | **FASE 1-4, 6, 6.1, 7, 9, 10 DONE + DESPLEGADAS A PRODUCCION (2026-08-31)** | FASE 5 ya cubierta | FASE 8, 11-26 PENDIENTES
+> Estado: **FASE 0 bloqueada en el usuario (credenciales reales pendientes, ver seccion 3 -- `META_ACCESS_TOKEN` de dev confirmado INVALIDO contra Meta real el 2026-09-15, `debug_token` -> code 190)** | **FASE 1-4, 6, 6.1, 7, 9, 10 DONE + DESPLEGADAS A PRODUCCION (2026-08-31)** | FASE 5 ya cubierta | **FASE 11 PARCIAL (2026-09-15, camino corto sin MCP -- ver seccion 6)** | FASE 8, 12-26 PENDIENTES
 > FASE 10: codigo desplegado pero DORMIDO (`MCP_META_ADS_ENABLED=false`) -- falta crear el App de Meta y la autorizacion OAuth (`python -m mcp_client.authorize`). Ver seccion 9.
 > Deploy 2026-08-31: `./deploy/backup.sh` + `./deploy/deploy.sh`; migraciones `notifications.0008/0009` aplicadas a la BD de prod; `ecommerce_sintel_ai:prod` reconstruida aparte.
 > Rama de la fundacion: `fix/audit-p0-remediation`
@@ -223,11 +223,64 @@ OAuth real, **verificado contra el endpoint 2026-08-31** (`.well-known/oauth-aut
   -p 8765:8765 sintel_ai python -m mcp_client.authorize` -> login en el navegador -> poner
   `MCP_META_ADS_ENABLED=true` y reiniciar. Ver seccion 9.
 
-### FASE 11 - Capabilities Meta Ads (READ)
-- **Archivos:** `ai_engine/capabilities/registry.py` (+`meta_ads_account_summary`, `meta_ads_campaign_list`, `meta_ads_campaign_insights`, `meta_ads_adset_insights`, `meta_ads_ad_insights`, `meta_ads_performance_diagnosis`), `ai_engine/tools/marketing_tools.py` (Tools que llaman a `internal_ai` FASE 9 **o** al MCP segun el caso).
-- **Reglas:** todas READ / ALLOW. Datos internos de ventas -> `internal_ai` (Django). Datos publicitarios -> MCP.
-- **Tests:** `ai_engine/tests/test_tool_policy_matrix.py` - las 6 capabilities resuelven a Tool y quedan `allow`.
-- **PASS:** matriz de policy verde para las 6; FAIL si alguna queda `confirm`/`deny` por error de config.
+### FASE 11 - Capabilities Meta Ads (READ) -- PARCIAL (camino corto, 2026-09-15)
+
+**Estado real: mecanismo cerrado y verificado contra el runtime ADK real (dev); routing/intents
+dedicados (originalmente planeados para FASE 12) NO estan hechos; el path MCP sigue sin
+autorizar.** No declarar esta fase `DONE` -- ver honestidad de alcance abajo.
+
+- **Archivos reales (distintos de lo planeado originalmente):**
+  - `ai_engine/tools/marketing_tools.py`: 4 Tools nuevas (`MetaCampaignsTool`,
+    `MetaCampaignDetailTool`, `MetaInsightsTool` -- cubre account/campaign/adset/ad via el
+    parametro `level`, `MetaAccountSummaryTool`), todas envolviendo las vistas `AiMeta*View` de
+    FASE 9 (`internal_ai`, Django) via `django_internal_get` -- **NO tocan el MCP** (FASE 10
+    sigue sin OAuth real, el volumen `*_mcp_tokens` esta vacio en dev y prod, verificado).
+  - `ai_engine/capabilities/registry.py`: 4 capabilities nuevas, nombradas en espanol siguiendo
+    la convencion REAL ya usada en el archivo (`consultar_campanas_meta`,
+    `consultar_detalle_campana_meta`, `consultar_insights_meta`, `consultar_resumen_cuenta_meta`)
+    -- **no son los IDs `meta_ads_*` que este plan proponia originalmente**, se prefirio
+    consistencia con las ~20 capabilities ya existentes sobre el nombre propuesto en el plan.
+  - `ai_engine/agents/profiles/marketing_agent.yaml`: las 4 Tools + 4 capabilities agregadas a
+    `herramientas`/`capacidades` de `MarketingAgent` (perfil ya existente, no se creo un
+    `MetaAgent` nuevo -- coherente con la regla de FASE 12 de abajo).
+  - No se toco `meta_ads_performance_diagnosis` (analisis compuesto, no un wrap 1:1 de una vista
+    -- fuera de alcance del camino corto) ni ninguna capability sobre MCP.
+
+- **Verificado real contra `ecommerce_sintel_ai_adk` (dev, rebuild + restart, nunca produccion):**
+  - `_load_profiles()` valida las 9 `herramientas`/9 `capacidades` de `MarketingAgent` sin error
+    (import directo de `agents` dentro del contenedor, los 9 perfiles cargan).
+  - `sintel_adapter.adapt_sintel_tool()` envuelve las 4 Tools nuevas en `FunctionTool` real de
+    ADK sin error.
+  - Round-trip real end-to-end con un JWT real de un admin de dev: `tools.invoke("MetaCampaignsTool", ...)`
+    -> `http_bridge` -> Django `internal_ai` real -> `MetaCampaignSelector` -> `MetaGraphClient`
+    -> degrada correctamente a `503 {"configured": false}` (falta `META_AD_ACCOUNT_ID` real) --
+    **nunca inventa datos**, tal como exige la regla de honestidad de este plan.
+  - Regresion: `ai_engine` (OLD) 104 passed/16 skipped (sin cambio vs. baseline conocido);
+    `ai_engine_adk` 25 passed, 6 failed -- **los 6 fallos son 100% por LM Studio apagado en este
+    host ahora mismo** (`curl localhost:1234/v1/models` -> connection refused), confirmado no
+    relacionado con este cambio (son los tests E2E reales contra el LLM local, ya existian antes).
+
+- **Hallazgo colateral (no corregido, fuera de alcance de esta tarea):** `ai_engine/tools/http_bridge.py::_map_response()`
+  no tiene rama especifica para 5xx de Meta -- el `detail` util que Django ya arma (ej. "META_AD_ACCOUNT_ID
+  no configurado") se pierde y el LLM solo ve "Error consultando los datos.". No es un riesgo de
+  seguridad, es una perdida de contexto util para FASE 20 (Observabilidad) o un ajuste menor de
+  `_map_response()` si se decide priorizarlo.
+
+- **Honestamente NO hecho (no inventar que si):**
+  - FASE 12 (routing dedicado): NO se agregaron intents nuevos (`marketing.meta_campaign_status`,
+    etc.) ni reglas de router. Estas 4 Tools solo son alcanzables cuando `MarketingAgent` ya se
+    selecciona por los intents existentes (`marketing_admin` -- su regex real en `routing.py` SI
+    matchea "campan\|campaña\|metricas\|conversion", asi que en la practica alcanza estas Tools
+    tambien -- verificado leyendo el regex real, no asumido -- pero no es una ruta dedicada).
+  - Path MCP (datos publicitarios en tiempo real via `MetaAdsMCPClient`) sigue completamente sin
+    conectar al Tool Registry -- bloqueado en el OAuth real (FASE 10 go-live, seccion 9).
+  - `meta_ads_performance_diagnosis` (analisis compuesto) no existe.
+  - Ninguna de las 4 Tools devuelve datos reales todavia -- depende de que `META_APP_ID`/
+    `META_ACCESS_TOKEN`/`META_AD_ACCOUNT_ID` reales se carguen (bloqueado en FASE 0, ver seccion 3).
+
+- **Tests formales pendientes:** no se escribio un `test_tool_policy_matrix.py` dedicado para
+  estas 4 capabilities (la verificacion de arriba fue manual/directa contra el contenedor real,
+  no un test permanente) -- pendiente si se quiere cobertura de regresion automatizada.
 
 ### FASE 12 - MarketingAgent + Meta
 - **Archivos:** `ai_engine/agents/profiles/marketing_agent.yaml` (+intents `marketing.meta_campaign_status`, `marketing.ad_performance`, `marketing.budget_analysis`, `marketing.optimization`; +las 6 capabilities), router en `ai_engine/agents/__init__.py`.

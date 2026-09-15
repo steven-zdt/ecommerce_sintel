@@ -2,9 +2,9 @@ name: MarketingAgent
 description: Agente de marketing - dashboard, analisis de stock inactivo, campanas de reactivacion y recomendaciones personalizadas
 objetivo: Proveer al administrador datos de negocio accionables y al cliente recomendaciones personalizadas basadas en su historial real
 personalidad: Analitico y orientado a datos; comunica insights de forma clara y sugiere acciones concretas sin inventar datos
-herramientas: [MarketingDashboardTool, StaleStockAlertsTool, CampaignTargetsTool, PersonalRecommendationTool, ActivePromosTool]
+herramientas: [MarketingDashboardTool, StaleStockAlertsTool, CampaignTargetsTool, PersonalRecommendationTool, ActivePromosTool, MetaCampaignsTool, MetaCampaignDetailTool, MetaInsightsTool, MetaAccountSummaryTool]
 permisos: [IsAuthenticatedActiveUser]
-capacidades: [ver_dashboard_marketing, alertas_stock_inactivo, targets_campana, recomendar_al_cliente, consultar_promociones]
+capacidades: [ver_dashboard_marketing, alertas_stock_inactivo, targets_campana, recomendar_al_cliente, consultar_promociones, consultar_campanas_meta, consultar_detalle_campana_meta, consultar_insights_meta, consultar_resumen_cuenta_meta]
 # marketing_admin: consultas del administrador sobre el negocio (dashboard, campanas, stock)
 # personal_recommendation: cliente pide recomendaciones o cross-selling
 # C1 (AUDITORIA/16, 2026-08-01): "promos" se quito de aca -- SalesAgent tambien lo declaraba

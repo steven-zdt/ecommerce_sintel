@@ -201,6 +201,31 @@ _CAPABILITIES: dict[str, Capability] = {
             tool_name="CoreBrandSliderUpdateTool",
             apps=["core"],
         ),
+        # -- Meta Business FASE 11 (camino corto, 2026-09-15): READ-only, sin MCP/OAuth --
+        Capability(
+            capability_id="consultar_campanas_meta",
+            description_for_llm="Listar las campanas de Meta Ads (Facebook/Instagram) de la cuenta publicitaria configurada.",
+            tool_name="MetaCampaignsTool",
+            apps=["marketing"],
+        ),
+        Capability(
+            capability_id="consultar_detalle_campana_meta",
+            description_for_llm="Ver el detalle de una campana especifica de Meta Ads (adsets e insights).",
+            tool_name="MetaCampaignDetailTool",
+            apps=["marketing"],
+        ),
+        Capability(
+            capability_id="consultar_insights_meta",
+            description_for_llm="Consultar metricas de rendimiento (insights) de una cuenta, campana, adset o anuncio de Meta Ads.",
+            tool_name="MetaInsightsTool",
+            apps=["marketing"],
+        ),
+        Capability(
+            capability_id="consultar_resumen_cuenta_meta",
+            description_for_llm="Ver el resumen de la cuenta publicitaria de Meta Ads (gasto, alcance, resultados) en un rango de fechas.",
+            tool_name="MetaAccountSummaryTool",
+            apps=["marketing"],
+        ),
         # "analizar_impacto_arquitectura" (GraphImpactAnalysisTool) retirada 2026-08-10
         # (FASE 0, desacoplamiento ai_engine <-> project_knowledge_graph) -- era una
         # capacidad de arquitectura/ingenieria expuesta al chat de soporte, no algo que
