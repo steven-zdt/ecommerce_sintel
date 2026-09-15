@@ -92,6 +92,66 @@ class RetrievalVisibilityTests(TestCase):
         self.assertEqual(results, [])
 
 
+class MetadataFilteringTests(TestCase):
+    """Mision RAG Enterprise (2026-09-16, FASE 2). Checkpoint explicito de
+    la mision: "demostrar mediante tests que metadata filtering reduce
+    resultados irrelevantes SIN eliminar informacion valida" -- el test
+    anterior (test_retrieval_filters_by_app_name) solo probaba el caso
+    "todo excluido"; este prueba el caso real (reduce ruido, conserva lo
+    relevante) con documentos de VARIOS dominios reales."""
+
+    def setUp(self):
+        self.shop_doc = AIKnowledgeDocumentCommands.upsert_document(
+            title='Garantia de productos', content='La garantia de shop es de 12 meses.',
+            visibility=AIKnowledgeDocument.VISIBILITY_PUBLIC, app_name='shop',
+        )
+        self.renting_doc = AIKnowledgeDocumentCommands.upsert_document(
+            title='Politica de alquiler', content='El alquiler minimo es de 3 dias.',
+            visibility=AIKnowledgeDocument.VISIBILITY_PUBLIC, app_name='renting',
+        )
+        self.support_doc = AIKnowledgeDocumentCommands.upsert_document(
+            title='Horario de atencion', content='Atendemos de lunes a sabado.',
+            visibility=AIKnowledgeDocument.VISIBILITY_PUBLIC, app_name='support',
+        )
+        for doc in (self.shop_doc, self.renting_doc, self.support_doc):
+            chunk = doc.chunks.first()
+            chunk.embedding = _fake_vector(1.0)  # mismo embedding -- similitud identica para los 3
+            chunk.embedding_model = 'fake-model'
+            chunk.save()
+
+    @patch('ai_knowledge.services.selectors.EmbeddingService.embed_text')
+    def test_filtro_por_un_dominio_excluye_otros_dominios_conservando_el_relevante(self, mock_embed):
+        mock_embed.return_value = (_fake_vector(1.0), 'fake-model')
+        results = RetrievalService.retrieve_public_knowledge('cualquier consulta', app_names=['shop'])
+        titles = [r['title'] for r in results]
+        self.assertEqual(titles, ['Garantia de productos'])
+        self.assertNotIn('Politica de alquiler', titles)
+        self.assertNotIn('Horario de atencion', titles)
+
+    @patch('ai_knowledge.services.selectors.EmbeddingService.embed_text')
+    def test_filtro_por_multiples_dominios_es_un_or(self, mock_embed):
+        mock_embed.return_value = (_fake_vector(1.0), 'fake-model')
+        results = RetrievalService.retrieve_public_knowledge(
+            'cualquier consulta', app_names=['shop', 'renting'],
+        )
+        titles = {r['title'] for r in results}
+        self.assertEqual(titles, {'Garantia de productos', 'Politica de alquiler'})
+        self.assertNotIn('Horario de atencion', titles)
+
+    @patch('ai_knowledge.services.selectors.EmbeddingService.embed_text')
+    def test_sin_filtro_busca_en_todo_el_corpus_publico(self, mock_embed):
+        mock_embed.return_value = (_fake_vector(1.0), 'fake-model')
+        results = RetrievalService.retrieve_public_knowledge('cualquier consulta')
+        self.assertEqual(len(results), 3)
+
+    # NOTA: la derivacion del filtro desde la consulta (query -> app_names)
+    # es detect_apps_from_text(), que vive en ai_engine/retrievers.py -- NO
+    # en este servicio. Probarla aqui cruzaria la frontera real entre
+    # procesos (ai_engine no corre en este contenedor Django) -- ver
+    # ai_engine/tests/test_app_detection.py para esa cobertura, en el lado
+    # correcto de la frontera.
+
+
 class RetrievalDistanceTests(TestCase):
     """Mision RAG Enterprise (2026-09-16, FASE 6): RetrievalService ahora
     anota y devuelve la distancia coseno real de cada chunk -- necesaria
