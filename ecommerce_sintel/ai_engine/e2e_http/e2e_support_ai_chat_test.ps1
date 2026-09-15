@@ -25,14 +25,22 @@
 #   Channels) -- no se ejecuta ninguna Tool de escritura real aqui para no
 #   dejar datos de prueba en la base de datos de desarrollo.
 #
-# Uso:
+# Uso (la password YA NO vive en este archivo -- pedido explicito del usuario,
+# 2026-09-14, "control solo mio" -- mismo criterio que notas.txt en .gitignore/
+# .dockerignore. Definir E2E_ADMIN_PASSWORD en la sesion de PowerShell antes de
+# correr, nunca commitearla):
+#   $env:E2E_ADMIN_PASSWORD = "..."
 #   powershell -ExecutionPolicy Bypass -File ai_engine/e2e_http/e2e_support_ai_chat_test.ps1
 # =============================================================================
 
 $BASE     = "http://localhost:8000/api/v1"
 $AI_BASE  = "http://localhost:8101"
 $EMAIL    = "admin@sintel.com"
-$PASS     = "Sintel@Admin2026"
+$PASS     = $env:E2E_ADMIN_PASSWORD
+if ([string]::IsNullOrWhiteSpace($PASS)) {
+    Write-Host "`nAbortando: falta `$env:E2E_ADMIN_PASSWORD (la password del admin de prueba ya no vive en este archivo).`n" -ForegroundColor Red
+    exit 1
+}
 $TAG      = "E2E_SUPPORT_AI_$(Get-Date -Format 'HHmmss')"
 $results  = [ordered]@{}
 
