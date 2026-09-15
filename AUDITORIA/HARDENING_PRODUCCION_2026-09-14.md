@@ -54,31 +54,34 @@ Verificado: staging 23/23 (`ai_engine_adk`) + 12/12 (`ai_knowledge`) PASS; produ
 - `AI_TOOLS_DEBUG` nunca en `docker-compose.prod.yml`: ya hay un check de CI dedicado
   (`security` job) que falla si esto ocurre -- cubierto desde antes de esta sesión.
 
+## FASE A (esta pasada, continuación) -- 1 hallazgo más cerrado:
+
+| # | Hallazgo | Fix | Sección prompt |
+|---|---|---|---|
+| 6 | Sin límite de tool calls/iteraciones por turno en ADK (§34) -- confirmado por introspección real que `LlmAgent`/`Runner` no exponen `max_tool_calls` nativo, a diferencia del cap duro que sí tenía `action_graph.py::tool_calls[:4]` en el sistema OLD | `deny_after_max_tool_calls_per_turn()` (`sintel_adapter.py`), `before_tool_callback` real de ADK, cap de 6 por `invocation_id` (único por turno, confirmado por introspección) | §34 |
+
+Verificado: staging 26/26 (suite completa, sin romper tool-calling/multi-turno real) y
+producción real 7/7, `sintel_prod_db` no tocado. Commit `0b8fbd8`.
+
 ## Gaps reales identificados, NO resueltos todavía (requieren más diseño o decisión del
 ## usuario -- ninguno bloqueante para el estado actual, documentados para la próxima fase):
 
-1. **Sin límite explícito de tool calls/iteraciones por turno en ADK** (§34). Introspección
-   real confirmó que `LlmAgent`/`Runner` de Google ADK no exponen un `max_tool_calls`/
-   `max_iterations` nativo -- solo hooks (`before_tool_callback`, etc.) donde SINTEL tendría
-   que implementar su propio contador. El sistema OLD sí tenía un cap duro (`tool_calls[:4]`
-   en `action_graph.py`). Mitigado parcialmente por el límite diario de turnos
-   (`cost_control.py`) pero no por turno individual. Pendiente de diseño.
-2. **Rotación de credenciales de `notas.txt`** -- sigue pendiente, requiere que el usuario
+1. **Rotación de credenciales de `notas.txt`** -- sigue pendiente, requiere que el usuario
    indique cuáles rotar (ver `VALIDACION_INFORME_EXTERNO_SINTEL_PROD_AI.md`).
-3. **Backups fuera del host de producción** -- sigue pendiente, requiere destino.
-4. **Batería de evaluación del modelo** (§44) -- no existe todavía (correctness, groundedness,
+2. **Backups fuera del host de producción** -- sigue pendiente, requiere destino.
+3. **Batería de evaluación del modelo** (§44) -- no existe todavía (correctness, groundedness,
    retrieval relevance medidos sistemáticamente). Los tests actuales prueban comportamiento
    estructural/seguridad, no calidad de respuesta.
-5. **Auditoría de secretos más profunda** (§25) -- más allá de `notas.txt`, no se hizo un
+4. **Auditoría de secretos más profunda** (§25) -- más allá de `notas.txt`, no se hizo un
    grep sistemático de todo el código fuente buscando credenciales hardcodeadas. Pendiente.
-6. **Coordinación de retries** (§46) -- no auditado en esta pasada si LLM retry + Celery
+5. **Coordinación de retries** (§46) -- no auditado en esta pasada si LLM retry + Celery
    retry + HTTP retry pueden solaparse y producir duplicados.
-7. **Supply chain / pinning de versiones** (§30) -- `requirements.txt` de `ai_engine`/
+6. **Supply chain / pinning de versiones** (§30) -- `requirements.txt` de `ai_engine`/
    `ai_engine_adk` usan rangos (`>=X,<Y`), no pines exactos. No es `latest`, pero tampoco
    reproducible al 100%. Pendiente de decisión (¿vale la pena el costo de mantenimiento de
    pines exactos?).
-8. **`ChatResponse.metrics`** sigue `None` en `ai_engine_adk` (ya documentado, sin cambios).
-9. **Backend de sesión persistente para ADK** sigue en `InMemorySessionService` (ya
+7. **`ChatResponse.metrics`** sigue `None` en `ai_engine_adk` (ya documentado, sin cambios).
+8. **Backend de sesión persistente para ADK** sigue en `InMemorySessionService` (ya
    documentado, sin cambios).
 
 ## Clasificación de Gate (Sección 53/54 del prompt, provisional -- auditoría en curso)
@@ -89,13 +92,12 @@ READY WITH ACCEPTED RISKS
 
 No `NOT READY`: no hay bloqueadores de seguridad activos (WRITE gateado, RAG con
 autorización, reasoning separado, secrets fuera de imágenes, TLS coherente -- ya confirmado
-en la auditoría del informe externo). No `READY` sin calificar: quedan 9 ítems reales sin
+en la auditoría del informe externo). No `READY` sin calificar: quedan 8 ítems reales sin
 cerrar (arriba), ninguno crítico pero todos genuinos, más ~40 secciones del prompt original
 (evaluación, retries, supply chain pinning, batería de seguridad completa de 15 casos,
 auditoría de secretos exhaustiva) que esta pasada no alcanzó a cubrir en profundidad.
 
 ## Próxima fase sugerida (no iniciada, a la espera de indicación)
 
-Por orden de riesgo real: (a) límite de tool calls por turno en ADK, (b) auditoría de
-secretos más profunda, (c) batería de seguridad de 15 casos del §43, (d) coordinación de
-retries, (e) supply chain pinning.
+Por orden de riesgo real: (a) auditoría de secretos más profunda, (b) batería de seguridad
+de 15 casos del §43, (c) coordinación de retries, (d) supply chain pinning.
