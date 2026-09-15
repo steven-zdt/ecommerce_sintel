@@ -20,10 +20,32 @@ contenido real todavia que lo justifique (hallazgo F-1 del baseline).
 import re
 
 from django.db.models import QuerySet
+from django.utils import timezone
 from pgvector.django import CosineDistance
 
 from .embedding_service import EmbeddingProviderUnavailable, EmbeddingService
 from ..models import AIKnowledgeChunk, AIKnowledgeDocument
+
+# Mision RAG Enterprise (2026-09-16, FASE 4): reranking -- no depender solo
+# del score de retrieval crudo (distance). Se combina similitud (semantica o
+# exacta, ya resuelta en la capa de hybrid retrieval) con un boost leve por
+# vigencia del documento. Pesos deliberadamente conservadores (similitud
+# domina, recency es desempate/boost menor) -- sin corpus real todavia
+# (hallazgo F-1 del baseline) no hay forma de calibrar estos pesos con
+# datos reales; quedan documentados como punto de partida, no como
+# resultado medido. Reranking simple, sin servicio externo (Regla 2 de la
+# mision: no crear Agentic RAG/reranker externo sin evidencia de que el
+# retrieval monolitico actual es insuficiente).
+_RERANK_WEIGHT_SIMILARITY = 0.85
+_RERANK_WEIGHT_RECENCY = 0.15
+_RECENCY_HALF_LIFE_DAYS = 365  # un documento de ~1 ano de antiguedad pesa la mitad que uno recien actualizado
+
+
+def _rerank_score(distance: float, updated_at) -> float:
+    similarity = 1.0 - distance
+    days_old = max((timezone.now() - updated_at).days, 0)
+    recency = 1.0 / (1.0 + days_old / _RECENCY_HALF_LIFE_DAYS)
+    return _RERANK_WEIGHT_SIMILARITY * similarity + _RERANK_WEIGHT_RECENCY * recency
 
 # Token candidato a coincidencia EXACTA: alfanumerico de 4+ caracteres. Se
 # exige ademas un digito O un separador (- _) para no capturar palabras
@@ -114,6 +136,12 @@ class RetrievalService:
         completo sin importar si habia evidencia textual exacta disponible.
         Si NO hay proveedor Y NO hay matches exactos, sigue devolviendo []
         (nunca lanza), mismo criterio de siempre.
+
+        Reranking (FASE 4, 2026-09-16): el orden final NO es solo `distance`
+        cruda -- se combina con vigencia (`_rerank_score`, ver arriba). El
+        campo `distance` en la respuesta sigue siendo la senal cruda
+        original (para confidence/answerability en sintel_rag_adapter.py);
+        el orden de la lista es el que decide `_rerank_score`.
         """
         qs = (
             AIKnowledgeChunk.objects.filter(
@@ -149,7 +177,11 @@ class RetrievalService:
         elif not ranked:
             return []
 
-        ordered = sorted(ranked.values(), key=lambda r: r['distance'])[:k]
+        ordered = sorted(
+            ranked.values(),
+            key=lambda r: _rerank_score(r['distance'], r['chunk'].document.updated_at),
+            reverse=True,  # score mas alto primero (a diferencia de distance, donde menor es mejor)
+        )[:k]
         return [
             {
                 'content': r['chunk'].content,

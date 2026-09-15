@@ -208,6 +208,67 @@ class HybridRetrievalTests(TestCase):
         self.assertNotIn('producto', candidatos)
 
 
+class RerankingTests(TestCase):
+    """Mision RAG Enterprise (2026-09-16, FASE 4): el orden final combina
+    similitud + vigencia (`_rerank_score`), no solo `distance` cruda."""
+
+    def setUp(self):
+        from datetime import timedelta
+        from django.utils import timezone
+
+        self.old_doc = AIKnowledgeDocumentCommands.upsert_document(
+            title='Politica vieja', content='contenido identico en similitud',
+            visibility=AIKnowledgeDocument.VISIBILITY_PUBLIC,
+        )
+        self.fresh_doc = AIKnowledgeDocumentCommands.upsert_document(
+            title='Politica reciente', content='contenido identico en similitud',
+            visibility=AIKnowledgeDocument.VISIBILITY_PUBLIC,
+        )
+        # Mismo embedding para ambos -- distance identica, la unica variable
+        # real es la vigencia (updated_at).
+        for doc in (self.old_doc, self.fresh_doc):
+            chunk = doc.chunks.first()
+            chunk.embedding = _fake_vector(1.0)
+            chunk.embedding_model = 'fake-model'
+            chunk.save()
+        # auto_now=True en SintelBaseModel sobreescribe cualquier valor
+        # explicito en .save() -- bypass real via .update() a nivel de
+        # queryset, mismo patron ya usado en support/tests.py.
+        old_date = timezone.now() - timedelta(days=700)
+        AIKnowledgeDocument.objects.filter(pk=self.old_doc.pk).update(updated_at=old_date)
+
+    @patch('ai_knowledge.services.selectors.EmbeddingService.embed_text')
+    def test_a_igual_similitud_gana_el_documento_mas_reciente(self, mock_embed):
+        mock_embed.return_value = (_fake_vector(1.0), 'fake-model')
+        results = RetrievalService.retrieve_public_knowledge('consulta')
+        self.assertEqual(len(results), 2)
+        # Ambos con distance identica (~0.0) -- el reranking por vigencia
+        # debe poner el reciente primero.
+        self.assertAlmostEqual(results[0]['distance'], results[1]['distance'], places=5)
+        self.assertEqual(results[0]['title'], 'Politica reciente')
+        self.assertEqual(results[1]['title'], 'Politica vieja')
+
+    @patch('ai_knowledge.services.selectors.EmbeddingService.embed_text')
+    def test_similitud_sigue_dominando_sobre_vigencia(self, mock_embed):
+        """La vigencia es un desempate/boost MENOR (peso 0.15) -- un
+        documento mucho mas relevante pero viejo debe seguir ganandole a
+        uno reciente pero irrelevante. No debe invertirse el orden por
+        recency sola."""
+        irrelevant_fresh = AIKnowledgeDocumentCommands.upsert_document(
+            title='Irrelevante pero fresco', content='nada que ver con la consulta',
+            visibility=AIKnowledgeDocument.VISIBILITY_PUBLIC,
+        )
+        chunk = irrelevant_fresh.chunks.first()
+        chunk.embedding = _fake_vector(-1.0)  # direccion opuesta -> similitud muy mala
+        chunk.embedding_model = 'fake-model'
+        chunk.save()
+
+        mock_embed.return_value = (_fake_vector(1.0), 'fake-model')
+        results = RetrievalService.retrieve_public_knowledge('consulta')
+        titles = [r['title'] for r in results]
+        self.assertLess(titles.index('Politica vieja'), titles.index('Irrelevante pero fresco'))
+
+
 class RetrievalDegradationTests(TestCase):
     @patch('ai_knowledge.services.selectors.EmbeddingService.embed_text')
     def test_retrieval_returns_empty_list_without_provider(self, mock_embed):
