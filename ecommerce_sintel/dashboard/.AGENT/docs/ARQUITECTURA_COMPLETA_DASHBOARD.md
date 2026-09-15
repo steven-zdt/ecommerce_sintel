@@ -162,7 +162,7 @@ ruta, siguiendo el mismo patron que Operations (nota abajo).
 
 | Ruta | ViewSet |
 |---|---|
-| `support/chats/` (+ `<uuid>/close/`, `<uuid>/assign/`) | `AdminSupportChatViewSet` — ver `support/.AGENT/docs/ARQUITECTURA_COMPLETA_SUPPORT.md` |
+| `support/chats/` (+ `<uuid>/close/`, `<uuid>/assign/`, `<uuid>/ticket-status/`, `<uuid>/ticket-priority/` [2026-09-15]) | `AdminSupportChatViewSet` — ver `support/.AGENT/docs/ARQUITECTURA_COMPLETA_SUPPORT.md` |
 
 ### Operations (ViewSets viven en `operations`, registrados aqui)
 

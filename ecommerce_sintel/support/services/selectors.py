@@ -16,7 +16,7 @@ class ChatSelector:
         return (
             ChatRoom.objects
             .filter(status=ChatRoom.STATUS_OPEN, is_deleted=False)
-            .select_related('user', 'assigned_admin')
+            .select_related('user', 'assigned_admin', 'ticket', 'ticket__assigned_admin')
             .prefetch_related('messages__sender', *_CONTEXT_PREFETCH)
             .order_by('-updated_at')
         )
@@ -25,7 +25,7 @@ class ChatSelector:
     def get_room_by_uuid(uuid):
         return get_object_or_404(
             ChatRoom.objects
-            .select_related('user', 'assigned_admin')
+            .select_related('user', 'assigned_admin', 'ticket', 'ticket__assigned_admin')
             .prefetch_related('messages__sender', *_CONTEXT_PREFETCH),
             uuid=uuid,
             is_deleted=False,

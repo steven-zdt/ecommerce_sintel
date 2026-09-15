@@ -3023,11 +3023,44 @@ class AdminSupportChatViewSet(viewsets.ViewSet):
         room = SupportAdminOrchestrator.close_room(room)
         return Response(ChatRoomSerializer(room).data)
 
-    @extend_schema(summary="[Admin] Asigna esta sala al admin que la solicita")
+    @extend_schema(summary="[Admin] Asigna esta sala (y su ticket, si existe) al admin que la solicita")
     @action(detail=True, methods=['post'], url_path='assign')
     def assign(self, request, uuid=None):
         room = SupportAdminOrchestrator.get_room(uuid)
-        room = SupportAdminOrchestrator.assign_admin(room, request.user)
+        SupportAdminOrchestrator.assign_admin(room, request.user)
+        # Re-fetch: el `ticket` de `room` viene de un select_related() cacheado ANTES
+        # de la asignacion -- SupportTicketCommands.assign_ticket() escribe sobre una
+        # instancia de ticket distinta (via SupportTicketSelector.get_by_chat_room),
+        # asi que el cache en memoria de room.ticket queda stale si no se re-consulta.
+        room = SupportAdminOrchestrator.get_room(uuid)
+        return Response(ChatRoomSerializer(room).data)
+
+    @extend_schema(summary="[Admin] Cambia el estado del SupportTicket de esta sala")
+    @action(detail=True, methods=['post'], url_path='ticket-status')
+    def set_ticket_status(self, request, uuid=None):
+        room = SupportAdminOrchestrator.get_room(uuid)
+        new_status = str(request.data.get('status', '')).strip()
+        try:
+            ticket = SupportAdminOrchestrator.set_ticket_status(room, new_status)
+        except ValueError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        if ticket is None:
+            return Response({'detail': 'Esta sala no tiene un ticket asociado.'}, status=status.HTTP_404_NOT_FOUND)
+        room = SupportAdminOrchestrator.get_room(uuid)
+        return Response(ChatRoomSerializer(room).data)
+
+    @extend_schema(summary="[Admin] Cambia la prioridad del SupportTicket de esta sala")
+    @action(detail=True, methods=['post'], url_path='ticket-priority')
+    def set_ticket_priority(self, request, uuid=None):
+        room = SupportAdminOrchestrator.get_room(uuid)
+        new_priority = str(request.data.get('priority', '')).strip()
+        try:
+            ticket = SupportAdminOrchestrator.set_ticket_priority(room, new_priority)
+        except ValueError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        if ticket is None:
+            return Response({'detail': 'Esta sala no tiene un ticket asociado.'}, status=status.HTTP_404_NOT_FOUND)
+        room = SupportAdminOrchestrator.get_room(uuid)
         return Response(ChatRoomSerializer(room).data)
 
     @extend_schema(summary="[Admin] Vincula esta sala a un pedido o alquiler (Customer Experience Hub)")

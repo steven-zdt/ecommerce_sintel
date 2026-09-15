@@ -1355,13 +1355,46 @@ class SupportAdminOrchestrator:
 
     @staticmethod
     def close_room(room):
-        from support.services.commands import ChatCommands
-        return ChatCommands.close_room(room)
+        from support.services.commands import ChatCommands, SupportTicketCommands
+        from support.models import SupportTicket
+        from support.services.selectors import SupportTicketSelector
+        room = ChatCommands.close_room(room)
+        # El ticket (objeto de trabajo) se cierra junto con la conversacion -- v1 no
+        # separa ambos ciclos de vida; si mas adelante se necesita reabrir la
+        # conversacion sin reabrir el ticket (o viceversa), eso es una decision de
+        # producto nueva, no algo que se anticipe aca.
+        ticket = SupportTicketSelector.get_by_chat_room(room)
+        if ticket and ticket.status not in (SupportTicket.STATUS_CLOSED, SupportTicket.STATUS_CANCELLED):
+            SupportTicketCommands.change_status(ticket, SupportTicket.STATUS_CLOSED)
+        return room
 
     @staticmethod
     def assign_admin(room, admin):
-        from support.services.commands import ChatCommands
-        return ChatCommands.assign_admin(room, admin)
+        from support.services.commands import ChatCommands, SupportTicketCommands
+        from support.services.selectors import SupportTicketSelector
+        room = ChatCommands.assign_admin(room, admin)
+        ticket = SupportTicketSelector.get_by_chat_room(room)
+        if ticket:
+            SupportTicketCommands.assign_ticket(ticket, admin)
+        return room
+
+    @staticmethod
+    def set_ticket_status(room, status: str):
+        from support.services.commands import SupportTicketCommands
+        from support.services.selectors import SupportTicketSelector
+        ticket = SupportTicketSelector.get_by_chat_room(room)
+        if ticket is None:
+            return None
+        return SupportTicketCommands.change_status(ticket, status)
+
+    @staticmethod
+    def set_ticket_priority(room, priority: str):
+        from support.services.commands import SupportTicketCommands
+        from support.services.selectors import SupportTicketSelector
+        ticket = SupportTicketSelector.get_by_chat_room(room)
+        if ticket is None:
+            return None
+        return SupportTicketCommands.set_priority(ticket, priority)
 
     @staticmethod
     def mark_read(room, reader):

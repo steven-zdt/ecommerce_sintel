@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from support.models import ChatRoom, ChatMessage
+from support.models import ChatRoom, ChatMessage, SupportTicket
 
 
 class RateConversationInputSerializer(serializers.Serializer):
@@ -39,15 +39,38 @@ class ChatMessageSerializer(serializers.ModelSerializer):
         return obj.is_from_agent
 
 
+class SupportTicketSerializer(serializers.ModelSerializer):
+    assigned_admin_email = serializers.SerializerMethodField()
+
+    class Meta:
+        model = SupportTicket
+        fields = [
+            'uuid', 'ticket_number', 'subject', 'summary', 'status', 'priority', 'category',
+            'assigned_admin_email', 'contact_phone', 'contact_email',
+            'created_at', 'resolved_at', 'closed_at',
+        ]
+
+    def get_assigned_admin_email(self, obj):
+        return obj.assigned_admin.email if obj.assigned_admin else None
+
+
 class ChatRoomListSerializer(serializers.ModelSerializer):
     user_email = serializers.EmailField(source='user.email', read_only=True)
     unread_count = serializers.SerializerMethodField()
     last_message = serializers.SerializerMethodField()
     contexts = serializers.SerializerMethodField()
+    ticket = serializers.SerializerMethodField()
 
     class Meta:
         model = ChatRoom
-        fields = ['uuid', 'user_email', 'status', 'created_at', 'updated_at', 'unread_count', 'last_message', 'contexts']
+        fields = ['uuid', 'user_email', 'status', 'created_at', 'updated_at', 'unread_count', 'last_message', 'contexts', 'ticket']
+
+    def get_ticket(self, obj):
+        # obj.ticket reusa el select_related('ticket') de ChatSelector -- nunca dispara
+        # una consulta nueva por sala listada. RelatedObjectDoesNotExist para salas sin
+        # ticket (todas las anteriores al 2026-09-15, o abiertas sin Human Handoff).
+        ticket = getattr(obj, 'ticket', None)
+        return SupportTicketSerializer(ticket).data if ticket else None
 
     def get_contexts(self, obj):
         # obj.contexts.all() reusa el prefetch_related declarado en ChatSelector -- un
@@ -75,12 +98,13 @@ class ChatRoomSerializer(serializers.ModelSerializer):
     assigned_admin_email = serializers.SerializerMethodField()
     messages = ChatMessageSerializer(many=True, read_only=True)
     contexts = serializers.SerializerMethodField()
+    ticket = serializers.SerializerMethodField()
 
     class Meta:
         model = ChatRoom
         fields = [
             'uuid', 'user_email', 'user_uuid', 'status', 'assigned_admin_email',
-            'created_at', 'updated_at', 'messages', 'contexts',
+            'created_at', 'updated_at', 'messages', 'contexts', 'ticket',
             'csat_rating', 'csat_comment',
         ]
 
@@ -90,3 +114,7 @@ class ChatRoomSerializer(serializers.ModelSerializer):
     def get_contexts(self, obj):
         active = [c for c in obj.contexts.all() if not c.is_deleted]
         return ChatRoomContextSerializer(active, many=True).data
+
+    def get_ticket(self, obj):
+        ticket = getattr(obj, 'ticket', None)
+        return SupportTicketSerializer(ticket).data if ticket else None

@@ -885,3 +885,103 @@ class ServiceAdminRequestFacadeTestCase(TransactionTestCase):
         response = self.client.get('/api/v1/dashboard/technical-services/requests/')
         self.assertEqual(response.status_code, 403)
 
+
+class DashboardSupportTicketAPITestCase(TransactionTestCase):
+    """AdminSupportChatViewSet -- acciones nuevas sobre SupportTicket (2026-09-15),
+    sin cobertura previa en todo el repo (AdminSupportChatViewSet no tenia NINGUN
+    test antes de esto)."""
+
+    def setUp(self):
+        from support.models import ChatRoom
+        from support.services.commands import SupportTicketCommands
+
+        cache.clear()
+        self.client = APIClient()
+        self.admin = User.objects.create_superuser(email='support_admin@example.com', password='adminpassword')
+        self.other_admin = User.objects.create_superuser(email='support_admin2@example.com', password='adminpassword')
+        self.customer = User.objects.create_user(email='support_customer@example.com', password='x')
+        self.client.force_authenticate(user=self.admin)
+
+        self.room = ChatRoom.objects.create(user=self.customer)
+        self.ticket = SupportTicketCommands.create_ticket(self.room, subject='Asunto de prueba')
+
+    def test_list_and_retrieve_incluyen_ticket_anidado(self):
+        list_resp = self.client.get('/api/v1/dashboard/support/chats/')
+        self.assertEqual(list_resp.status_code, 200)
+        entry = next(r for r in list_resp.data if r['uuid'] == str(self.room.uuid))
+        self.assertEqual(entry['ticket']['ticket_number'], self.ticket.ticket_number)
+        self.assertEqual(entry['ticket']['subject'], 'Asunto de prueba')
+
+        detail_resp = self.client.get(f'/api/v1/dashboard/support/chats/{self.room.uuid}/')
+        self.assertEqual(detail_resp.status_code, 200)
+        self.assertEqual(detail_resp.data['ticket']['ticket_number'], self.ticket.ticket_number)
+
+    def test_room_sin_ticket_devuelve_ticket_null(self):
+        from support.models import ChatRoom
+        room_sin_ticket = ChatRoom.objects.create(
+            user=User.objects.create_user(email='sinticket@example.com', password='x'),
+        )
+        response = self.client.get(f'/api/v1/dashboard/support/chats/{room_sin_ticket.uuid}/')
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.data['ticket'])
+
+    def test_assign_propaga_al_ticket(self):
+        response = self.client.post(f'/api/v1/dashboard/support/chats/{self.room.uuid}/assign/')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['ticket']['assigned_admin_email'], self.admin.email)
+        self.ticket.refresh_from_db()
+        self.assertEqual(self.ticket.assigned_admin_id, self.admin.id)
+        self.assertEqual(self.ticket.status, 'OPEN')  # NEW -> OPEN automatico al asignar
+
+    def test_set_ticket_status_exito_e_invalido(self):
+        from support.models import SupportTicket
+
+        ok = self.client.post(
+            f'/api/v1/dashboard/support/chats/{self.room.uuid}/ticket-status/',
+            {'status': SupportTicket.STATUS_IN_PROGRESS}, format='json',
+        )
+        self.assertEqual(ok.status_code, 200, ok.data)
+        self.assertEqual(ok.data['ticket']['status'], SupportTicket.STATUS_IN_PROGRESS)
+
+        bad = self.client.post(
+            f'/api/v1/dashboard/support/chats/{self.room.uuid}/ticket-status/',
+            {'status': 'NOT_A_REAL_STATUS'}, format='json',
+        )
+        self.assertEqual(bad.status_code, 400)
+
+    def test_set_ticket_priority_exito(self):
+        from support.models import SupportTicket
+
+        response = self.client.post(
+            f'/api/v1/dashboard/support/chats/{self.room.uuid}/ticket-priority/',
+            {'priority': SupportTicket.PRIORITY_URGENT}, format='json',
+        )
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(response.data['ticket']['priority'], SupportTicket.PRIORITY_URGENT)
+
+    def test_ticket_status_404_si_la_sala_no_tiene_ticket(self):
+        from support.models import ChatRoom, SupportTicket
+        room_sin_ticket = ChatRoom.objects.create(
+            user=User.objects.create_user(email='sinticket2@example.com', password='x'),
+        )
+        response = self.client.post(
+            f'/api/v1/dashboard/support/chats/{room_sin_ticket.uuid}/ticket-status/',
+            {'status': SupportTicket.STATUS_OPEN}, format='json',
+        )
+        self.assertEqual(response.status_code, 404)
+
+    def test_close_room_cierra_tambien_el_ticket(self):
+        response = self.client.post(f'/api/v1/dashboard/support/chats/{self.room.uuid}/close/')
+        self.assertEqual(response.status_code, 200)
+        self.ticket.refresh_from_db()
+        self.assertEqual(self.ticket.status, 'CLOSED')
+        self.assertIsNotNone(self.ticket.closed_at)
+
+    def test_non_admin_no_puede_cambiar_estado_del_ticket(self):
+        self.client.force_authenticate(user=self.customer)
+        response = self.client.post(
+            f'/api/v1/dashboard/support/chats/{self.room.uuid}/ticket-status/',
+            {'status': 'OPEN'}, format='json',
+        )
+        self.assertEqual(response.status_code, 403)
+

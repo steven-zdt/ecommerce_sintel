@@ -207,11 +207,29 @@ conversacion en si, sin cambios.
 - **`OpenSupportTicketTool`** (`ai_engine/tools/support_tools.py`) ahora acepta `subject`/
   `summary` opcionales del LLM (ademas de `message`, que sigue siendo obligatorio) -- el backend
   sigue siendo la autoridad que crea el ticket, el LLM nunca toca el ORM.
-- **Dashboard/BFF de tickets: NO CONSTRUIDO todavia** (`AdminSupportChatViewSet` sigue exactamente
-  igual que antes, sin tocar) -- `SupportTicket` hoy solo es consultable via Django Admin o ORM
-  directo. Cola/asignacion/SLA/auditoria de eventos (equivalentes a FASE 6-10 de un plan de mesa
-  de ayuda completo) quedan pendientes, requieren decision de producto explicita antes de
-  construirse (superficie nueva de API + UI, no solo el modelo).
+- **[ACTUALIZADO 2026-09-15, FASE 6-7]** `AdminSupportChatViewSet` (dashboard) ya expone el
+  ticket: `ChatRoomListSerializer`/`ChatRoomSerializer` anidan `SupportTicketSerializer` (campo
+  `ticket`, `null` para salas sin ticket -- todas las anteriores al 2026-09-15). Dos acciones
+  nuevas: `POST .../ticket-status/` (`{status}`) y `POST .../ticket-priority/` (`{priority}`),
+  ambas via `SupportAdminOrchestrator.set_ticket_status/set_ticket_priority`. `assign` y `close`
+  (ya existentes) ahora tambien propagan al ticket: asignar la sala asigna el ticket (y lo mueve
+  NEW->OPEN), cerrar la sala cierra el ticket -- **v1 no separa el ciclo de vida de conversacion
+  y ticket**, decision deliberada para no duplicar UI/lifecycle sin un caso real que lo pida.
+  El widget de admin (`SupportDashboardView.vue`) muestra `ticket_number`/`subject`/badge de
+  prioridad en la lista de salas, y un panel de ticket (estado/prioridad editables, "Asignarme",
+  telefono/email de contacto) en el detalle. **Bug real encontrado y corregido durante la
+  verificacion**: la accion `assign` devolvia `assigned_admin_email: null` en la respuesta pese a
+  asignar correctamente en BD -- `SupportTicketCommands.assign_ticket()` escribe sobre una
+  instancia de `SupportTicket` distinta (via `SupportTicketSelector.get_by_chat_room`) de la que
+  ya estaba cacheada en `room.ticket` por el `select_related()` previo; sin re-consultar la sala
+  antes de serializar, la respuesta reflejaba el cache stale. Corregido re-fetcheando la sala
+  justo antes de serializar (mismo patron que ya usaban `set_ticket_status`/`set_ticket_priority`
+  desde el principio). Verificado con test de regresion (`test_assign_propaga_al_ticket`).
+- **Pendiente, requiere decision de producto separada** (FASE 8-10 de un plan de mesa de ayuda
+  completo): cola/filtrado dedicado (hoy la lista de salas es la misma de siempre, solo con el
+  ticket anidado -- no hay una vista "Mis tickets"/"Sin asignar"/"Vencidos"), SLA sobre
+  `SupportTicket` (`notify_unattended_escalated_tickets` sigue mirando exclusivamente
+  `ChatRoom.ai_paused`, sin tocar), y un `SupportTicketEvent` de auditoria de cambios de estado.
 
 ---
 
@@ -501,6 +519,37 @@ if is_ai_mode_active(room) and not is_ai_rate_limited(room):
 ---
 
 ## Cambios Recientes
+
+### 2026-09-15 (FASE 6-7) — Ticket expuesto en el Dashboard admin
+- **Que cambio y por que**: FASE 1-5 (mismo dia) dejo `SupportTicket` solo consultable via
+  Django Admin/ORM. Esta fase lo conecta al panel real: `/panel/soporte` ahora muestra numero,
+  asunto, estado y prioridad del ticket, con acciones para cambiarlos y asignarse el caso.
+- **Archivos**: `support/api/serializers.py` (+`SupportTicketSerializer`, anidado en
+  `ChatRoomListSerializer`/`ChatRoomSerializer` como `ticket`), `support/services/selectors.py`
+  (+`select_related('ticket', 'ticket__assigned_admin')` en `ChatSelector`),
+  `dashboard/services/admin_orchestrators.py` (`SupportAdminOrchestrator.assign_admin`/
+  `close_room` propagan al ticket; +`set_ticket_status`/`set_ticket_priority`),
+  `dashboard/api/views.py::AdminSupportChatViewSet` (+2 acciones: `ticket-status`,
+  `ticket-priority`), `frontend/src/modules/support/SupportDashboardView.vue` (badges de
+  ticket en la lista, panel de ticket editable en el detalle).
+- **Contrato API**: aditivo. `GET support/chats/` y `GET support/chats/{uuid}/` ganan el campo
+  `ticket` (objeto o `null`). Nuevos: `POST support/chats/{uuid}/ticket-status/` (`{status}`,
+  400 si invalido, 404 si la sala no tiene ticket), `POST .../ticket-priority/` (`{priority}`,
+  mismos codigos).
+- **Bug real encontrado y corregido en esta misma verificacion**: ver detalle en la seccion
+  "Gestion administrativa de salas" arriba (`assign` devolvia `assigned_admin_email: null` por
+  cache stale de `room.ticket`).
+- **Tests**: 8 nuevos en `dashboard/tests.py::DashboardSupportTicketAPITestCase` (primera
+  cobertura real de `AdminSupportChatViewSet` en todo el repo -- no tenia NINGUNA antes).
+  Suite `dashboard` completa verificada real contra el contenedor dev: **65/65 passed**.
+  `support` (pytest, Channels/WS) sigue en **37/37** tras el cambio de selector.
+- **Frontend**: verificado que Vite transforma `SupportDashboardView.vue` sin error de sintaxis
+  (`curl` real contra el dev server, HTTP 200, sin error en logs) -- **no se probo interaccion
+  real en navegador** (sin herramienta de automatizacion de browser disponible en esta sesion),
+  decirlo explicito en vez de asumir que "compila" == "funciona visualmente".
+- **Riesgos**: `assign`/`close` ahora tienen un side-effect nuevo (tambien tocan el ticket) --
+  si en el futuro se necesita desacoplar el ciclo de vida de sala vs. ticket, hay que revisar
+  estos dos metodos primero.
 
 ### 2026-09-15 — Modelo `SupportTicket` (objeto de trabajo, separado de ChatRoom)
 - **Que cambio y por que**: `OpenSupportTicketTool` solo pausaba la IA en `ChatRoom` -- no

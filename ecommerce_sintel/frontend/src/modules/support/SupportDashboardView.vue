@@ -103,10 +103,27 @@
             :class="{ active: selectedRoom?.uuid === room.uuid }"
             @click="selectRoom(room)"
           >
-            <div class="room-user">{{ room.user_email }}</div>
+            <div class="room-top-row">
+              <div class="room-user">{{ room.user_email }}</div>
+              <span
+                v-if="room.ticket"
+                class="priority-dot"
+                :class="`priority-${room.ticket.priority?.toLowerCase()}`"
+                :title="`Prioridad: ${priorityLabel(room.ticket.priority)}`"
+              ></span>
+            </div>
+            <div v-if="room.ticket" class="room-ticket-line">
+              <span class="ticket-number">{{ room.ticket.ticket_number }}</span>
+              <span v-if="room.ticket.subject" class="ticket-subject">{{ room.ticket.subject }}</span>
+            </div>
             <div class="room-preview">{{ room.last_message || 'Sin mensajes' }}</div>
             <div class="room-meta">
-              <span class="room-status" :class="room.status.toLowerCase()">{{ room.status }}</span>
+              <span
+                v-if="room.ticket"
+                class="ticket-status-badge"
+                :class="`status-${room.ticket.status?.toLowerCase()}`"
+              >{{ statusLabel(room.ticket.status) }}</span>
+              <span v-else class="room-status" :class="room.status.toLowerCase()">{{ room.status }}</span>
               <span v-if="room.unread_count > 0" class="room-badge">{{ room.unread_count }}</span>
             </div>
           </div>
@@ -131,6 +148,47 @@
             >
               Cerrar chat
             </button>
+          </div>
+
+          <!-- Ticket (2026-09-15): objeto de trabajo separado de la conversacion --
+               ausente en salas anteriores a esta fecha o nunca escaladas por la IA. -->
+          <div v-if="selectedRoom.ticket" class="ticket-panel">
+            <div class="ticket-panel-main">
+              <span class="ticket-number-big">{{ selectedRoom.ticket.ticket_number }}</span>
+              <span class="ticket-subject-big">{{ selectedRoom.ticket.subject || 'Sin asunto' }}</span>
+            </div>
+            <div class="ticket-panel-controls">
+              <select
+                class="ticket-select"
+                :value="selectedRoom.ticket.status"
+                :disabled="ticketActionLoading"
+                @change="onChangeTicketStatus($event.target.value)"
+              >
+                <option v-for="opt in TICKET_STATUS_OPTIONS" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+              </select>
+              <select
+                class="ticket-select"
+                :class="`priority-select-${selectedRoom.ticket.priority?.toLowerCase()}`"
+                :value="selectedRoom.ticket.priority"
+                :disabled="ticketActionLoading"
+                @change="onChangeTicketPriority($event.target.value)"
+              >
+                <option v-for="opt in TICKET_PRIORITY_OPTIONS" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+              </select>
+              <button
+                v-if="!selectedRoom.ticket.assigned_admin_email"
+                class="assign-me-btn"
+                :disabled="ticketActionLoading"
+                @click="assignToMe"
+              >
+                Asignarme
+              </button>
+              <span v-else class="assigned-to">{{ selectedRoom.ticket.assigned_admin_email }}</span>
+            </div>
+            <div v-if="selectedRoom.ticket.contact_phone || selectedRoom.ticket.contact_email" class="ticket-contact">
+              <span v-if="selectedRoom.ticket.contact_phone">{{ selectedRoom.ticket.contact_phone }}</span>
+              <span v-if="selectedRoom.ticket.contact_email">{{ selectedRoom.ticket.contact_email }}</span>
+            </div>
           </div>
 
           <div class="messages-list" ref="messagesEl">
@@ -224,6 +282,33 @@ const loadingRooms = ref(false);
 
 const analytics        = ref(null);
 const loadingAnalytics = ref(false);
+const ticketActionLoading = ref(false);
+
+// Mismos choices que support.models.SupportTicket (backend) -- si se agrega un
+// estado/prioridad nueva alla, hay que reflejarlo aca tambien (sin fuente unica
+// de verdad real entre Python y JS para esto, igual que otros choices del proyecto).
+const TICKET_STATUS_OPTIONS = [
+  { value: 'NEW',              label: 'Nuevo' },
+  { value: 'OPEN',              label: 'Abierto' },
+  { value: 'IN_PROGRESS',       label: 'En proceso' },
+  { value: 'WAITING_CUSTOMER',  label: 'Esperando cliente' },
+  { value: 'RESOLVED',          label: 'Resuelto' },
+  { value: 'CLOSED',            label: 'Cerrado' },
+  { value: 'CANCELLED',         label: 'Cancelado' },
+];
+const TICKET_PRIORITY_OPTIONS = [
+  { value: 'LOW',    label: 'Baja' },
+  { value: 'NORMAL', label: 'Normal' },
+  { value: 'HIGH',   label: 'Alta' },
+  { value: 'URGENT', label: 'Urgente' },
+];
+
+function statusLabel(value) {
+  return TICKET_STATUS_OPTIONS.find(o => o.value === value)?.label || value || '';
+}
+function priorityLabel(value) {
+  return TICKET_PRIORITY_OPTIONS.find(o => o.value === value)?.label || value || '';
+}
 
 const analyticsKpis = computed(() => {
   const a = analytics.value || {};
@@ -416,6 +501,54 @@ async function closeRoom() {
   } catch (_) {}
 }
 
+// Aplica la sala actualizada (respuesta real de cada accion de ticket) tanto al
+// panel derecho (selectedRoom) como a la fila correspondiente de la lista
+// izquierda -- mismo criterio ya usado en selectRoom() para no duplicar estado.
+function applyUpdatedRoom(updatedRoom) {
+  selectedRoom.value = { ...selectedRoom.value, ...updatedRoom };
+  const idx = rooms.value.findIndex(r => r.uuid === updatedRoom.uuid);
+  if (idx !== -1) rooms.value[idx] = { ...rooms.value[idx], ticket: updatedRoom.ticket, status: updatedRoom.status };
+}
+
+async function onChangeTicketStatus(newStatus) {
+  if (!selectedRoom.value || ticketActionLoading.value) return;
+  ticketActionLoading.value = true;
+  try {
+    const { data } = await api.post(`dashboard/support/chats/${selectedRoom.value.uuid}/ticket-status/`, { status: newStatus });
+    applyUpdatedRoom(data);
+  } catch (err) {
+    toast.error(err?.response?.data?.detail || 'No se pudo cambiar el estado del ticket.');
+  } finally {
+    ticketActionLoading.value = false;
+  }
+}
+
+async function onChangeTicketPriority(newPriority) {
+  if (!selectedRoom.value || ticketActionLoading.value) return;
+  ticketActionLoading.value = true;
+  try {
+    const { data } = await api.post(`dashboard/support/chats/${selectedRoom.value.uuid}/ticket-priority/`, { priority: newPriority });
+    applyUpdatedRoom(data);
+  } catch (err) {
+    toast.error(err?.response?.data?.detail || 'No se pudo cambiar la prioridad del ticket.');
+  } finally {
+    ticketActionLoading.value = false;
+  }
+}
+
+async function assignToMe() {
+  if (!selectedRoom.value || ticketActionLoading.value) return;
+  ticketActionLoading.value = true;
+  try {
+    const { data } = await api.post(`dashboard/support/chats/${selectedRoom.value.uuid}/assign/`);
+    applyUpdatedRoom(data);
+  } catch (err) {
+    toast.error(err?.response?.data?.detail || 'No se pudo asignar el ticket.');
+  } finally {
+    ticketActionLoading.value = false;
+  }
+}
+
 function scrollBottom() {
   if (messagesEl.value) messagesEl.value.scrollTop = messagesEl.value.scrollHeight;
 }
@@ -539,6 +672,7 @@ onUnmounted(() => { if (ws) { ws.close(); ws = null; } });
 .room-item:hover { background: #f3f4f6; }
 .room-item.active { background: #eff6ff; border-left: 3px solid #1e40af; }
 
+.room-top-row { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
 .room-user    { font-weight: 600; font-size: 13px; color: #111827; }
 .room-preview { font-size: 12px; color: #6b7280; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .room-meta    { display: flex; align-items: center; justify-content: space-between; margin-top: 4px; }
@@ -546,6 +680,69 @@ onUnmounted(() => { if (ws) { ws.close(); ws = null; } });
 .room-status         { font-size: 11px; text-transform: uppercase; font-weight: 600; }
 .room-status.open    { color: #16a34a; }
 .room-status.closed  { color: #9ca3af; }
+
+/* ── Ticket (2026-09-15) ──────────────────────────────────────── */
+.room-ticket-line { display: flex; align-items: center; gap: 6px; margin-top: 2px; overflow: hidden; }
+.ticket-number  { font-size: 11px; font-weight: 700; color: #1e40af; flex-shrink: 0; }
+.ticket-subject { font-size: 11px; color: #6b7280; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.priority-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.priority-dot.priority-low     { background: #94a3b8; }
+.priority-dot.priority-normal  { background: #3b82f6; }
+.priority-dot.priority-high    { background: #f59e0b; }
+.priority-dot.priority-urgent  { background: #ef4444; }
+
+.ticket-status-badge {
+  font-size: 10px; font-weight: 700; text-transform: uppercase;
+  padding: 2px 8px; border-radius: 10px;
+}
+.ticket-status-badge.status-new              { background: #dbeafe; color: #1e40af; }
+.ticket-status-badge.status-open             { background: #d1fae5; color: #065f46; }
+.ticket-status-badge.status-in_progress      { background: #fef3c7; color: #92400e; }
+.ticket-status-badge.status-waiting_customer { background: #ede9fe; color: #5b21b6; }
+.ticket-status-badge.status-resolved         { background: #dcfce7; color: #166534; }
+.ticket-status-badge.status-closed           { background: #f3f4f6; color: #6b7280; }
+.ticket-status-badge.status-cancelled        { background: #fee2e2; color: #991b1b; }
+
+.ticket-panel {
+  padding: 10px 20px;
+  border-bottom: 1px solid #f3f4f6;
+  background: #fafbff;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ticket-panel-main { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.ticket-number-big  { font-size: 13px; font-weight: 700; color: #1e40af; }
+.ticket-subject-big { font-size: 13px; color: #374151; }
+
+.ticket-panel-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ticket-select {
+  font-size: 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  padding: 4px 8px;
+  background: #fff;
+  cursor: pointer;
+}
+.ticket-select:disabled { opacity: 0.6; cursor: not-allowed; }
+.priority-select-urgent { border-color: #ef4444; color: #991b1b; }
+.priority-select-high   { border-color: #f59e0b; color: #92400e; }
+
+.assign-me-btn {
+  font-size: 12px;
+  background: #1e40af;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 5px 12px;
+  cursor: pointer;
+}
+.assign-me-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.assigned-to { font-size: 12px; color: #6b7280; }
+
+.ticket-contact { display: flex; gap: 12px; font-size: 11px; color: #9ca3af; }
 
 .room-badge {
   background: #ef4444;
