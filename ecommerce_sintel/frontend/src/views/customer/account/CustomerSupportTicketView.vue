@@ -62,7 +62,7 @@
 
 <script setup>
 import { reactive, ref } from 'vue';
-import { useApi } from '@/composables/useApi';
+import useApi from '@/composables/useApi';
 import { useToast } from '@/composables/useToast';
 import { useErrorHandler } from '@/composables/useErrorHandler';
 import CustomerAccountShell from '@/components/customer/account/CustomerAccountShell.vue';
