@@ -1,14 +1,14 @@
 """
 whatsapp/tests/test_failure_isolation.py
 
-Mision "Refactorizacion Arquitectonica del Modulo WhatsApp", FASE 23
-(2026-09-16). Prueba que una caida del mecanismo de transporte (REST
--- Meta Cloud API caida/credenciales invalidas; QR -- gateway no
-implementado) NUNCA rompe la capa de negocio de WhatsApp, ni Support, ni
-la resolucion de cliente/ChatRoom. El fallo debe quedar contenido en el
-adapter -- el dominio lo recibe como un resultado observable
-("send_failed"), nunca como una excepcion no controlada que tumbe todo
-el procesamiento del mensaje entrante.
+Mision "Migracion Arquitectonica de WhatsApp" (2026-09-16, FASE 27 --
+renombrado desde FASE 23 de la mision anterior). Prueba que una caida del
+mecanismo de transporte (Meta Cloud API caida/credenciales invalidas; QR
+-- gateway no implementado) NUNCA rompe la capa de negocio de WhatsApp, ni
+Support, ni la resolucion de cliente/ChatRoom. El fallo debe quedar
+contenido en el adapter -- el dominio lo recibe como un resultado
+observable ("send_failed"), nunca como una excepcion no controlada que
+tumbe todo el procesamiento del mensaje entrante.
 """
 from unittest.mock import patch
 
@@ -17,30 +17,30 @@ from django.test import TestCase
 
 from accounts.models import UserProfile
 from support.models import ChatMessage, ChatRoom
-from whatsapp.adapters.qr_adapter import QRConnectionAdapter
-from whatsapp.adapters.rest_adapter import RestConnectionAdapter
+from whatsapp.adapters.qr_web_session_adapter import QRWebSessionAdapter
+from whatsapp.adapters.meta_cloud_api_adapter import MetaCloudAPIAdapter
 from whatsapp.domain.contracts import MessageType, WhatsAppInboundMessage
 from whatsapp.domain.service import WhatsAppService
 
 User = get_user_model()
 
 
-class RestGatewayDownTests(TestCase):
+class MetaCloudAPIGatewayDownTests(TestCase):
     def setUp(self):
-        self.user = User.objects.create_user(email="wa-failure-rest@example.com", password="x")
+        self.user = User.objects.create_user(email="wa-failure-meta@example.com", password="x")
         UserProfile.objects.create(user=self.user, phone_number="3009876543")
 
-    def test_rest_down_el_mensaje_del_cliente_se_persiste_igual_solo_falla_el_envio(self):
+    def test_meta_down_el_mensaje_del_cliente_se_persiste_igual_solo_falla_el_envio(self):
         """Caso real: Meta Cloud API caida/token invalido durante el
         envio de la RESPUESTA -- el mensaje del cliente y la respuesta de
         la IA ya deben estar guardados en el ChatRoom (visibles para un
         agente humano en /panel/soporte) ANTES de que se intente el envio
         por WhatsApp. Un fallo de transporte no debe perder eso."""
-        adapter = RestConnectionAdapter()
+        adapter = MetaCloudAPIAdapter()
         service = WhatsAppService(adapter)
 
         message = WhatsAppInboundMessage(
-            channel="rest", external_message_id="fail-1",
+            channel="meta_cloud_api", external_message_id="fail-1",
             external_conversation_id="573009876543", sender_phone="573009876543",
             message_type=MessageType.TEXT, text="necesito ayuda con mi pedido",
         )
@@ -54,11 +54,13 @@ class RestGatewayDownTests(TestCase):
         self.assertTrue(ChatMessage.objects.filter(room=room, message__icontains="necesito ayuda con mi pedido").exists())
         self.assertTrue(ChatMessage.objects.filter(room=room, message__icontains="dame el numero de pedido").exists())
 
-    def test_rest_sin_credenciales_configuradas_get_status_reporta_error_no_lanza(self):
+    def test_meta_sin_credenciales_configuradas_reporta_not_configured_no_error(self):
+        """FASE 10/21 de la mision: NOT_CONFIGURED nunca debe confundirse
+        con ERROR/DISCONNECTED en la UI ni en el codigo."""
         with patch("django.conf.settings.META_ACCESS_TOKEN", ""):
-            adapter = RestConnectionAdapter()
+            adapter = MetaCloudAPIAdapter()
             from whatsapp.ports.connection import ConnectionStatus
-            self.assertEqual(adapter.get_status(), ConnectionStatus.ERROR)
+            self.assertEqual(adapter.get_status(), ConnectionStatus.NOT_CONFIGURED)
             self.assertFalse(adapter.health_check())
 
 
@@ -76,11 +78,11 @@ class QRGatewayUnavailableTests(TestCase):
         (mismo criterio, sin importar la CAUSA del fallo de transporte).
         El mensaje del cliente y la respuesta de la IA YA quedaron
         guardados antes de llegar a ese punto."""
-        adapter = QRConnectionAdapter()
+        adapter = QRWebSessionAdapter()
         service = WhatsAppService(adapter)
 
         message = WhatsAppInboundMessage(
-            channel="qr", external_message_id="fail-2",
+            channel="qr_web_session", external_message_id="fail-2",
             external_conversation_id="573005551234", sender_phone="573005551234",
             message_type=MessageType.TEXT, text="hola por QR",
         )
@@ -95,7 +97,7 @@ class QRGatewayUnavailableTests(TestCase):
 
 
 class WebSupportUnaffectedByWhatsAppFailureTests(TestCase):
-    """FASE 23 de la mision, explicito: "Web Support sigue funcionando"
+    """FASE 27 de la mision, explicito: "Web Support sigue funcionando"
     cuando WhatsApp falla. Verificado real: ChatCommands (el Service
     Layer que el widget web usa) sigue operando con normalidad sobre el
     MISMO ChatRoom que un intento fallido de WhatsApp toco."""
@@ -103,10 +105,10 @@ class WebSupportUnaffectedByWhatsAppFailureTests(TestCase):
     def test_chatcommands_sigue_operando_sobre_una_sala_que_tuvo_un_fallo_de_whatsapp(self):
         user = User.objects.create_user(email="wa-failure-web@example.com", password="x")
         UserProfile.objects.create(user=user, phone_number="3002223344")
-        adapter = RestConnectionAdapter()
+        adapter = MetaCloudAPIAdapter()
         service = WhatsAppService(adapter)
         message = WhatsAppInboundMessage(
-            channel="rest", external_message_id="fail-3",
+            channel="meta_cloud_api", external_message_id="fail-3",
             external_conversation_id="573002223344", sender_phone="573002223344",
             message_type=MessageType.TEXT, text="mensaje que fallara al responder",
         )

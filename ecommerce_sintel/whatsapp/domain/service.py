@@ -8,8 +8,8 @@ chequeos) de notifications/tasks.py::process_whatsapp_inbound_task /
 send_whatsapp_agent_reply_task, que ahora delegan aqui (ver ese archivo).
 
 Regla dura de la mision (seccion 1): CERO condicionales de infraestructura
-aqui dentro -- este archivo NUNCA importa QRConnectionAdapter ni
-RestConnectionAdapter, ni sabe cual esta activo. Recibe un
+aqui dentro -- este archivo NUNCA importa QRWebSessionAdapter ni
+MetaCloudAPIAdapter, ni sabe cual esta activo. Recibe un
 `WhatsAppConnectionPort` ya resuelto por `whatsapp/factory.py` (capa de
 composicion).
 
@@ -29,7 +29,7 @@ logger = logging.getLogger("whatsapp.service")
 
 class WhatsAppService:
     """Recibe el adapter por inyeccion -- NUNCA lo construye (Regla FASE 7
-    de la mision: "Nunca debe hacer QRConnectionAdapter()/RestConnectionAdapter()
+    de la mision: "Nunca debe hacer QRWebSessionAdapter()/MetaCloudAPIAdapter()
     internamente"). Ver whatsapp/factory.py para donde se decide cual."""
 
     def __init__(self, connection: WhatsAppConnectionPort):

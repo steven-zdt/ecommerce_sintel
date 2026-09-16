@@ -1,12 +1,18 @@
 """
-whatsapp/adapters/rest_adapter.py
+whatsapp/adapters/meta_cloud_api_adapter.py
 
-Mision "Refactorizacion Arquitectonica del Modulo WhatsApp", FASE 6
-(2026-09-16). Adapter REAL -- envuelve la integracion de Meta Cloud API
-que ya existe y funciona en produccion (`marketing/integrations/meta/`,
-ver AUDITORIA/WHATSAPP_CONNECTION_BASELINE.md). NO reescribe el transporte
--- `MetaWhatsAppClient`/`MetaGraphClient` siguen siendo el unico cliente
-HTTP real hacia graph.facebook.com, este adapter solo lo expone detras del
+Mision "Migracion Arquitectonica de WhatsApp -- QR Web Session Experimental
++ Meta Cloud API Futura" (2026-09-16). Renombrado desde `rest_adapter.py`/
+`RestConnectionAdapter` (mision anterior, FASE 6) -- mismo adapter real,
+nombre mas explicito: esto es especificamente la integracion OFICIAL de
+Meta (WhatsApp Business Platform / Cloud API), no un termino generico
+"REST" que podria confundirse con cualquier transporte HTTP.
+
+Envuelve la integracion de Meta Cloud API que ya existe y funciona en
+produccion (`marketing/integrations/meta/`, ver AUDITORIA/
+WHATSAPP_CONNECTION_BASELINE.md). NO reescribe el transporte --
+`MetaWhatsAppClient`/`MetaGraphClient` siguen siendo el unico cliente HTTP
+real hacia graph.facebook.com, este adapter solo lo expone detras del
 contrato `WhatsAppConnectionPort`.
 
 Cero logica de negocio aqui -- solo traduccion de formato + transporte.
@@ -24,7 +30,7 @@ from whatsapp.ports.connection import (
     WhatsAppConnectionPort,
 )
 
-logger = logging.getLogger("whatsapp.rest_adapter")
+logger = logging.getLogger("whatsapp.meta_cloud_api_adapter")
 
 _CAPABILITIES = ConnectionCapabilities(
     send_text=True,
@@ -34,17 +40,25 @@ _CAPABILITIES = ConnectionCapabilities(
     webhook=True,
     polling=False,
     qr_pairing=False,
-    session_persistence=True,   # la "sesion" de REST es el token de acceso de Meta, no expira por reinicio de contenedor
+    session_persistence=True,   # la "sesion" de Meta Cloud API es el token de acceso, no expira por reinicio de contenedor
     delivery_status=True,       # MetaWebhookEvent ya persiste callbacks de status (delivered/read/failed)
 )
 
 
-class RestConnectionAdapter(WhatsAppConnectionPort):
-    """Adapter real contra Meta Cloud API. `connect()`/`disconnect()` son
-    conceptualmente triviales para REST (no hay sesion persistente que
-    abrir/cerrar, es HTTP request/response puro autenticado por token) --
-    se implementan igual para cumplir el contrato, documentado explicito
-    en vez de dejarlos vacios sin explicacion."""
+class MetaCloudAPIAdapter(WhatsAppConnectionPort):
+    """Adapter real contra la API oficial de WhatsApp Business Platform
+    (Meta Cloud API). `connect()`/`disconnect()` son conceptualmente
+    triviales aqui (no hay sesion persistente que abrir/cerrar, es HTTP
+    request/response puro autenticado por token) -- se implementan igual
+    para cumplir el contrato, documentado explicito en vez de dejarlos
+    vacios sin explicacion.
+
+    NOT_CONFIGURED vs DISCONNECTED vs CONNECTED (Regla FASE 10/21 de la
+    mision, verificado explicito, no confundido): si faltan credenciales
+    (`META_ACCESS_TOKEN`/`WHATSAPP_PHONE_NUMBER_ID`), el estado real es
+    NOT_CONFIGURED -- nunca ERROR (eso implicaria que algo se intento y
+    fallo) ni DISCONNECTED (eso implicaria que alguna vez estuvo
+    conectado)."""
 
     def __init__(self, *, client=None):
         # notifications.clients.whatsapp.WhatsAppClient (shim historico,
@@ -54,8 +68,8 @@ class RestConnectionAdapter(WhatsAppConnectionPort):
         # 'notifications.clients.whatsapp.WhatsAppClient.send_text', un
         # patch sobre la SUBCLASE no intercepta llamadas hechas contra la
         # clase padre. Usar el mismo punto de entrada real que ya usaba
-        # notifications/tasks.py preserva esos tests sin tocarlos (Regla
-        # FASE 25 de la mision: migracion incremental sin breaking change).
+        # notifications/tasks.py preserva esos tests sin tocarlos (Regla de
+        # migracion incremental sin breaking change).
         from notifications.clients.whatsapp import WhatsAppClient
         self._client_factory = client or WhatsAppClient
         self._connected = False
@@ -69,7 +83,7 @@ class RestConnectionAdapter(WhatsAppConnectionPort):
 
     def connect(self) -> ConnectionStatus:
         if not self._is_configured():
-            return ConnectionStatus.ERROR
+            return ConnectionStatus.NOT_CONFIGURED
         self._connected = True
         return ConnectionStatus.CONNECTED
 
@@ -78,13 +92,13 @@ class RestConnectionAdapter(WhatsAppConnectionPort):
 
     def get_status(self) -> ConnectionStatus:
         if not self._is_configured():
-            return ConnectionStatus.ERROR
+            return ConnectionStatus.NOT_CONFIGURED
         return ConnectionStatus.CONNECTED if self._connected else ConnectionStatus.DISCONNECTED
 
     def send_message(self, message: WhatsAppOutboundMessage) -> str:
         if message.message_type != MessageType.TEXT:
             raise UnsupportedCapabilityError(
-                f"RestConnectionAdapter no soporta send de tipo {message.message_type!r} "
+                f"MetaCloudAPIAdapter no soporta send de tipo {message.message_type!r} "
                 "(capabilities.send_media=False -- MetaWhatsAppClient no implementa envio de media hoy)."
             )
         # Sincrono real (requests, via MetaGraphClient) -- se ejecuta dentro
@@ -94,8 +108,8 @@ class RestConnectionAdapter(WhatsAppConnectionPort):
         return client.send_text(message.recipient, message.text)
 
     def generate_pairing_qr(self) -> str | None:
-        # No aplica a REST -- no es un error pedirlo, simplemente no hay
-        # nada que emparejar (autenticacion por token, no por QR).
+        # No aplica a Meta Cloud API -- no es un error pedirlo, simplemente
+        # no hay nada que emparejar (autenticacion por token, no por QR).
         return None
 
     def health_check(self) -> bool:
@@ -132,7 +146,7 @@ class RestConnectionAdapter(WhatsAppConnectionPort):
                 timestamp = None
 
         return WhatsAppInboundMessage(
-            channel="rest",
+            channel="meta_cloud_api",
             external_message_id=str(raw_event.get("id", "")).strip(),
             external_conversation_id=wa_id,
             sender_phone=wa_id,

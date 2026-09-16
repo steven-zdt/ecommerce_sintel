@@ -537,6 +537,30 @@ if is_ai_mode_active(room) and not is_ai_rate_limited(room):
 
 ## Cambios Recientes
 
+### 2026-09-16 — Migración arquitectónica de WhatsApp: nomenclatura definitiva + QR bloqueado por decisión de negocio
+- **Qué cambió**: renombrado de `RestConnectionAdapter`/`QRConnectionAdapter` (entrada anterior de
+  esta misma sección) a `MetaCloudAPIAdapter`/`QRWebSessionAdapter` — nomenclatura explícita:
+  `META_CLOUD_API` = oficial, `QR_WEB_SESSION` = experimental/tercero/NO oficial. Nuevo
+  `ConnectionStatus.NOT_CONFIGURED` (antes se confundía con `ERROR`). Nuevo
+  `WhatsAppSessionManager` (`whatsapp/adapters/session_manager.py`) con 10 estados reales de
+  sesión (`QR_REQUIRED`/`QR_READY`/`SCANNING`/`AUTHENTICATING`/etc.), usado solo por el adapter QR
+  — el dominio nunca lo conoce.
+- **Decisión de negocio real, no técnica**: evaluados Baileys/whatsapp-web.js como proveedores QR
+  reales — **BLOQUEADO** para el número de producción de SINTEL. Conectar una librería QR no
+  oficial al mismo número que ya usa Meta Cloud API oficialmente violaría los Términos de Servicio
+  de WhatsApp Business y arriesgaría perder también la integración oficial ya funcionando, sin
+  ganar ninguna capacidad real que Meta Cloud API no cubra ya. Ver
+  `AUDITORIA/WHATSAPP_QR_PROVIDER_EVALUATION.md`.
+- **Panel admin actualizado**: `/panel/soporte/whatsapp` distingue explícitamente
+  `configured`/`connected` (nunca mezclados) y muestra una advertencia explícita "EXPERIMENTAL ·
+  TERCERO · NO ES LA API OFICIAL DE META" en la tarjeta de QR.
+- **Sin cambios de comportamiento observable** para el tráfico real (Meta Cloud API sigue siendo
+  el único mecanismo activo, mismo `WhatsAppService`/`ai_bridge`/ADK) — regresión completa
+  verificada: `whatsapp/` + `notifications/` + `dashboard` (endpoint de estado): 79/79.
+- **Doc de detalle**: `AUDITORIA/WHATSAPP_CONNECTION_MIGRATION_BASELINE.md`,
+  `WHATSAPP_QR_PROVIDER_EVALUATION.md`, `WHATSAPP_QR_SESSION.md`, `WHATSAPP_CLOUD_API.md`,
+  `WHATSAPP_CONNECTION_E2E.md`, `WHATSAPP_CONNECTION_FINAL_CERTIFICATION.md` (actualizados).
+
 ### 2026-09-16 — Refactorización arquitectónica del módulo WhatsApp (dominio + Connection Adapter)
 - **Qué cambió y por qué**: la lógica de negocio de WhatsApp (resolución de cliente por
   teléfono, `ChatRoom`, persistencia, deduplicación, respeto de `ai_paused`/`is_ai_mode_active`/

@@ -154,7 +154,7 @@ class WhatsAppInboundWebhookView(APIView):
                             # de un get()+set() separado ante dos entregas casi
                             # simultaneas. "rest" es el nombre del adapter/channel
                             # real que produce este evento.
-                            is_new = not WhatsAppIdempotencyGuard.is_duplicate('rest', message_id)
+                            is_new = not WhatsAppIdempotencyGuard.is_duplicate('meta_cloud_api', message_id)
                         else:
                             logger.warning(
                                 '[whatsapp-webhook] mensaje sin "id" -- no se puede '

@@ -1,10 +1,14 @@
 """
 whatsapp/factory.py
 
-Mision "Refactorizacion Arquitectonica del Modulo WhatsApp", FASE 8-9
-(2026-09-16). UNICO lugar del repositorio donde puede existir
-`if connection_type == ...` para WhatsApp -- capa de composicion, nunca
-dominio (Regla 1 de la mision).
+Mision "Migracion Arquitectonica de WhatsApp -- QR Web Session Experimental
++ Meta Cloud API Futura" (2026-09-16). UNICO lugar del repositorio donde
+puede existir `if connection_type == ...` para WhatsApp -- capa de
+composicion, nunca dominio (Regla 1 de la mision).
+
+Renombrado desde CONNECTION_TYPE_QR/CONNECTION_TYPE_REST (mision anterior)
+-- nomenclatura explicita: QR_WEB_SESSION (experimental, tercero) vs
+META_CLOUD_API (oficial).
 
 Uso real:
     from whatsapp.factory import WhatsAppConnectionFactory
@@ -13,9 +17,9 @@ Uso real:
 """
 from django.conf import settings
 
-CONNECTION_TYPE_QR = "QR"
-CONNECTION_TYPE_REST = "REST"
-_VALID_TYPES = {CONNECTION_TYPE_QR, CONNECTION_TYPE_REST}
+CONNECTION_TYPE_QR_WEB_SESSION = "QR_WEB_SESSION"
+CONNECTION_TYPE_META_CLOUD_API = "META_CLOUD_API"
+_VALID_TYPES = {CONNECTION_TYPE_QR_WEB_SESSION, CONNECTION_TYPE_META_CLOUD_API}
 
 
 class WhatsAppConnectionFactory:
@@ -30,8 +34,8 @@ class WhatsAppConnectionFactory:
             raise ValueError(
                 f"WHATSAPP_CONNECTION_TYPE invalido: {resolved!r} -- valores validos: {sorted(_VALID_TYPES)}"
             )
-        if resolved == CONNECTION_TYPE_QR:
-            from whatsapp.adapters.qr_adapter import QRConnectionAdapter
-            return QRConnectionAdapter()
-        from whatsapp.adapters.rest_adapter import RestConnectionAdapter
-        return RestConnectionAdapter()
+        if resolved == CONNECTION_TYPE_QR_WEB_SESSION:
+            from whatsapp.adapters.qr_web_session_adapter import QRWebSessionAdapter
+            return QRWebSessionAdapter()
+        from whatsapp.adapters.meta_cloud_api_adapter import MetaCloudAPIAdapter
+        return MetaCloudAPIAdapter()

@@ -1,143 +1,143 @@
-# WHATSAPP_CONNECTION_FINAL_CERTIFICATION — FASE 28
+# WHATSAPP_CONNECTION_FINAL_CERTIFICATION
 
-**Misión "Refactorización Arquitectónica del Módulo WhatsApp — Dominio Independiente +
-Connection Adapter Intercambiable QR/REST", cerrada 2026-09-16.**
+**Actualizado 2026-09-16 — Misión "Migración Arquitectónica de WhatsApp — QR Web Session
+Experimental + Meta Cloud API Futura", FASE 37.** Reemplaza la certificación anterior (misión
+"Refactorización Arquitectónica del Módulo WhatsApp") con el estado definitivo — nomenclatura,
+decisión de negocio sobre QR, y ampliación completa.
 
-## 1. Arquitectura anterior
+## 1. Arquitectura anterior (a esta serie de misiones)
 
-Lógica de negocio (resolución de cliente, `ChatRoom`, handoff, IA) mezclada inline con llamadas
-de transporte directo (`WhatsAppClient().send_text(...)`) dentro de `notifications/tasks.py`.
-Deduplicación ad-hoc (cache key específica de Meta) dentro del webhook view. Un solo mecanismo de
-conexión posible (REST/Meta), sin ningún punto de extensión real.
+Lógica de negocio mezclada inline con transporte directo dentro de `notifications/tasks.py`.
+Un solo mecanismo de conexión posible (Meta Cloud API), sin punto de extensión real.
 
-## 2. Arquitectura nueva
+## 2. Arquitectura nueva (definitiva)
 
-Hexagonal real: `whatsapp/domain/` (lógica de negocio, nunca conoce el mecanismo) →
-`whatsapp/ports/connection.py` (contrato) → `whatsapp/adapters/{rest,qr}_adapter.py`
-(implementaciones intercambiables) ← `whatsapp/factory.py` (único punto de composición,
-lee `settings.WHATSAPP_CONNECTION_TYPE`). Ver `WHATSAPP_CONNECTION_ARCHITECTURE.md`.
+Hexagonal: `whatsapp/domain/` (nunca conoce el mecanismo, verificado con AST) →
+`whatsapp/ports/connection.py::WhatsAppConnectionPort` → `whatsapp/adapters/
+{qr_web_session,meta_cloud_api}_adapter.py` ← `whatsapp/factory.py` (único punto de composición).
+`WhatsAppSessionManager` (10 estados reales) para el ciclo de vida granular de sesión QR.
 
-## 3. Dependencias eliminadas
+## 3-4. Dependencias eliminadas / introducidas
 
-Ninguna — no se retiró ninguna librería ni integración real (`marketing/integrations/meta/*`
-sigue intacto).
-
-## 4. Dependencias introducidas
-
-Ninguna nueva de terceros. Solo código propio (`whatsapp/`), sin librerías nuevas en
-`requirements.txt`.
+Ninguna en ambos casos — solo código propio, renombrado desde la iteración anterior, cero
+librerías nuevas.
 
 ## 5. Connection Port
 
-`whatsapp/ports/connection.py::WhatsAppConnectionPort` — síncrono (decisión de diseño
-documentada), 6 métodos abstractos + `capabilities` + `translate_inbound`.
+`WhatsAppConnectionPort` — 7 métodos (`connect`/`disconnect`/`reconnect`/`get_status`/
+`send_message`/`generate_pairing_qr`/`health_check`) + `capabilities` + `translate_inbound`.
+`reconnect()` nuevo esta fase, con default real (`disconnect()+connect()`).
+`ConnectionStatus.NOT_CONFIGURED` nuevo — nunca confundido con `ERROR`/`DISCONNECTED`.
 
-## 6. QR Adapter
+## 6. QR Web Session Adapter
 
-`whatsapp/adapters/qr_adapter.py::QRConnectionAdapter` — estructuralmente completo,
-funcionalmente `NOT_IMPLEMENTED` (hallazgo real: no existe ningún gateway QR en este repo).
-Fail-loud explícito en cada método (`WhatsAppQRNotImplementedError`), nunca simula éxito.
+`QRWebSessionAdapter` — estructuralmente completo, **bloqueado por decisión de negocio real**
+(no por falta de tiempo/esfuerzo): ver sección 8. Fail-loud explícito en cada método real.
+Etiquetado en código y UI como EXPERIMENTAL/TERCERO/NO-OFICIAL, cumpliendo la regla dura de la
+misión de nunca presentarlo como API oficial.
 
-## 7. REST Adapter
+## 7. Meta Cloud API Adapter
 
-`whatsapp/adapters/rest_adapter.py::RestConnectionAdapter` — envuelve la integración REAL ya en
-producción (`notifications.clients.whatsapp.WhatsAppClient` → `MetaWhatsAppClient` → Meta Cloud
-API). Capacidades declaradas: `send_text`, `receive_text`, `webhook`, `session_persistence`,
-`delivery_status` (no `send_media`/`receive_media`, honesto con lo que el cliente real soporta
-hoy).
+`MetaCloudAPIAdapter` — envuelve la integración real ya en producción, sin cambios de
+comportamiento, solo renombrado. `NOT_CONFIGURED` distinguido explícitamente de
+`DISCONNECTED`/`CONNECTED` (antes se reportaba `ERROR`, corregido esta fase).
 
-## 8. WhatsApp Service
+## 8. Evaluación de proveedor QR real (FASE 8 de la misión — el entregable más importante de esta iteración)
 
-`whatsapp/domain/service.py::WhatsAppService` — único punto de entrada real, recibe el
-`ConnectionPort` por inyección (nunca lo construye — verificado con AST). `process_inbound_
-message()` y `send_agent_reply()`, mismo comportamiento exacto que el código original.
+**Conclusión: BLOQUEADO para el número de producción real de SINTEL.** Evaluados Baileys y
+whatsapp-web.js (únicos candidatos reales con mantenimiento activo) — ambos violan los Términos
+de Servicio de WhatsApp Business, ambos son Node.js (nueva dependencia de runtime en un stack
+100% Python), y el riesgo real específico de SINTEL es que el mismo número de negocio ya tiene
+Meta Cloud API oficial activa — conectar una automatización no oficial al mismo número arriesga
+perder también la integración oficial que ya funciona, sin ganar ninguna capacidad real nueva.
+Ver `AUDITORIA/WHATSAPP_QR_PROVIDER_EVALUATION.md` para el detalle completo y las condiciones
+bajo las cuales esta decisión podría reabrirse.
 
-## 9. Conversation mapping
+## 9. WhatsApp Service
 
-`whatsapp/domain/conversation_resolver.py::WhatsAppConversationResolver` — envuelve
-`ChatCommands.get_or_create_room`, mismo `ChatRoom` compartido con el widget web y con la
-creación de tickets desde el perfil (misión anterior). El `ChatRoom` nunca sabe si el mensaje
-llegó por QR o REST.
+Sin cambios de comportamiento — mismo `whatsapp/domain/service.py`, ahora recibiendo adapters
+renombrados sin que el propio archivo lo note (demostración real de independencia, no solo
+teórica).
 
-## 10. Customer mapping
+## 10-13. Conversation/Customer mapping, Support/AI integration
 
-`whatsapp/domain/customer_resolver.py::WhatsAppCustomerResolver` — mismo criterio real
-(últimos 10 dígitos del teléfono contra `UserProfile`), idéntico sin importar el adapter.
+Sin cambios — mismos resolvers, mismo `ChatCommands`, mismo `ai_bridge`/ADK/RAG.
 
-## 11. Support integration
+## 14. Security
 
-Sin cambios — `ChatCommands`/`support.services.ai_bridge` se siguen consultando tal cual, nunca
-duplicados dentro de `whatsapp/`.
+Ver `WHATSAPP_CONNECTION_SECURITY.md` (actualizado) — tabla ampliada con los ítems que pide
+explícitamente esta misión (acceso QR desde panel protegido, unauthorized send, session
+hijacking, QR session leakage) — todos los ítems específicos de QR declarados `N/A` explícito,
+no simulados.
 
-## 12. AI integration
+## 15. Tests
 
-Sin cambios — WhatsApp nunca habla con el LLM/RAG/ADK directo, todo pasa por `ask_ai()` →
-`ai_bridge` → `ai_engine_adk` → Google ADK, exactamente igual que el widget web.
+`whatsapp/tests/`: 8 tests de contrato (incluye `reconnect()` y distinción `NOT_CONFIGURED`
+nuevos), tests de aislamiento estructural (AST) y comportamental (ambos sentidos QR↔Meta), tests
+de fallos, tests de servicio/idempotencia — todos renombrados y re-verificados.
+Regresión total: `whatsapp` + `notifications` + `dashboard` (endpoint de estado WhatsApp):
+**79/79 passed**, 0 fallos, tras el renombrado completo.
 
-## 13. Security
+## 16. Failure tests / 17. Switching tests
 
-Ver `WHATSAPP_CONNECTION_SECURITY.md` — ningún mecanismo existente debilitado (firma HMAC,
-auditoría `MetaWebhookEvent`), deduplicación generalizada (no debilitada), 1 riesgo residual
-heredado documentado (colisión de identidad por sufijo de teléfono, preexistente).
+Sin cambios de fondo respecto a la certificación anterior — re-verificados con los nombres
+nuevos, mismos resultados (fallo de transporte contenido, Support Core no afectado, switch
+QR↔Meta sin tocar el dominio en ningún sentido).
 
-## 14. Tests
+## 18. E2E
 
-`whatsapp/tests/`: 31 tests reales (contrato, aislamiento estructural vía AST, aislamiento
-comportamental QR↔REST y REST↔QR, servicio de dominio, idempotencia). `notifications/`: 44/44
-regresión completa, sin cambios de comportamiento — incluye el hallazgo real de compatibilidad
-(mock de `WhatsAppClient` vs. clase padre `MetaWhatsAppClient`) encontrado y corregido durante
-esta misma migración.
+Ver `WHATSAPP_CONNECTION_E2E.md` — Meta Cloud API: real, verificado en producción en sesiones
+anteriores. QR: documentado como no ejecutable (bloqueado desde FASE 8), con evidencia sustituta
+real vía tests de aislamiento con un adapter de prueba.
 
-## 15. Failure tests
+## 19. Rollback
 
-`whatsapp/tests/test_failure_isolation.py`: REST caído (mensaje del cliente se persiste, solo
-falla el envío), QR sin gateway (mismo criterio), Web Support no afectado por un fallo de
-WhatsApp (`ChatCommands` sigue operando con normalidad sobre la misma sala).
-
-## 16. Switching tests
-
-`whatsapp/tests/test_isolation.py::SwitchConnectionBehaviorTests` — mismo `WhatsAppService`, 2
-adapters distintos inyectados (Fake QR-simulado / Fake REST-simulado), mismo resultado de
-negocio verificado (`ChatRoom` resuelto, mensaje persistido) en ambos sentidos.
-
-## 17. Rollback
-
-Ver `WHATSAPP_CONNECTION_MIGRATION.md` sección "Rollback" — `git revert` de los commits de esta
-misión, sin impacto en datos persistidos (ningún modelo/migración nuevo, solo código).
+Sin cambios — `git revert`, ningún modelo/migración nuevo en esta iteración tampoco.
 
 ---
 
-## Criterios de aceptación de la misión — verificación final
+## Criterios de aceptación — verificación final (los 26 de esta misión)
 
 ```
-✅ WhatsApp tiene logica de negocio independiente           -- whatsapp/domain/
-✅ QR esta aislado en un adapter                             -- whatsapp/adapters/qr_adapter.py
-✅ REST esta aislado en un adapter                            -- whatsapp/adapters/rest_adapter.py
-✅ Ambos implementan el mismo contrato                        -- test_contract.py, 8/8
-✅ WhatsAppService no conoce QR                               -- verificado con AST real
-✅ WhatsAppService no conoce REST                             -- verificado con AST real
-✅ Support no conoce QR/REST                                  -- sin cambios, ChatCommands intacto
-✅ ADK no conoce QR/REST                                       -- sin cambios, ai_bridge intacto
-✅ RAG no conoce QR/REST                                       -- sin cambios
-✅ ChatRoom no depende del transporte                          -- mismo ChatRoom, cualquier canal
-✅ CustomerResolver no depende del transporte                  -- mismo criterio, cualquier adapter
-✅ Handoff no depende del transporte                            -- ai_paused/is_ai_mode_active sin cambios
-✅ Idempotencia no depende del transporte                       -- WhatsAppIdempotencyGuard, (channel, id)
-✅ La configuracion determina el adapter                        -- WHATSAPP_CONNECTION_TYPE
-✅ Cambiar QR<->REST no requiere tocar business logic           -- test_isolation.py, ambos sentidos
-✅ Web Support sigue funcionando                                -- test_failure_isolation.py
-✅ Seguridad sigue funcionando                                   -- WHATSAPP_CONNECTION_SECURITY.md
-✅ Tests de contrato pasan                                       -- 8/8
-✅ E2E REST pasa                                                 -- 44/44 regresion notifications
-⚠️ E2E QR "preparado/pasa segun disponibilidad"                 -- preparado (NOT_IMPLEMENTED honesto,
-                                                                    no hay gateway real que probar E2E)
+✅ WhatsApp tiene un dominio estable
+✅ Existen 2 estrategias intercambiables (QRWebSessionAdapter, MetaCloudAPIAdapter)
+✅ Admin puede seleccionar via WHATSAPP_CONNECTION_TYPE
+✅ Cambiar QR<->Meta no requiere tocar WhatsAppService/Support/ChatRoom/CustomerResolver/
+   ai_bridge/ai_engine_adk/ADK/RAG/Tools/human handoff -- verificado con AST + tests
+✅ Capability model explicito por adapter, consultable
+✅ WhatsAppService recibe el adapter por inyeccion, nunca lo construye
+✅ WhatsAppConnectionFactory es el unico punto de seleccion
+✅ Configuracion centralizada (WHATSAPP_CONNECTION_TYPE) -- WHATSAPP_QR_*/WHATSAPP_META_*
+   evaluados, decision de no duplicar variables ya reales documentada
+✅ QRWebSessionAdapter etiquetado EXPERIMENTAL/THIRD-PARTY/NON-OFFICIAL, en codigo Y en UI
+✅ Proveedor QR real evaluado ANTES de instalar nada -- conclusion BLOCKED, documentada,
+   no simulada
+✅ WhatsAppSessionManager con 10 estados reales y transiciones validas
+✅ MetaCloudAPIAdapter distingue NOT_CONFIGURED de DISCONNECTED de CONNECTED
+✅ Identity mapping y Conversation mapping independientes del adapter
+✅ Idempotencia (channel, external_message_id) independiente del adapter
+✅ Delivery normalizado (business state vs transport state)
+✅ Human handoff permanece 100% en Support Core
+✅ AI integration sin duplicar -- WhatsApp nunca habla con ADK/RAG directo
+✅ UI distingue configuration/connection/session/capabilities, nunca CONFIGURED=CONNECTED
+✅ QR generaria un QR real si existiera un gateway viable -- hoy falla explicito, no simula
+✅ Meta puede quedar NOT_CONFIGURED -- verificado con test real
+✅ Contract tests, domain independence test (AST), switch tests -- todos existen y pasan
+✅ Security tests -- tabla completa, items N/A declarados explicitos donde corresponde
+✅ Healthcheck -- configured/connected/session_state/capabilities/last_error separados
+✅ Observabilidad -- logs sin secretos, verificado
+✅ Documentacion SSoT -- 6 documentos, todos actualizados o creados esta fase
+✅ QR se puede eliminar sin romper el dominio -- misma garantia que la mision anterior,
+   re-verificada con los nombres nuevos
+✅ Arquitectura preparada para activar Meta Cloud API sin cambios -- ya esta activa hoy
 ```
 
 ## Certificación final
 
-**APTA**, con la salvedad explícita y documentada desde FASE 0: QR está arquitectónicamente
-resuelto (mismo contrato, mismas pruebas de aislamiento que REST) pero funcionalmente
-`NOT_IMPLEMENTED` porque no existe ningún gateway QR real en este proyecto — no es una omisión
-de esta misión, es un hecho verificado del estado real del repositorio. El objetivo
-arquitectónico central — **el negocio de WhatsApp es estable, el transporte es reemplazable** —
-está demostrado con código real y tests reales, no solo documentado en teoría.
+**APTA.** El entregable central de esta misión no fue código nuevo sustancial (la arquitectura ya
+existía, correcta, de la misión anterior) — fue la **decisión de negocio informada** sobre QR:
+evaluar honestamente el riesgo real (perder la integración oficial que ya funciona, por una
+capacidad que no aporta nada nuevo) y documentarlo con la misma rigurosidad que cualquier
+decisión técnica, en vez de simular una funcionalidad que el propio prompt maestro prohibía
+explícitamente fingir. La arquitectura queda demostrablemente lista para revertir esa decisión
+el día que cambien las condiciones de negocio, sin tocar una sola línea del dominio.

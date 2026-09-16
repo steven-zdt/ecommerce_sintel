@@ -353,14 +353,17 @@ AI_BOT_EMAIL = config('AI_BOT_EMAIL', default='asistente.ia@sintel.internal')
 # (funciona en dev sin configuracion extra) -- en produccion se recomienda fijar
 # esta variable de forma independiente para poder rotarla sin tocar SECRET_KEY.
 AI_PROVIDER_ENCRYPTION_KEY = config('AI_PROVIDER_ENCRYPTION_KEY', default='')
-# Mision "Refactorizacion Arquitectonica del Modulo WhatsApp" (2026-09-16):
-# unico switch real de mecanismo de conexion -- "QR" o "REST", nunca
-# variables dispersas (USE_QR/ENABLE_WHATSAPP_API/etc, Regla FASE 9 de la
-# mision). Default "REST": es el UNICO mecanismo real que existe hoy en
-# este repo (Meta Cloud API, ver whatsapp/adapters/rest_adapter.py) -- "QR"
-# esta estructuralmente soportado pero es NOT_IMPLEMENTED (ver
-# whatsapp/adapters/qr_adapter.py y AUDITORIA/WHATSAPP_CONNECTION_BASELINE.md).
-WHATSAPP_CONNECTION_TYPE = config('WHATSAPP_CONNECTION_TYPE', default='REST')
+# Mision "Migracion Arquitectonica de WhatsApp" (2026-09-16, renombrado
+# desde "QR"/"REST" de la mision anterior): unico switch real de mecanismo
+# de conexion -- "QR_WEB_SESSION" (experimental, tercero) o
+# "META_CLOUD_API" (oficial), nunca variables dispersas (USE_QR/
+# ENABLE_WHATSAPP_API/etc). Default "META_CLOUD_API": es el UNICO mecanismo
+# real que existe hoy en este repo (ver whatsapp/adapters/
+# meta_cloud_api_adapter.py) -- "QR_WEB_SESSION" esta estructuralmente
+# soportado pero BLOQUEADO por decision de negocio (ver
+# AUDITORIA/WHATSAPP_QR_PROVIDER_EVALUATION.md: riesgo real de perder la
+# integracion oficial ya funcionando en el mismo numero de produccion).
+WHATSAPP_CONNECTION_TYPE = config('WHATSAPP_CONNECTION_TYPE', default='META_CLOUD_API')
 
 # Verify token del webhook entrante de WhatsApp (Meta Cloud API).
 WHATSAPP_WEBHOOK_VERIFY_TOKEN = config('WHATSAPP_WEBHOOK_VERIFY_TOKEN', default='')

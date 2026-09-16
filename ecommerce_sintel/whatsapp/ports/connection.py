@@ -24,7 +24,14 @@ class ConnectionStatus(str, Enum):
     DISCONNECTED = "DISCONNECTED"
     ERROR = "ERROR"
     PAIRING_REQUIRED = "PAIRING_REQUIRED"
-    NOT_IMPLEMENTED = "NOT_IMPLEMENTED"  # FASE 6/9 de la mision: un mecanismo declarado pero sin gateway real integrado -- nunca se finge CONNECTED
+    NOT_IMPLEMENTED = "NOT_IMPLEMENTED"  # mecanismo declarado pero sin gateway real integrado -- nunca se finge CONNECTED
+    # Mision "Migracion Arquitectonica de WhatsApp" (FASE 10/21, 2026-09-16):
+    # distinto de DISCONNECTED/ERROR a proposito -- "no hay credenciales
+    # configuradas todavia" NO es lo mismo que "esta configurado pero la
+    # conexion cayo". Confundirlos en la UI es exactamente lo que la mision
+    # prohibe explicitamente (FASE 21: nunca mostrar "Disconnected" cuando
+    # en realidad nunca se configuro nada).
+    NOT_CONFIGURED = "NOT_CONFIGURED"
 
 
 @dataclass(frozen=True)
@@ -51,8 +58,10 @@ class UnsupportedCapabilityError(Exception):
 
 
 class WhatsAppConnectionPort(ABC):
-    """Contrato real que TODO adapter (REST hoy, QR cuando exista un
-    gateway real) debe cumplir identico. Ver whatsapp/tests/test_contract.py
+    """Contrato real que TODO adapter (MetaCloudAPIAdapter hoy,
+    QRWebSessionAdapter cuando exista un gateway real -- ver
+    AUDITORIA/WHATSAPP_QR_PROVIDER_EVALUATION.md) debe cumplir identico.
+    Ver whatsapp/tests/test_contract.py
     -- se corre parametrizado contra cada adapter real, no es solo un
     acuerdo de interfaz en papel.
 
@@ -82,6 +91,15 @@ class WhatsAppConnectionPort(ABC):
     @abstractmethod
     def disconnect(self) -> None:
         ...
+
+    def reconnect(self) -> ConnectionStatus:
+        """Mision FASE 2: capacidad minima explicita. Default real (no
+        abstracto): disconnect() + connect() -- correcto para un mecanismo
+        sin estado de sesion propio (Meta Cloud API). Un adapter con sesion
+        real (QR) SI debe sobreescribir esto con su propia logica de
+        reconexion (backoff, reautenticacion) en vez de heredar el default."""
+        self.disconnect()
+        return self.connect()
 
     @abstractmethod
     def get_status(self) -> ConnectionStatus:

@@ -147,29 +147,50 @@ class AdminWhatsAppConnectionStatusView(APIView):
     """
     GET /api/v1/dashboard/whatsapp/connection-status/
 
-    Mision "Refactorizacion Arquitectonica del Modulo WhatsApp" (2026-09-16)
-    dejo el backend listo (whatsapp/factory.py, whatsapp/adapters/) pero
-    nunca conecto un endpoint admin real -- gap encontrado por el usuario
-    el mismo dia. Solo lectura: expone el adapter ACTIVO segun
+    Mision "Migracion Arquitectonica de WhatsApp" (2026-09-16) -- renombrado
+    desde la vista original (misma mision anterior que conecto este
+    endpoint por primera vez). Solo lectura: expone el adapter ACTIVO segun
     settings.WHATSAPP_CONNECTION_TYPE (capabilities/status/health real) y,
-    a modo informativo, el estado del OTRO mecanismo -- para que el panel
-    sea honesto sobre que QR existe estructuralmente pero esta
-    NOT_IMPLEMENTED (sin gateway real integrado), en vez de ocultarlo.
+    a modo informativo, el estado del OTRO mecanismo -- honesto sobre que
+    QR_WEB_SESSION existe estructuralmente pero esta bloqueado por decision
+    de negocio (ver AUDITORIA/WHATSAPP_QR_PROVIDER_EVALUATION.md), nunca
+    ocultado ni simulado.
+
+    FASE 31 de la mision (healthcheck): `configured` y `connected` se
+    exponen SEPARADOS a proposito (Regla explicita: nunca mezclar
+    "configured"/"connected"/"authenticated"). `last_error`/
+    `last_connected_at`/`last_message_at` se devuelven `None` -- no hay
+    ningun store real que los trackee hoy, se declara `None` en vez de
+    fabricar un valor.
     """
     permission_classes = ADMIN_PERMISSIONS
 
-    @extend_schema(summary="[Admin] Estado real del mecanismo de conexion de WhatsApp (REST/QR)")
+    @extend_schema(summary="[Admin] Estado real del mecanismo de conexion de WhatsApp (QR_WEB_SESSION/META_CLOUD_API)")
     def get(self, request):
         from django.conf import settings
-        from whatsapp.factory import WhatsAppConnectionFactory, CONNECTION_TYPE_QR, CONNECTION_TYPE_REST
+        from whatsapp.factory import WhatsAppConnectionFactory, CONNECTION_TYPE_QR_WEB_SESSION, CONNECTION_TYPE_META_CLOUD_API
+        from whatsapp.ports.connection import ConnectionStatus
 
         def _describe(connection_type):
             adapter = WhatsAppConnectionFactory.create(connection_type)
             caps = adapter.capabilities
+            status_value = adapter.get_status()
+            session_state = None
+            if hasattr(adapter, 'get_session_state'):
+                session_state = adapter.get_session_state().value
             return {
                 'connection_type': connection_type,
-                'status': adapter.get_status().value,
+                'status': status_value.value,
+                # 'configured' != 'connected' (Regla FASE 6/31 de la mision) --
+                # NOT_CONFIGURED/NOT_IMPLEMENTED son los unicos estados donde
+                # 'configured' es False; cualquier otro estado real (incluido
+                # DISCONNECTED/ERROR) implica que SI hubo una configuracion real.
+                'configured': status_value not in (ConnectionStatus.NOT_CONFIGURED, ConnectionStatus.NOT_IMPLEMENTED),
+                'connected': status_value == ConnectionStatus.CONNECTED,
+                'session_state': session_state,
                 'healthy': adapter.health_check(),
+                'send_available': caps.send_text or caps.send_media,
+                'receive_available': caps.receive_text or caps.receive_media,
                 'capabilities': {
                     'send_text': caps.send_text,
                     'receive_text': caps.receive_text,
@@ -181,14 +202,17 @@ class AdminWhatsAppConnectionStatusView(APIView):
                     'session_persistence': caps.session_persistence,
                     'delivery_status': caps.delivery_status,
                 },
+                'last_error': None,
+                'last_connected_at': None,
+                'last_message_at': None,
             }
 
         active_type = (settings.WHATSAPP_CONNECTION_TYPE or '').strip().upper()
         return Response({
             'active_connection_type': active_type,
             'active': _describe(active_type),
-            'rest': _describe(CONNECTION_TYPE_REST),
-            'qr': _describe(CONNECTION_TYPE_QR),
+            'meta_cloud_api': _describe(CONNECTION_TYPE_META_CLOUD_API),
+            'qr_web_session': _describe(CONNECTION_TYPE_QR_WEB_SESSION),
         })
 
 

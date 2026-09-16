@@ -331,7 +331,7 @@ def process_whatsapp_inbound_task(self, wa_id: str, text: str, event_id: int | N
     from whatsapp.factory import WhatsAppConnectionFactory
 
     message = WhatsAppInboundMessage(
-        channel='rest',
+        channel='meta_cloud_api',
         external_message_id=message_id,
         external_conversation_id=wa_id,
         sender_phone=wa_id,

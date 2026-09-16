@@ -15,7 +15,7 @@ from django.test import TestCase
 
 from accounts.models import UserProfile
 from support.models import ChatRoom
-from whatsapp.adapters.rest_adapter import RestConnectionAdapter
+from whatsapp.adapters.meta_cloud_api_adapter import MetaCloudAPIAdapter
 from whatsapp.domain.contracts import MessageType, WhatsAppInboundMessage
 from whatsapp.domain.conversation_resolver import WhatsAppConversationResolver
 from whatsapp.domain.customer_resolver import WhatsAppCustomerResolver
@@ -27,7 +27,7 @@ User = get_user_model()
 
 def _message(text="hola", phone="573001112233", message_id="svc-1"):
     return WhatsAppInboundMessage(
-        channel="rest", external_message_id=message_id,
+        channel="meta_cloud_api", external_message_id=message_id,
         external_conversation_id=phone, sender_phone=phone,
         message_type=MessageType.TEXT, text=text,
     )
@@ -66,27 +66,27 @@ class WhatsAppIdempotencyGuardTests(TestCase):
 
     def test_primera_vez_no_es_duplicado_segunda_si(self):
         message_id = f"idem-{uuid.uuid4()}"
-        self.assertFalse(WhatsAppIdempotencyGuard.is_duplicate("rest", message_id))
-        self.assertTrue(WhatsAppIdempotencyGuard.is_duplicate("rest", message_id))
+        self.assertFalse(WhatsAppIdempotencyGuard.is_duplicate("meta_cloud_api", message_id))
+        self.assertTrue(WhatsAppIdempotencyGuard.is_duplicate("meta_cloud_api", message_id))
 
     def test_mismo_message_id_en_canales_distintos_no_colisiona(self):
         """Regla FASE 14 de la mision: el mecanismo es (channel,
         external_message_id) -- un futuro gateway QR que reuse IDs no
-        debe pisar la deduplicacion de REST."""
+        debe pisar la deduplicacion de META_CLOUD_API."""
         shared_id = f"shared-{uuid.uuid4()}"
-        self.assertFalse(WhatsAppIdempotencyGuard.is_duplicate("rest", shared_id))
-        self.assertFalse(WhatsAppIdempotencyGuard.is_duplicate("qr", shared_id))
+        self.assertFalse(WhatsAppIdempotencyGuard.is_duplicate("meta_cloud_api", shared_id))
+        self.assertFalse(WhatsAppIdempotencyGuard.is_duplicate("qr_web_session", shared_id))
 
     def test_sin_external_message_id_nunca_es_duplicado(self):
-        self.assertFalse(WhatsAppIdempotencyGuard.is_duplicate("rest", ""))
-        self.assertFalse(WhatsAppIdempotencyGuard.is_duplicate("rest", ""))
+        self.assertFalse(WhatsAppIdempotencyGuard.is_duplicate("meta_cloud_api", ""))
+        self.assertFalse(WhatsAppIdempotencyGuard.is_duplicate("meta_cloud_api", ""))
 
 
 class WhatsAppServiceInboundTests(TestCase):
     def setUp(self):
         self.user = User.objects.create_user(email="service-1@example.com", password="x")
         UserProfile.objects.create(user=self.user, phone_number="3001112233")
-        self.adapter = RestConnectionAdapter()
+        self.adapter = MetaCloudAPIAdapter()
         self.service = WhatsAppService(self.adapter)
 
     def test_numero_desconocido_no_llama_a_la_ia_ni_crea_sala(self):
@@ -151,7 +151,7 @@ class WhatsAppServiceInboundTests(TestCase):
 class WhatsAppServiceAgentReplyTests(TestCase):
     def test_sin_telefono_no_intenta_enviar(self):
         user = User.objects.create_user(email="agent-reply-1@example.com", password="x")
-        adapter = RestConnectionAdapter()
+        adapter = MetaCloudAPIAdapter()
         service = WhatsAppService(adapter)
         with patch.object(adapter, "send_message") as mock_send:
             result = service.send_agent_reply(user=user, text="respuesta del agente")
@@ -161,7 +161,7 @@ class WhatsAppServiceAgentReplyTests(TestCase):
     def test_con_telefono_envia_con_prefijo_de_pais_real(self):
         user = User.objects.create_user(email="agent-reply-2@example.com", password="x")
         UserProfile.objects.create(user=user, phone_number="3007778899")
-        adapter = RestConnectionAdapter()
+        adapter = MetaCloudAPIAdapter()
         service = WhatsAppService(adapter)
         with patch.object(adapter, "send_message", return_value="wamid.agent") as mock_send:
             result = service.send_agent_reply(user=user, text="respuesta del agente")
