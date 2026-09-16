@@ -83,7 +83,7 @@ from dashboard.api.serializers import (
     ServiceCostRuleSerializer, ServiceCostRuleInputSerializer, ServiceCostAssignmentInputSerializer,
     ServiceAdminRequestSummarySerializer,
     # Support
-    ChatRoomListSerializer, ChatRoomSerializer,
+    ChatRoomListSerializer, ChatRoomSerializer, SupportTicketSerializer,
 )
 from technical_services.api.serializers import (
     ServiceImageSerializer, ServiceImageUpdateInputSerializer, ServiceImageReorderInputSerializer,
@@ -141,6 +141,55 @@ class AdminMetricsView(APIView):
     )
     def get(self, request):
         return Response(AdminMetricsOrchestrator.get_metrics())
+
+
+class AdminWhatsAppConnectionStatusView(APIView):
+    """
+    GET /api/v1/dashboard/whatsapp/connection-status/
+
+    Mision "Refactorizacion Arquitectonica del Modulo WhatsApp" (2026-09-16)
+    dejo el backend listo (whatsapp/factory.py, whatsapp/adapters/) pero
+    nunca conecto un endpoint admin real -- gap encontrado por el usuario
+    el mismo dia. Solo lectura: expone el adapter ACTIVO segun
+    settings.WHATSAPP_CONNECTION_TYPE (capabilities/status/health real) y,
+    a modo informativo, el estado del OTRO mecanismo -- para que el panel
+    sea honesto sobre que QR existe estructuralmente pero esta
+    NOT_IMPLEMENTED (sin gateway real integrado), en vez de ocultarlo.
+    """
+    permission_classes = ADMIN_PERMISSIONS
+
+    @extend_schema(summary="[Admin] Estado real del mecanismo de conexion de WhatsApp (REST/QR)")
+    def get(self, request):
+        from django.conf import settings
+        from whatsapp.factory import WhatsAppConnectionFactory, CONNECTION_TYPE_QR, CONNECTION_TYPE_REST
+
+        def _describe(connection_type):
+            adapter = WhatsAppConnectionFactory.create(connection_type)
+            caps = adapter.capabilities
+            return {
+                'connection_type': connection_type,
+                'status': adapter.get_status().value,
+                'healthy': adapter.health_check(),
+                'capabilities': {
+                    'send_text': caps.send_text,
+                    'receive_text': caps.receive_text,
+                    'send_media': caps.send_media,
+                    'receive_media': caps.receive_media,
+                    'webhook': caps.webhook,
+                    'polling': caps.polling,
+                    'qr_pairing': caps.qr_pairing,
+                    'session_persistence': caps.session_persistence,
+                    'delivery_status': caps.delivery_status,
+                },
+            }
+
+        active_type = (settings.WHATSAPP_CONNECTION_TYPE or '').strip().upper()
+        return Response({
+            'active_connection_type': active_type,
+            'active': _describe(active_type),
+            'rest': _describe(CONNECTION_TYPE_REST),
+            'qr': _describe(CONNECTION_TYPE_QR),
+        })
 
 
 # ---------------------------------------------------------------------------
@@ -3098,6 +3147,25 @@ class AdminSupportChatViewSet(viewsets.ViewSet):
             days = 30
         days = max(1, min(days, 365))
         return Response(SupportAdminOrchestrator.get_analytics_summary(days=days))
+
+    @extend_schema(
+        summary="[Admin] Lista dedicada de tickets (filtros: status, priority, assigned_to_me)",
+        parameters=[
+            OpenApiParameter('status', str, required=False),
+            OpenApiParameter('priority', str, required=False),
+            OpenApiParameter('assigned_to_me', bool, required=False),
+        ],
+    )
+    @action(detail=False, methods=['get'], url_path='tickets')
+    def tickets(self, request):
+        assigned_to_me = str(request.query_params.get('assigned_to_me', '')).lower() in ('1', 'true')
+        tickets = SupportAdminOrchestrator.list_tickets(
+            status=request.query_params.get('status') or None,
+            priority=request.query_params.get('priority') or None,
+            assigned_to_me=assigned_to_me,
+            request_user=request.user,
+        )
+        return Response(SupportTicketSerializer(tickets, many=True).data)
 
 
 class AdminSecurityViewSet(viewsets.ViewSet):

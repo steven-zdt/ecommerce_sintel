@@ -1344,6 +1344,20 @@ class SupportAdminOrchestrator:
         return ChatSelector.get_active_rooms()
 
     @staticmethod
+    def list_tickets(*, status=None, priority=None, assigned_to_me=None, request_user=None):
+        """2026-09-16: vista dedicada de tickets -- SupportTicketSelector.
+        list_for_admin() ya existia (con tests reales desde la mision del
+        modelo SupportTicket) pero nunca estuvo conectado a ningun endpoint.
+        `assigned_to_me` traduce a assigned_admin_id=request_user.id -- el
+        selector real no conoce el concepto de "usuario actual", eso es
+        responsabilidad de esta capa (orquestador), no de la de datos."""
+        from support.services.selectors import SupportTicketSelector
+        assigned_admin_id = request_user.id if assigned_to_me and request_user else None
+        return SupportTicketSelector.list_for_admin(
+            status=status, priority=priority, assigned_admin_id=assigned_admin_id,
+        )
+
+    @staticmethod
     def get_room(uuid):
         from support.services.selectors import ChatSelector
         return ChatSelector.get_room_by_uuid(uuid)

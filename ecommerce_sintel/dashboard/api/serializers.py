@@ -71,7 +71,7 @@ from technical_services.api.serializers import (
 )
 
 # Re-export Support Serializers
-from support.api.serializers import ChatRoomListSerializer, ChatRoomSerializer, ChatMessageSerializer
+from support.api.serializers import ChatRoomListSerializer, ChatRoomSerializer, ChatMessageSerializer, SupportTicketSerializer
 
 
 class ServiceAdminRequestSummarySerializer(serializers.Serializer):

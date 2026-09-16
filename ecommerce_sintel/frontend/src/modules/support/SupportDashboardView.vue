@@ -283,6 +283,7 @@
 
 <script setup>
 import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue';
+import { useRoute } from 'vue-router';
 import { useAuthStore } from '@/store/auth';
 import { useAuth } from '@/composables/useAuth';
 import { useToast } from '@/composables/useToast';
@@ -411,11 +412,22 @@ async function fetchAnalytics() {
   }
 }
 
+const route = useRoute();
+
 async function fetchRooms() {
   loadingRooms.value = true;
   try {
     const { data } = await api.get('dashboard/support/chats/');
     rooms.value = data;
+    // 2026-09-16: preseleccion por query param (?room=uuid) -- usada por la
+    // vista dedicada de Tickets (TicketsListView.vue) para llevar al admin
+    // directo a la conversacion real de un ticket, sin tener que buscarla
+    // a mano en la lista.
+    const targetUuid = route.query.room;
+    if (targetUuid) {
+      const target = rooms.value.find(r => r.uuid === targetUuid);
+      if (target) selectRoom(target);
+    }
   } catch (_) {
   } finally {
     loadingRooms.value = false;

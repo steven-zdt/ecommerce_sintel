@@ -52,13 +52,21 @@ class ChatMessageSerializer(serializers.ModelSerializer):
 
 class SupportTicketSerializer(serializers.ModelSerializer):
     assigned_admin_email = serializers.SerializerMethodField()
+    # 2026-09-16: room_uuid/customer_email -- necesarios para la vista dedicada
+    # de tickets (AdminSupportTicketViewSet), que lista SupportTicket sin pasar
+    # por ChatRoomSerializer -- el admin necesita el uuid de la sala para poder
+    # abrir la conversacion real desde la lista. select_related('chat_room',
+    # 'chat_room__user') ya viene armado en SupportTicketSelector.list_for_admin,
+    # no dispara una consulta nueva por fila.
+    room_uuid = serializers.CharField(source='chat_room.uuid', read_only=True)
+    customer_email = serializers.EmailField(source='chat_room.user.email', read_only=True)
 
     class Meta:
         model = SupportTicket
         fields = [
             'uuid', 'ticket_number', 'subject', 'summary', 'status', 'priority', 'category',
             'assigned_admin_email', 'contact_phone', 'contact_email',
-            'created_at', 'resolved_at', 'closed_at',
+            'created_at', 'resolved_at', 'closed_at', 'room_uuid', 'customer_email',
         ]
 
     def get_assigned_admin_email(self, obj):

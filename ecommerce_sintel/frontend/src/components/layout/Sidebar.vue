@@ -220,7 +220,9 @@ const moduleGroups = [
     color: '#10b981',
     children: [
       { to: '/panel/soporte', icon: 'bi-chat-dots', label: 'Chat de Soporte' },
+      { to: '/panel/soporte/tickets', icon: 'bi-ticket-detailed', label: 'Tickets' },
       { to: '/panel/soporte/ia-config', icon: 'bi-robot', label: 'Proveedores de IA' },
+      { to: '/panel/soporte/whatsapp', icon: 'bi-whatsapp', label: 'Conexion WhatsApp' },
     ],
   },
 ];

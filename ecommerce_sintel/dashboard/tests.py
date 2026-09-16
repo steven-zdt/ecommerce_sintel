@@ -985,3 +985,73 @@ class DashboardSupportTicketAPITestCase(TransactionTestCase):
         )
         self.assertEqual(response.status_code, 403)
 
+    # -- Vista dedicada de tickets (2026-09-16) -- SupportTicketSelector.list_for_admin
+    # ya existia con tests propios (support/tests.py), pero nunca estuvo conectado a
+    # ningun endpoint real hasta ahora (gap encontrado por el usuario, no de esta
+    # mision). Cubre el wiring real: orquestador -> serializer -> respuesta HTTP.
+
+    def test_tickets_lista_incluye_room_uuid_para_poder_abrir_el_chat(self):
+        response = self.client.get('/api/v1/dashboard/support/chats/tickets/')
+        self.assertEqual(response.status_code, 200)
+        entry = next(t for t in response.data if t['uuid'] == str(self.ticket.uuid))
+        self.assertEqual(entry['room_uuid'], str(self.room.uuid))
+        self.assertEqual(entry['customer_email'], self.customer.email)
+
+    def test_tickets_filtra_por_status(self):
+        from support.models import ChatRoom, SupportTicket
+        from support.services.commands import SupportTicketCommands
+
+        other_room = ChatRoom.objects.create(user=self.customer)
+        other_ticket = SupportTicketCommands.create_ticket(other_room, subject='Otro ticket')
+        SupportTicketCommands.change_status(other_ticket, SupportTicket.STATUS_RESOLVED)
+
+        response = self.client.get('/api/v1/dashboard/support/chats/tickets/', {'status': SupportTicket.STATUS_RESOLVED})
+        self.assertEqual(response.status_code, 200)
+        uuids = {t['uuid'] for t in response.data}
+        self.assertIn(str(other_ticket.uuid), uuids)
+        self.assertNotIn(str(self.ticket.uuid), uuids)
+
+    def test_tickets_filtra_por_assigned_to_me(self):
+        self.client.post(f'/api/v1/dashboard/support/chats/{self.room.uuid}/assign/')
+        response = self.client.get('/api/v1/dashboard/support/chats/tickets/', {'assigned_to_me': 'true'})
+        self.assertEqual(response.status_code, 200)
+        uuids = {t['uuid'] for t in response.data}
+        self.assertIn(str(self.ticket.uuid), uuids)
+
+        self.client.force_authenticate(user=self.other_admin)
+        response2 = self.client.get('/api/v1/dashboard/support/chats/tickets/', {'assigned_to_me': 'true'})
+        self.assertNotIn(str(self.ticket.uuid), {t['uuid'] for t in response2.data})
+
+    def test_tickets_requiere_admin(self):
+        self.client.force_authenticate(user=self.customer)
+        response = self.client.get('/api/v1/dashboard/support/chats/tickets/')
+        self.assertEqual(response.status_code, 403)
+
+
+class DashboardWhatsAppConnectionStatusTestCase(TransactionTestCase):
+    """AdminWhatsAppConnectionStatusView (2026-09-16) -- gap real encontrado por el
+    usuario: el backend de whatsapp/ (dominio + adapters) nunca tuvo un endpoint
+    admin conectado. Cubre el wiring real, no vuelve a probar los adapters en si
+    (eso ya lo hace whatsapp/tests/)."""
+
+    def setUp(self):
+        self.client = APIClient()
+        self.admin = User.objects.create_superuser(email='wa_status_admin@example.com', password='adminpassword')
+        self.customer = User.objects.create_user(email='wa_status_customer@example.com', password='x')
+
+    def test_admin_ve_el_estado_real_de_ambos_mecanismos(self):
+        self.client.force_authenticate(user=self.admin)
+        response = self.client.get('/api/v1/dashboard/whatsapp/connection-status/')
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(response.data['active_connection_type'], 'REST')
+        self.assertEqual(response.data['rest']['connection_type'], 'REST')
+        self.assertEqual(response.data['qr']['connection_type'], 'QR')
+        self.assertEqual(response.data['qr']['status'], 'NOT_IMPLEMENTED')
+        self.assertTrue(response.data['rest']['capabilities']['send_text'])
+        self.assertFalse(response.data['qr']['capabilities']['send_text'])
+
+    def test_no_admin_no_puede_ver_el_estado(self):
+        self.client.force_authenticate(user=self.customer)
+        response = self.client.get('/api/v1/dashboard/whatsapp/connection-status/')
+        self.assertEqual(response.status_code, 403)
+

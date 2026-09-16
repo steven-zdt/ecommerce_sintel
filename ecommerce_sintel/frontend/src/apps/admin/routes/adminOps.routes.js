@@ -1,5 +1,7 @@
 const SupportDashboardView = () => import('@/modules/support/SupportDashboardView.vue');
+const TicketsListView = () => import('@/modules/support/TicketsListView.vue');
 const AIProviderConfigView = () => import('@/modules/support/AIProviderConfigView.vue');
+const WhatsAppConnectionStatusView = () => import('@/modules/whatsapp/WhatsAppConnectionStatusView.vue');
 const SecurityDashboardView = () => import('@/modules/security/SecurityDashboardView.vue');
 const NotificationsAdminView = () => import('@/modules/notifications/NotificationsAdminView.vue');
 const PaymentTransactionsAdminView = () => import('@/modules/payment/PaymentTransactionsAdminView.vue');
@@ -9,7 +11,9 @@ const DispatcherList      = () => import('@/modules/operations/DispatcherList.vu
 
 export const adminOpsRoutes = [
   { path: 'soporte',         name: 'support',          component: SupportDashboardView },
+  { path: 'soporte/tickets', name: 'support-tickets',  component: TicketsListView },
   { path: 'soporte/ia-config', name: 'ai-provider-config', component: AIProviderConfigView },
+  { path: 'soporte/whatsapp', name: 'whatsapp-connection-status', component: WhatsAppConnectionStatusView },
   { path: 'seguridad',      name: 'security',         component: SecurityDashboardView },
   { path: 'notificaciones', name: 'notifications-admin', component: NotificationsAdminView },
   { path: 'pagos',          name: 'payment-transactions', component: PaymentTransactionsAdminView },
