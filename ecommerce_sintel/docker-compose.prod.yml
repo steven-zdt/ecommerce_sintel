@@ -368,8 +368,19 @@ services:
       # sintel_ai, sin esto cost_control.py (reusado tal cual) fallaria con
       # NOAUTH en cada turno.
       CHECKPOINTER_REDIS_URL: "redis://:${REDIS_PASSWORD}@redis:6379/2"
+      # Mision RAG-POST2 (FASE 7, 2026-09-16): sesion persistente real de
+      # google-adk (DatabaseSessionService) -- MISMO Postgres que Django,
+      # base de datos PROPIA (`sintel_adk_sessions`), tablas gestionadas
+      # por el propio google-adk. Provisionar la base antes de activar
+      # esto en produccion (una sola vez, ver AUDITORIA/PRODUCTION_SYNC_*.md):
+      # docker exec sintel_prod_db psql -U ${DB_USER} -d ${DB_NAME} -c
+      #   "CREATE DATABASE sintel_adk_sessions;"
+      ADK_SESSION_BACKEND: "database"
+      ADK_SESSION_DB_URL: "postgresql+asyncpg://${DB_USER}:${DB_PASSWORD}@db:5432/sintel_adk_sessions"
     depends_on:
       redis:
+        condition: service_healthy
+      db:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8101/health"]
