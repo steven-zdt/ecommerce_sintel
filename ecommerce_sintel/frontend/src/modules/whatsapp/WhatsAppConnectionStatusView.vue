@@ -26,21 +26,48 @@
         >
           <div class="wa-card-header">
             <h4>{{ connectionTypeLabel(key.toUpperCase()) }}</h4>
-            <span class="badge" :class="statusClass(data[key])">{{ statusLabel(data[key]) }}</span>
+            <span class="badge" :class="statusClass(key === 'qr_web_session' ? detailedStateClassSource : data[key].status)">
+              {{ key === 'qr_web_session' ? detailedStateLabel : statusLabel(data[key]) }}
+            </span>
           </div>
 
           <div v-if="key === 'qr_web_session'" class="wa-experimental-warning">
             <strong>EXPERIMENTAL &middot; TERCERO &middot; NO ES LA API OFICIAL DE META.</strong>
-            Simula una sesion tipo WhatsApp Web via un mecanismo QR no oficial (ej. Baileys/
-            whatsapp-web.js). Hoy no hay ningun gateway real conectado -- ver
-            <code>AUDITORIA/WHATSAPP_QR_PROVIDER_EVALUATION.md</code>: bloqueado explicitamente
-            para el numero de produccion real, por riesgo de perder tambien la integracion
-            oficial (Meta Cloud API) que ya funciona en ese mismo numero.
+            Simula una sesion tipo WhatsApp Web via un mecanismo QR no oficial (Baileys). Ver
+            <code>AUDITORIA/WHATSAPP_QR_PROVIDER_EVALUATION.md</code> -- conectar el numero real de
+            produccion es una decision de negocio explicita, ya tomada y documentada en
+            <code>AUDITORIA/WHATSAPP_BAILEYS_PRE_MIGRATION_AUDIT.md</code>.
           </div>
           <p v-else class="wa-card-note">
             Integracion oficial de WhatsApp Business Platform (Meta Cloud API) -- la misma que ya
             usa produccion.
           </p>
+
+          <!-- QR real (Fase 16) -- solo la tarjeta QR, solo si hay imagen vigente -->
+          <div v-if="key === 'qr_web_session' && currentQrImage" class="wa-qr-box">
+            <img :src="currentQrImage" alt="Codigo QR de WhatsApp" />
+            <p class="wa-qr-hint">Escanea con WhatsApp &rarr; Dispositivos vinculados &rarr; Vincular dispositivo</p>
+          </div>
+
+          <!-- Acciones (Fase 16) -- solo la tarjeta QR, Meta no tiene sesion que abrir/cerrar -->
+          <div v-if="key === 'qr_web_session'" class="wa-actions">
+            <button
+              class="btn btn-sm btn-primary"
+              :disabled="actionLoading"
+              @click="runAction('connect')"
+            >Conectar</button>
+            <button
+              class="btn btn-sm btn-outline-secondary"
+              :disabled="actionLoading"
+              @click="runAction('reconnect')"
+            >Reconectar</button>
+            <button
+              class="btn btn-sm btn-outline-danger"
+              :disabled="actionLoading"
+              @click="confirmDisconnect ? runAction('disconnect') : (confirmDisconnect = true)"
+            >{{ confirmDisconnect ? 'Confirmar desconexion' : 'Desconectar' }}</button>
+            <span v-if="actionLoading" class="spinner-border spinner-border-sm ms-2"></span>
+          </div>
 
           <div class="wa-config-row">
             <span :class="data[key].configured ? 'cap-yes' : 'cap-no'">
@@ -68,14 +95,21 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted, onUnmounted, computed } from 'vue';
 import useApi from '@/composables/useApi';
 import { useToast } from '@/composables/useToast';
+import { useAuthStore } from '@/store/auth';
+import { useAuth } from '@/composables/useAuth';
 
 const api = useApi();
 const toast = useToast();
+const authStore = useAuthStore();
+const { refreshAccessToken } = useAuth();
+
 const data = ref(null);
 const loading = ref(true);
+const actionLoading = ref(false);
+const confirmDisconnect = ref(false);
 
 const CAP_LABELS = {
   send_text: 'Enviar texto',
@@ -100,25 +134,49 @@ function connectionTypeLabel(type) {
   return CONNECTION_TYPE_LABELS[type] || type;
 }
 
-// FASE 19-21 de la mision: nunca mostrar "Disconnected" cuando en realidad
-// nunca se configuro nada -- estados distintos, texto distinto.
+// FASE 19-21 de la mision anterior: nunca mostrar "Disconnected" cuando en
+// realidad nunca se configuro nada. Union de vocabularios reales (Fase
+// 16/17 de la migracion Baileys): ConnectionStatus (Port, 6 valores),
+// WhatsAppSessionState (Django, 10 valores, en `session_state` de la carga
+// inicial) y ConnectionState del gateway (8 valores, en los eventos WS
+// vivos, ver whatsapp_gateway/src/state.ts) -- una sola tabla de labels
+// para las 3 fuentes, en vez de 3 tablas separadas.
 const STATUS_LABELS = {
   NOT_CONFIGURED: 'No configurado',
   NOT_IMPLEMENTED: 'No implementado (sin gateway real)',
-  CONNECTED: 'Conectado',
+  DISABLED: 'No configurado',
   DISCONNECTED: 'Desconectado',
+  STARTING: 'Conectando...',
+  QR_REQUIRED: 'Requiere QR',
+  QR_READY: 'Requiere QR',
+  SCANNING: 'Escaneando...',
+  PAIRING: 'Emparejando...',
+  AUTHENTICATING: 'Autenticando...',
+  CONNECTED: 'Conectado',
+  RECONNECTING: 'Reconectando...',
+  LOGGED_OUT: 'Sesion cerrada',
   ERROR: 'Error',
   PAIRING_REQUIRED: 'Requiere emparejamiento',
 };
 function statusLabel(entry) {
   return STATUS_LABELS[entry.status] || entry.status;
 }
-function statusClass(entry) {
-  if (entry.status === 'CONNECTED') return 'bg-success';
-  if (entry.status === 'NOT_CONFIGURED' || entry.status === 'NOT_IMPLEMENTED') return 'bg-secondary';
-  if (entry.status === 'ERROR') return 'bg-danger';
+function statusClass(statusValue) {
+  if (statusValue === 'CONNECTED') return 'bg-success';
+  if (['NOT_CONFIGURED', 'NOT_IMPLEMENTED', 'DISABLED', 'DISCONNECTED'].includes(statusValue)) return 'bg-secondary';
+  if (statusValue === 'ERROR') return 'bg-danger';
   return 'bg-warning text-dark';
 }
+
+// Estado detallado en vivo de la tarjeta QR (Fase 16/17): arranca con
+// `session_state` de la carga inicial (GET), se sobreescribe con cada
+// evento `whatsapp_status` real que llega por WebSocket -- nunca hace
+// polling (Fase 6 del plan: "no polling continuo").
+const liveDetailedState = ref(null);
+const detailedStateClassSource = computed(() => liveDetailedState.value || data.value?.qr_web_session?.session_state || data.value?.qr_web_session?.status);
+const detailedStateLabel = computed(() => STATUS_LABELS[detailedStateClassSource.value] || detailedStateClassSource.value || '--');
+
+const currentQrImage = ref(null);
 
 const activeSummary = computed(() => {
   if (!data.value) return '';
@@ -133,6 +191,8 @@ async function load() {
   try {
     const { data: resp } = await api.get('dashboard/whatsapp/connection-status/');
     data.value = resp;
+    currentQrImage.value = resp.qr_web_session?.qr_image || null;
+    liveDetailedState.value = resp.qr_web_session?.session_state || null;
   } catch {
     toast.error('Error al cargar el estado de WhatsApp');
   } finally {
@@ -140,7 +200,118 @@ async function load() {
   }
 }
 
-onMounted(load);
+async function runAction(action) {
+  confirmDisconnect.value = false;
+  actionLoading.value = true;
+  try {
+    const { data: resp } = await api.post('dashboard/whatsapp/session-action/', { action });
+    liveDetailedState.value = resp.session_state || resp.status;
+    toast.success(`Accion "${action}" aplicada -- estado: ${STATUS_LABELS[resp.status] || resp.status}`);
+  } catch (err) {
+    // Fase 16: nunca mostrar stack traces/errores internos -- solo el
+    // mensaje ya sanitizado que la vista de Django devuelve (409/502/400).
+    const message = err?.response?.data?.error || 'No se pudo ejecutar la accion.';
+    toast.error(message);
+  } finally {
+    actionLoading.value = false;
+  }
+}
+
+// ── WebSocket (Fase 17): reusa el mismo canal/grupo/heartbeat que ya usa
+// el dashboard de soporte (support/consumers.py::SupportChatConsumer,
+// grupo 'support_admins') -- "el heartbeat WebSocket existente de soporte
+// debe mantenerse", nunca un consumer/ruta nueva. El frontend NUNCA habla
+// con whatsapp_gateway/ directamente (regla dura de la Fase 17).
+let ws = null;
+let reconnectAttempts = 0;
+const RECONNECT_BASE_MS = 3000;
+const RECONNECT_MAX_MS = 30000;
+function nextReconnectDelayMs() {
+  const exp = Math.min(RECONNECT_BASE_MS * (2 ** reconnectAttempts), RECONNECT_MAX_MS);
+  reconnectAttempts += 1;
+  return exp * (0.5 + Math.random() * 0.5);
+}
+
+let heartbeatInterval = null;
+let heartbeatTimeoutId = null;
+const HEARTBEAT_INTERVAL_MS = 25000;
+const HEARTBEAT_TIMEOUT_MS = 10000;
+function stopHeartbeat() {
+  if (heartbeatInterval) clearInterval(heartbeatInterval);
+  if (heartbeatTimeoutId) clearTimeout(heartbeatTimeoutId);
+  heartbeatInterval = null;
+  heartbeatTimeoutId = null;
+}
+function startHeartbeat() {
+  stopHeartbeat();
+  heartbeatInterval = setInterval(() => {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify({ type: 'ping' }));
+    heartbeatTimeoutId = setTimeout(() => ws?.close(), HEARTBEAT_TIMEOUT_MS);
+  }, HEARTBEAT_INTERVAL_MS);
+}
+
+const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1/';
+const wsBase = apiBase.replace('/api/v1/', '').replace('http://', 'ws://').replace('https://', 'wss://');
+let wsClosedByUs = false;
+
+async function connectWs() {
+  try {
+    await refreshAccessToken();
+  } catch {
+    // Sesion admin realmente muerta -- no reintentar en loop silencioso,
+    // mismo criterio que SupportDashboardView.vue::connectWs().
+    return;
+  }
+  const url = `${wsBase}/ws/support/chat/?token=${authStore.accessToken}`;
+  ws = new WebSocket(url);
+
+  ws.onopen = () => {
+    reconnectAttempts = 0;
+    startHeartbeat();
+  };
+
+  ws.onmessage = (evt) => {
+    let msg;
+    try { msg = JSON.parse(evt.data); } catch { return; }
+    if (msg.type === 'pong') {
+      if (heartbeatTimeoutId) { clearTimeout(heartbeatTimeoutId); heartbeatTimeoutId = null; }
+      return;
+    }
+    if (msg.type === 'whatsapp_status') {
+      liveDetailedState.value = msg.status;
+      if (data.value?.qr_web_session) {
+        // Refleja tambien en el objeto principal para que 'connected'/'configured' del
+        // resumen de arriba no queden desactualizados hasta el proximo GET.
+        data.value.qr_web_session.status = msg.status;
+      }
+      if (msg.status === 'CONNECTED') currentQrImage.value = null;
+      return;
+    }
+    if (msg.type === 'whatsapp_qr') {
+      currentQrImage.value = msg.qr_image;
+    }
+  };
+
+  ws.onclose = () => {
+    stopHeartbeat();
+    ws = null;
+    if (!wsClosedByUs) setTimeout(connectWs, nextReconnectDelayMs());
+  };
+
+  ws.onerror = () => { ws?.close(); };
+}
+
+onMounted(() => {
+  load();
+  connectWs();
+});
+
+onUnmounted(() => {
+  wsClosedByUs = true;
+  stopHeartbeat();
+  ws?.close();
+});
 </script>
 
 <style scoped>
@@ -158,6 +329,10 @@ onMounted(load);
   font-size: 0.78rem; color: #92400e; background: #fef3c7; border: 1px solid #fde68a;
   border-radius: 8px; padding: 8px 10px; margin-bottom: 12px; line-height: 1.4;
 }
+.wa-qr-box { text-align: center; margin-bottom: 14px; padding: 12px; border: 1px dashed #cbd5e1; border-radius: 10px; }
+.wa-qr-box img { max-width: 220px; width: 100%; height: auto; }
+.wa-qr-hint { font-size: 0.75rem; color: #6b7280; margin: 8px 0 0; }
+.wa-actions { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
 .wa-config-row { display: flex; gap: 12px; margin-bottom: 10px; font-size: 0.85rem; font-weight: 600; }
 .wa-caps-table { width: 100%; font-size: 0.85rem; }
 .wa-caps-table td { padding: 3px 0; }

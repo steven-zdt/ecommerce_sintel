@@ -178,6 +178,18 @@ class AdminWhatsAppConnectionStatusView(APIView):
             session_state = None
             if hasattr(adapter, 'get_session_state'):
                 session_state = adapter.get_session_state().value
+            # Fase 16 del plan de migracion Baileys: el frontend necesita el QR
+            # para pintarlo -- solo aplica a QR_WEB_SESSION (caps.qr_pairing).
+            # Nunca lanza: sin gateway configurado, generate_pairing_qr() lanza
+            # WhatsAppQRNotImplementedError (ver whatsapp/adapters/
+            # qr_web_session_adapter.py) -- se traduce a None, honesto, no es
+            # un error real de negocio.
+            qr_image = None
+            if caps.qr_pairing:
+                try:
+                    qr_image = adapter.generate_pairing_qr()
+                except Exception:
+                    qr_image = None
             return {
                 'connection_type': connection_type,
                 'status': status_value.value,
@@ -202,6 +214,7 @@ class AdminWhatsAppConnectionStatusView(APIView):
                     'session_persistence': caps.session_persistence,
                     'delivery_status': caps.delivery_status,
                 },
+                'qr_image': qr_image,
                 'last_error': None,
                 'last_connected_at': None,
                 'last_message_at': None,
@@ -214,6 +227,62 @@ class AdminWhatsAppConnectionStatusView(APIView):
             'meta_cloud_api': _describe(CONNECTION_TYPE_META_CLOUD_API),
             'qr_web_session': _describe(CONNECTION_TYPE_QR_WEB_SESSION),
         })
+
+
+class AdminWhatsAppSessionActionView(APIView):
+    """
+    POST /api/v1/dashboard/whatsapp/session-action/
+    Body: {"action": "connect" | "disconnect" | "reconnect"}
+
+    Fase 16 del plan de migracion Baileys. Opera SIEMPRE sobre el adapter
+    QR_WEB_SESSION especificamente (CONNECTION_TYPE_QR_WEB_SESSION), nunca
+    sobre `settings.WHATSAPP_CONNECTION_TYPE` -- estas acciones (conectar/
+    desconectar/reconectar una sesion QR) no tienen sentido para Meta Cloud
+    API (stateless por token, sin sesion que abrir/cerrar). El admin puede
+    pedir esta accion sin importar cual sea el mecanismo ACTIVO hoy (permite
+    preparar/probar la sesion QR antes de decidir activarla).
+
+    Sin gateway configurado (WHATSAPP_GATEWAY_ENABLED/WHATSAPP_GATEWAY_URL),
+    el adapter sigue siendo el stub original -- esta vista traduce
+    WhatsAppQRNotImplementedError a una respuesta 409 clara, nunca un 500
+    ni un traceback expuesto al frontend (Fase 16: "no mostrar... errores
+    internos, stack traces").
+    """
+    permission_classes = ADMIN_PERMISSIONS
+    _VALID_ACTIONS = {'connect', 'disconnect', 'reconnect'}
+
+    @extend_schema(summary="[Admin] Conectar/desconectar/reconectar la sesion QR de WhatsApp (Baileys)")
+    def post(self, request):
+        from whatsapp.adapters.qr_web_session_adapter import WhatsAppQRNotImplementedError
+        from whatsapp.clients.gateway_client import WhatsAppGatewayError
+        from whatsapp.factory import WhatsAppConnectionFactory, CONNECTION_TYPE_QR_WEB_SESSION
+
+        action = str(request.data.get('action', '')).strip().lower()
+        if action not in self._VALID_ACTIONS:
+            return Response(
+                {'error': f"accion invalida: {action!r} -- validas: {sorted(self._VALID_ACTIONS)}"},
+                status=400,
+            )
+
+        adapter = WhatsAppConnectionFactory.create(CONNECTION_TYPE_QR_WEB_SESSION)
+        try:
+            if action == 'connect':
+                status_value = adapter.connect()
+            elif action == 'disconnect':
+                adapter.disconnect()
+                status_value = adapter.get_status()
+            else:
+                status_value = adapter.reconnect()
+        except WhatsAppQRNotImplementedError:
+            return Response(
+                {'error': 'El gateway QR (Baileys) no esta configurado en este entorno.'},
+                status=409,
+            )
+        except WhatsAppGatewayError as exc:
+            return Response({'error': f'El gateway no respondio correctamente: {exc}'}, status=502)
+
+        session_state = adapter.get_session_state().value if hasattr(adapter, 'get_session_state') else None
+        return Response({'status': status_value.value, 'session_state': session_state})
 
 
 # ---------------------------------------------------------------------------

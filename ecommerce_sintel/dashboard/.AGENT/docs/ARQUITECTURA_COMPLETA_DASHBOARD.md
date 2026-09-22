@@ -308,3 +308,23 @@ fuente adicional de logica de validacion.
   `dashboard/tests.py` (que cubre principalmente Renting/fulfillment) — considerar agregar un
   test parametrizado que confirme `IsAdminUser` en las 34 ViewSets si se quiere blindar contra
   regresiones de permisos en esta app tan sensible.
+
+## Cambios Recientes
+
+### 2026-09-22 — Migración WhatsApp Web Session → Baileys (Fases 1-24): acciones reales de sesión QR
+- **Qué cambió**: `AdminWhatsAppConnectionStatusView` (GET) ahora incluye `qr_image` (data URL PNG
+  real cuando el gateway Baileys tiene un QR vigente, `None` si no) en la entrada `qr_web_session`.
+  Nueva vista `AdminWhatsAppSessionActionView` (`POST /api/v1/dashboard/whatsapp/session-action/`,
+  body `{"action": "connect"|"disconnect"|"reconnect"}`) — opera siempre sobre
+  `CONNECTION_TYPE_QR_WEB_SESSION` explícitamente, nunca sobre `settings.WHATSAPP_CONNECTION_TYPE`
+  (esas acciones no aplican a Meta Cloud API, stateless por token).
+- **Por qué**: Fase 16 del plan (`PLAN_ACCION_MIGRACION_WHATSAPP_BAILEYS_SINTEL.md`) — el panel
+  necesita poder conectar/reconectar/desconectar la sesión QR real y mostrar el código.
+- **Archivos afectados**: `dashboard/api/views.py` (+1 vista, +qr_image en la existente),
+  `dashboard/api/urls.py` (+1 ruta).
+- **Seguridad**: mismo `ADMIN_PERMISSIONS` que el resto de la app. Sin gateway configurado,
+  `WhatsAppQRNotImplementedError`/`WhatsAppGatewayError` se traducen a 409/502 con un mensaje
+  sanitizado — nunca un 500 ni un stack trace expuesto al frontend.
+- **Tests**: verificado en vivo con `curl` real contra el servidor de desarrollo (connect sin
+  gateway → `NOT_IMPLEMENTED` limpio, acción inválida → 400, `qr_image` presente en el shape) —
+  ver `AUDITORIA/WHATSAPP_BAILEYS_ARCHITECTURE.md`.

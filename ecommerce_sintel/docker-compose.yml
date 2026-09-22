@@ -282,6 +282,35 @@ services:
     networks:
       - ecommerce_sintel_network
 
+  # Fase 21 de PLAN_ACCION_MIGRACION_WHATSAPP_BAILEYS_SINTEL.md -- gateway de
+  # transporte WhatsApp (Baileys), independiente de Django (ver
+  # whatsapp_gateway/README.md). SIN 'ports': no se publica al host a
+  # proposito -- "no exponer el gateway directamente a Internet" (Fase 20),
+  # solo alcanzable desde otros contenedores de esta red interna (Django).
+  whatsapp_gateway:
+    build:
+      context: ./whatsapp_gateway
+    image: ecommerce_sintel_whatsapp_gateway:latest
+    container_name: ecommerce_sintel_whatsapp_gateway
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      # Auth state real (Fase 4) -- named volume, nunca en la imagen ni en
+      # el repo. Sobrevive `docker compose down` (sin -v) / restart.
+      - ecommerce_sintel_whatsapp_auth:/app/data/auth-store
+    healthcheck:
+      # Sin curl en la imagen (Fase 21: imagen runtime minima) -- check via
+      # el propio Node. /health nunca depende del estado real de WhatsApp
+      # (Fase 21: "no marcar el contenedor como unhealthy solo porque
+      # WhatsApp este desconectado temporalmente").
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:'+(process.env.WA_GATEWAY_PORT||3001)+'/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    networks:
+      - ecommerce_sintel_network
+
   # ─── REVERSE PROXY ─────────────────────────────────────────────────────────
   nginx:
     image: nginx:1.26-alpine
@@ -321,6 +350,8 @@ volumes:
   ecommerce_sintel_ollama_models:
     driver: local
   ecommerce_sintel_mcp_tokens:
+    driver: local
+  ecommerce_sintel_whatsapp_auth:
     driver: local
 
 # ═════════════════════════════════════════════════════════════════════════════

@@ -537,6 +537,27 @@ if is_ai_mode_active(room) and not is_ai_rate_limited(room):
 
 ## Cambios Recientes
 
+### 2026-09-22 — Migración WhatsApp Web Session → Baileys (Fases 1-24): WebSocket del panel real
+- **Qué cambió**: `support/consumers.py::SupportChatConsumer` gana dos handlers nuevos,
+  `whatsapp_status(event)` y `whatsapp_qr(event)` — reusan el WebSocket/grupo `support_admins` ya
+  existente (mismo heartbeat/reconexión que el dashboard de soporte) para distribuir en vivo el
+  estado de conexión y el QR del gateway Baileys al panel `/panel/soporte/whatsapp`.
+- **Por qué**: Fase 17 del plan (`PLAN_ACCION_MIGRACION_WHATSAPP_BAILEYS_SINTEL.md`) exige que el
+  frontend nunca consulte el gateway directamente — debe ser Vue → Django Channels → Gateway, y "el
+  heartbeat WebSocket existente de soporte debe mantenerse" (no crear un consumer/ruta nueva).
+- **Archivos afectados**: `support/consumers.py` (2 métodos nuevos, nada existente modificado).
+- **Contratos**: mensajes WS nuevos `{type: 'whatsapp_status', status, phone, jid}` y
+  `{type: 'whatsapp_qr', qr_image}`, disparados desde
+  `notifications/api/whatsapp_gateway_webhook.py::_broadcast_to_admins`.
+- **Seguridad**: solo llegan a conexiones ya autenticadas como `is_staff and is_superuser` (mismo
+  guard que ya usaba `chat_message`/`room_closed`) — ningún cliente ve estos eventos.
+- **Tests**: verificado con `channels.testing.WebsocketCommunicator` real (conectar como admin,
+  recibir ambos tipos de evento) — ver `AUDITORIA/WHATSAPP_BAILEYS_ARCHITECTURE.md`.
+- Ver también: `AUDITORIA/WHATSAPP_BAILEYS_PRE_MIGRATION_AUDIT.md` y
+  `AUDITORIA/WHATSAPP_BAILEYS_ARCHITECTURE.md` para el resto de la migración (gateway Node/Baileys,
+  Event Bus, `QRWebSessionAdapter` real) — la mayoría vive en `whatsapp/`/`notifications/`/
+  `dashboard/`, no en esta app.
+
 ### 2026-09-16 — Migración arquitectónica de WhatsApp: nomenclatura definitiva + QR bloqueado por decisión de negocio
 - **Qué cambió**: renombrado de `RestConnectionAdapter`/`QRConnectionAdapter` (entrada anterior de
   esta misma sección) a `MetaCloudAPIAdapter`/`QRWebSessionAdapter` — nomenclatura explícita:

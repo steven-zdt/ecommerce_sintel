@@ -304,6 +304,35 @@ dispatch_notification(template_slug='order_finished')  # si no existe en BD: sil
 
 ## Cambios Recientes
 
+### 2026-09-22 — Migración WhatsApp Web Session → Baileys (Fases 1-24): Event Bus + tarea de inbound
+- **Qué cambió**: nuevo receptor `notifications/api/whatsapp_gateway_webhook.py::WhatsAppGatewayEventView`
+  (`POST /api/v1/notifications/whatsapp-gateway-events/`, auth por `X-Gateway-Token` contra
+  `settings.WHATSAPP_GATEWAY_TOKEN`, fail-closed) — recibe los 6 eventos normalizados del gateway
+  Baileys (`whatsapp_gateway/`, Node/TypeScript, fuera de este repo Django). Nueva tarea Celery
+  `notifications.tasks.process_whatsapp_gateway_inbound_task` (equivalente de
+  `process_whatsapp_inbound_task` para este canal, sin el bookkeeping de `MetaWebhookEvent` que no
+  aplica aquí).
+- **Por qué**: Fase 6/8 del plan (`PLAN_ACCION_MIGRACION_WHATSAPP_BAILEYS_SINTEL.md`) — el gateway
+  es transporte puro, Django sigue siendo el único que decide identidad/ChatRoom/IA
+  (`whatsapp.domain.service.WhatsAppService`, sin cambios, compartido con el canal Meta).
+- **Archivos afectados**: `notifications/api/whatsapp_gateway_webhook.py` (nuevo),
+  `notifications/api/urls.py` (+1 ruta), `notifications/tasks.py` (+1 tarea, nada existente tocado),
+  `ecommerce/settings/base.py` (+`WHATSAPP_GATEWAY_TOKEN`/`WHATSAPP_GATEWAY_URL`/`WHATSAPP_GATEWAY_ENABLED`).
+- **Contratos**: eventos `whatsapp.connection.status/qr/logged_out`, `whatsapp.message.received/sent/failed`
+  — ver `AUDITORIA/WHATSAPP_BAILEYS_ARCHITECTURE.md` seccion "Contrato HTTP" y `whatsapp_gateway/src/types.ts`.
+- **Regla dura, verificada con test dedicado**: `message.received` solo se encola si
+  `settings.WHATSAPP_CONNECTION_TYPE == 'QR_WEB_SESSION'` -- si no, se audita/deduplica pero NO se
+  procesa, para no responder por el adapter equivocado (Meta) a un mensaje que llegó por Baileys.
+- **Seguridad**: fail-closed sin `WHATSAPP_GATEWAY_TOKEN`; no se creó ningún modelo nuevo para
+  persistir estos eventos (logs estructurados son la auditoría, Fase 31 prohíbe inventar modelos
+  sin necesidad real).
+- **Tests**: `notifications/test_whatsapp_gateway.py` (nuevo archivo, auth/dedupe/guard de
+  `WHATSAPP_CONNECTION_TYPE`/gate de `ai_paused`) + `whatsapp/tests/test_gateway_client.py`
+  (incluye regresión del bug real de `Content-Type` en POSTs sin body). Verificado también en vivo
+  con Celery real y curl contra el servidor de desarrollo antes de escribir estos tests.
+- Ver `AUDITORIA/WHATSAPP_BAILEYS_PRE_MIGRATION_AUDIT.md` y `AUDITORIA/WHATSAPP_BAILEYS_ARCHITECTURE.md`
+  para el resto de la migración.
+
 ### 2026-08-31 — Fundacion integracion Meta Business (FASE 1-3 + 6)
 
 Ver `Documentacion/Arquitectura_general/META_BUSINESS_INTEGRATION_MASTER_PLAN.md`.

@@ -227,6 +227,28 @@ class SupportChatConsumer(AsyncWebsocketConsumer):
             'room_uuid': event['room_uuid'],
         }))
 
+    # Fase 17 de PLAN_ACCION_MIGRACION_WHATSAPP_BAILEYS_SINTEL.md -- "el
+    # frontend no debe consultar el gateway directamente... Vue -> Django
+    # Channels -> Gateway". Reusa el heartbeat/reconexion YA existente de
+    # este mismo consumer (grupo 'support_admins', el mismo que ya usa
+    # SupportDashboardView.vue) en vez de crear un consumer/ruta WS nueva --
+    # "el heartbeat WebSocket existente de soporte debe mantenerse" (regla
+    # explicita de esa fase). Broadcast real disparado desde
+    # notifications/api/whatsapp_gateway_webhook.py.
+    async def whatsapp_status(self, event):
+        await self.send(text_data=json.dumps({
+            'type': 'whatsapp_status',
+            'status': event['status'],
+            'phone': event.get('phone'),
+            'jid': event.get('jid'),
+        }))
+
+    async def whatsapp_qr(self, event):
+        await self.send(text_data=json.dumps({
+            'type': 'whatsapp_qr',
+            'qr_image': event.get('qr_image'),
+        }))
+
     # ── Fase 7 AI Core: modo AI del chat ─────────────────────────────────────
 
     @database_sync_to_async

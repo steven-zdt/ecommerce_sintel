@@ -8,7 +8,7 @@ QRWebSessionAdapter y MetaCloudAPIAdapter cumplen el MISMO contrato real
 Esto es lo que demuestra que el dominio podria recibir cualquiera de los
 dos sin distinguirlos.
 """
-from django.test import TestCase
+from django.test import TestCase, override_settings
 
 from whatsapp.adapters.qr_web_session_adapter import QRWebSessionAdapter
 from whatsapp.adapters.meta_cloud_api_adapter import MetaCloudAPIAdapter
@@ -20,6 +20,18 @@ def _adapters():
     return [MetaCloudAPIAdapter(), QRWebSessionAdapter()]
 
 
+# Fase 21 migracion Baileys (AUDITORIA/WHATSAPP_BAILEYS_ARCHITECTURE.md):
+# INCIDENTE REAL -- con WHATSAPP_GATEWAY_ENABLED=true en el .env de dev
+# (compartido entre runtime y el entorno de tests, no hay .env separado
+# para tests en este proyecto), QRWebSessionAdapter() deja de ser un stub
+# incondicional y `test_ambos_reconnect_devuelve_un_connection_status_real`
+# de abajo disparo una conexion REAL a los servidores de WhatsApp (Baileys,
+# via POST /session/reconnect) la primera vez que corrio esta suite en ese
+# entorno -- encontrado, cerrado y documentado, no hipotetico. Este modulo
+# entero prueba el contrato del adapter QR en su modo STUB (sin gateway) a
+# proposito -- fuerza ese modo explicitamente para TODA la clase, sin
+# importar la configuracion real del entorno donde corra.
+@override_settings(WHATSAPP_GATEWAY_ENABLED=False)
 class ConnectionContractTests(TestCase):
     """TestCase de Django (no pytest puro) a proposito -- este modulo no
     depende de pytest-asyncio (el Port es sincrono, ver ports/connection.py),

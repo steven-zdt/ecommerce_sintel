@@ -10,6 +10,7 @@ from rest_framework.routers import DefaultRouter
 from dashboard.api.views import (
     AdminMetricsView,
     AdminWhatsAppConnectionStatusView,
+    AdminWhatsAppSessionActionView,
     AdminProductViewSet,
     AdminCategoryViewSet,
     AdminBrandViewSet,
@@ -256,5 +257,6 @@ router.register(r'ai-channel-config', AdminAIChannelConfigViewSet,  basename='ad
 urlpatterns = [
     path('metrics/', AdminMetricsView.as_view(), name='admin-metrics'),
     path('whatsapp/connection-status/', AdminWhatsAppConnectionStatusView.as_view(), name='admin-whatsapp-connection-status'),
+    path('whatsapp/session-action/', AdminWhatsAppSessionActionView.as_view(), name='admin-whatsapp-session-action'),
     path('', include(router.urls)),
 ]

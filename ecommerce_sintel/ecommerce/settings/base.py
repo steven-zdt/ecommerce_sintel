@@ -367,6 +367,28 @@ WHATSAPP_CONNECTION_TYPE = config('WHATSAPP_CONNECTION_TYPE', default='META_CLOU
 
 # Verify token del webhook entrante de WhatsApp (Meta Cloud API).
 WHATSAPP_WEBHOOK_VERIFY_TOKEN = config('WHATSAPP_WEBHOOK_VERIFY_TOKEN', default='')
+
+# Fase 6/22 del plan de migracion Baileys (AUDITORIA/WHATSAPP_BAILEYS_ARCHITECTURE.md):
+# secreto compartido con whatsapp_gateway/ (mismo valor que WA_GATEWAY_INTERNAL_TOKEN
+# del lado del gateway) -- autentica el Event Bus Gateway->Django
+# (notifications/api/whatsapp_gateway_webhook.py). Vacio por default: el
+# endpoint queda fail-closed (rechaza todo) hasta que se configure
+# explicitamente, igual criterio que META_APP_SECRET. Gateway todavia no
+# esta en docker-compose (Fase 21) ni conectado a un numero real.
+WHATSAPP_GATEWAY_TOKEN = config('WHATSAPP_GATEWAY_TOKEN', default='')
+
+# Fase 8/22: URL base real de whatsapp_gateway/ (Django -> Gateway, direccion
+# opuesta al Event Bus de arriba). Usado por whatsapp/clients/gateway_client.py
+# desde whatsapp/adapters/qr_web_session_adapter.py. WHATSAPP_GATEWAY_ENABLED
+# es el kill-switch explicito (Fase 22 lo pide separado de solo "hay URL") --
+# ambos deben ser verdaderos para que QRWebSessionAdapter deje de comportarse
+# como el stub original (WhatsAppQRNotImplementedError en cada metodo, ver
+# whatsapp/adapters/qr_web_session_adapter.py) y empiece a hacer llamadas HTTP
+# reales. Default deshabilitado: no cambia el comportamiento de dev/produccion
+# existente sin configuracion explicita (mismo criterio "sin breaking change"
+# que ya aplica WHATSAPP_CONNECTION_TYPE).
+WHATSAPP_GATEWAY_URL = config('WHATSAPP_GATEWAY_URL', default='')
+WHATSAPP_GATEWAY_ENABLED = config('WHATSAPP_GATEWAY_ENABLED', default=False, cast=bool)
 # FASE 2 (auditoria WS/consumer/AI bridge, 2026-08-07): las trazas [WS]/[CHAT] de
 # support/consumers.py, support/channels_auth.py y support/services/ai_bridge.py corren
 # siempre a nivel INFO (conexion, sala, latencia, tools, status) sin contenido de mensajes.

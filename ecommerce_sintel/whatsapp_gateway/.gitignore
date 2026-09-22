@@ -1,0 +1,9 @@
+node_modules/
+dist/
+*.log
+
+# Auth state de Baileys (FileAuthStateStore, Fase 4) -- material criptografico
+# real. NUNCA en git.
+/data/
+.env
+test/.tmp/

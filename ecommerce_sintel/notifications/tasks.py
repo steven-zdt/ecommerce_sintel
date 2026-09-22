@@ -370,6 +370,67 @@ def process_whatsapp_inbound_task(self, wa_id: str, text: str, event_id: int | N
         _mark_meta_webhook_event(event_id, 'FAILED', error_code='whatsapp_send_failed')
 
 
+@shared_task(
+    bind=True,
+    max_retries=3,
+    default_retry_delay=30,
+    name='notifications.process_whatsapp_gateway_inbound',
+    queue='notifications',
+    acks_late=True,
+)
+def process_whatsapp_gateway_inbound_task(self, remote_jid: str, sender_phone: str, text: str, provider_message_id: str):
+    """
+    Fase 8 de PLAN_ACCION_MIGRACION_WHATSAPP_BAILEYS_SINTEL.md -- equivalente
+    real de `process_whatsapp_inbound_task` para mensajes que llegaron por
+    `whatsapp_gateway/` (Baileys) en vez de Meta Cloud API.
+
+    NO es la misma tarea con parametros extra a proposito: esa tarea
+    hardcodea `channel='meta_cloud_api'` y hace bookkeeping de
+    `MetaWebhookEvent` (via `_mark_meta_webhook_event`) que no existe para
+    este canal (Fase 6/31 del plan: "no inventar modelos" -- no se creo
+    una tabla de eventos Baileys, ver notifications/api/
+    whatsapp_gateway_webhook.py). Reusar la tarea de Meta tal cual habria
+    etiquetado mal el canal del mensaje (dato de auditoria incorrecto) sin
+    aportar ningun beneficio real. Mismo patron de retry/first-attempt-persist,
+    sin reinventarlo.
+
+    Invocada UNICAMENTE si `settings.WHATSAPP_CONNECTION_TYPE == 'QR_WEB_SESSION'`
+    (ver notifications/api/whatsapp_gateway_webhook.py) -- si el mecanismo
+    activo es otro, `WhatsAppConnectionFactory.create()` de abajo resolveria
+    el adapter EQUIVOCADO para responder (ej. Meta Cloud API en produccion
+    hoy), contestando por un canal distinto al que realmente recibio el
+    mensaje. Ese guard vive en el llamador, no aqui, para que quede visible
+    junto a la logica que decide si procesar o no.
+    """
+    from whatsapp.domain.contracts import MessageType, WhatsAppInboundMessage
+    from whatsapp.domain.service import WhatsAppService
+    from whatsapp.factory import WhatsAppConnectionFactory
+
+    message = WhatsAppInboundMessage(
+        channel='baileys',
+        external_message_id=provider_message_id,
+        external_conversation_id=remote_jid,
+        sender_phone=sender_phone,
+        message_type=MessageType.TEXT,
+        text=text,
+    )
+    service = WhatsAppService(WhatsAppConnectionFactory.create())
+
+    try:
+        result = service.process_inbound_message(message, persist_inbound=(self.request.retries == 0))
+    except Exception as exc:
+        logger.error(
+            '[wa-gateway-inbound] ask_ai fallo (intento %s/%s) sender=...%s: %s',
+            self.request.retries, self.max_retries, sender_phone[-4:], exc,
+        )
+        raise self.retry(exc=exc)
+
+    logger.info(
+        '[wa-gateway-inbound] resultado=%s sender=...%s provider_message_id=%s',
+        result.get('status'), sender_phone[-4:], provider_message_id,
+    )
+
+
 def _broadcast_chat_message(room, user, text: str, sender_email: str, *, is_admin: bool, created_at=None) -> None:
     """group_send plano (mismo formato que SupportChatConsumer.chat_message) hacia el cliente y
     hacia support_admins -- para que un agente con el dashboard/widget abierto vea en vivo un
