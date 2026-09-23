@@ -11,12 +11,23 @@
 # REGLA OPERATIVA (2026-07-31, confirmada por el usuario): la imagen de
 # produccion NUNCA se edita directamente -- todo cambio se hace en el
 # codigo de desarrollo (ecommerce_sintel_* containers) y se sincroniza a
-# produccion UNICAMENTE via este script. El build usa --no-cache a
-# proposito (solo el servicio `django`, el unico con `build:` en
-# docker-compose.prod.yml -- celery_worker/celery_beat reusan la MISMA
-# imagen `ecommerce_sintel:prod-runtime`, se actualizan solos al recrearse)
-# para garantizar que la imagen de produccion siempre refleja el codigo
-# fuente actual, sin arriesgar una capa de Docker cacheada desactualizada.
+# produccion UNICAMENTE via este script. El build usa --no-cache para
+# garantizar que la imagen de produccion siempre refleja el codigo fuente
+# actual, sin arriesgar una capa de Docker cacheada desactualizada.
+#
+# [CORREGIDO 2026-09-23] Regla "cada contenedor construye/posee su propia
+# imagen, ninguna imagen vive fuera del contenedor al que sirve" (confirmada
+# por el usuario): celery_worker/celery_beat YA NO reusan la imagen de
+# django (`ecommerce_sintel:prod-runtime`) -- ahora tienen su propio build:
+# en docker-compose.prod.yml (mismo Dockerfile/target, tag propio). Antes
+# este script solo construia `django` porque era el unico con build: real;
+# eso dejo de ser cierto, hay que reconstruir los 3 explicitamente o
+# celery_worker/celery_beat quedan congelados en su ultima imagen mientras
+# django si se actualiza -- exactamente el tipo de drift que este script
+# existe para evitar. NOTA: sintel_ai/sintel_ai_adk tambien tienen build:
+# propio en docker-compose.prod.yml y NO se reconstruyen aqui a proposito
+# (cambian con menos frecuencia que el core Django) -- reconstruirlos a mano
+# con `$COMPOSE build --no-cache sintel_ai sintel_ai_adk` cuando aplique.
 #
 # 2026-08-08: `ecommerce_sintel:prod-runtime` es un tag EXCLUSIVO de
 # produccion (antes se llamaba igual que la imagen de dev,
@@ -38,8 +49,8 @@ if [ ! -f ".env.production" ]; then
     exit 1
 fi
 
-echo ">>> [1/5] Construyendo imagenes (--no-cache, solo django -- ver nota arriba)..."
-$COMPOSE build --no-cache django
+echo ">>> [1/5] Construyendo imagenes (--no-cache, django + celery_worker + celery_beat -- ver nota arriba)..."
+$COMPOSE build --no-cache django celery_worker celery_beat
 
 echo ">>> [2/5] Levantando el stack..."
 $COMPOSE up -d
