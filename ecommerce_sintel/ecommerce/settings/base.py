@@ -347,6 +347,13 @@ AI_SUPPORT_CHAT_ENABLED = config('AI_SUPPORT_CHAT_ENABLED', default=False, cast=
 # Usuario bot que firma los mensajes del asistente en ChatMessage (FK sender
 # NOT NULL). Inactivo y sin password utilizable -- jamas puede autenticarse.
 AI_BOT_EMAIL = config('AI_BOT_EMAIL', default='asistente.ia@sintel.internal')
+# Admin AI Assistant (/panel/asistente, mision Fase 3, 2026-09-16) -- kill
+# switch independiente de AI_SUPPORT_CHAT_ENABLED (dominios distintos: ese es
+# el chat de soporte al CLIENTE, este es el asistente de catalogo para el
+# ADMIN). Congelado a pedido explicito del usuario (2026-09-16) hasta nueva
+# orden -- default False. El codigo (Tools/agente/vista/UI) sigue intacto,
+# solo el gateway de Django (dashboard/api/ai_assistant_views.py) lo bloquea.
+ADMIN_AI_ASSISTANT_ENABLED = config('ADMIN_AI_ASSISTANT_ENABLED', default=False, cast=bool)
 # Clave dedicada para cifrar en reposo AIProvider.api_key (shared/fields.py::
 # EncryptedTextField, plan "CONFIGURACION DINAMICA DE MODELOS LOCALES", FASE 1,
 # 2026-08-13). Si no se configura, el campo cae a derivar la clave de SECRET_KEY

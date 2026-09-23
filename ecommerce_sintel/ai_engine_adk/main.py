@@ -40,6 +40,13 @@ class ChatRequest(BaseModel):
     message: str = Field(max_length=4000)
     conversation_id: str | None = None
     confirm: bool | None = None
+    # Fase 2 de PLAN_SINTEL_ADMIN_AI_ADK_PANEL_LOOP.md (Admin AI Gateway) --
+    # "admin" | "customer" (default). Mismo /chat sirve al widget de soporte
+    # del cliente Y a /panel/asistente -- este campo es lo unico que le dice
+    # a resolve_turn_agent() (sintel_root_workflow.py) que nunca debe caer
+    # en un agente de cara al cliente para una llamada del panel admin. Ver
+    # el bug real que esto corrige en el docstring de resolve_turn_agent.
+    source: str = "customer"
 
 
 class ChatResponse(BaseModel):
@@ -61,6 +68,7 @@ async def chat(req: ChatRequest, token: str = Depends(get_validated_token)):
         result = await run_sintel_turn(
             message=req.message, token=token,
             conversation_id=req.conversation_id, confirm=req.confirm,
+            source=req.source,
         )
     except IdentityResolutionError as exc:
         raise HTTPException(401, f"Identidad invalida: {exc}")

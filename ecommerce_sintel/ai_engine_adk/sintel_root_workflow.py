@@ -183,10 +183,33 @@ def build_session_id(user_id, conversation_id: str) -> str:
     return f"{user_id}:{conversation_id}"
 
 
-def resolve_turn_agent(message: str) -> tuple[str, str, str | None]:
+# PLAN_SINTEL_ADMIN_AI_ADK_PANEL_LOOP.md, Fase 2 (Admin AI Gateway): "enviar
+# unicamente capacidades permitidas". Bug real encontrado en vivo
+# (2026-09-23, primera prueba real de /panel/asistente): un admin escribio
+# una frase que no matcheaba el regex de `catalog_admin` -- el router cayo
+# a `support` (intent generico de CLIENTE) -> SupportAgent, que abrio un
+# ticket de soporte real tratando al administrador como comprador. Causa
+# raiz: `resolve_turn_agent` decidia el agente solo por el texto del
+# mensaje, sin saber si la llamada viene de /panel/asistente (admin) o del
+# widget de soporte (cliente) -- el mismo `/chat` sirve a ambos canales.
+# Lista explicita, no un campo nuevo en AgentProfile: solo existe UN agente
+# admin hoy (Fase 3 del plan: "evitar explosion de subagentes... comenzar
+# con AdminAgent"). Si se agregan mas agentes admin (Fase 10/11), agregarlos
+# aqui.
+_ADMIN_AGENT_NAMES = {"CatalogAgent"}
+
+
+def resolve_turn_agent(message: str, *, source: str = "customer") -> tuple[str, str, str | None]:
     """Router REAL de Sintel -- reutiliza `routing.py` (extraido de
     `action_graph.py`, mismo codigo) y `agents.AgentRegistry.route/
-    apply_escalation` tal cual. Devuelve (intent, agent_name, handoff)."""
+    apply_escalation` tal cual. Devuelve (intent, agent_name, handoff).
+
+    `source="admin"` (ver ChatRequest.source, main.py): restringe el
+    resultado a un agente admin SIEMPRE, sin importar que intent haya
+    detectado el regex -- nunca cae a un agente de cara al cliente. No
+    toca `apply_escalation` (regla explicita y deliberada de
+    `catalog_agent.yaml`, ej. "eliminar" -> SupportAgent para revision
+    humana -- decision de diseño previa, distinta del bug de arriba)."""
     from routing import detect_business_intents, INTENT_CAPABILITIES
     from agents import AgentRegistry
 
@@ -195,6 +218,11 @@ def resolve_turn_agent(message: str) -> tuple[str, str, str | None]:
     intent = data_intents[0] if data_intents else ("knowledge" if "knowledge" in intents else "unknown")
 
     agent = AgentRegistry.route(intent)
+
+    if source == "admin" and agent.name not in _ADMIN_AGENT_NAMES:
+        agent = AgentRegistry.get("CatalogAgent")
+        intent = "catalog_admin"
+
     escalated = AgentRegistry.apply_escalation(agent, message)
     handoff = None
     if escalated.name != agent.name:
@@ -314,6 +342,7 @@ _BACKGROUND_TASKS: set = set()
 
 async def run_sintel_turn(
     *, message: str, token: str, conversation_id: str | None = None, confirm: bool | None = None,
+    source: str = "customer",
 ) -> dict:
     """Punto de entrada del Root Workflow. Checklist completo: identidad ->
     contexto -> seleccion de agente (router REAL, no LLM) -> routing ->
@@ -377,7 +406,7 @@ async def run_sintel_turn(
         )
         _PENDING_CONFIRMATIONS.pop(session_id, None)
     else:
-        intent, agent_name, handoff = resolve_turn_agent(message)
+        intent, agent_name, handoff = resolve_turn_agent(message, source=source)
         if intent == "knowledge":
             knowledge_context, knowledge_diagnostics = await fetch_and_assemble_knowledge(message)
         else:

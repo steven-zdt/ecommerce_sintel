@@ -38,6 +38,20 @@ MAX_KNOWLEDGE_CHUNKS = 6
 BUSINESS_INTENT_PATTERNS = {
     # Orden importa: los intents mas especificos van primero (el nodo toma el
     # primer intent de datos que matchee).
+    # Admin AI Assistant, vertical piloto Catalogo (Fase 3, 2026-09-16): va PRIMERO
+    # a proposito -- verbo de gestion + "producto(s)" es mas especifico que
+    # "renting_search" (dispara con una sola palabra suelta como "camara"/"equipo"),
+    # y el negocio vende camaras/equipos de CCTV, asi que "crear producto de camaras"
+    # matchea ambos patrones. Sin esta prioridad, renting_search (mas abajo en este
+    # dict) siempre ganaria y CatalogAgent quedaria practicamente inalcanzable.
+    "catalog_admin":          re.compile(
+        r"\b(crear|crea|creame|agregar|agrega|agregame|nuevo|nueva|dar de alta)\b.{0,25}\b(producto|categoria|marca|impuesto)\w*"
+        r"|\b(editar|edita|actualizar|actualiza|modificar|modifica|cambiar|cambia)\b.{0,25}\b(producto|categoria|marca|impuesto)\w*"
+        r"|\b(publicar|publica|despublicar|despublica)\b.{0,25}\b(producto|categoria|marca)\w*"
+        r"|\bborrador(es)? de (producto|categoria|marca)\w*"
+        r"|\bcatalogo de productos\b",
+        re.I,
+    ),
     "rental_change":          re.compile(r"\b(cambiar|mover|reprogramar|correr|modificar)\b.{0,40}\b(fecha|fechas)\b|\b(fecha|fechas)\b.{0,40}\b(alquiler|renta)\w*", re.I),
     "rental_cancel":          re.compile(r"\b(cancelar?|anular?)\b.{0,40}\b(alquiler|renta|solicitud)\w*", re.I),
     "support":                re.compile(r"\b(soporte|reclamo|queja|hablar con (una persona|alguien|un humano|un agente)|ticket|pqr)\b", re.I),
@@ -89,6 +103,13 @@ INTENT_CAPABILITIES = {
     "core_content":            ["ver_config_home", "ver_navbar", "ver_footer", "ver_brand_slider",
                                 "editar_banner", "crear_banner", "editar_navbar", "crear_navbar_link",
                                 "editar_brand_slider"],
+    "catalog_admin":           ["listar_productos", "ver_producto", "crear_borrador_producto",
+                                "editar_borrador_producto", "publicar_producto",
+                                "listar_categorias", "ver_categoria", "crear_borrador_categoria",
+                                "editar_categoria", "publicar_categoria",
+                                "listar_marcas", "ver_marca", "crear_borrador_marca",
+                                "editar_marca", "publicar_marca",
+                                "listar_impuestos", "ver_impuesto", "crear_impuesto", "editar_impuesto"],
 }
 
 # Capability de fallback deterministico si el LLM no emite tool_calls para
@@ -111,6 +132,8 @@ INTENT_FALLBACK_CAPABILITY = {
     "personal_recommendation": "recomendar_al_cliente",
     "maintenance_check":       "verificar_mantenimiento",
     "core_content":            "ver_config_home",
+    # Fallback de solo-lectura -- una escritura JAMAS se dispara por fallback.
+    "catalog_admin":           "listar_productos",
 }
 
 

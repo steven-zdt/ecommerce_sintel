@@ -22,6 +22,9 @@ import { adminRentingRoutes } from './routes/adminRenting.routes';
 import { adminCoreRoutes } from './routes/adminCore.routes';
 import { adminOpsRoutes } from './routes/adminOps.routes';
 import { adminSeoRoutes } from './routes/adminSeo.routes';
+// adminAiRoutes (/panel/asistente) -- descongelado a peticion explicita del
+// usuario (2026-09-23, ver settings.ADMIN_AI_ASSISTANT_ENABLED).
+import { adminAiRoutes } from './routes/adminAi.routes';
 
 // Lazy-load de vistas para mejor rendimiento
 const AppShell      = () => import('@/components/layout/AppShell.vue');
@@ -58,6 +61,7 @@ const router = createRouter({
         ...adminCoreRoutes,
         ...adminOpsRoutes,
         ...adminSeoRoutes,
+        ...adminAiRoutes,
       ],
     },
 

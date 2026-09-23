@@ -46,6 +46,27 @@ from renting.api.internal_ai import (
     AiRentalAvailabilityView,
     AiRentalStatusView,
 )
+from shop.api.internal_ai import (
+    AiCatalogBrandCreateDraftView,
+    AiCatalogBrandGetView,
+    AiCatalogBrandListView,
+    AiCatalogBrandSetPublishedStateView,
+    AiCatalogBrandUpdateView,
+    AiCatalogCategoryCreateDraftView,
+    AiCatalogCategoryGetView,
+    AiCatalogCategoryListView,
+    AiCatalogCategorySetPublishedStateView,
+    AiCatalogCategoryUpdateView,
+    AiCatalogProductCreateDraftView,
+    AiCatalogProductGetView,
+    AiCatalogProductListView,
+    AiCatalogProductSetPublishedStateView,
+    AiCatalogProductUpdateDraftView,
+    AiCatalogTaxCreateView,
+    AiCatalogTaxGetView,
+    AiCatalogTaxListView,
+    AiCatalogTaxUpdateView,
+)
 from support.api.internal_ai import AiOpenSupportTicketView
 from technical_services.api.internal_ai import AiServiceStatusView
 
@@ -98,4 +119,25 @@ urlpatterns = [
     path("core/navbar/update/",         AiCoreNavbarLinkUpdateView.as_view(),    name="ai-core-navbar-update"),
     path("core/navbar/create/",         AiCoreNavbarLinkCreateView.as_view(),    name="ai-core-navbar-create"),
     path("core/brand-slider/update/",   AiCoreBrandSliderItemUpdateView.as_view(), name="ai-core-brand-slider-update"),
+    # Admin AI Assistant, vertical piloto Catalogo (Fase 3, 2026-09-16) -- solo
+    # Product, solo Nivel 0-2 (ver ai_engine/.AGENT/ADMIN_AI_ASSISTANT_FASE1_TOOLS_CATALOGO.md).
+    path("catalog/products/",               AiCatalogProductListView.as_view(),        name="ai-catalog-products"),
+    path("catalog/products/get/",           AiCatalogProductGetView.as_view(),         name="ai-catalog-products-get"),
+    path("catalog/products/create-draft/",  AiCatalogProductCreateDraftView.as_view(), name="ai-catalog-products-create-draft"),
+    path("catalog/products/update-draft/",  AiCatalogProductUpdateDraftView.as_view(), name="ai-catalog-products-update-draft"),
+    path("catalog/products/set-published-state/", AiCatalogProductSetPublishedStateView.as_view(), name="ai-catalog-products-set-published-state"),
+    path("catalog/categories/",               AiCatalogCategoryListView.as_view(),        name="ai-catalog-categories"),
+    path("catalog/categories/get/",           AiCatalogCategoryGetView.as_view(),         name="ai-catalog-categories-get"),
+    path("catalog/categories/create-draft/",  AiCatalogCategoryCreateDraftView.as_view(), name="ai-catalog-categories-create-draft"),
+    path("catalog/categories/update/",        AiCatalogCategoryUpdateView.as_view(),      name="ai-catalog-categories-update"),
+    path("catalog/categories/set-published-state/", AiCatalogCategorySetPublishedStateView.as_view(), name="ai-catalog-categories-set-published-state"),
+    path("catalog/brands/",               AiCatalogBrandListView.as_view(),        name="ai-catalog-brands"),
+    path("catalog/brands/get/",           AiCatalogBrandGetView.as_view(),         name="ai-catalog-brands-get"),
+    path("catalog/brands/create-draft/",  AiCatalogBrandCreateDraftView.as_view(), name="ai-catalog-brands-create-draft"),
+    path("catalog/brands/update/",        AiCatalogBrandUpdateView.as_view(),      name="ai-catalog-brands-update"),
+    path("catalog/brands/set-published-state/", AiCatalogBrandSetPublishedStateView.as_view(), name="ai-catalog-brands-set-published-state"),
+    path("catalog/taxes/",         AiCatalogTaxListView.as_view(),   name="ai-catalog-taxes"),
+    path("catalog/taxes/get/",     AiCatalogTaxGetView.as_view(),    name="ai-catalog-taxes-get"),
+    path("catalog/taxes/create/",  AiCatalogTaxCreateView.as_view(), name="ai-catalog-taxes-create"),
+    path("catalog/taxes/update/",  AiCatalogTaxUpdateView.as_view(), name="ai-catalog-taxes-update"),
 ]

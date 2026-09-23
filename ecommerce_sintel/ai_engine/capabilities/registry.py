@@ -226,6 +226,51 @@ _CAPABILITIES: dict[str, Capability] = {
             tool_name="MetaAccountSummaryTool",
             apps=["marketing"],
         ),
+        # -- Admin AI Assistant, vertical piloto Catalogo (Fase 3, 2026-09-16) --
+        Capability(
+            capability_id="listar_productos",
+            description_for_llm="Listar productos del catalogo (admin), con filtros de busqueda, estado activo y destacado.",
+            tool_name="CatalogProductListTool",
+            apps=["shop"],
+        ),
+        Capability(
+            capability_id="ver_producto",
+            description_for_llm="Ver el detalle completo de un producto del catalogo por su UUID.",
+            tool_name="CatalogProductGetTool",
+            apps=["shop"],
+        ),
+        Capability(
+            capability_id="crear_borrador_producto",
+            description_for_llm="Crear un producto nuevo como borrador, sin publicar y sin stock.",
+            tool_name="CatalogProductCreateDraftTool",
+            apps=["shop"],
+        ),
+        Capability(
+            capability_id="editar_borrador_producto",
+            description_for_llm="Editar contenido, categoria/marca, precio o stock de un producto existente (borrador o publicado). Nunca publica ni despublica.",
+            tool_name="CatalogProductUpdateDraftTool",
+            apps=["shop"],
+        ),
+        Capability(
+            capability_id="publicar_producto",
+            description_for_llm="Publicar o despublicar un producto existente. Requiere confirmacion explicita del administrador.",
+            tool_name="CatalogProductSetPublishedStateTool",
+            apps=["shop"],
+        ),
+        Capability(capability_id="listar_categorias", description_for_llm="Listar categorias del catalogo, con busqueda opcional.", tool_name="CatalogCategoryListTool", apps=["shop"]),
+        Capability(capability_id="ver_categoria", description_for_llm="Ver el detalle de una categoria por su UUID.", tool_name="CatalogCategoryGetTool", apps=["shop"]),
+        Capability(capability_id="crear_borrador_categoria", description_for_llm="Crear una categoria nueva como borrador, sin publicar.", tool_name="CatalogCategoryCreateDraftTool", apps=["shop"]),
+        Capability(capability_id="editar_categoria", description_for_llm="Editar nombre, descripcion, categoria padre o SEO de una categoria existente. Nunca publica ni despublica.", tool_name="CatalogCategoryUpdateTool", apps=["shop"]),
+        Capability(capability_id="publicar_categoria", description_for_llm="Publicar o despublicar una categoria existente. Requiere confirmacion explicita del administrador.", tool_name="CatalogCategorySetPublishedStateTool", apps=["shop"]),
+        Capability(capability_id="listar_marcas", description_for_llm="Listar marcas del catalogo, con busqueda opcional.", tool_name="CatalogBrandListTool", apps=["shop"]),
+        Capability(capability_id="ver_marca", description_for_llm="Ver el detalle de una marca por su UUID.", tool_name="CatalogBrandGetTool", apps=["shop"]),
+        Capability(capability_id="crear_borrador_marca", description_for_llm="Crear una marca nueva como borrador, sin publicar.", tool_name="CatalogBrandCreateDraftTool", apps=["shop"]),
+        Capability(capability_id="editar_marca", description_for_llm="Editar el nombre de una marca existente. Nunca publica ni despublica.", tool_name="CatalogBrandUpdateTool", apps=["shop"]),
+        Capability(capability_id="publicar_marca", description_for_llm="Publicar o despublicar una marca existente. Requiere confirmacion explicita del administrador.", tool_name="CatalogBrandSetPublishedStateTool", apps=["shop"]),
+        Capability(capability_id="listar_impuestos", description_for_llm="Listar los impuestos configurados en el catalogo.", tool_name="CatalogTaxListTool", apps=["shop"]),
+        Capability(capability_id="ver_impuesto", description_for_llm="Ver el detalle de un impuesto por su UUID.", tool_name="CatalogTaxGetTool", apps=["shop"]),
+        Capability(capability_id="crear_impuesto", description_for_llm="Crear un impuesto nuevo, activo de inmediato. Requiere confirmacion explicita del administrador.", tool_name="CatalogTaxCreateTool", apps=["shop"]),
+        Capability(capability_id="editar_impuesto", description_for_llm="Editar un impuesto existente (nombre, tipo, valor o si esta activo). Requiere confirmacion explicita del administrador.", tool_name="CatalogTaxUpdateTool", apps=["shop"]),
         # "analizar_impacto_arquitectura" (GraphImpactAnalysisTool) retirada 2026-08-10
         # (FASE 0, desacoplamiento ai_engine <-> project_knowledge_graph) -- era una
         # capacidad de arquitectura/ingenieria expuesta al chat de soporte, no algo que

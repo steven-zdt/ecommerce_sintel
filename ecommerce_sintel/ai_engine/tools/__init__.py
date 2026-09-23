@@ -9,6 +9,7 @@ from tools.metadata import ToolContext, ToolMetadata
 from tools.registry import RegisteredTool, get_tool, invoke, list_tools, register_tool
 
 # El orden es alfabetico por dominio; agregar dominios nuevos aqui.
+import tools.catalog_tools     # noqa: F401  Admin AI Assistant Fase 3: Product/Category/Brand/Tax Tools (listar, ver, crear_borrador/crear, editar, publicar)
 import tools.core_tools        # noqa: F401  Fase 8: CoreHomeTool, CoreNavbarTool, CoreFooterTool, CoreBrandSliderTool, CoreBannerUpdateTool, CoreBannerCreateTool, CoreNavbarLinkUpdateTool, CoreNavbarLinkCreateTool, CoreBrandSliderUpdateTool
 # tools.graph_tools (GraphImpactAnalysisTool) retirado 2026-08-10 (FASE 0, desacoplamiento
 # ai_engine <-> project_knowledge_graph): era una capacidad de arquitectura/ingenieria

@@ -7,6 +7,7 @@ Todas las rutas bajo /api/v1/dashboard/.
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 
+from dashboard.api.ai_assistant_views import AdminAiAssistantChatView
 from dashboard.api.views import (
     AdminMetricsView,
     AdminWhatsAppConnectionStatusView,
@@ -258,5 +259,6 @@ urlpatterns = [
     path('metrics/', AdminMetricsView.as_view(), name='admin-metrics'),
     path('whatsapp/connection-status/', AdminWhatsAppConnectionStatusView.as_view(), name='admin-whatsapp-connection-status'),
     path('whatsapp/session-action/', AdminWhatsAppSessionActionView.as_view(), name='admin-whatsapp-session-action'),
+    path('ai-assistant/chat/', AdminAiAssistantChatView.as_view(), name='admin-ai-assistant-chat'),
     path('', include(router.urls)),
 ]

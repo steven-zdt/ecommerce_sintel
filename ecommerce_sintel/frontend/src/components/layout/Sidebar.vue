@@ -80,9 +80,15 @@ const route = useRoute();
 const isActive   = (path) => route.path.startsWith(path.replace(/\/$/, ''));
 const isGroupActive = (g) => g.children.some(item => isActive(item.to));
 
+// Asistente IA (/panel/asistente) -- descongelado a peticion explicita del
+// usuario (2026-09-23, ver settings.ADMIN_AI_ASSISTANT_ENABLED). El propio
+// comentario original de este archivo (congelamiento 2026-09-16) decia
+// "descomentar esta entrada" pero la entrada del link nunca se llego a
+// escribir aqui -- solo la nota. Se agrega ahora por primera vez.
 const mainLinks = [
-  { to: '/panel/dashboard', icon: 'bi-speedometer2',  label: 'Dashboard' },
-  { to: '/panel/perfil',    icon: 'bi-person-circle', label: 'Mi Perfil' },
+  { to: '/panel/dashboard',  icon: 'bi-speedometer2',  label: 'Dashboard' },
+  { to: '/panel/perfil',     icon: 'bi-person-circle', label: 'Mi Perfil' },
+  { to: '/panel/asistente',  icon: 'bi-robot',         label: 'Asistente IA' },
 ];
 
 // [2026-07-12] Reorganizado por dominios de negocio (CORE v4, Fase 6), no por app tecnica.
