@@ -5,8 +5,106 @@
 > usarlo cuando la app exacta de una tarea no se conoce de antemano. Si SI se conoce la app,
 > ir directo a su fila en la tabla "DOCUMENTOS DE REFERENCIA POR MODULO" de `.AGENT.md`.
 
-Ultima revision: 2026-08-12 (v16 — cierre completo de las 60 fases del plan "AI Change Proposal
-Engine" (FASE 24-60), construido estrictamente sobre el "AI Editor Runtime" ya cerrado en v15).
+Ultima revision: 2026-09-23 (v17 — sesion larga unica: migracion completa de WhatsApp a Baileys
+(gateway Node/TypeScript propio, conectado a un numero de produccion real), desbloqueo del piloto
+Admin AI Assistant (`CatalogAgent`, congelado desde 2026-09-16) + su vertical nueva de Servicios
+tecnicos (Fase 1-3), una regla nueva de arquitectura Docker (cada contenedor construye su propia
+imagen, aplicada a `celery_worker`/`celery_beat` en dev y prod) y el incidente de produccion real
+que esa misma sesion causo y resolvio el mismo dia).
+
+(A) **WhatsApp — migracion completa de Meta Cloud API a Baileys/WhatsApp Web (2026-09-15 a
+2026-09-22)**: app nueva `whatsapp/` (dominio hexagonal, `WhatsAppConnectionPort` con
+`QRWebSessionAdapter`/`MetaCloudAPIAdapter`, el dominio nunca sabe cual adapter esta activo —
+verificado por test AST) + servicio nuevo `whatsapp_gateway/` (Node.js/TypeScript, Baileys 6.7.24
+pinneado exacto, Fastify, `FileAuthStateStore` con escritura atomica de credenciales,
+`ConnectionStateMachine`, Event Bus). Conectado a un numero de WhatsApp de PRODUCCION real
+(+573144601878) con autorizacion explicita y repetida del usuario dado el riesgo conocido de
+violacion de ToS de una libreria no oficial — dejado conectado a pedido explicito del usuario
+("dejalo conectado"). Bugs reales encontrados y corregidos verificando contra el sistema vivo (no
+por inspeccion de codigo): race condition ENOENT en `atomicWriteFile` (`Date.now()` colisionaba en
+escrituras concurrentes durante el pairing real, corregido a `randomUUID()`); rate-limit
+completamente ignorado por falta de `await` en `app.register(rateLimit, ...)` dentro de un
+`buildServer()` sincrono; Content-Type enviado en un POST sin body rompia Fastify
+(`FST_ERR_CTP_EMPTY_JSON_BODY`); un `.env` de desarrollo compartido entre runtime y tests causo que
+un test de contrato abriera una conexion WhatsApp real sin querer durante una corrida automatizada
+(corregido con `@override_settings(WHATSAPP_GATEWAY_ENABLED=False)` a nivel de clase). Servicio
+`whatsapp_gateway` SOLO en `docker-compose.yml` (dev) — no existe en `docker-compose.prod.yml`, la
+conexion de produccion corre sobre la infraestructura ya desplegada previamente. Ver detalle
+completo en `AUDITORIA/WHATSAPP_BAILEYS_PRE_MIGRATION_AUDIT.md`,
+`WHATSAPP_BAILEYS_ARCHITECTURE.md`, `WHATSAPP_BAILEYS_IMPLEMENTATION_REPORT.md`.
+
+(B) **Admin AI Assistant — desbloqueo del piloto de Catalogo (2026-09-23, commit `6a83193`)**: el
+piloto (`CatalogAgent`, Tool Registry completo de Product/Category/Brand/Tax, intent
+`catalog_admin`) estaba construido pero congelado desde 2026-09-16 a pedido del usuario. Al
+descongelarlo se encontro y corrigio un bug real de produccion: el chat de `/panel/asistente`
+(admin) caia en `SupportAgent` (agente de CLIENTE) y abria tickets de soporte reales, porque
+`resolve_turn_agent()` (`ai_engine_adk/sintel_root_workflow.py`) no distinguia llamadas de admin de
+llamadas de cliente — ambas superficies pegan al mismo endpoint `/chat`. Corregido agregando
+`ChatRequest.source` (default `"customer"`, nunca rompe el canal de cliente existente) y forzando
+`CatalogAgent` cuando `source == "admin"` y el agente resuelto no es admin-scoped. UI conectada en
+`/panel/asistente` (router y sidebar, antes comentados/ausentes). Kill switch propio
+`ADMIN_AI_ASSISTANT_ENABLED`, independiente de `AI_SUPPORT_CHAT_ENABLED` (dominios distintos:
+soporte a cliente vs. asistente de catalogo para admin).
+
+(C) **Admin AI Assistant — vertical nueva de Servicios tecnicos, Fase 1-3 del plan
+PLAN_SINTEL_ADMIN_ASISTENTE_RAG_FORMULARIOS_LOOP.md (2026-09-23, commit `141207d`)**: mismo patron
+exacto que la vertical Catalogo aplicado a `TechnicalService` — 5 Tools nuevas (`ServiceListTool`,
+`ServiceGetTool`, `ServiceCategoryListTool`, `ServiceCreateDraftTool`, `ServiceUpdateDraftTool`),
+intent `service_admin` insertado ANTES de `service_status` (intent de cliente preexistente, dispara
+con la palabra suelta "servicio") para que un mensaje admin nunca caiga en el agente de cliente por
+orden de diccionario, endpoints `/services/admin/*` separados de `/services/` (cliente). Cierra el
+hallazgo de la auditoria Fase 0 (`AUDITORIA/ASSISTANT_BASELINE.md`): `CatalogAgent` no tenia
+vocabulario de Servicio y usaba su logica de Producto para interpretarlo, preguntando marca/
+condicion (campos que `TechnicalService` no tiene). Bug real encontrado y corregido durante la
+verificacion end-to-end (no anticipado por el plan): el LLM mandaba `price` como objeto
+(`{"amount":1500000,...}`) en vez de numero plano, crasheando `Decimal()` con 500 sin capturar y
+agotando el limite de acciones del turno tras 5 reintentos fallidos — corregido con `_parse_price()`
+(extrae el valor de un dict si aplica, nunca lanza, 400 claro en vez de 500) aplicado tanto en
+creacion como en edicion. Reverificado con el mismo smoke test real del plan ("crear servicio de
+automatizacion de tiendas locales por 1500000 pesos"): creacion exitosa en un solo tool call,
+`is_active=False`/categoria/precio correctos en base de datos, 203 tests de `technical_services` en
+verde. Fases 4+ del plan (Form Schema Registry, Draft Engine generico, resolvers por capas,
+`AdminAIDraft` persistente) quedan fuera de esta entrega. Ver
+`AUDITORIA/ASSISTANT_FASE1_3_SERVICE_TOOLS.md`.
+
+(D) **Regla de arquitectura Docker — "cada contenedor construye/posee su propia imagen" (2026-09-23,
+commit `6dd141d`)**: regla confirmada por el usuario, unificada en `docker-compose.yml` (dev) y
+`docker-compose.prod.yml` (prod) por igual — ningun servicio puede correr una imagen que en
+realidad pertenece a otro contenedor. Auditoria encontro una violacion real en AMBOS compose:
+`celery_worker`/`celery_beat` reusaban `ecommerce_sintel:runtime`/`:prod-runtime` (la imagen que
+construye `django`) sin `build:` propio — patron antes deliberado (evitar build redundante,
+garantizar que worker/beat/django corrieran exactamente el mismo codigo). Corregido: ambos
+servicios tienen ahora su propio `build:` (mismo Dockerfile/`target: runtime` que django) con tag
+exclusivo (`ecommerce_sintel_celery_worker`/`_beat:runtime` en dev, `:prod-runtime` en prod, mismo
+criterio de aislamiento dev/prod que ya aplicaba `django` desde 2026-08-08).
+`deploy/deploy.sh` actualizado (`build --no-cache django celery_worker celery_beat`, antes solo
+`django` porque esa era la unica premisa valida hasta este cambio). Verificado en dev (build +
+recreate, logs limpios, tasks Celery registradas) y aplicado en produccion real via
+`./deploy/deploy.sh` (9/9 contenedores healthy, `./deploy/healthcheck.sh` OK).
+
+(E) **Incidente de produccion real — Admin AI Assistant 503, causado y resuelto el mismo dia
+(2026-09-23)**: al activar `ADMIN_AI_ASSISTANT_ENABLED` solo en `.env` (desarrollo) para verificar
+(B) y (C), la variable nunca se replico en `.env.production` — el kill switch de
+`AdminAiAssistantChatView.post()` (`dashboard/api/ai_assistant_views.py`) seguia en su default
+`False` ahi. El usuario probo `/panel/asistente` en produccion real y recibio
+`503 Service Unavailable` sin contexto util; ni `manage.py check` ni el healthcheck de contenedores
+detectan este tipo de fallo (un flag de aplicacion apagado no es un error de configuracion Django ni
+tumba el proceso). Se encontro ademas que la imagen `ecommerce_sintel_ai_adk:prod` corriendo estaba
+huerfana (una imagen mas nueva con ese mismo tag existia sin que el contenedor se hubiera recreado
+para adoptarla). Corregido: variable agregada a `.env.production`, `sintel_ai_adk` reconstruido
+`--no-cache` y recreado, `django` recreado (`--force-recreate`) para releer el env file. Verificado
+end-to-end contra el contenedor REAL de produccion (token JWT de un admin real existente, sin
+persistir nada nuevo) con un mensaje de solo lectura: `200 OK`, `CatalogAgent` respondio con datos
+reales del catalogo via `ServiceListTool`. Post-mortem completo con checklist de prevencion en
+`AUDITORIA/INCIDENTE_ADMIN_AI_ASSISTANT_503_PROD_2026-09-23.md` — regla nueva: activar un kill
+switch en `.env` y en `.env.production` es el MISMO paso de trabajo, nunca dos pasos separados en
+el tiempo.
+
+<details>
+<summary>Historial de versiones anteriores (v1-v16) — click para expandir</summary>
+
+**v16 (2026-08-12 — cierre completo de las 60 fases del plan "AI Change Proposal
+Engine" (FASE 24-60), construido estrictamente sobre el "AI Editor Runtime" ya cerrado en v15).**
 `ai_editor/generation/` (24 submodulos) evoluciona el mecanismo de v15 (`PATCH SANDBOX`) en un
 motor real de PROPUESTA: LLM + contexto MINIMO del grafo (nunca el grafo completo) ->
 `PatchProposal` estructurada, validada capa por capa (sintaxis/scope/dependencias/contratos/
@@ -66,9 +164,6 @@ test AST, no por convencion).
 > "Tareas pendientes" → "Completadas (2026-08-17 — Auditoria E2E de cierre del AI Engine /
 > Support Agent)". Ambos threads son independientes (sin conexion directa entre `ai_editor` y
 > `ai_engine`, verificado por test AST) y `ai_editor` sigue **CONGELADO** — sin fases nuevas.
-
-<details>
-<summary>Historial de versiones anteriores (v1-v15) — click para expandir</summary>
 
 **v15 (2026-08-11 — cierre completo de las 24 fases (POST-GRAPH 0-23) del plan
 "Evolucion de AI Editor Runtime", construido estrictamente sobre el Site Knowledge Graph ya
@@ -1446,6 +1541,79 @@ en la misma sala): `ChatCommands.get_or_create_room()` solo reusa salas `OPEN`, 
 
 ---
 
+### whatsapp — Conexion WhatsApp del panel admin — app nueva (2026-09-15 a 2026-09-22)
+
+Dominio hexagonal: `whatsapp/ports/connection.py::WhatsAppConnectionPort` define el contrato
+(`connect`/`disconnect`/`reconnect`/`status`/`send_message`) que el resto del sistema (notifications,
+dashboard, frontend) consume -- el dominio NUNCA sabe cual adapter esta activo, verificado por un
+test que camina el AST del modulo. Dos adapters reales:
+- `MetaCloudAPIAdapter` -- API oficial de Meta (Business API), el original.
+- `QRWebSessionAdapter` -- nuevo (2026-09-15/22), habla con el servicio `whatsapp_gateway/` via
+  `whatsapp/clients/gateway_client.py::WhatsAppGatewayClient` (HTTP interno, sin exponer puerto al
+  host). `reconnect()` esta sobreescrito para llamar al endpoint real `/session/reconnect` del
+  gateway en vez de heredar el default `disconnect()+connect()` (que hubiera borrado la sesion).
+
+`WHATSAPP_CONNECTION_TYPE` (settings, `whatsapp/factory.py`) decide cual adapter se instancia --
+default `META_CLOUD_API`, **sin sobreescribir en `.env` ni en `.env.production`**: el mecanismo
+ACTIVO para el flujo real de mensajes del dominio `whatsapp/` sigue siendo Meta Cloud API en AMBOS
+entornos, a proposito (ver comentario real en `.env` junto a `WHATSAPP_GATEWAY_ENABLED`). Lo que SI
+cambia entre entornos es `WHATSAPP_GATEWAY_ENABLED` (`true` solo en dev): habilita el transporte
+HTTP hacia `whatsapp_gateway/` que usan las acciones del panel admin
+(`AdminWhatsAppSessionActionView` -- conectar/desconectar/reconectar/ver QR), **independiente** de
+cual adapter esta activo para el enrutamiento real de mensajes. Asi se pudo parear el numero de
+produccion real por QR y dejar la sesion de Baileys viva (ver mas abajo) sin cortar todavia el
+mecanismo oficial que sigue sirviendo el trafico real -- corte que requeriria una decision
+explicita aparte, no incluida en esta migracion. El servicio `whatsapp_gateway` en si NO esta en
+`docker-compose.prod.yml` (ver Infraestructura Docker abajo), asi que hoy esta accion del panel
+solo es posible en desarrollo.
+
+**`whatsapp_gateway/` (servicio nuevo, Node.js/TypeScript, fuera de Django):** libreria
+`@whiskeysockets/baileys` (protocolo no oficial de WhatsApp Web, version `6.7.24` pinneada exacta a
+proposito) sobre Fastify. Componentes: `FileAuthStateStore` (persistencia de credenciales en disco
+con escritura atomica -- elegido sobre PostgreSQL especificamente para que el gateway nunca toque
+la BD de Django directamente), `ConnectionStateMachine` (`state.ts`, transiciones estrictas +
+`forceTransition()` como escape hatch), Event Bus (`eventBus.ts`) que Django consume via webhook
+(`notifications/api/whatsapp_gateway_webhook.py::WhatsAppGatewayEventView` ->
+`notifications/tasks.py::process_whatsapp_gateway_inbound_task`), contrato REST de 7 endpoints
+(`server.ts`). 24 tests con `node:test` (`whatsapp_gateway/test/`).
+
+**Conectado a un numero de WhatsApp de PRODUCCION real (+573144601878)**, con autorizacion
+explicita y repetida del usuario (dado el riesgo conocido de violacion de ToS de Baileys por no ser
+la API oficial) -- dejado conectado a pedido explicito ("dejalo conectado"), no desconectado al
+cierre de la migracion.
+
+**Bugs reales encontrados y corregidos verificando contra el sistema vivo** (no por inspeccion de
+codigo -- los 4 aparecieron usando la conexion real, no en tests aislados):
+1. Race condition ENOENT justo despues del primer pairing QR real: `atomicWriteFile()` usaba
+   `Date.now()` (resolucion de milisegundo) en el nombre del archivo temporal, y eventos
+   `creds.update` concurrentes durante el pairing colisionaban en el mismo nombre -- el segundo
+   `rename()` fallaba con ENOENT, una promesa rechazada sin capturar tumbaba el proceso entero en
+   loop. Corregido a `randomUUID()` + `.catch()` en el listener como defensa en profundidad.
+2. Rate limiting completamente ignorado: `app.register(rateLimit, {...})` se llamaba sin `await`
+   dentro de un `buildServer()` sincrono, las rutas se registraban antes de que el hook `onRoute`
+   del plugin estuviera activo. Corregido haciendo `buildServer()` async.
+3. `Content-Type: application/json` enviado incluso en peticiones POST sin body (`/session/start`,
+   `/logout`, `/reconnect`) causaba `FST_ERR_CTP_EMPTY_JSON_BODY` (400) del lado de Fastify.
+   Corregido: el header solo se envia cuando hay un body real.
+4. Un `.env` de desarrollo compartido entre el runtime y `manage.py test` significaba que activar
+   `WHATSAPP_GATEWAY_ENABLED=true` para probar manualmente tambien lo activaba durante la suite de
+   tests -- un test que solo verificaba el tipo de retorno de `.reconnect()` termino abriendo una
+   conexion WhatsApp REAL (QR real generado) durante una corrida automatizada. Corregido con
+   `@override_settings(WHATSAPP_GATEWAY_ENABLED=False)` a nivel de clase en
+   `whatsapp/tests/test_contract.py::ConnectionContractTests`.
+
+UI: `frontend/src/modules/whatsapp/WhatsAppConnectionStatusView.vue` -- muestra QR real, botones de
+accion (conectar/desconectar/reconectar), sincronizado por WebSocket
+(`support/consumers.py::SupportChatConsumer` gano handlers `whatsapp_status`/`whatsapp_qr`).
+`dashboard/api/views.py::AdminWhatsAppSessionActionView` expone la accion desde el BFF admin.
+
+Docs completos: `AUDITORIA/WHATSAPP_BAILEYS_PRE_MIGRATION_AUDIT.md`,
+`WHATSAPP_BAILEYS_ARCHITECTURE.md`, `WHATSAPP_BAILEYS_IMPLEMENTATION_REPORT.md`, y los docs previos
+de la refactorizacion hexagonal: `WHATSAPP_CONNECTION_ARCHITECTURE.md`, `_MIGRATION.md`,
+`_SECURITY.md`, `_FINAL_CERTIFICATION.md`.
+
+---
+
 ## Frontend SPA — Vue 3
 
 > **[ACTUALIZADO 2026-07-03]** La estructura de directorios de alto nivel
@@ -1643,9 +1811,15 @@ publicamente; ninguno de los dos runtimes toca el ORM directo.
 
 **Identidad y aislamiento**: igual que antes — `session_id` deriva del JWT resuelto
 server-side. Hallazgo de seguridad propio de esta migracion (ADK-08): el JWT del usuario
-**nunca se siembra en `Session.state` de ADK** (se persistiria si algun dia se cambia
-`InMemorySessionService`, hoy en uso, por un backend persistente) — vive en un dict efimero
-de proceso indexado por `session_id`, mismo rol que `config["configurable"]` de LangGraph.
+**nunca se siembra en `Session.state` de ADK** — vive en un dict efimero de proceso indexado
+por `session_id`, mismo rol que `config["configurable"]` de LangGraph.
+**[CORREGIDO 2026-09-23]** Esta invariante se volvio mas importante, no menos, desde que el
+backend de sesion paso a ser `DatabaseSessionService` (RAG-POST2 FASE 7, ver mas abajo): si el
+JWT se sembrara en `Session.state`, hoy quedaria persistido en Postgres (`sintel_adk_sessions`)
+en vez de vivir solo en memoria de proceso — verificado que sigue sin sembrarse (`ADK_SESSION_
+BACKEND=database` confirmado activo via variable de entorno real en ambos contenedores,
+dev y prod, seteada directo en `environment:` de `docker-compose.yml`/`docker-compose.prod.
+yml`, no en `.env`/`.env.production`).
 
 **Produccion real (`sintel_production`, `sintel.net.co`) — migrada el mismo dia,
 2026-09-14:** `sintel_ai_adk` corre ahi tambien (antes el chat de IA NUNCA habia corrido en
@@ -1694,6 +1868,26 @@ contrato tecnico del Support Agent (todavia valido, el comportamiento certificad
 [`SUPPORT_AGENT_SPEC.md`](../../ecommerce_sintel/ai_engine/.AGENT/SUPPORT_AGENT_SPEC.md);
 checklist certificado con evidencia real, `APTA`, con addendum 2026-09-14 sobre la migracion —
 [`SUPPORT_AI_CERTIFICATION.md`](../../ecommerce_sintel/ai_engine/.AGENT/SUPPORT_AI_CERTIFICATION.md).
+
+**[AGREGADO 2026-09-23] `ai_engine_adk` ya NO sirve solo al Support Agent (chat de CLIENTE) — el
+mismo proceso/endpoint `/chat` sirve tambien al Admin AI Assistant (`/panel/asistente`, agente
+`CatalogAgent`, gestion de catalogo y servicios tecnicos via chat).** Ambas superficies pegan al
+mismo `POST /chat`; la distincion es el campo nuevo `ChatRequest.source` (`"customer"` por
+default, nunca rompe el flujo existente, o `"admin"`). `resolve_turn_agent(message, *,
+source="customer")` (`sintel_root_workflow.py`) fuerza `CatalogAgent` cuando `source == "admin"` y
+el agente resuelto por el router determinista no es ya admin-scoped (`_ADMIN_AGENT_NAMES =
+{"CatalogAgent"}`) — esto corrigio un bug real de produccion (el chat admin caia en `SupportAgent`
+y abria tickets de cliente reales antes de este cambio). `dashboard/api/ai_assistant_views.py`
+(proxy Django -> `ai_engine_adk`, mismo patron que `support/services/ai_bridge.py`) es quien manda
+`source: "admin"`, con permiso `IsAdminUser` como autoridad real (el routing determinista es
+conveniencia de UX, no el gate de seguridad). Kill switch propio `ADMIN_AI_ASSISTANT_ENABLED`
+(`settings/base.py`, independiente de `AI_SUPPORT_CHAT_ENABLED`) — activarlo requiere el mismo
+valor en `.env` Y `.env.production` en el mismo cambio (ver
+`AUDITORIA/INCIDENTE_ADMIN_AI_ASSISTANT_503_PROD_2026-09-23.md`, un 503 real de produccion causado
+por activarlo solo en dev). `CatalogAgent` (`agents/profiles/catalog_agent.yaml`, v2) tiene 23
+Tools propias (Product/Category/Brand/Tax + Service, Nivel 0-2/3 segun dominio, nunca Delete) —
+ver `AUDITORIA/ASSISTANT_BASELINE.md` y `ASSISTANT_FASE1_3_SERVICE_TOOLS.md` para el detalle
+fase por fase.
 
 ---
 
@@ -1842,16 +2036,29 @@ Tool, 9 Agent. **120/120 tests pasan.**
 | Servicio | Imagen | Puerto externo | Healthcheck |
 |----------|--------|----------------|-------------|
 | `ecommerce_sintel_django` | `ecommerce_sintel:runtime` (Daphne ASGI) | 8000 | `GET /api/v1/health/` — ahora real: db+redis (503 si fallan) |
-| `ecommerce_sintel_celery_worker` | `ecommerce_sintel:runtime` | - | `celery -A ecommerce inspect ping` |
-| `ecommerce_sintel_celery_beat` | `ecommerce_sintel:runtime` | - | **`grep -a -l celery /proc/[0-9]*/cmdline`** (AUDITORIA/31 — antes sin healthcheck) |
+| `ecommerce_sintel_celery_worker` | `ecommerce_sintel_celery_worker:runtime` **[CORREGIDO 2026-09-23]** — antes `ecommerce_sintel:runtime` (imagen de `django`, sin `build:` propio, ver regla abajo) | - | `celery -A ecommerce inspect ping` |
+| `ecommerce_sintel_celery_beat` | `ecommerce_sintel_celery_beat:runtime` **[CORREGIDO 2026-09-23]** — mismo motivo que celery_worker | - | **`grep -a -l celery /proc/[0-9]*/cmdline`** (AUDITORIA/31 — antes sin healthcheck) |
 | `ecommerce_sintel_db` | postgres:16-alpine | 5432 | nativo postgres |
 | `ecommerce_sintel_redis` | redis:7.2-alpine | 6380 (mapeado, interno 6379) | nativo redis |
 | `ecommerce_sintel_nginx` | nginx:1.26-alpine | 80 | - |
 | `ecommerce_sintel_frontend` | node:24-bookworm-slim | 5173 | - |
 | `ecommerce_sintel_ai` | `ecommerce_sintel_ai:latest` (FastAPI, AI Gateway solamente) | 8100 | **[ACTUALIZADO 2026-09-14]** `/chat` retirado (ADK-12) — solo expone `/health` + AI Gateway (Meta Ads MCP). Contenedor detenido (`Exited`) en dev/staging desde el cutover, no eliminado — sigue en `docker-compose.prod.yml` con el mismo rol (antes decia "solo en dev", ya no es cierto) |
-| `ecommerce_sintel_ai_adk` | `ecommerce_sintel_ai_adk:latest` (FastAPI, Google ADK — chat de soporte real) | 8101 | **[NUEVO 2026-09-14]** Unico runtime real del chat de soporte desde el cutover ADK-11 — en dev/staging Y en `docker-compose.prod.yml` (`sintel_ai_adk`, produccion real) |
+| `ecommerce_sintel_ai_adk` | `ecommerce_sintel_ai_adk:latest` (FastAPI, Google ADK — chat de soporte Y Admin AI Assistant) | 8101 | **[NUEVO 2026-09-14, actualizado 2026-09-23]** Unico runtime real del chat de soporte desde el cutover ADK-11 — en dev/staging Y en `docker-compose.prod.yml` (`sintel_ai_adk`, produccion real). Desde 2026-09-23 el mismo proceso tambien sirve al Admin AI Assistant (`CatalogAgent`, ver seccion `ai_engine`/`ai_engine_adk`) |
+| `ecommerce_sintel_whatsapp_gateway` | `ecommerce_sintel_whatsapp_gateway:latest` (Node.js/TypeScript, Baileys) | - (sin puerto publicado, solo red interna Docker) | **[NUEVO 2026-09-15/22]** Solo `docker-compose.yml` (dev) — **NO existe en `docker-compose.prod.yml`**. Ver seccion `whatsapp` arriba |
 | `ecommerce_sintel_ollama` | ollama/ollama:latest | 11434 | Sigue disponible como una entrada mas de `LOCAL_MODEL_CHAIN` — el proveedor principal hoy es LM Studio (host, puerto 1234, `qwen/qwen3.5-9b`), ver seccion `ai_engine`/`ai_engine_adk` |
 | ~~`ecommerce_sintel_chromadb`~~ | **RETIRADO 2026-09-14** — RAG movido a PostgreSQL+pgvector via Django `ai_knowledge` (ver `AUDITORIA/ARCHITECTURE_SIMPLIFICATION_AUDIT.md`) | - | - |
+
+**[AGREGADO 2026-09-23] Regla de arquitectura: "cada contenedor construye/posee su propia
+imagen"** (confirmada por el usuario, unificada en `docker-compose.yml` y `docker-compose.prod.yml`
+por igual) — ningun servicio puede correr una imagen que en realidad pertenece a otro contenedor.
+Servicios con `build:` propio hoy (los unicos que se reconstruyen; el resto usa imagen oficial,
+nunca `build:`): `django`, `celery_worker`, `celery_beat`, `sintel_ai`, `sintel_ai_adk` en AMBOS
+entornos, mas `whatsapp_gateway` solo en dev. `deploy/deploy.sh` reconstruye `django`,
+`celery_worker` y `celery_beat` con `--no-cache` en cada despliegue (`sintel_ai`/`sintel_ai_adk` se
+reconstruyen a mano cuando aplica, cambian con menos frecuencia). Prod usa tags exclusivos
+(`:prod-runtime`/`:prod`) distintos de los de dev (`:runtime`/`:latest`) desde 2026-08-08, para que
+un build de dev nunca sobreescriba silenciosamente lo que produccion resolveria en su proximo
+restart — el mismo criterio se aplico a los tags nuevos de `celery_worker`/`celery_beat`.
 
 **Componente fuera de Docker — `sms_bridge`** (`ecommerce_sintel/sms_bridge/bridge.py`): proceso
 Python corriendo en el HOST Windows, no en ningun contenedor. Abre el puerto COM5 (modem GSM
@@ -1893,6 +2100,9 @@ Archivos media: servidos en dev via `static(MEDIA_URL, document_root=MEDIA_ROOT)
 | `DB_HOST` / `DB_NAME` / `DB_USER` / `DB_PASSWORD` / `DB_PORT` | Conexion PostgreSQL — **[CORREGIDO 2026-07-23]** `DATABASE_URL` eliminada de esta tabla: no se usa en ningun lugar del codigo (grep completo sin resultados), la conexion real solo lee estas 5 variables sueltas (sqlite si `DB_HOST` no esta seteado, en dev local sin Docker) |
 | `CORS_ALLOWED_ORIGINS` | Origenes permitidos CORS |
 | `REDIS_URL` | Conexion Redis (broker Celery + channels) |
+| `ADMIN_AI_ASSISTANT_ENABLED` | **[AGREGADO 2026-09-23]** Kill switch del Admin AI Assistant (`/panel/asistente`, `CatalogAgent`), independiente de `AI_SUPPORT_CHAT_ENABLED` (ese es el chat de CLIENTE). Default `False` — **debe activarse con el mismo valor en `.env` Y `.env.production` en el mismo cambio** (ver `AUDITORIA/INCIDENTE_ADMIN_AI_ASSISTANT_503_PROD_2026-09-23.md`, causo un 503 real de produccion por activarse solo en dev) |
+| `WHATSAPP_GATEWAY_ENABLED` / `WHATSAPP_GATEWAY_URL` / `WHATSAPP_GATEWAY_TOKEN` | **[AGREGADO 2026-09-15/22]** Habilita el transporte HTTP hacia el servicio `whatsapp_gateway` (URL interna Docker + token del contrato REST de 7 endpoints), usado por las acciones del panel admin (`AdminWhatsAppSessionActionView`). **No cambia por si solo** cual adapter esta activo para el enrutamiento real de mensajes — eso lo decide `WHATSAPP_CONNECTION_TYPE` (fila siguiente). `ENABLED=true` solo en `.env` (dev); `whatsapp_gateway` no existe en produccion |
+| `WHATSAPP_CONNECTION_TYPE` | **[AGREGADO 2026-09-15]** `QR_WEB_SESSION` \| `META_CLOUD_API` — decide que adapter de `whatsapp/ports/connection.py::WhatsAppConnectionPort` se instancia para el flujo real de mensajes. Default `META_CLOUD_API`, **sin sobreescribir en `.env` ni `.env.production`** a proposito (ver seccion `whatsapp` arriba) — sigue siendo el mecanismo activo en ambos entornos aunque el numero real ya este pareado por QR |
 
 ---
 
@@ -2046,6 +2256,84 @@ matrices de riesgo, dependencias y estrategia de rollback.
 | Pendiente — requiere alcance mayor | Paginacion de historial de sala de soporte (A4 de Fase 4) — feature nueva backend+frontend |
 | Pendiente — requiere alcance mayor | Historial de cambios (`changed_by`) para `EmailSettings`/`ContactInfo` en `organization` (Fase 10) — requiere modelo de auditoria nuevo |
 | Descartado (2026-07-09) | Sistema de eventos de dominio, wizard de upgrade independiente por tipo, reorganizacion de dashboard de usuarios por tipo, libreria de 8 componentes Vue de identidad — sin consumidor concreto, ver `accounts/.AGENT/docs/ARQUITECTURA_COMPLETA_ACCOUNTS.md` |
+
+### Completadas (2026-09-23 — Regla Docker de auto-contencion de imagenes + incidente de produccion resuelto)
+
+1. **Regla de arquitectura confirmada por el usuario**: cada contenedor construye/posee su propia
+   imagen, ninguna imagen puede vivir fuera del contenedor al que sirve — unificada en
+   `docker-compose.yml` (dev) y `docker-compose.prod.yml` (prod). Auditoria encontro una violacion
+   real en AMBOS compose: `celery_worker`/`celery_beat` reusaban la imagen de `django`
+   (`ecommerce_sintel:runtime`/`:prod-runtime`) sin `build:` propio.
+2. **Corregido**: `celery_worker`/`celery_beat` tienen ahora su propio `build:` (mismo
+   Dockerfile/`target: runtime` que django) con tag exclusivo
+   (`ecommerce_sintel_celery_worker`/`_beat:runtime` en dev, `:prod-runtime` en prod).
+   `deploy/deploy.sh` actualizado (`build --no-cache django celery_worker celery_beat`, antes solo
+   `django`). Verificado en dev (build + recreate, logs limpios) y aplicado en produccion real
+   (`./deploy/deploy.sh`, 9/9 contenedores healthy, `./deploy/healthcheck.sh` OK). Commit
+   `6dd141d`.
+3. **Incidente de produccion real, causado y resuelto el mismo dia**: al activar
+   `ADMIN_AI_ASSISTANT_ENABLED` solo en `.env` (dev) para verificar el trabajo del Admin AI
+   Assistant (ver entrada siguiente), la variable nunca se replico en `.env.production` — el
+   usuario probo `/panel/asistente` en produccion real y recibio `503 Service Unavailable`. Se
+   encontro ademas que la imagen `ecommerce_sintel_ai_adk:prod` corriendo estaba huerfana (una
+   imagen mas nueva con ese tag existia sin que el contenedor se hubiera recreado para adoptarla).
+4. **Corregido y verificado end-to-end contra produccion real**: variable agregada a
+   `.env.production`, `sintel_ai_adk` reconstruido `--no-cache` y recreado, `django` recreado
+   (`--force-recreate`). Probado con un token JWT de un admin real existente (sin persistir nada
+   nuevo) y un mensaje de solo lectura: `200 OK`, `CatalogAgent` respondio con datos reales del
+   catalogo via `ServiceListTool`. Post-mortem completo con checklist de prevencion:
+   `AUDITORIA/INCIDENTE_ADMIN_AI_ASSISTANT_503_PROD_2026-09-23.md` — regla nueva: activar un kill
+   switch en `.env` y `.env.production` es el MISMO paso de trabajo, nunca pasos separados.
+
+### Completadas (2026-09-23 — Admin AI Assistant: piloto Catalogo + vertical Servicios, Fase 1-3)
+
+1. **Desbloqueo del piloto de Catalogo** (commit `6a83193`): `CatalogAgent` (Tool Registry
+   completo de Product/Category/Brand/Tax, intent `catalog_admin`) estaba construido pero
+   congelado desde 2026-09-16. Bug real de produccion encontrado y corregido al descongelarlo: el
+   chat de `/panel/asistente` (admin) caia en `SupportAgent` (agente de CLIENTE) y abria tickets de
+   soporte reales — `resolve_turn_agent()` no distinguia admin de cliente pese a que ambas
+   superficies pegan al mismo endpoint `/chat`. Corregido con `ChatRequest.source`
+   (default `"customer"`) forzando `CatalogAgent` cuando `source == "admin"`. UI conectada en
+   `/panel/asistente` (router y sidebar, antes comentados/ausentes). Kill switch propio
+   `ADMIN_AI_ASSISTANT_ENABLED`.
+2. **Vertical nueva de Servicios tecnicos, Fase 1-3 del plan
+   `PLAN_SINTEL_ADMIN_ASISTENTE_RAG_FORMULARIOS_LOOP.md`** (commit `141207d`): 5 Tools nuevas
+   (`ServiceListTool`, `ServiceGetTool`, `ServiceCategoryListTool`, `ServiceCreateDraftTool`,
+   `ServiceUpdateDraftTool`), intent `service_admin` con prioridad sobre `service_status` (intent
+   de cliente preexistente). Cierra el hallazgo de `AUDITORIA/ASSISTANT_BASELINE.md`: `CatalogAgent`
+   no tenia vocabulario de Servicio y preguntaba marca/condicion (campos de Producto, no de
+   `TechnicalService`).
+3. **Bug real encontrado y corregido durante la verificacion end-to-end** (no anticipado por el
+   plan): el LLM mandaba `price` como objeto dict en vez de numero plano, crasheando `Decimal()`
+   con 500 sin capturar tras 5 reintentos fallidos. Corregido con `_parse_price()` (nunca lanza,
+   400 claro) aplicado en creacion y edicion. Reverificado con el smoke test real del plan ("crear
+   servicio de automatizacion de tiendas locales por 1500000 pesos"): creacion exitosa en un solo
+   tool call, `is_active=False`/categoria/precio correctos en base de datos, 203 tests de
+   `technical_services` en verde.
+4. **Fases 4+ del plan (Form Schema Registry, Draft Engine generico, resolvers por capas,
+   `AdminAIDraft` persistente) quedan explicitamente fuera de esta entrega** — ver
+   `AUDITORIA/ASSISTANT_FASE1_3_SERVICE_TOOLS.md`.
+
+### Completadas (2026-09-15 a 2026-09-22 — Migracion WhatsApp de Meta Cloud API a Baileys/WhatsApp Web)
+
+1. **Dominio hexagonal nuevo `whatsapp/`**: `WhatsAppConnectionPort` con dos adapters
+   (`MetaCloudAPIAdapter` original, `QRWebSessionAdapter` nuevo) — el dominio nunca sabe cual esta
+   activo, verificado por test AST.
+2. **Servicio nuevo `whatsapp_gateway/`** (Node.js/TypeScript, fuera de Django): Baileys `6.7.24`
+   pinneado exacto sobre Fastify, `FileAuthStateStore` (credenciales en disco, escritura atomica),
+   `ConnectionStateMachine`, Event Bus consumido por Django via webhook. 24 tests (`node:test`).
+   Solo en `docker-compose.yml` (dev) — no existe en produccion.
+3. **Conectado a un numero de WhatsApp de PRODUCCION real (+573144601878)**, con autorizacion
+   explicita y repetida del usuario dado el riesgo de ToS de una libreria no oficial — dejado
+   conectado a pedido explicito del usuario.
+4. **4 bugs reales encontrados y corregidos verificando contra el sistema vivo** (no por
+   inspeccion de codigo): race condition ENOENT en `atomicWriteFile` durante el pairing real
+   (`Date.now()` → `randomUUID()`); rate-limit completamente ignorado por falta de `await` en
+   `app.register()`; Content-Type en POST sin body rompia Fastify; `.env` compartido causo que un
+   test abriera una conexion WhatsApp real por accidente durante una corrida automatizada
+   (corregido con `@override_settings` a nivel de clase).
+5. Documentacion completa: `AUDITORIA/WHATSAPP_BAILEYS_PRE_MIGRATION_AUDIT.md`,
+   `WHATSAPP_BAILEYS_ARCHITECTURE.md`, `WHATSAPP_BAILEYS_IMPLEMENTATION_REPORT.md`.
 
 ### Completadas (2026-09-14 — Migracion completa del chat de soporte a Google ADK, mision "ADK-SINTEL" ADK-00 a ADK-13, sesion larga unica)
 
