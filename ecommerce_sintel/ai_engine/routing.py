@@ -52,6 +52,20 @@ BUSINESS_INTENT_PATTERNS = {
         r"|\bcatalogo de productos\b",
         re.I,
     ),
+    # Admin AI Assistant, vertical Servicios (PLAN_SINTEL_ADMIN_ASISTENTE_RAG_
+    # FORMULARIOS_LOOP.md, Fase 1-3, 2026-09-23): mismo razonamiento que
+    # catalog_admin arriba -- va PRIMERO a proposito, antes que
+    # `service_status` (linea de abajo, dispara con la sola palabra suelta
+    # "servicio", intent de CLIENTE). Sin esta prioridad, cualquier mensaje
+    # admin que mencione "servicio" caeria en service_status/SupportAgent en
+    # vez de service_admin/CatalogAgent.
+    "service_admin":          re.compile(
+        r"\b(crear|crea|creame|agregar|agrega|agregame|nuevo|nueva|dar de alta)\b.{0,25}\bservicio\w*"
+        r"|\b(editar|edita|actualizar|actualiza|modificar|modifica|cambiar|cambia)\b.{0,25}\bservicio\w*"
+        r"|\b(publicar|publica|despublicar|despublica)\b.{0,25}\bservicio\w*"
+        r"|\bborrador(es)? de servicio\w*",
+        re.I,
+    ),
     "rental_change":          re.compile(r"\b(cambiar|mover|reprogramar|correr|modificar)\b.{0,40}\b(fecha|fechas)\b|\b(fecha|fechas)\b.{0,40}\b(alquiler|renta)\w*", re.I),
     "rental_cancel":          re.compile(r"\b(cancelar?|anular?)\b.{0,40}\b(alquiler|renta|solicitud)\w*", re.I),
     "support":                re.compile(r"\b(soporte|reclamo|queja|hablar con (una persona|alguien|un humano|un agente)|ticket|pqr)\b", re.I),
@@ -110,6 +124,8 @@ INTENT_CAPABILITIES = {
                                 "listar_marcas", "ver_marca", "crear_borrador_marca",
                                 "editar_marca", "publicar_marca",
                                 "listar_impuestos", "ver_impuesto", "crear_impuesto", "editar_impuesto"],
+    "service_admin":           ["listar_servicios", "ver_servicio", "listar_categorias_servicio",
+                                "crear_borrador_servicio", "editar_borrador_servicio"],
 }
 
 # Capability de fallback deterministico si el LLM no emite tool_calls para
@@ -134,6 +150,7 @@ INTENT_FALLBACK_CAPABILITY = {
     "core_content":            "ver_config_home",
     # Fallback de solo-lectura -- una escritura JAMAS se dispara por fallback.
     "catalog_admin":           "listar_productos",
+    "service_admin":           "listar_servicios",
 }
 
 

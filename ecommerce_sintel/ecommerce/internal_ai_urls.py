@@ -69,6 +69,13 @@ from shop.api.internal_ai import (
 )
 from support.api.internal_ai import AiOpenSupportTicketView
 from technical_services.api.internal_ai import AiServiceStatusView
+from technical_services.api.internal_ai import (
+    AiServiceAdminCategoryListView,
+    AiServiceAdminCreateDraftView,
+    AiServiceAdminGetView,
+    AiServiceAdminListView,
+    AiServiceAdminUpdateDraftView,
+)
 
 app_name = "internal_ai"
 
@@ -80,6 +87,15 @@ urlpatterns = [
     path("renting/equipment/",    AiEquipmentSearchView.as_view(),     name="ai-renting-equipment"),
     path("payments/",             AiPaymentStatusView.as_view(),       name="ai-payments"),
     path("services/",             AiServiceStatusView.as_view(),       name="ai-services"),
+    # Admin AI Assistant, vertical Servicios (PLAN_SINTEL_ADMIN_ASISTENTE_RAG_
+    # FORMULARIOS_LOOP.md, Fase 1-3, 2026-09-23) -- namespace services/admin/*
+    # deliberadamente separado de services/ de arriba (cliente, IsAuthenticatedActiveUser)
+    # vs. esto (admin, IsAdminUser).
+    path("services/admin/",                  AiServiceAdminListView.as_view(),         name="ai-services-admin"),
+    path("services/admin/get/",              AiServiceAdminGetView.as_view(),          name="ai-services-admin-get"),
+    path("services/admin/create-draft/",     AiServiceAdminCreateDraftView.as_view(),  name="ai-services-admin-create-draft"),
+    path("services/admin/update-draft/",     AiServiceAdminUpdateDraftView.as_view(),  name="ai-services-admin-update-draft"),
+    path("services/admin/categories/",       AiServiceAdminCategoryListView.as_view(), name="ai-services-admin-categories"),
     path("kyc/",                  AiKycStatusView.as_view(),           name="ai-kyc"),
     path("inventory/stock/",      AiStockCheckView.as_view(),          name="ai-inventory-stock"),
     path("marketing/promos/",     AiActivePromosView.as_view(),        name="ai-marketing-promos"),

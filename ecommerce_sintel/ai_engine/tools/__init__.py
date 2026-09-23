@@ -25,6 +25,7 @@ import tools.quotes_tools      # noqa: F401  QuoteTemplatesTool, StartQuotationT
 import tools.renting_tools     # noqa: F401  RentalStatusTool, RentalAvailabilityTool, EquipmentSearchTool, CreateRentalRequestTool, CancelRentalTool, MaintenanceCheckTool
 import tools.services_tools    # noqa: F401  ServiceStatusTool
 import tools.support_tools     # noqa: F401  OpenSupportTicketTool
+import tools.technical_services_tools  # noqa: F401  Admin AI Assistant, vertical Servicios (2026-09-23): ServiceListTool, ServiceGetTool, ServiceCategoryListTool, ServiceCreateDraftTool, ServiceUpdateDraftTool
 
 __all__ = [
     "RegisteredTool",

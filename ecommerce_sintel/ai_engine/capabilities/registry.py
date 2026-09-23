@@ -271,6 +271,12 @@ _CAPABILITIES: dict[str, Capability] = {
         Capability(capability_id="ver_impuesto", description_for_llm="Ver el detalle de un impuesto por su UUID.", tool_name="CatalogTaxGetTool", apps=["shop"]),
         Capability(capability_id="crear_impuesto", description_for_llm="Crear un impuesto nuevo, activo de inmediato. Requiere confirmacion explicita del administrador.", tool_name="CatalogTaxCreateTool", apps=["shop"]),
         Capability(capability_id="editar_impuesto", description_for_llm="Editar un impuesto existente (nombre, tipo, valor o si esta activo). Requiere confirmacion explicita del administrador.", tool_name="CatalogTaxUpdateTool", apps=["shop"]),
+        # -- Admin AI Assistant, vertical Servicios (PLAN_SINTEL_ADMIN_ASISTENTE_RAG_FORMULARIOS_LOOP.md, Fase 1-3, 2026-09-23) --
+        Capability(capability_id="listar_servicios", description_for_llm="Listar servicios tecnicos del catalogo (admin), con filtros de busqueda y estado activo.", tool_name="ServiceListTool", apps=["technical_services"]),
+        Capability(capability_id="ver_servicio", description_for_llm="Ver el detalle completo de un servicio tecnico por su UUID, incluida su variante de precio por defecto.", tool_name="ServiceGetTool", apps=["technical_services"]),
+        Capability(capability_id="listar_categorias_servicio", description_for_llm="Listar categorias de servicios tecnicos, con busqueda opcional.", tool_name="ServiceCategoryListTool", apps=["technical_services"]),
+        Capability(capability_id="crear_borrador_servicio", description_for_llm="Crear un servicio tecnico nuevo como borrador, sin publicar. NUNCA pedir marca ni condicion -- esos son campos de Producto, no de Servicio.", tool_name="ServiceCreateDraftTool", apps=["technical_services"]),
+        Capability(capability_id="editar_borrador_servicio", description_for_llm="Editar contenido, categoria o precio de un servicio tecnico existente (borrador o publicado). Nunca publica ni despublica.", tool_name="ServiceUpdateDraftTool", apps=["technical_services"]),
         # "analizar_impacto_arquitectura" (GraphImpactAnalysisTool) retirada 2026-08-10
         # (FASE 0, desacoplamiento ai_engine <-> project_knowledge_graph) -- era una
         # capacidad de arquitectura/ingenieria expuesta al chat de soporte, no algo que
