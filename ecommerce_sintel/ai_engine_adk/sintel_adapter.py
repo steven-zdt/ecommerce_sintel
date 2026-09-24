@@ -43,6 +43,7 @@ ver auditoria de hardening 2026-09-14.
 """
 import inspect
 import logging
+import time
 from typing import Any, Callable, Optional
 
 from google.adk.tools import FunctionTool
@@ -50,6 +51,8 @@ from google.adk.tools.tool_context import ToolContext as AdkToolContext
 
 from permissions import user_lacks_admin_permission
 from rate_limit import rate_limit_exceeded
+import idempotency
+from tools.arg_validation import validate_args
 
 logger = logging.getLogger(__name__)
 
@@ -190,6 +193,45 @@ def _sintel_ctx_from_adk_state(adk_tool_context: AdkToolContext):
     )
 
 
+def validate_tool_args_before(*, tool, args, tool_context, **_ignored):
+    """HARDENING F4/C2: `before_tool_callback` que valida los argumentos CRUDOS del modelo contra `args_schema`
+    (campos desconocidos, requeridos, tipos, UUID, enum, rangos). El ADK descarta en silencio los campos ajenos a la
+    firma, por eso esto no puede vivir dentro del wrapper de la Tool.
+
+    AI_TOOL_STRICT_ARGS=false (default): MONITOR -- deja pasar y loguea `security_event=ai_tool_args_invalid mode=monitor`
+    (sin valores, solo nombres de campo). true: devuelve un dict de error (400) y la Tool NO se ejecuta."""
+    import config as ai_config
+    from tools.registry import get_tool
+
+    registered = get_tool(tool.name)
+    if registered is None:
+        return None
+    errors = validate_args(registered.metadata.args_schema or {}, dict(args or {}))
+    if not errors:
+        return None
+    strict = ai_config.AI_TOOL_STRICT_ARGS
+    logger.warning("security_event=ai_tool_args_invalid mode=%s tool=%s errors=%s",
+                   "strict" if strict else "monitor", tool.name, errors)
+    if strict:
+        return {"error": "Argumentos invalidos para la accion solicitada.", "status_code": 400,
+                "validation_errors": errors}
+    return None
+
+
+def _audit_tool(*, metadata, tool_context, sintel_ctx, authz, status, latency_ms, status_code=None, error_class=None,
+                replay=False):
+    """HARDENING F4/C5: UN evento de auditoria por ejecucion de Tool, sin argumentos ni secretos (solo identificadores)."""
+    session = getattr(tool_context, "session", None)
+    logger.info(
+        "ai_tool_audit invocation_id=%s session_id=%s user_id=%s agent=%s tool=%s level=%s authz=%s "
+        "confirmation=%s status=%s status_code=%s latency_ms=%s error_class=%s replay=%s",
+        getattr(tool_context, "invocation_id", None), getattr(session, "id", None),
+        sintel_ctx.user.get("user_id"), getattr(tool_context, "agent_name", None), metadata.name, metadata.level,
+        authz, "confirmed" if metadata.requires_confirmation else "not_required", status, status_code, latency_ms,
+        error_class, replay,
+    )
+
+
 def adapt_sintel_tool(registered_tool) -> FunctionTool:
     """
     registered_tool: tools.registry.RegisteredTool real (obtenido via
@@ -275,29 +317,65 @@ def adapt_sintel_tool(registered_tool) -> FunctionTool:
         # sitios: lectura en node_select_and_execute_tools, escritura en
         # node_evaluate_policy) -- este runtime nunca lo porto. Mismo mensaje
         # y status_code que el sistema OLD (node_select_and_execute_tools).
+        started = time.monotonic()
         if user_lacks_admin_permission(metadata.permissions, sintel_ctx.user):
             logger.warning("[policy] IsAdminUser requerido para %s, user=%s no es staff",
                             metadata.name, sintel_ctx.user.get("user_id"))
+            _audit_tool(metadata=metadata, tool_context=tool_context, sintel_ctx=sintel_ctx, authz="denied",
+                        status="denied", status_code=403, latency_ms=round((time.monotonic() - started) * 1000))
             return {"error": "Esta accion es solo para administradores.", "status_code": 403}
-        # ADK-12, hallazgo real de la auditoria: `ToolMetadata.rate_limit` lo
-        # aplicaba SOLO la Policy Layer de `action_graph.py` (OLD) -- este
-        # runtime nunca lo porto, y ya sirve clientes reales (AI_SUPPORT_
-        # CHAT_ENABLED=True en produccion desde 2026-09-14). Mismo criterio
-        # que node_evaluate_policy: se evalua ANTES de ejecutar la funcion
-        # real, con el mismo rate_limit.py (Redis, fail-open) que ahora usa
-        # tambien `action_graph.py`. Si no hay rate_limit en la metadata,
-        # rate_limit_exceeded() devuelve False sin tocar Redis.
+        # HARDENING F4/C3: idempotencia server-side de escrituras (antes del rate limit: una repeticion identica no
+        # debe consumir cupo). Ver idempotency.py.
+        import config as ai_config
+        idem_key = None
+        if metadata.side_effects and metadata.idempotent and ai_config.AI_TOOL_IDEMPOTENCY_ENABLED:
+            session = getattr(tool_context, "session", None)
+            key = idempotency.make_key(getattr(session, "id", ""), sintel_ctx.user.get("user_id"), metadata.name, call_kwargs)
+            existing, first = await idempotency.begin(key)
+            if not first:
+                if existing == idempotency.PENDING:
+                    _audit_tool(metadata=metadata, tool_context=tool_context, sintel_ctx=sintel_ctx, authz="allowed",
+                                status="duplicate_in_flight", status_code=409, replay=True,
+                                latency_ms=round((time.monotonic() - started) * 1000))
+                    return {"error": "Una operacion identica ya esta en curso.", "status_code": 409}
+                _audit_tool(metadata=metadata, tool_context=tool_context, sintel_ctx=sintel_ctx, authz="allowed",
+                            status="replayed", replay=True, latency_ms=round((time.monotonic() - started) * 1000))
+                return {**existing, "idempotent_replay": True}
+            idem_key = key
+        # ADK-12, hallazgo real de la auditoria: `ToolMetadata.rate_limit` lo aplicaba SOLO la Policy Layer de
+        # `action_graph.py` (OLD). Se evalua ANTES de ejecutar la funcion real (rate_limit.py, Redis, fail-open).
         if metadata.rate_limit:
             user_id = sintel_ctx.user.get("user_id")
             if await rate_limit_exceeded(user_id, metadata.name, metadata.rate_limit):
                 logger.warning("[policy] rate limit %s para user=%s", metadata.name, user_id)
+                if idem_key:
+                    await idempotency.abort(idem_key)
+                _audit_tool(metadata=metadata, tool_context=tool_context, sintel_ctx=sintel_ctx, authz="allowed",
+                            status="rate_limited", status_code=429, latency_ms=round((time.monotonic() - started) * 1000))
                 return {"error": "Limite de intentos alcanzado para esta accion, "
                                   "intentar mas tarde.", "status_code": 429}
-        # Llamada real a la funcion Sintel original -- cero logica de negocio
-        # nueva en este adapter. Cualquier parametro real oculto al LLM
-        # (ausente de args_schema, ej. `history`) no llega en kwargs -- usa
-        # el default real de `real_func`.
-        return await real_func(sintel_ctx, **call_kwargs)
+        # Llamada real a la funcion Sintel original -- cero logica de negocio nueva en este adapter. Cualquier
+        # parametro real oculto al LLM (ausente de args_schema, ej. `history`) usa el default real de `real_func`.
+        try:
+            result = await real_func(sintel_ctx, **call_kwargs)
+        except Exception as exc:
+            if idem_key:
+                await idempotency.abort(idem_key)
+            _audit_tool(metadata=metadata, tool_context=tool_context, sintel_ctx=sintel_ctx, authz="allowed",
+                        status="exception", error_class=type(exc).__name__,
+                        latency_ms=round((time.monotonic() - started) * 1000))
+            raise
+        failed = isinstance(result, dict) and bool(result.get("error"))
+        if idem_key:
+            if failed or not isinstance(result, dict):
+                await idempotency.abort(idem_key)  # un fallo no bloquea un reintento legitimo
+            else:
+                await idempotency.finish(idem_key, result)
+        _audit_tool(metadata=metadata, tool_context=tool_context, sintel_ctx=sintel_ctx, authz="allowed",
+                    status="error" if failed else "ok",
+                    status_code=(result.get("status_code") if isinstance(result, dict) else None),
+                    latency_ms=round((time.monotonic() - started) * 1000))
+        return result
 
     wrapper.__name__ = metadata.name
     wrapper.__doc__ = metadata.description

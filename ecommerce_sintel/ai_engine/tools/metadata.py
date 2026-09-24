@@ -26,6 +26,10 @@ class ToolMetadata(BaseModel):
     timeout_ms: int = 8000
     version: str = "v1"                 # Componente 12: versionado desde el dia uno
     args_schema: dict = {}              # JSON-schema de argumentos (para bind_tools, Fase 3)
+    # HARDENING F4 (2026-09-24): completados por tools/classification.py::apply_policy en el registro.
+    level: int = -1                     # 0 lectura | 1 escritura local | 2 consecuencia | 3 externo | 4 destructivo/financiero
+    idempotent: bool = False            # True = el adapter del ADK deduplica repeticiones identicas
+    resource_scope: str = ""            # ambito del recurso (informativo para auditoria)
 
 
 @dataclass

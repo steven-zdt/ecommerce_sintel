@@ -45,6 +45,12 @@ AI_BREAKER_FAILURES       = config("AI_BREAKER_FAILURES", default=3, cast=int)
 AI_BREAKER_WINDOW_SECONDS = config("AI_BREAKER_WINDOW_SECONDS", default=60, cast=int)
 AI_BREAKER_OPEN_SECONDS   = config("AI_BREAKER_OPEN_SECONDS", default=60, cast=int)
 
+# HARDENING F4 (2026-09-24, propuesta ai_engine_adk/.AGENT/HARDENING_F4_PROPOSAL_2026-09-24.md).
+# AI_TOOL_STRICT_ARGS=false (default) = MONITOR: valida argumentos y solo loguea `ai_tool_args_invalid`; true = rechaza (400).
+AI_TOOL_STRICT_ARGS             = config("AI_TOOL_STRICT_ARGS", default=False, cast=bool)
+AI_TOOL_IDEMPOTENCY_ENABLED     = config("AI_TOOL_IDEMPOTENCY_ENABLED", default=True, cast=bool)
+AI_TOOL_IDEMPOTENCY_TTL_SECONDS = config("AI_TOOL_IDEMPOTENCY_TTL_SECONDS", default=600, cast=int)
+
 # FASE 4b/5 (mision de simplificacion arquitectonica, 2026-09-14): CHROMA_*/
 # EMBEDDING_*/DOCS_SPECS_PATH/INGESTION_BATCH_SIZE/MAX_RETRIEVER_CHUNKS/
 # CODEBASE_PATH retirados -- este proceso ya no calcula embeddings ni

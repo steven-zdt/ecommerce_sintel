@@ -36,6 +36,8 @@ def register_tool(metadata: ToolMetadata):
             raise ValueError(f"Tool duplicada: {metadata.name}")
         if not inspect.iscoroutinefunction(func):
             raise TypeError(f"La Tool {metadata.name} debe ser async.")
+        from tools.classification import apply_policy  # HARDENING F4: level/rate_limit/confirmacion/idempotencia
+        apply_policy(metadata)
         _TOOLS[metadata.name] = RegisteredTool(metadata=metadata, func=func)
         return func
     return decorator
