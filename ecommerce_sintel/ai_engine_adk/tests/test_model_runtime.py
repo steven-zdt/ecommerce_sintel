@@ -60,7 +60,7 @@ async def collect(model):
     return [r async for r in model.generate_content_async(object())]
 
 
-# ── Breaker ────────────────────────────────────────────────────────────────────
+#  Breaker 
 async def test_breaker_abre_tras_n_fallos_y_bloquea():
     clock = Clock()
     b = ProviderBreaker(store=MemoryStore(clock=clock), failures=3, window=60, open_seconds=60)
@@ -108,7 +108,7 @@ async def test_breaker_half_open_exito_cierra_y_fallo_reabre():
     assert await b.state("ollama") == OPEN
 
 
-# ── FallbackLiteLlm ────────────────────────────────────────────────────────────
+#  FallbackLiteLlm 
 async def test_primario_ok_no_usa_fallback(monkeypatch):
     p, f = FakeInner("p"), FakeInner("f")
     model, _, _ = make(monkeypatch, [p, f])
@@ -200,7 +200,7 @@ async def test_logs_de_fallo_sin_secretos(monkeypatch, caplog):
     assert "SECRETO" not in caplog.text  # solo el nombre de la excepcion, nunca su mensaje
 
 
-# ── C1: presupuesto de turno ───────────────────────────────────────────────────
+#  C1: presupuesto de turno 
 def test_max_output_tokens_por_superficie(monkeypatch):
     import sintel_root_workflow as wf
 

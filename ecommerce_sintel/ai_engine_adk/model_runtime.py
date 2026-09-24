@@ -42,7 +42,7 @@ class ModelUnavailableError(RuntimeError):
     """Ningun proveedor de la cadena esta disponible (breakers abiertos o todos fallaron)."""
 
 
-# ── Trazabilidad por turno ─────────────────────────────────────────────────────
+#  Trazabilidad por turno 
 _turn_trace: contextvars.ContextVar = contextvars.ContextVar("ai_turn_model_trace", default=None)
 
 
@@ -57,7 +57,7 @@ def _trace() -> dict | None:
     return _turn_trace.get()
 
 
-# ── Almacenes de estado del breaker ────────────────────────────────────────────
+#  Almacenes de estado del breaker 
 class MemoryStore:
     """Almacen en memoria (tests / fallback). Interfaz identica a RedisStore."""
 
@@ -168,7 +168,7 @@ class RedisStore:
             logger.warning("[breaker] redis delete fallo (fail-open): %s", type(exc).__name__)
 
 
-# ── Circuit breaker ────────────────────────────────────────────────────────────
+#  Circuit breaker 
 class ProviderBreaker:
     def __init__(self, store=None, failures: int | None = None, window: int | None = None,
                  open_seconds: int | None = None):
@@ -243,7 +243,7 @@ def get_breaker() -> ProviderBreaker:
     return _default_breaker
 
 
-# ── Parametros por entrada de la cadena ────────────────────────────────────────
+#  Parametros por entrada de la cadena 
 def llm_params_for_entry(entry: dict) -> dict:
     """Mismos parametros litellm que sintel_root_workflow._resolve_primary_llm_params(), para CUALQUIER entrada."""
     kind = entry["kind"]
@@ -270,7 +270,7 @@ def _is_client_error(exc: Exception) -> bool:
         return False
 
 
-# ── Modelo con fallback ────────────────────────────────────────────────────────
+#  Modelo con fallback 
 class FallbackLiteLlm(LiteLlm):
     """LiteLlm de ADK que recorre las entradas de LOCAL_MODEL_CHAIN con circuit breaker por proveedor."""
 

@@ -32,7 +32,7 @@ def _embed(doc, model='fake-model'):
         c.save()
 
 
-# ── C0: validacion del endpoint interno ────────────────────────────────────────
+#  C0: validacion del endpoint interno 
 class RetrieveEndpointValidationTests(TestCase):
     def setUp(self):
         self.client = APIClient()
@@ -61,7 +61,7 @@ class RetrieveEndpointValidationTests(TestCase):
         self.assertEqual(self.client.post(URL, {'query': ''}, format='json').json(), {'chunks': []})
 
 
-# ── C1: metadata y versionado ──────────────────────────────────────────────────
+#  C1: metadata y versionado 
 class VersioningTests(TestCase):
     def test_documento_nuevo_tiene_hash_version_1_y_chunks_con_hash(self):
         doc = Cmd.upsert_document(title='Politica', content='Texto de politica uno.')
@@ -99,7 +99,7 @@ class VersioningTests(TestCase):
         self.assertEqual(AIKnowledgeDocumentVersion.objects.filter(document=doc).count(), 2)
 
 
-# ── C2: pipeline de ingesta ────────────────────────────────────────────────────
+#  C2: pipeline de ingesta 
 class IngestionPipelineTests(TestCase):
     def test_fuentes_permitidas_y_rechazadas(self):
         for ok in ('', 'manual', 'https://sintel.net.co/politicas', 'docs/garantia.md'):
@@ -154,7 +154,7 @@ class IngestionPipelineTests(TestCase):
         self.assertEqual(doc.injection_flags, [])
 
 
-# ── C3: vigencia como filtro previo ────────────────────────────────────────────
+#  C3: vigencia como filtro previo 
 class EffectiveDatingTests(TestCase):
     def _doc(self, title, **kw):
         doc = Cmd.upsert_document(title=title, content=f'contenido de {title}', visibility=PUBLIC, **kw)
@@ -173,7 +173,7 @@ class EffectiveDatingTests(TestCase):
         self.assertEqual(titles, {'vigente', 'ventana-actual'})
 
 
-# ── C6: mezcla de modelos de embeddings ────────────────────────────────────────
+#  C6: mezcla de modelos de embeddings 
 class EmbeddingMixTests(TestCase):
     @patch('ai_knowledge.services.selectors.EmbeddingService.embed_text')
     def test_avisa_si_un_chunk_fue_embebido_con_otro_modelo(self, mock_embed):

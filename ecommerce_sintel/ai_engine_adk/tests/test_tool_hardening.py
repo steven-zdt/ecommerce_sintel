@@ -23,7 +23,7 @@ from tools.classification import (
 UUID = "3f2a9c1e-7b44-4d0a-9c11-5a1b2c3d4e5f"
 
 
-# ── C1: invariantes del registro ───────────────────────────────────────────────
+#  C1: invariantes del registro 
 def _metas():
     return [t.metadata for t in R._TOOLS.values()]
 
@@ -104,7 +104,7 @@ def test_escaner_ast_sin_eval_exec_subprocess_en_tools():
     assert not offenders, offenders
 
 
-# ── C2: validacion de argumentos ───────────────────────────────────────────────
+#  C2: validacion de argumentos 
 SCHEMA = {
     "properties": {
         "uuid": {"type": "string"},
@@ -188,7 +188,7 @@ def test_callback_encadenado_en_los_agentes():
     assert sintel_adapter.deny_after_max_tool_calls_per_turn in cbs and sintel_adapter.validate_tool_args_before in cbs
 
 
-# ── C3: idempotencia (Redis simulado) ──────────────────────────────────────────
+#  C3: idempotencia (Redis simulado) 
 class FakeRedis:
     store: dict = {}
 
@@ -326,7 +326,7 @@ async def test_lecturas_no_pasan_por_idempotencia(monkeypatch):
     assert len(calls) == 2 and FakeRedis.store == {}
 
 
-# ── C5: auditoria estructurada ─────────────────────────────────────────────────
+#  C5: auditoria estructurada 
 async def test_auditoria_un_evento_por_ejecucion_sin_argumentos(monkeypatch, caplog):
     calls = []
     fn, ctx = _build_write_tool(monkeypatch, calls)

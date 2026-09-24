@@ -148,11 +148,13 @@ onMounted(fetchMemories);
 </script>
 
 <style scoped>
-.memory-info { display: flex; gap: 12px; align-items: flex-start; margin-bottom: 20px; }
+/* CustomerCard trae `height: 100%` y `flex-direction: column` (pensado para celdas de grid): en flujo normal ocupaba todo el alto del
+   contenedor y empujaba la lista debajo del footer. Doble clase = mas especificidad que `.acc-card`. */
+.memory-info.memory-info { height: auto; flex-direction: row; align-items: flex-start; gap: 12px; margin-bottom: 20px; }
 .memory-info .bi { font-size: 1.4rem; color: var(--acc-accent, #2563eb); flex-shrink: 0; }
 .memory-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
 .memory-list { display: flex; flex-direction: column; gap: 12px; }
-.memory-item { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.memory-item.memory-item { height: auto; flex-direction: row; align-items: center; justify-content: space-between; gap: 12px; }
 .memory-body { min-width: 0; }
 .memory-category { display: inline-block; font-size: .7rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--acc-accent, #2563eb); }
 .memory-content { margin: 2px 0; font-weight: 500; word-break: break-word; }
