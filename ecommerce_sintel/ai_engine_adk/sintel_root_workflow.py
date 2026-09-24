@@ -70,6 +70,7 @@ from google.genai import types
 
 from google.adk.agents import LlmAgent
 from google.adk.agents.run_config import RunConfig
+import input_guard
 from google.adk.models.lite_llm import LiteLlm
 from google.adk.runners import Runner
 from google.adk.sessions.base_session_service import BaseSessionService
@@ -276,7 +277,8 @@ def get_domain_agent(profile_name: str) -> LlmAgent:
         f"Personalidad: {profile.personalidad}\n"
         f"Tono: {profile.tono}\n"
         "Usa siempre una tool para responder con datos reales -- nunca "
-        "inventes informacion que no venga de una tool."
+        "inventes informacion que no venga de una tool.\n\n"
+        f"{input_guard.PRECEDENCE_POLICY}"
     )
 
     async def instruction_provider(ctx) -> str:
@@ -306,6 +308,8 @@ def get_domain_agent(profile_name: str) -> LlmAgent:
         # ver deny_after_max_tool_calls_per_turn() en sintel_adapter.py.
         # HARDENING F4/C2: ademas del tope por turno, validacion de argumentos contra args_schema.
         before_tool_callback=[deny_after_max_tool_calls_per_turn, validate_tool_args_before],
+        # HARDENING F5/C5: acota el historial que llega al modelo (AI_MAX_HISTORY_TURNS / AI_MAX_CONTEXT_CHARS).
+        before_model_callback=input_guard.trim_history_callback,
         # Auditoria de hardening (2026-09-14): degradacion por-Tool en vez de
         # matar el turno completo, ver handle_tool_error() en sintel_adapter.py.
         on_tool_error_callback=handle_tool_error,
@@ -395,6 +399,16 @@ async def run_sintel_turn(
 
     model_trace = begin_turn_trace()
 
+    # HARDENING F5/C1+C4: saneo Unicode del mensaje y deteccion en MONITOR (nunca bloquea).
+    import config as ai_config
+
+    injection_flags: dict[str, list[str]] = {}
+    if ai_config.AI_INPUT_GUARD_ENABLED:
+        message = input_guard.sanitize_text(message)
+        user_flags = input_guard.flag_injection("user", message)
+        if user_flags:
+            injection_flags["user"] = user_flags
+
     # Cost Control real (cost_control.py, reusado tal cual -- mismo Redis,
     # mismo limite, mismo comportamiento que el sistema OLD; ver
     # AUDITORIA/ADK_CUTOVER_PLAN.md seccion 4, "Cost control real").
@@ -464,6 +478,23 @@ async def run_sintel_turn(
             state={SINTEL_USER_STATE_KEY: context},
         )
 
+    # HARDENING F5/C2+C4: RAG y memoria son datos NO confiables -> cerca con nonce por turno (el grounding sigue
+    # usando `knowledge_context` sin cerca). Los marcadores fijos de la aplicacion no se cercan.
+    protected_knowledge, protected_memory = knowledge_context, memory_context
+    if ai_config.AI_INPUT_GUARD_ENABLED:
+        fence_nonce = input_guard.new_nonce()
+        if knowledge_context and knowledge_context not in (_NO_KNOWLEDGE_MARKER, _LOW_CONFIDENCE_MARKER):
+            rag_flags = input_guard.flag_injection("rag", knowledge_context)
+            if rag_flags:
+                injection_flags["rag"] = rag_flags
+        if memory_context:
+            mem_flags = input_guard.flag_injection("memory", memory_context)
+            if mem_flags:
+                injection_flags["memory"] = mem_flags
+        protected_knowledge = input_guard.protect_block(
+            "RAG", knowledge_context, fence_nonce, skip=(_NO_KNOWLEDGE_MARKER, _LOW_CONFIDENCE_MARKER))
+        protected_memory = input_guard.protect_block("MEMORIA", memory_context, fence_nonce)
+
     events = []
     set_ephemeral_token(session_id, token)
     agent_started_at = time.monotonic()
@@ -473,8 +504,8 @@ async def run_sintel_turn(
             # HARDENING F3/C1: tope de llamadas al LLM por turno (RunConfig.max_llm_calls).
             run_config=RunConfig(max_llm_calls=_turn_max_llm_calls()),
             state_delta={
-                SINTEL_KNOWLEDGE_CONTEXT_STATE_KEY: knowledge_context,
-                SINTEL_CUSTOMER_MEMORY_STATE_KEY: memory_context,
+                SINTEL_KNOWLEDGE_CONTEXT_STATE_KEY: protected_knowledge,
+                SINTEL_CUSTOMER_MEMORY_STATE_KEY: protected_memory,
             },
         ):
             events.append(event)
@@ -627,6 +658,7 @@ async def run_sintel_turn(
         "memory_extraction_scheduled": memory_extraction_scheduled,
         "duration_ms": round((time.monotonic() - turn_started_at) * 1000),
         "model_trace": dict(model_trace),
+        "injection_flags": injection_flags,
     }
 
     return {

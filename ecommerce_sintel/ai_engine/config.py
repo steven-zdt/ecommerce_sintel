@@ -51,6 +51,13 @@ AI_TOOL_STRICT_ARGS             = config("AI_TOOL_STRICT_ARGS", default=False, c
 AI_TOOL_IDEMPOTENCY_ENABLED     = config("AI_TOOL_IDEMPOTENCY_ENABLED", default=True, cast=bool)
 AI_TOOL_IDEMPOTENCY_TTL_SECONDS = config("AI_TOOL_IDEMPOTENCY_TTL_SECONDS", default=600, cast=int)
 
+# HARDENING F5 (2026-09-24, propuesta ai_engine_adk/.AGENT/HARDENING_F5_PROPOSAL_2026-09-24.md).
+# AI_INPUT_GUARD_ENABLED apaga saneo (C1), cerca de datos no confiables (C2) y deteccion en monitor (C4). Nunca bloquea.
+AI_INPUT_GUARD_ENABLED = config("AI_INPUT_GUARD_ENABLED", default=True, cast=bool)
+# C5: recorte del historial que llega al modelo (0 = sin tope por turnos). Calibrar con la prueba de carga F13.
+AI_MAX_HISTORY_TURNS   = config("AI_MAX_HISTORY_TURNS", default=12, cast=int)
+AI_MAX_CONTEXT_CHARS   = config("AI_MAX_CONTEXT_CHARS", default=48000, cast=int)
+
 # FASE 4b/5 (mision de simplificacion arquitectonica, 2026-09-14): CHROMA_*/
 # EMBEDDING_*/DOCS_SPECS_PATH/INGESTION_BATCH_SIZE/MAX_RETRIEVER_CHUNKS/
 # CODEBASE_PATH retirados -- este proceso ya no calcula embeddings ni

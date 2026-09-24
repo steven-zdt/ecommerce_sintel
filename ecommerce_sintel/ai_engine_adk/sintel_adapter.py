@@ -52,6 +52,7 @@ from google.adk.tools.tool_context import ToolContext as AdkToolContext
 from permissions import user_lacks_admin_permission
 from rate_limit import rate_limit_exceeded
 import idempotency
+import input_guard
 from tools.arg_validation import validate_args
 
 logger = logging.getLogger(__name__)
@@ -365,6 +366,11 @@ def adapt_sintel_tool(registered_tool) -> FunctionTool:
                         status="exception", error_class=type(exc).__name__,
                         latency_ms=round((time.monotonic() - started) * 1000))
             raise
+        # HARDENING F5/C1+C4: la salida de una Tool es contenido NO confiable -> saneo Unicode (sin cambiar la forma) y
+        # deteccion en monitor (sin contenido en el log).
+        if ai_config.AI_INPUT_GUARD_ENABLED and isinstance(result, (dict, list)):
+            result = input_guard.sanitize_json_strings(result)
+            input_guard.flag_tool_output(metadata.name, result)
         failed = isinstance(result, dict) and bool(result.get("error"))
         if idem_key:
             if failed or not isinstance(result, dict):
