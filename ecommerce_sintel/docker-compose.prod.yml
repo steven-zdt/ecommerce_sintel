@@ -16,9 +16,8 @@
 # AI_SUPPORT_CHAT_ENABLED sigue en false hasta activacion explicita posterior
 # (fuera de alcance de este cambio de infraestructura).
 #
-# NO incluye todavia (permanece privado, solo en docker-compose.yml de
-# desarrollo): sintel_ollama -- decision de proveedor LLM diferida a
-# proposito, ver comentario del servicio sintel_ai abajo. ChromaDB se retiro
+# sintel_ollama: integrado el 2026-09-24 (aditivo, sin consumidores re-apuntados,
+# ver el servicio mas abajo). Antes permanecia solo en dev por decision de proveedor LLM diferida. ChromaDB se retiro
 # por completo del proyecto (FASE 4b, 2026-09-14), no aplica a ningun
 # entorno. frontend
 # (vite dev server) tampoco aplica: el bundle de Vue ya viene compilado dentro
@@ -244,6 +243,41 @@ services:
       start_period: 30s
     networks:
       - sintel-network
+
+  # ─── OLLAMA (LLM local, privado -- NUNCA expuesto a Internet ni al host) ────
+  # Integrado a produccion el 2026-09-24 a pedido explicito del usuario. Revierte la decision de
+  # 2026-08-17 ("LM Studio como unico proveedor productivo, SIN Ollama") SOLO en lo de tener el
+  # contenedor disponible: este cambio es ADITIVO y NO re-apunta a ningun consumidor -- sintel_ai /
+  # sintel_ai_adk siguen usando LOCAL_MODEL_CHAIN (LM Studio) hasta que se cambie explicitamente
+  # (o se configure desde /panel/soporte/ia-config, app ai_provider, con base_url
+  # http://sintel_ollama:11434).
+  # Sin "ports": solo alcanzable dentro de sintel-network (a diferencia de dev, que publica
+  # 127.0.0.1:11434 para debug manual). Imagen fijada (no :latest) a la version verificada en dev
+  # para que un pull futuro no cambie el comportamiento en produccion sin decision explicita.
+  # GPU: el host tiene UNA sola GPU (RTX 4060) compartida con el Ollama de dev y con LM Studio --
+  # los modelos se descargan a mano tras el primer arranque (ver docs), no se bajan solos.
+  sintel_ollama:
+    image: ollama/ollama:0.30.10
+    container_name: sintel_prod_ollama
+    restart: unless-stopped
+    logging: *default-logging
+    volumes:
+      - sintel_prod_ollama_models:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+    networks:
+      - sintel-network
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
 
   # ─── AI ENGINE (privado -- NUNCA expuesto a Internet) ──────────────────────
   # Auditoria de puesta en produccion (2026-08-17): agregado deliberadamente SIN
@@ -497,6 +531,8 @@ volumes:
   sintel_prod_beat_schedule:
     driver: local
   sintel_prod_mcp_tokens:
+    driver: local
+  sintel_prod_ollama_models:
     driver: local
 
 # ═════════════════════════════════════════════════════════════════════════════
