@@ -39,6 +39,34 @@ AI_TURN_MAX_SECONDS          = config("AI_TURN_MAX_SECONDS", default=120, cast=i
 AI_TURN_MAX_LLM_CALLS        = config("AI_TURN_MAX_LLM_CALLS", default=6, cast=int)
 AI_SUPPORT_MAX_OUTPUT_TOKENS = config("AI_SUPPORT_MAX_OUTPUT_TOKENS", default=1024, cast=int)
 AI_ADMIN_MAX_OUTPUT_TOKENS   = config("AI_ADMIN_MAX_OUTPUT_TOKENS", default=2048, cast=int)
+
+
+def _parse_agent_limits(raw: str) -> dict:
+    """'RentalAgent=1536,SupportAgent=768' -> {'RentalAgent': 1536, ...}. Entradas invalidas se ignoran (nunca rompen el arranque)."""
+    limits = {}
+    for part in (raw or "").split(","):
+        name, _, value = part.partition("=")
+        name, value = name.strip(), value.strip()
+        if name and value.isdigit() and int(value) > 0:
+            limits[name] = int(value)
+    return limits
+
+
+# HARDENING F12/C3 (2026-09-24, propuesta ai_engine_adk/.AGENT/HARDENING_F12_PROPOSAL_2026-09-24.md): limite de tokens de salida POR AGENTE.
+# Vacio (default) = comportamiento anterior (por superficie). Fijar valores solo con los p95 medidos (scripts/ai_eval/efficiency_baseline.py).
+AI_AGENT_MAX_OUTPUT_TOKENS = config("AI_AGENT_MAX_OUTPUT_TOKENS", default="", cast=_parse_agent_limits)
+# F12/C4: tope del resultado serializado de una Tool que vuelve al modelo. false (default) = MONITOR: solo loguea `tool_result_truncated`;
+# true = recorta listas y cadenas con un marcador explicito.
+AI_TOOL_MAX_RESULT_CHARS = config("AI_TOOL_MAX_RESULT_CHARS", default=8000, cast=int)
+AI_TOOL_RESULT_ENFORCE   = config("AI_TOOL_RESULT_ENFORCE", default=False, cast=bool)
+
+# HARDENING F13/C2 (2026-09-24, propuesta ai_engine_adk/.AGENT/HARDENING_F13_PROPOSAL_2026-09-24.md): control de admision de turnos.
+# AI_MAX_CONCURRENT_TURNS=0 (default) = DESACTIVADO (sin limite, comportamiento anterior). Fijarlo SOLO con la prueba de carga
+# (scripts/load/adk_load_test.py) y en linea con OLLAMA_NUM_PARALLEL; los turnos que no caben esperan hasta QUEUE_MAX_WAIT_SECONDS en una
+# cola de QUEUE_MAX_DEPTH y, si no, reciben una respuesta degradada inmediata (handoff).
+AI_MAX_CONCURRENT_TURNS   = config("AI_MAX_CONCURRENT_TURNS", default=0, cast=int)
+AI_QUEUE_MAX_DEPTH        = config("AI_QUEUE_MAX_DEPTH", default=20, cast=int)
+AI_QUEUE_MAX_WAIT_SECONDS = config("AI_QUEUE_MAX_WAIT_SECONDS", default=30, cast=int)
 # C2 -- circuit breaker por proveedor de la cadena de modelos (model_runtime.py).
 AI_BREAKER_ENABLED        = config("AI_BREAKER_ENABLED", default=True, cast=bool)
 AI_BREAKER_FAILURES       = config("AI_BREAKER_FAILURES", default=3, cast=int)
@@ -50,6 +78,9 @@ AI_BREAKER_OPEN_SECONDS   = config("AI_BREAKER_OPEN_SECONDS", default=60, cast=i
 AI_TOOL_STRICT_ARGS             = config("AI_TOOL_STRICT_ARGS", default=False, cast=bool)
 AI_TOOL_IDEMPOTENCY_ENABLED     = config("AI_TOOL_IDEMPOTENCY_ENABLED", default=True, cast=bool)
 AI_TOOL_IDEMPOTENCY_TTL_SECONDS = config("AI_TOOL_IDEMPOTENCY_TTL_SECONDS", default=600, cast=int)
+# HARDENING F14/C2 (2026-09-24): false (default) = si Redis cae, las escrituras se ejecutan SIN deduplicar (fail-open, comportamiento
+# anterior). true = fail-closed: la escritura se rechaza con 503 + handoff (evita duplicados: doble ticket/solicitud) mientras Redis no responda.
+AI_TOOL_IDEMPOTENCY_FAIL_CLOSED = config("AI_TOOL_IDEMPOTENCY_FAIL_CLOSED", default=False, cast=bool)
 
 # HARDENING F5 (2026-09-24, propuesta ai_engine_adk/.AGENT/HARDENING_F5_PROPOSAL_2026-09-24.md).
 # AI_INPUT_GUARD_ENABLED apaga saneo (C1), cerca de datos no confiables (C2) y deteccion en monitor (C4). Nunca bloquea.

@@ -22,6 +22,7 @@ import config as ai_config
 logger = logging.getLogger("idempotency")
 
 PENDING = "__pending__"
+UNAVAILABLE = "__store_unavailable__"  # F14: el almacen de idempotencia no responde y se configuro fail-closed
 _PENDING_TTL_SECONDS = 60
 
 
@@ -47,6 +48,11 @@ async def begin(key: str):
         finally:
             await c.aclose()
     except Exception as exc:  # noqa: BLE001
+        # HARDENING F14/C2: por defecto fail-open (una escritura no se bloquea por un Redis caido). Con
+        # AI_TOOL_IDEMPOTENCY_FAIL_CLOSED=true NO se ejecuta la escritura sin poder deduplicarla ("no duplicate side effects").
+        if ai_config.AI_TOOL_IDEMPOTENCY_FAIL_CLOSED:
+            logger.warning("ai_operation_event=idempotency_unavailable mode=fail_closed error=%s", type(exc).__name__)
+            return UNAVAILABLE, False
         logger.warning("[idempotency] redis no disponible (fail-open): %s", type(exc).__name__)
         return None, True
     if raw is None or raw == PENDING:

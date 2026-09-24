@@ -238,6 +238,10 @@ def _turn_max_llm_calls() -> int:
 def _max_output_tokens_for(profile_name: str) -> int:
     import config as ai_config
 
+    # HARDENING F12/C3: un limite declarado para ESTE agente tiene prioridad; sin el, se conserva el limite por superficie.
+    per_agent = ai_config.AI_AGENT_MAX_OUTPUT_TOKENS.get(profile_name)
+    if per_agent:
+        return per_agent
     return ai_config.AI_ADMIN_MAX_OUTPUT_TOKENS if profile_name in _ADMIN_AGENT_NAMES \
         else ai_config.AI_SUPPORT_MAX_OUTPUT_TOKENS
 

@@ -53,6 +53,7 @@ from permissions import user_lacks_admin_permission
 from rate_limit import rate_limit_exceeded
 import idempotency
 import input_guard
+import result_limits
 from tools.arg_validation import validate_args
 
 logger = logging.getLogger(__name__)
@@ -334,6 +335,12 @@ def adapt_sintel_tool(registered_tool) -> FunctionTool:
             key = idempotency.make_key(getattr(session, "id", ""), sintel_ctx.user.get("user_id"), metadata.name, call_kwargs)
             existing, first = await idempotency.begin(key)
             if not first:
+                if existing == idempotency.UNAVAILABLE:
+                    _audit_tool(metadata=metadata, tool_context=tool_context, sintel_ctx=sintel_ctx, authz="allowed",
+                                status="idempotency_unavailable", status_code=503,
+                                latency_ms=round((time.monotonic() - started) * 1000))
+                    return {"error": "No se pudo ejecutar la accion de forma segura en este momento. "
+                                     "Un agente humano puede ayudarte.", "status_code": 503}
                 if existing == idempotency.PENDING:
                     _audit_tool(metadata=metadata, tool_context=tool_context, sintel_ctx=sintel_ctx, authz="allowed",
                                 status="duplicate_in_flight", status_code=409, replay=True,
@@ -371,6 +378,16 @@ def adapt_sintel_tool(registered_tool) -> FunctionTool:
         if ai_config.AI_INPUT_GUARD_ENABLED and isinstance(result, (dict, list)):
             result = input_guard.sanitize_json_strings(result)
             input_guard.flag_tool_output(metadata.name, result)
+        # HARDENING F12/C4: tope del resultado que vuelve al modelo (contexto de Ollama = 4096 tokens). MONITOR por defecto.
+        limited, limit_info = result_limits.limit_result(result, ai_config.AI_TOOL_MAX_RESULT_CHARS)
+        if limit_info:
+            logger.warning(
+                "ai_operation_event=tool_result_truncated enforced=%s tool=%s original_chars=%s final_chars=%s shown=%s total=%s "
+                "strings_capped=%s limit=%s", ai_config.AI_TOOL_RESULT_ENFORCE, metadata.name, limit_info["original_chars"],
+                limit_info["final_chars"], limit_info["shown"], limit_info["total"], limit_info["strings_capped"],
+                ai_config.AI_TOOL_MAX_RESULT_CHARS)
+            if ai_config.AI_TOOL_RESULT_ENFORCE:
+                result = limited
         failed = isinstance(result, dict) and bool(result.get("error"))
         if idem_key:
             if failed or not isinstance(result, dict):

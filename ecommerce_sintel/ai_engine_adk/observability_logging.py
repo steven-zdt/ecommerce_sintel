@@ -174,7 +174,7 @@ def configure_root(level: int = logging.INFO) -> None:
 _TURN_FIELDS = (
     "agent", "intent", "handoff", "escalation", "tool_calls", "needs_confirmation", "retrieval_used", "knowledge_state",
     "grounding_result", "duration_ms", "retrieval_latency_ms", "agent_latency_ms", "grounding_latency_ms", "memory_used",
-    "rate_limited", "engine_unavailable", "turn_timeout", "llm_tokens_in", "llm_tokens_out", "tokens", "tokens_per_s",
+    "rate_limited", "engine_unavailable", "turn_timeout", "llm_tokens_in", "llm_tokens_out", "tokens", "tokens_per_s", "queue_wait_ms", "queue_rejected", "queue_reason",
 )
 _TRACE_FIELDS = ("provider", "model", "fallback_used", "fallback_reason", "breaker_state", "attempts")
 

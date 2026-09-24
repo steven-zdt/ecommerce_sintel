@@ -21,6 +21,7 @@ import logging
 from fastapi import Depends, FastAPI, HTTPException, Request
 from pydantic import BaseModel, Field
 
+import admission
 import observability_logging as obs
 from auth import get_validated_token, require_service_token
 from sintel_root_workflow import IdentityResolutionError, run_sintel_turn
@@ -28,6 +29,17 @@ from sintel_root_workflow import IdentityResolutionError, run_sintel_turn
 # HARDENING F9: filtros de contexto (request_id) y redaccion de secretos en TODOS los logs; JSON solo con LOG_FORMAT=json.
 obs.configure_root(logging.INFO)
 logger = logging.getLogger("main")
+
+# HARDENING F13/C2: control de admision (desactivado con AI_MAX_CONCURRENT_TURNS=0). Se construye al primer uso para leer la config vigente.
+_admission: "admission.Admission | None" = None
+
+
+def _get_admission(ai_config) -> "admission.Admission":
+    global _admission
+    if _admission is None:
+        _admission = admission.Admission(
+            ai_config.AI_MAX_CONCURRENT_TURNS, ai_config.AI_QUEUE_MAX_DEPTH, ai_config.AI_QUEUE_MAX_WAIT_SECONDS)
+    return _admission
 
 app = FastAPI(
     title="Sintel AI Engine (ADK)",
@@ -77,13 +89,32 @@ async def chat(req: ChatRequest, request: Request, token: str = Depends(get_vali
     request_id = obs.valid_id(request.headers.get("x-request-id")) or obs.new_request_id("req")
     session_id = request.headers.get("x-session-id") or req.conversation_id
     ctx_tokens = obs.set_context(request_id=request_id, session_id=session_id)
+    gate = _get_admission(ai_config)
     try:
-        return await _chat_turn(req, token, ai_config)
+        try:
+            queue_wait_ms = await gate.acquire()
+        except admission.Rejected as exc:
+            # Sin cupo: respuesta degradada INMEDIATA (handoff), sin tocar el modelo ni el breaker.
+            logger.warning("ai_operation_event=turn_rejected reason=%s waited_ms=%s %s", exc.reason, exc.waited_ms, gate.snapshot())
+            channel = req.channel if req.channel in ("web", "whatsapp") else "unknown"
+            metrics = {"engine_unavailable": True, "queue_rejected": True, "queue_reason": exc.reason, "queue_wait_ms": exc.waited_ms}
+            obs.emit_turn_metrics(metrics, status="degraded", source=req.source, channel=channel)
+            return ChatResponse(
+                conversation_id=req.conversation_id or "",
+                intent="unknown", agent=None, tool_calls=[], tool_results=[],
+                needs_confirmation=False, confirmation=None,
+                response="En este momento nuestro asistente esta con mucha demanda. Un agente humano revisara tu mensaje pronto.",
+                metrics=metrics,
+            )
+        try:
+            return await _chat_turn(req, token, ai_config, queue_wait_ms)
+        finally:
+            gate.release()
     finally:
         obs.reset_context(ctx_tokens)
 
 
-async def _chat_turn(req: ChatRequest, token: str, ai_config):
+async def _chat_turn(req: ChatRequest, token: str, ai_config, queue_wait_ms: int = 0):
     channel = req.channel if req.channel in ("web", "whatsapp") else "unknown"
     try:
         # HARDENING F3/C1: tiempo maximo TOTAL del turno (antes solo habia 90 s por llamada al LLM en el ADK
@@ -130,6 +161,8 @@ async def _chat_turn(req: ChatRequest, token: str, ai_config):
             metrics={"engine_unavailable": True},
         )
     turn_metrics = result.get("metrics") or {}
+    if queue_wait_ms:
+        turn_metrics["queue_wait_ms"] = queue_wait_ms  # espera en la cola de admision (F13); tambien viaja a ai_metrics
     obs.emit_turn_metrics(
         {**turn_metrics, "agent": result.get("agent"), "intent": result.get("intent"),
          "tool_calls": len(result.get("tool_calls") or []),
