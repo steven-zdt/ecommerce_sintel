@@ -28,6 +28,7 @@ import urllib.request
 from pathlib import Path
 
 OLLAMA = "http://127.0.0.1:11434"
+NO_THINK = False
 
 SYSTEM = (
     "Eres el asistente virtual de Sintel, una tienda colombiana de tecnologia (seguridad electronica, "
@@ -111,6 +112,8 @@ UUID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
 def chat(model, messages, tools, timeout=300):
     body = {"model": model, "messages": messages, "tools": tools, "stream": False,
             "options": {"temperature": 0.2, "num_ctx": 4096}}
+    if NO_THINK:
+        body["think"] = False  # desactiva el modo de razonamiento (Qwen3/3.5): menos latencia
     req = urllib.request.Request(OLLAMA + "/api/chat", data=json.dumps(body).encode(),
                                  headers={"Content-Type": "application/json"})
     t0 = time.time()
@@ -205,8 +208,11 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--models", nargs="+", required=True)
     ap.add_argument("--runs", type=int, default=1)
+    ap.add_argument("--no-think", action="store_true", help="think=false en la peticion a Ollama")
     ap.add_argument("--out", default="scripts/ai_eval/_out")
     args = ap.parse_args()
+    global NO_THINK
+    NO_THINK = args.no_think
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
 

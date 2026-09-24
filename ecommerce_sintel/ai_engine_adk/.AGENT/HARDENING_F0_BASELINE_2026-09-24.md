@@ -61,6 +61,19 @@ Ollama de dev ocupando VRAM a la vez. NO se probo `/chat` real (requiere un JWT 
 Lectura: qwen3.5 acierta mucho mas la herramienta (llama llama herramientas en saludos/agradecimientos), pero su latencia es ~27x
 peor en esta GPU de 8 GB (offload parcial + razonamiento). Muestra pequena; no es un veredicto (ver F10/F13 del plan).
 
+## Latencia del primario y decision sobre el modo de razonamiento (2026-09-24)
+Prueba contra `sintel_prod_ollama` (4 peticiones, modelo caliente, Ollama de dev detenido a proposito por el usuario):
+generacion ~16-18 tok/s (vs ~7 con el Ollama de dev compitiendo por VRAM).
+| Modo | Caso | Total | Tokens |
+|---|---|---|---|
+| razonamiento ON (actual) | saludo | 22.4 s (13 s carga en frio) | 136 |
+| razonamiento ON | busqueda de producto | 9.1 s, llamo `search_products` | 123 |
+| razonamiento OFF (`think=false`) | saludo | 2.7 s | 22 |
+| razonamiento OFF | busqueda de producto | 4.9 s, NO llamo la herramienta (pidio aclaracion) | 58 |
+**Decision del usuario: opcion 1 — mantener el razonamiento activo** (prioriza precision en herramientas sobre latencia).
+No hay cambio de codigo ni de despliegue. Reevaluar con el golden dataset (F10) y la prueba de carga (F13); si se decide
+desactivarlo, requiere pasar `think=false` en `_resolve_primary_llm_params` (rebuild de `sintel_ai_adk`) o escalar por reglas.
+
 ## Pendiente / siguiente (todo requiere propuesta + aprobacion segun §0.3)
 1. Registrar `OLLAMA_PRIMARY_MODEL_DIGEST` cuando termine `ollama pull qwen3.5:9b` en produccion.
 2. Correr `chat_model_bench.py` (dev) sobre `qwen3.5:9b` vs `llama3.1:8b` antes de dar por bueno el primario.
