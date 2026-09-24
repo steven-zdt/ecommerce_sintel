@@ -1,5 +1,5 @@
 <template>
-  <div class="hcb-shell">
+  <div :class="['hcb-shell', showPreview ? '' : 'hcb-shell--no-preview']">
 
     <!-- ══ SIDEBAR ══════════════════════════════════════════════════════════ -->
     <aside class="hcb-sidebar">
@@ -12,7 +12,10 @@
         <button
           v-for="s in sections"
           :key="s.id"
+          type="button"
           :class="['hcb-nav-btn', currentSection === s.id ? 'hcb-nav-btn--active' : '']"
+          :aria-current="currentSection === s.id ? 'page' : undefined"
+          :title="s.hint"
           @click="currentSection = s.id"
         >
           <i :class="['bi', s.icon]"></i>
@@ -22,7 +25,7 @@
       </nav>
 
       <div class="hcb-sidebar-footer">
-        <a href="/" target="_blank" class="hcb-preview-btn">
+        <a href="/" target="_blank" rel="noopener" class="hcb-preview-btn">
           <i class="bi bi-eye"></i> Ver sitio
         </a>
       </div>
@@ -30,6 +33,14 @@
 
     <!-- ══ EDITOR ════════════════════════════════════════════════════════════ -->
     <main class="hcb-editor" :key="currentSection">
+      <button
+        v-if="!showPreview"
+        type="button"
+        class="hcb-btn hcb-preview-reopen"
+        @click="showPreview = true"
+      >
+        <i class="bi bi-eye"></i> Mostrar vista previa
+      </button>
 
       <!-- ── MÓDULOS ─────────────────────────────────────────────────────── -->
       <ModulesSection v-if="currentSection === 'modules'" />
@@ -65,10 +76,13 @@
     </main>
 
     <!-- ══ PREVIEW ═══════════════════════════════════════════════════════════ -->
-    <aside class="hcb-preview-panel">
+    <aside v-show="showPreview" class="hcb-preview-panel">
       <div class="hcb-preview-header">
         <span class="hcb-preview-label">Vista previa</span>
         <div class="hcb-preview-viewport-btns">
+          <button type="button" class="hcb-vp-btn" title="Ocultar vista previa" aria-label="Ocultar vista previa" @click="showPreview = false">
+            <i class="bi bi-layout-sidebar-inset-reverse"></i>
+          </button>
           <button :class="['hcb-vp-btn', previewDevice === 'desktop' ? 'active' : '']" @click="previewDevice = 'desktop'" title="Desktop">
             <i class="bi bi-display"></i>
           </button>
@@ -124,6 +138,7 @@
 
 <script setup>
 import { ref, computed, watch, onMounted } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import { storeToRefs } from 'pinia';
 import { useToast } from '@/composables/useToast';
 import { useCoreAdminStore } from '@/store/coreAdmin';
@@ -159,19 +174,39 @@ const {
 } = storeToRefs(store);
 
 // ── Navegacion lateral ────────────────────────────────────────────────────────
-const currentSection = ref('modules');
+// UX (2026-09-24): la seccion activa vive en la URL (?section=cards) para que recargar,
+// compartir el enlace o volver atras no devuelva siempre a "Modulos".
+const route = useRoute();
+const router = useRouter();
 
 const sections = computed(() => [
-  { id: 'modules', label: 'Modulos',  icon: 'bi-grid',          count: modules.value.length || null },
-  { id: 'banners', label: 'Banners',  icon: 'bi-images',         count: banners.value.length || null },
-  { id: 'cards',   label: 'Tarjetas', icon: 'bi-grid-1x2',       count: cards.value.length || null },
-  { id: 'feature_banner', label: 'Feature Banner', icon: 'bi-window-stack', count: featureBannerSections.value.length || null },
-  { id: 'footer',  label: 'Footer',   icon: 'bi-layout-text-window', count: footerGroups.value.length || null },
-  { id: 'brand',   label: 'Marca',    icon: 'bi-building',       count: null },
-  { id: 'navbar',  label: 'Navbar',   icon: 'bi-list',           count: navbarLinks.value.length || null },
-  { id: 'cta',     label: 'CTA Final', icon: 'bi-megaphone',     count: null },
-  { id: 'brand_slider', label: 'Slider de Marcas', icon: 'bi-collection', count: brandItems.value.length || null },
+  { id: 'modules', label: 'Modulos',  icon: 'bi-grid',          count: modules.value.length || null, hint: 'Accesos rapidos del Home' },
+  { id: 'banners', label: 'Banners',  icon: 'bi-images',         count: banners.value.length || null, hint: 'Carrusel principal (hero)' },
+  { id: 'cards',   label: 'Tarjetas', icon: 'bi-grid-1x2',       count: cards.value.length || null, hint: 'Tarjetas agrupadas del Home' },
+  { id: 'feature_banner', label: 'Feature Banner', icon: 'bi-window-stack', count: featureBannerSections.value.length || null, hint: 'Bloques destacados' },
+  { id: 'footer',  label: 'Footer',   icon: 'bi-layout-text-window', count: footerGroups.value.length || null, hint: 'Enlaces, contacto y redes' },
+  { id: 'brand',   label: 'Marca',    icon: 'bi-building',       count: null, hint: 'Nombre, eslogan y logo' },
+  { id: 'navbar',  label: 'Navbar',   icon: 'bi-list',           count: navbarLinks.value.length || null, hint: 'Menu de navegacion superior' },
+  { id: 'cta',     label: 'CTA Final', icon: 'bi-megaphone',     count: null, hint: 'Llamado a la accion previo al footer' },
+  { id: 'brand_slider', label: 'Slider de Marcas', icon: 'bi-collection', count: brandItems.value.length || null, hint: 'Marcas y clientes' },
 ]);
+
+const validSectionIds = ['modules', 'banners', 'cards', 'feature_banner', 'footer', 'brand', 'navbar', 'cta', 'brand_slider'];
+const currentSection = ref(validSectionIds.includes(route.query.section) ? route.query.section : 'modules');
+watch(currentSection, (id) => {
+  if (route.query.section !== id) router.replace({ query: { ...route.query, section: id } });
+});
+watch(() => route.query.section, (id) => {
+  if (validSectionIds.includes(id) && id !== currentSection.value) currentSection.value = id;
+});
+
+// Vista previa colapsable (en pantallas medianas el editor necesita el ancho); se recuerda por usuario.
+let storedPreview = null;
+try { storedPreview = localStorage.getItem('hcb_show_preview'); } catch { /* storage bloqueado */ }
+const showPreview = ref(storedPreview === null ? window.innerWidth >= 1200 : storedPreview === '1');
+watch(showPreview, (v) => {
+  try { localStorage.setItem('hcb_show_preview', v ? '1' : '0'); } catch { /* storage bloqueado */ }
+});
 
 // ── Preview device ─────────────────────────────────────────────────────────────
 const previewDevice = ref('desktop');
@@ -360,6 +395,41 @@ onMounted(() => {
   background: #f1f5f9;
   font-size: .875rem;
   margin: -1.5rem;
+}
+
+.hcb-shell--no-preview { grid-template-columns: 220px 1fr; }
+
+/* Accesibilidad: foco visible en todos los controles del builder */
+.hcb-shell button:focus-visible,
+.hcb-shell a:focus-visible,
+.hcb-shell input:focus-visible,
+.hcb-shell select:focus-visible,
+.hcb-shell textarea:focus-visible {
+  outline: 2px solid #60a5fa; outline-offset: 2px;
+}
+.hcb-preview-reopen { position: sticky; top: 0; float: right; z-index: 5; box-shadow: 0 2px 8px rgba(0,0,0,.08); }
+@media (prefers-reduced-motion: reduce) {
+  .hcb-shell * { transition: none !important; animation: none !important; }
+}
+/* Pantallas medianas: preview mas angosta */
+@media (max-width: 1399px) {
+  .hcb-shell { grid-template-columns: 200px 1fr 280px; }
+  .hcb-shell--no-preview { grid-template-columns: 200px 1fr; }
+}
+/* Tablet / movil: navegacion horizontal arriba, editor y preview apilados */
+@media (max-width: 991px) {
+  .hcb-shell, .hcb-shell--no-preview {
+    grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr) auto;
+    height: auto; min-height: calc(100vh - 70px); overflow: visible;
+  }
+  .hcb-sidebar { flex-direction: row; align-items: center; overflow-x: auto; overflow-y: hidden; }
+  .hcb-logo { border-bottom: none; padding: .75rem 1rem; white-space: nowrap; }
+  .hcb-nav { flex-direction: row; padding: .5rem; flex: 1 0 auto; }
+  .hcb-nav-btn { width: auto; white-space: nowrap; }
+  .hcb-sidebar-footer { border-top: none; padding: .5rem 1rem; white-space: nowrap; }
+  .hcb-editor { padding: 1.25rem 1rem; overflow: visible; }
+  .hcb-form-grid { grid-template-columns: 1fr; }
+  .hcb-preview-panel { border-left: none; border-top: 1px solid #e2e8f0; max-height: 70vh; }
 }
 
 /* ══ SIDEBAR ════════════════════════════════════════════════════════════════ */
