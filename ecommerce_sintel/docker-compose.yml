@@ -186,7 +186,7 @@ services:
 
   # ─── MOTOR COGNITIVO IA ────────────────────────────────────────────────────
   sintel_ollama:
-    image: ollama/ollama:latest
+    image: ollama/ollama:0.30.10  # F16: fijado a la version de prod (antes :latest)
     container_name: ecommerce_sintel_ollama
     restart: unless-stopped
     ports:
