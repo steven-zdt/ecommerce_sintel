@@ -723,6 +723,12 @@ if is_ai_mode_active(room) and not is_ai_rate_limited(room):
   telemetria por turno que el AI Engine ya calculaba (`observability.py::TurnMetrics`) pero
   antes se descartaba tras loguearla. Expuesto en el Dashboard admin, nunca por WebSocket.
 
+### 2026-09-24 — Hardening del asistente: handoff seguro, correlación y canary (F9, F17, F18)
+- **Handoff (F18)**: un agente HUMANO que responde en una sala pausa la IA (`ChatCommands.pause_ai_for_human_takeover`, flag `AI_PAUSE_ON_HUMAN_REPLY`); la IA solo vuelve con reactivación **explícita**: `POST /api/v1/support/chats/<room_uuid>/resume-ai/` (solo admins; `ChatCommands.resume_ai` también libera `assigned_admin`). Antes nada ponía `ai_paused=False`. Un turno degradado (motor caído, timeout, cola llena) avisa a `support_admins` con «[Asistente no disponible]» (`alert_admins_ai_degraded`, cooldown por sala).
+- **Correlación (F9)**: `ecommerce/request_id.py` (middleware) + un `request_id` `ws-...` por mensaje del WebSocket; `ai_bridge` envía `X-Request-ID`/`X-Session-Id` al ADK y persiste `SecurityEvent.AI_SECURITY_FLAG` (solo categorías e ids). `manage.py ai_observability_report`.
+- **Canary (F17)**: `support/services/engine_routing.py` elige ADK `stable|canary` por usuario (`AI_CANARY_*`; vacío = apagado); `ai_bridge` marca `metrics.engine_track` y cae al estable si el canary no acepta la conexión. `manage.py ai_canary_report`.
+- Referencia completa: `ai_engine_adk/.AGENT/{SECURITY_MODEL,PRODUCTION_RUNBOOK,INCIDENT_RESPONSE}.md`.
+
 ### 2026-07-03 — Correccion completa contra codigo real
 - Se elimino la documentacion de una REST API (`ChatRoomViewSet`, `/api/v1/support/rooms/...`)
   y un WebSocket por sala (`ws/support/<room_uuid>/`) que nunca existieron en el codigo.

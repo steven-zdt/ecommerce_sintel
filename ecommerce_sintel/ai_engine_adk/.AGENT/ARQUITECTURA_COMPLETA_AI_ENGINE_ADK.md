@@ -126,3 +126,23 @@ y algunos casos de `test_customer_memory.py` SÍ requieren Postgres real — cor
 - Token/costo por turno no medido sistemáticamente (gap de ADK, no de este código).
 - `deploy/deploy.sh` no reconstruye `sintel_ai_adk` en producción — requiere pasos manuales (ver
   `.AGENT.md` sección "0-C" y `AUDITORIA/PRODUCTION_SYNC_2026-09-15.md`).
+
+## ACTUALIZACIÓN 2026-09-24 — Programa de hardening F0–F19 (rama `fix/audit-p0-remediation`)
+
+Plan: `PLAN_HARDENING_LLM_AGENTS_PRODUCCION_SINTEL_QWEN_OLLAMA_PRIMARY_20260924.md` (Ollama+Qwen3.5-9B primario, LM Studio respaldo). Esta arquitectura cambió; **lo que dice el resto de este documento sobre "sin medición de tokens" y "solo entrada primaria del modelo" está superado**:
+tokens por turno sí se miden (F9, `usage_metadata` -> `llm_tokens_in/out`), y el modelo usa fallback + circuit breaker (F3).
+Documentos vivos de referencia (léelos antes de tocar el ADK):
+
+| Tema | Documento |
+|---|---|
+| Modelo de seguridad y capas | `SECURITY_MODEL.md` |
+| Runtime del modelo, presupuestos, versiones | `MODEL_RUNTIME.md` |
+| Seguridad de tools (niveles, policy layer) | `TOOL_SECURITY.md` |
+| RAG y memoria del cliente | `RAG_SECURITY.md` |
+| Evaluación (F10/F11), hallazgos abiertos | `EVALUATION_BASELINE.md` (+ `eval/README.md`) |
+| Operación y despliegue (canary/rollback) | `PRODUCTION_RUNBOOK.md` |
+| Incidentes | `INCIDENT_RESPONSE.md` |
+| Historia y decisiones por fase | `HARDENING_F0_BASELINE_*`, `HARDENING_F1…F18_*` (propuesta + "Resultado en DEV") |
+
+Módulos nuevos del ADK: `model_runtime.py` (F3), `input_guard.py` (F5), `output_guard.py` (F8), `idempotency.py` (F4), `observability_logging.py` (F9), `result_limits.py` (F12), `admission.py` (F13), `eval/` (F10/F11, no viaja en la imagen). `main.py`: `/chat` con `X-AI-Service-Token` (F2), admisión (F13), `request_id` de `X-Request-ID` (F9), respuesta degradada nunca 5xx.
+Estado en producción: F2–F18 **sin desplegar** (ver `PRODUCTION_RUNBOOK.md` §5).
