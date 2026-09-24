@@ -106,6 +106,7 @@ lo tiene).
 ## Patrones obligatorios
 
 - `<script setup>` siempre — Options API prohibido
+- **Prohibido `v-html`** en el chat de soporte y en todo lo que pinte texto del asistente o de otros usuarios (`components/customer/ui/SupportChatWidget.vue`, `components/customer/communication/**`, `modules/support/**`): usar interpolacion `{{ }}` (escapada). HARDENING F8/C3 (2026-09-24): hoy no hay ninguno; si se necesita formato, sanear con una libreria dedicada y documentarlo. El proyecto no tiene ESLint, por eso la regla vive aqui.
 - `useApi()` siempre — nunca `axios` directo en componentes (excepcion: los stores Pinia de admin, que YA SON la capa de servicio del panel — no envolverlos en otra capa)
 - `useOffcanvas()` + `SintelOffcanvas.vue` para todo CRUD con panel lateral
 - try/catch en toda llamada async con `toast.error(...)` en catch

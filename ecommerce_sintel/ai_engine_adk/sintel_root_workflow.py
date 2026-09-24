@@ -71,6 +71,7 @@ from google.genai import types
 from google.adk.agents import LlmAgent
 from google.adk.agents.run_config import RunConfig
 import input_guard
+import output_guard
 from google.adk.models.lite_llm import LiteLlm
 from google.adk.runners import Runner
 from google.adk.sessions.base_session_service import BaseSessionService
@@ -557,6 +558,12 @@ async def run_sintel_turn(
     # recuperada, no solo que hubo evidencia disponible. Acotado a turnos
     # de intent "knowledge" con evidencia REAL (nunca sobre los marcadores
     # de "sin conocimiento"/"baja confianza" -- ahi no hay nada que validar).
+    # HARDENING F8: guardia de SALIDA (secretos, infraestructura/prompt, enlaces, largo) sobre lo que ve el cliente.
+    output_flags: list[str] = []
+    if ai_config.AI_OUTPUT_GUARD_ENABLED and final_text:
+        final_text, output_flags = output_guard.guard_public_response(
+            final_text, surface="admin" if source == "admin" else "customer")
+
     grounding_verdict: str | None = None
     has_real_knowledge_evidence = bool(
         intent == "knowledge"
@@ -666,6 +673,7 @@ async def run_sintel_turn(
         "duration_ms": round((time.monotonic() - turn_started_at) * 1000),
         "model_trace": dict(model_trace),
         "injection_flags": injection_flags,
+        "output_flags": output_flags,
     }
 
     return {

@@ -351,6 +351,8 @@ AI_SUPPORT_CHAT_ENABLED = config('AI_SUPPORT_CHAT_ENABLED', default=False, cast=
 AI_KNOWLEDGE_ALLOWED_SOURCE_HOSTS = config('AI_KNOWLEDGE_ALLOWED_SOURCE_HOSTS', default='sintel.net.co,panel.sintel.net.co', cast=lambda v: [h.strip() for h in v.split(',') if h.strip()])
 # HARDENING F7 (2026-09-24): barrera de memoria del cliente. STRICT=false = solo monitor (`would_reject`) para volver atras sin migrar.
 AI_MEMORY_GATE_STRICT = config('AI_MEMORY_GATE_STRICT', default=True, cast=bool)
+# HARDENING F8 (2026-09-24): largo maximo de la respuesta del asistente en la frontera Django (debe coincidir con AI_OUTPUT_MAX_CHARS del ADK).
+AI_OUTPUT_MAX_CHARS = config('AI_OUTPUT_MAX_CHARS', default=3800, cast=int)
 # TTL (dias) por categoria de memoria; los defaults viven en customer_memory/services/policy.py.
 CUSTOMER_MEMORY_TTL_DAYS = {}
 # Usuario bot que firma los mensajes del asistente en ChatMessage (FK sender

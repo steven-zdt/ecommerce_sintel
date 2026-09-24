@@ -62,6 +62,16 @@ AI_MAX_CONTEXT_CHARS   = config("AI_MAX_CONTEXT_CHARS", default=48000, cast=int)
 # false (default) = MONITOR: solo loguea `rag_chunk_quarantined`; true = excluye esos chunks del contexto.
 AI_RAG_QUARANTINE_FLAGGED = config("AI_RAG_QUARANTINE_FLAGGED", default=False, cast=bool)
 
+# HARDENING F8 (2026-09-24, propuesta ai_engine_adk/.AGENT/HARDENING_F8_PROPOSAL_2026-09-24.md): seguridad de la SALIDA publica.
+# Secretos e infraestructura/prompt se bloquean SIEMPRE que la guardia este activa; los enlaces empiezan en MONITOR (LINKS_ENFORCE=false).
+AI_OUTPUT_GUARD_ENABLED    = config("AI_OUTPUT_GUARD_ENABLED", default=True, cast=bool)
+AI_OUTPUT_MAX_CHARS        = config("AI_OUTPUT_MAX_CHARS", default=3800, cast=int)   # bajo el limite de ~4096 de WhatsApp
+AI_OUTPUT_LINKS_ENFORCE    = config("AI_OUTPUT_LINKS_ENFORCE", default=False, cast=bool)
+AI_OUTPUT_ALLOWED_LINK_HOSTS = config(
+    "AI_OUTPUT_ALLOWED_LINK_HOSTS", default="sintel.net.co,panel.sintel.net.co,wa.me",
+    cast=lambda v: [h.strip().lower() for h in v.split(",") if h.strip()],
+)
+
 # FASE 4b/5 (mision de simplificacion arquitectonica, 2026-09-14): CHROMA_*/
 # EMBEDDING_*/DOCS_SPECS_PATH/INGESTION_BATCH_SIZE/MAX_RETRIEVER_CHUNKS/
 # CODEBASE_PATH retirados -- este proceso ya no calcula embeddings ni

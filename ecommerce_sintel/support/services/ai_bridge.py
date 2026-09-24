@@ -8,6 +8,7 @@ JWT (SimpleJWT), asi que aqui se acuna un access token efimero del usuario
 real para autenticar la llamada -- nunca se persiste.
 """
 import logging
+import re
 import time
 
 import requests
@@ -71,6 +72,24 @@ def is_ai_rate_limited(room) -> bool:
     return False
 
 
+_CONTROL_CHARS_RE = re.compile(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]')
+
+
+def _bound_response_text(text: str) -> str:
+    """HARDENING F8/C2 (2026-09-24): segunda capa en la frontera de persistencia/entrega. Quita caracteres de control y acota el largo
+    (WhatsApp admite ~4096) aunque el ADK cambie o se reemplace. El analisis de secretos/infraestructura/enlaces vive en el ADK (output_guard)."""
+    text = _CONTROL_CHARS_RE.sub('', text or '')
+    limit = getattr(settings, 'AI_OUTPUT_MAX_CHARS', 3800)
+    if len(text) > limit:
+        cut = text[:limit]
+        boundary = max(cut.rfind('. '), cut.rfind(NL))
+        text = (cut[: boundary + 1] if boundary >= int(limit * 0.75) else cut).rstrip() + '...'
+    return text
+
+
+NL = chr(10)
+
+
 def _process_chat_response(resp, conversation_id: str, latency_ms: int) -> dict | None:
     """Logica de logging/parseo compartida entre ask_ai() y ask_ai_async() -- ambas
     reciben un objeto response ya resuelto (requests.Response o httpx.Response,
@@ -82,6 +101,8 @@ def _process_chat_response(resp, conversation_id: str, latency_ms: int) -> dict 
         )
         return None
     data = resp.json()
+    if isinstance(data.get('response'), str):
+        data['response'] = _bound_response_text(data['response'])
     metrics = data.get('metrics') or {}
     logger.info(
         '[AI_BRIDGE] response ok conversation_id=%s latency_ms=%d tokens=%s tools=%d agent=%s',
