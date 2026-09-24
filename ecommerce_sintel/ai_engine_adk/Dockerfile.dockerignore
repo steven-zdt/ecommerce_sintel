@@ -1,0 +1,2 @@
+# F10: el golden dataset y el runner NO viajan en la imagen del ADK (solo tooling de evaluacion; se montan con -v en DEV).
+ai_engine_adk/eval/

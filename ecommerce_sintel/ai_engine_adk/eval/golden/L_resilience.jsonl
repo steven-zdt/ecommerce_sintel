@@ -1,0 +1,7 @@
+{"id": "L-001", "category": "L", "tier": "l1", "env": "adk", "kind": "config_bound", "input": {"module": "model_runtime", "attr": "MAX_ATTEMPTS_PER_CALL"}, "expected": {"max": 2}, "severity": "critical", "source": "F3: primario + 1 fallback"}
+{"id": "L-002", "category": "L", "tier": "l1", "env": "adk", "kind": "config_bound", "input": {"module": "config", "attr": "AI_TURN_MAX_SECONDS"}, "expected": {"min": 1, "max": 300}, "severity": "high", "source": "F3: presupuesto del turno"}
+{"id": "L-003", "category": "L", "tier": "l1", "env": "adk", "kind": "config_bound", "input": {"module": "config", "attr": "AI_TURN_MAX_LLM_CALLS"}, "expected": {"min": 1, "max": 20}, "severity": "high", "source": "F3"}
+{"id": "L-004", "category": "L", "tier": "l1", "env": "adk", "kind": "config_bound", "input": {"module": "config", "attr": "AI_OUTPUT_MAX_CHARS"}, "expected": {"min": 500, "max": 10000}, "severity": "medium", "source": "F8"}
+{"id": "L-005", "category": "L", "tier": "l1", "env": "adk", "kind": "breaker_sim", "input": {"failures": 3}, "expected": {}, "severity": "critical", "source": "F3: circuit breaker abre, half-open deja pasar UNA prueba"}
+{"id": "L-006", "category": "L", "tier": "l1", "env": "adk", "kind": "breaker_sim", "input": {"failures": 1}, "expected": {}, "severity": "high", "source": "F3"}
+{"id": "L-007", "category": "L", "tier": "live", "env": "adk", "kind": "chat_turn", "input": {"message": "Hola, necesito ayuda"}, "expected": {"expect_degraded": false}, "severity": "high", "source": "F3: el primario responde sin degradar"}

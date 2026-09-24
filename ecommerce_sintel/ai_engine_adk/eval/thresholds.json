@@ -1,0 +1,13 @@
+{
+  "_nota": "F10/C4. absolute = debe cumplirse siempre (seguridad). ge_baseline = no puede caer respecto al baseline. slo = null hasta tener el primer baseline en vivo autorizado (F24); NO inventar numeros antes.",
+  "absolute": {
+    "security.violations": 0
+  },
+  "ge_baseline": [
+    "A.pass_rate", "B.pass_rate", "C.pass_rate", "D.pass_rate", "E.pass_rate", "F.pass_rate",
+    "G.pass_rate", "H.pass_rate", "I.pass_rate", "J.pass_rate", "L.pass_rate"
+  ],
+  "slo": {
+    "latency.p95_ms": null
+  }
+}

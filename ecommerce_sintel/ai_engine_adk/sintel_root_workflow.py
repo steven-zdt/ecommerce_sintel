@@ -59,6 +59,7 @@ riesgo heredado y documentado, no resuelto silenciosamente aqui.
 """
 import asyncio
 import logging
+import re
 import time
 import uuid
 
@@ -71,8 +72,8 @@ from google.genai import types
 from google.adk.agents import LlmAgent
 from google.adk.agents.run_config import RunConfig
 import input_guard
-import output_guard
 import observability_logging
+import output_guard
 from google.adk.models.lite_llm import LiteLlm
 from google.adk.runners import Runner
 from google.adk.sessions.base_session_service import BaseSessionService
@@ -209,6 +210,16 @@ def build_session_id(user_id, conversation_id: str) -> str:
 # con AdminAgent"). Si se agregan mas agentes admin (Fase 10/11), agregarlos
 # aqui.
 _ADMIN_AGENT_NAMES = {"CatalogAgent"}
+# HARDENING F10 (hallazgo A-014): MarketingAgent atiende TAMBIEN a clientes (personal_recommendation), asi que no puede ir en la lista
+# de arriba; para source=admin solo se acepta cuando el intent es marketing_admin (de lo contrario todo mensaje admin de marketing se
+# reencaminaba a CatalogAgent).
+_ADMIN_INTENT_AGENTS = {"marketing_admin": "MarketingAgent"}
+
+# HARDENING F10 (hallazgo A-012): "garantia de las camaras" caia en renting_search por el sustantivo. Una PREGUNTA de conocimiento
+# (garantia/politica/horario...) cuyo unico otro intent viene de sustantivos de producto NO es una accion de alquiler: gana knowledge.
+# Si hay un verbo de accion (alquilar/rentar/reservar/disponibilidad) o cualquier otro intent, no se toca el routing.
+_RENTING_ACTION_RE = re.compile(r"\b(alquil\w*|rent\w*|reserv\w*|disponib\w*)", re.I)
+_NOUN_ONLY_INTENTS = {"renting_search", "knowledge"}
 
 
 def should_extract_memory(*, is_resume: bool, final_text, source: str, injection_flags: dict) -> bool:
@@ -248,10 +259,12 @@ def resolve_turn_agent(message: str, *, source: str = "customer") -> tuple[str, 
     intents = detect_business_intents(message)
     data_intents = [i for i in intents if i in INTENT_CAPABILITIES]
     intent = data_intents[0] if data_intents else ("knowledge" if "knowledge" in intents else "unknown")
+    if "knowledge" in intents and set(intents) <= _NOUN_ONLY_INTENTS and not _RENTING_ACTION_RE.search(message):
+        intent = "knowledge"
 
     agent = AgentRegistry.route(intent)
 
-    if source == "admin" and agent.name not in _ADMIN_AGENT_NAMES:
+    if source == "admin" and agent.name not in _ADMIN_AGENT_NAMES and _ADMIN_INTENT_AGENTS.get(intent) != agent.name:
         agent = AgentRegistry.get("CatalogAgent")
         intent = "catalog_admin"
 
@@ -643,7 +656,14 @@ async def run_sintel_turn(
         for r in tool_results
     )
 
+    # HARDENING F9/C3: tokens reales del turno (usage_metadata). llm_tokens_in/out son las claves que ya lee
+    # ChatAnalyticsSelector; tokens_per_s = generados / tiempo del agente. TTFT no existe (sin streaming).
+    usage = get_turn_usage()
     metrics = {
+        "llm_calls": usage["llm_calls"],
+        "llm_tokens_in": usage["prompt_tokens"],
+        "llm_tokens_out": usage["completion_tokens"],
+        "tokens_per_s": observability_logging.tokens_per_second(usage["completion_tokens"], agent_latency_ms),
         "request_id": request_id,
         "agent": agent_name,
         "intent": intent,
@@ -656,14 +676,7 @@ async def run_sintel_turn(
         "metadata_filters": knowledge_diagnostics.get("metadata_filters"),
         "retrieval_candidates": knowledge_diagnostics.get("retrieval_candidates"),
         "selected_sources": knowledge_diagnostics.get("selected_sources"),
-    # HARDENING F9/C3: tokens reales del turno (usage_metadata). llm_tokens_in/out son las claves que ya lee
-    # ChatAnalyticsSelector; tokens_per_s = generados / tiempo del agente. TTFT no existe (sin streaming).
-    usage = get_turn_usage()
         "best_similarity": knowledge_diagnostics.get("best_similarity"),
-        "llm_calls": usage["llm_calls"],
-        "llm_tokens_in": usage["prompt_tokens"],
-        "llm_tokens_out": usage["completion_tokens"],
-        "tokens_per_s": observability_logging.tokens_per_second(usage["completion_tokens"], agent_latency_ms),
         "grounding_result": grounding_verdict,
         "retrieval_latency_ms": knowledge_diagnostics.get("retrieval_latency_ms"),
         "agent_latency_ms": agent_latency_ms,
