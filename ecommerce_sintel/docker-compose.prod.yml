@@ -407,10 +407,17 @@ services:
     # Sin "ports": mismo criterio que sintel_ai -- nunca expuesto al host.
     env_file: .env.production
     environment:
-      # Mismo LOCAL_MODEL_CHAIN real que sintel_ai (LM Studio en el host
-      # Windows, unico proveedor productivo -- ver comentario de sintel_ai
-      # arriba).
-      LOCAL_MODEL_CHAIN: "lmstudio|openai-compatible|http://host.docker.internal:1234/v1|qwen/qwen3.5-9b"
+      # CAMBIADO 2026-09-24 (a pedido del usuario, plan PLAN_HARDENING_LLM_AGENTS_PRODUCCION_SINTEL_
+      # QWEN_OLLAMA_PRIMARY_20260924.md, decision fija "PRIMARY=Ollama/Qwen3.5-9B, FALLBACK=LM Studio"):
+      # el chat de soporte dejo de responder porque LM Studio (aplicacion de escritorio en el host
+      # Windows) no estaba corriendo y era el UNICO proveedor. Ahora el primario es el Ollama de
+      # produccion (sintel_ollama, contenedor propio con reinicio automatico) y LM Studio queda como
+      # segunda entrada. Formato real de model_chain.py: "nombre|kind|base_url|modelo" separado por ";".
+      # LIMITACION REAL (sintel_root_workflow.py): el ADK hoy solo usa la entrada PRIMARIA, sin
+      # fallback automatico multi-entry (pendiente, FASE 3 del plan) -- la 2da entrada documenta el
+      # orden objetivo pero todavia no se activa sola. Solo sintel_ai_adk: sintel_ai (OLD) no corre
+      # motor de chat y conserva su cadena de LM Studio sin efecto.
+      LOCAL_MODEL_CHAIN: "ollama|ollama-nativo|http://sintel_ollama:11434|qwen3.5:9b;lmstudio|openai-compatible|http://host.docker.internal:1234/v1|qwen/qwen3.5-9b"
       DJANGO_INTERNAL_API_URL: "http://django:8000/api/v1"
       # Mismo bug/fix real que sintel_ai (ver ese servicio arriba,
       # 2026-09-14) -- ALLOWED_HOSTS estricto de produccion rechaza Host:
@@ -433,6 +440,8 @@ services:
       redis:
         condition: service_healthy
       db:
+        condition: service_healthy
+      sintel_ollama:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8101/health"]
