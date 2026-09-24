@@ -69,6 +69,7 @@ override_feature_enabled(FeatureName.JSON_SCHEMA_FOR_FUNC_DECL, False)
 from google.genai import types
 
 from google.adk.agents import LlmAgent
+from google.adk.agents.run_config import RunConfig
 from google.adk.models.lite_llm import LiteLlm
 from google.adk.runners import Runner
 from google.adk.sessions.base_session_service import BaseSessionService
@@ -152,9 +153,16 @@ def _resolve_primary_llm_params() -> dict:
 
 
 def _build_litellm_model():
-    """Construye el LiteLlm real (ADK) de la entrada PRIMARIA de
-    LOCAL_MODEL_CHAIN -- mismo comportamiento de siempre, ahora sobre
-    _resolve_primary_llm_params() (ver docstring de esa funcion)."""
+    """Modelo real (ADK) para los agentes. HARDENING F3/C2 (2026-09-24): con AI_BREAKER_ENABLED (default)
+    devuelve `FallbackLiteLlm` (model_runtime.py): recorre LOCAL_MODEL_CHAIN en orden con circuit breaker por
+    proveedor y un solo fallback por llamada. Con el breaker apagado conserva el comportamiento anterior:
+    LiteLlm de la entrada PRIMARIA (ver _resolve_primary_llm_params())."""
+    import config as ai_config
+
+    if ai_config.AI_BREAKER_ENABLED:
+        from model_runtime import build_fallback_model
+
+        return build_fallback_model(_LLM_TIMEOUT_SECONDS)
     return LiteLlm(timeout=_LLM_TIMEOUT_SECONDS, **_resolve_primary_llm_params())
 
 
@@ -197,6 +205,19 @@ def build_session_id(user_id, conversation_id: str) -> str:
 # con AdminAgent"). Si se agregan mas agentes admin (Fase 10/11), agregarlos
 # aqui.
 _ADMIN_AGENT_NAMES = {"CatalogAgent"}
+
+
+def _turn_max_llm_calls() -> int:
+    import config as ai_config
+
+    return ai_config.AI_TURN_MAX_LLM_CALLS
+
+
+def _max_output_tokens_for(profile_name: str) -> int:
+    import config as ai_config
+
+    return ai_config.AI_ADMIN_MAX_OUTPUT_TOKENS if profile_name in _ADMIN_AGENT_NAMES \
+        else ai_config.AI_SUPPORT_MAX_OUTPUT_TOKENS
 
 
 def resolve_turn_agent(message: str, *, source: str = "customer") -> tuple[str, str, str | None]:
@@ -275,6 +296,8 @@ def get_domain_agent(profile_name: str) -> LlmAgent:
     agent = LlmAgent(
         name=profile.name,
         model=_build_litellm_model(),
+        # HARDENING F3/C1: tope de tokens de salida por superficie (cuentan tambien los de razonamiento).
+        generate_content_config=types.GenerateContentConfig(max_output_tokens=_max_output_tokens_for(profile_name)),
         description=profile.description,
         instruction=instruction_provider,
         tools=tools,
@@ -365,6 +388,10 @@ async def run_sintel_turn(
     user_id = context["user_id"]
     conversation_id = conversation_id or "adk-root-default"
     session_id = build_session_id(user_id, conversation_id)
+    # HARDENING F3/C2: trazabilidad del proveedor/modelo/fallback de ESTE turno (sin prompts ni respuestas).
+    from model_runtime import begin_turn_trace
+
+    model_trace = begin_turn_trace()
 
     # Cost Control real (cost_control.py, reusado tal cual -- mismo Redis,
     # mismo limite, mismo comportamiento que el sistema OLD; ver
@@ -441,6 +468,8 @@ async def run_sintel_turn(
     try:
         async for event in runner.run_async(
             user_id=str(user_id), session_id=session_id, new_message=adk_message,
+            # HARDENING F3/C1: tope de llamadas al LLM por turno (RunConfig.max_llm_calls).
+            run_config=RunConfig(max_llm_calls=_turn_max_llm_calls()),
             state_delta={
                 SINTEL_KNOWLEDGE_CONTEXT_STATE_KEY: knowledge_context,
                 SINTEL_CUSTOMER_MEMORY_STATE_KEY: memory_context,
@@ -595,6 +624,7 @@ async def run_sintel_turn(
         "memory_used": bool(memory_context),
         "memory_extraction_scheduled": memory_extraction_scheduled,
         "duration_ms": round((time.monotonic() - turn_started_at) * 1000),
+        "model_trace": dict(model_trace),
     }
 
     return {

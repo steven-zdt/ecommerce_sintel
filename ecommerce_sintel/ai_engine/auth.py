@@ -17,14 +17,16 @@ Uso como dependencia FastAPI:
     async def endpoint(user_context: dict = Depends(get_user_context)):
         ...
 """
+import hmac
 import logging
 import time
 
 import httpx
 import jwt
-from fastapi import Depends, HTTPException
+from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
+import config as ai_config
 from config import DJANGO_INTERNAL_API_URL, JWT_SECRET_KEY, internal_django_headers
 
 logger = logging.getLogger("auth")
@@ -97,6 +99,40 @@ def decode_django_jwt(token: str) -> dict:
     if payload.get("user_id") is None:
         raise HTTPException(401, "Token sin claim user_id.")
     return payload
+
+
+SERVICE_TOKEN_HEADER = "X-AI-Service-Token"
+
+
+async def require_service_token(request: Request) -> None:
+    """
+    HARDENING F2 (2026-09-24): autenticacion SERVICIO-a-servicio (Django -> ADK), ademas del JWT
+    de usuario (que prueba QUIEN es el usuario, no QUIEN llama al ADK).
+
+    - Compara `X-AI-Service-Token` con AI_SERVICE_TOKEN o AI_SERVICE_TOKEN_PREVIOUS en tiempo constante.
+    - AI_SERVICE_TOKEN_REQUIRED=false (default, fase de despliegue): si falta/no coincide, solo loguea
+      un warning (sin valores del token) y deja pasar.
+    - AI_SERVICE_TOKEN_REQUIRED=true: 401 uniforme, sin revelar si el token falto o fue incorrecto.
+      Si REQUIRED=true pero no hay ningun token configurado, rechaza todo (fail-closed).
+    """
+    given = request.headers.get(SERVICE_TOKEN_HEADER, "")
+    valid = [t for t in (ai_config.AI_SERVICE_TOKEN, ai_config.AI_SERVICE_TOKEN_PREVIOUS) if t]
+    ok = bool(given) and any(
+        hmac.compare_digest(given.encode("utf-8"), t.encode("utf-8")) for t in valid
+    )
+    if ok:
+        return
+    client = request.client.host if request.client else "unknown"
+    if ai_config.AI_SERVICE_TOKEN_REQUIRED:
+        logger.warning(
+            "security_event=ai_service_token_rejected client=%s path=%s header_present=%s configured=%s",
+            client, request.url.path, bool(given), bool(valid),
+        )
+        raise HTTPException(401, "Servicio no autorizado.")
+    logger.warning(
+        "security_event=ai_service_token_missing_or_invalid mode=monitor client=%s path=%s header_present=%s configured=%s",
+        client, request.url.path, bool(given), bool(valid),
+    )
 
 
 async def get_validated_token(

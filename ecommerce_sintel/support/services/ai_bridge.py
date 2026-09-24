@@ -92,6 +92,15 @@ def _process_chat_response(resp, conversation_id: str, latency_ms: int) -> dict 
     return data
 
 
+def build_ai_headers(token: str) -> dict:
+    """Headers hacia el ADK: JWT del usuario + (F2) secreto de servicio si esta configurado."""
+    headers = {'Authorization': f'Bearer {token}'}
+    service_token = getattr(settings, 'AI_SERVICE_TOKEN', '')
+    if service_token:
+        headers['X-AI-Service-Token'] = service_token
+    return headers
+
+
 def ask_ai(user, message: str, conversation_id: str) -> dict | None:
     """
     Llama POST /chat del Action Graph en nombre del usuario real.
@@ -113,7 +122,7 @@ def ask_ai(user, message: str, conversation_id: str) -> dict | None:
         resp = requests.post(
             f"{settings.AI_ENGINE_URL}/chat",
             json={'message': message, 'conversation_id': conversation_id},
-            headers={'Authorization': f'Bearer {token}'},
+            headers=build_ai_headers(token),
             timeout=AI_CHAT_TIMEOUT_SECONDS,
         )
     except requests.RequestException as exc:
@@ -153,7 +162,7 @@ async def ask_ai_async(user, message: str, conversation_id: str) -> dict | None:
             resp = await client.post(
                 f"{settings.AI_ENGINE_URL}/chat",
                 json={'message': message, 'conversation_id': conversation_id},
-                headers={'Authorization': f'Bearer {token}'},
+                headers=build_ai_headers(token),
             )
     except httpx.HTTPError as exc:
         latency_ms = int((time.monotonic() - start) * 1000)

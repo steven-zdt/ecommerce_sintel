@@ -15,12 +15,13 @@ tocar Django.
 Arranque:
     uvicorn main:app --host 0.0.0.0 --port 8101
 """
+import asyncio
 import logging
 
 from fastapi import Depends, FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
-from auth import get_validated_token
+from auth import get_validated_token, require_service_token
 from sintel_root_workflow import IdentityResolutionError, run_sintel_turn
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
@@ -61,14 +62,34 @@ class ChatResponse(BaseModel):
     metrics: dict | None = None
 
 
-@app.post("/chat", response_model=ChatResponse)
+# HARDENING F2: la dependencia del decorador corre ANTES que la del JWT (secreto de servicio primero).
+@app.post("/chat", response_model=ChatResponse, dependencies=[Depends(require_service_token)])
 async def chat(req: ChatRequest, token: str = Depends(get_validated_token)):
     """Root Workflow real (Google ADK) -- ver sintel_root_workflow.py."""
+    import config as ai_config
+
     try:
-        result = await run_sintel_turn(
-            message=req.message, token=token,
-            conversation_id=req.conversation_id, confirm=req.confirm,
-            source=req.source,
+        # HARDENING F3/C1: tiempo maximo TOTAL del turno (antes solo habia 90 s por llamada al LLM en el ADK
+        # y 300 s en Django). Al vencer, respuesta segura con handoff, sin dejar el socket colgado.
+        result = await asyncio.wait_for(
+            run_sintel_turn(
+                message=req.message, token=token,
+                conversation_id=req.conversation_id, confirm=req.confirm,
+                source=req.source,
+            ),
+            timeout=ai_config.AI_TURN_MAX_SECONDS,
+        )
+    except asyncio.TimeoutError:
+        logger.warning(
+            "ai_operation_event=turn_timeout conversation_id=%s max_seconds=%s",
+            req.conversation_id, ai_config.AI_TURN_MAX_SECONDS,
+        )
+        return ChatResponse(
+            conversation_id=req.conversation_id or "",
+            intent="unknown", agent=None, tool_calls=[], tool_results=[],
+            needs_confirmation=False, confirmation=None,
+            response="En este momento nuestro asistente no esta disponible. Un agente humano revisara tu mensaje pronto.",
+            metrics={"engine_unavailable": True, "turn_timeout": True},
         )
     except IdentityResolutionError as exc:
         raise HTTPException(401, f"Identidad invalida: {exc}")

@@ -62,6 +62,7 @@ class AdminAiAssistantChatView(APIView):
 
         from rest_framework_simplejwt.tokens import AccessToken
         token = str(AccessToken.for_user(request.user))
+        from support.services.ai_bridge import build_ai_headers  # F2: JWT + X-AI-Service-Token
 
         start = time.monotonic()
         try:
@@ -73,7 +74,7 @@ class AdminAiAssistantChatView(APIView):
                 # CLIENTE (bug real encontrado 2026-09-23: SupportAgent abrio un ticket
                 # real tratando al admin como comprador).
                 json={'message': message, 'conversation_id': conversation_id, 'confirm': confirm, 'source': 'admin'},
-                headers={'Authorization': f'Bearer {token}'},
+                headers=build_ai_headers(token),
                 timeout=AI_CHAT_TIMEOUT_SECONDS,
             )
         except requests.RequestException as exc:

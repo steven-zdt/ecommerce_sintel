@@ -23,6 +23,28 @@ LOCAL_MODEL_CHAIN   = config(
     default=f"ollama|ollama-nativo|{OLLAMA_BASE_URL}|{LLM_MODEL}",
 )
 
+# HARDENING F2 (2026-09-24, plan PLAN_HARDENING_LLM_AGENTS_PRODUCCION_SINTEL_QWEN_OLLAMA_PRIMARY_20260924.md
+# sec. 6, propuesta ai_engine_adk/.AGENT/HARDENING_F2_PROPOSAL_2026-09-24.md): secreto de servicio Django -> ADK
+# (cabecera X-AI-Service-Token en /chat). REQUIRED=false (default) solo AVISA en logs si falta/no coincide, para
+# desplegar en 2 pasos sin cortar el chat; REQUIRED=true responde 401. PREVIOUS permite rotar sin corte.
+AI_SERVICE_TOKEN          = config("AI_SERVICE_TOKEN", default="")
+AI_SERVICE_TOKEN_PREVIOUS = config("AI_SERVICE_TOKEN_PREVIOUS", default="")
+AI_SERVICE_TOKEN_REQUIRED = config("AI_SERVICE_TOKEN_REQUIRED", default=False, cast=bool)
+
+# HARDENING F3 (2026-09-24, propuesta ai_engine_adk/.AGENT/HARDENING_F3_PROPOSAL_2026-09-24.md).
+# C1 -- presupuesto de turno (calibrar tras la prueba de carga F13). AI_*_MAX_OUTPUT_TOKENS cuentan tambien los
+# tokens de RAZONAMIENTO de Qwen3.5 (num_predict): 1024/2048 en vez de los 512/1024 propuestos, para no cortar
+# respuestas legitimas ni dejar el contenido vacio cuando el razonamiento consume el limite.
+AI_TURN_MAX_SECONDS          = config("AI_TURN_MAX_SECONDS", default=120, cast=int)
+AI_TURN_MAX_LLM_CALLS        = config("AI_TURN_MAX_LLM_CALLS", default=6, cast=int)
+AI_SUPPORT_MAX_OUTPUT_TOKENS = config("AI_SUPPORT_MAX_OUTPUT_TOKENS", default=1024, cast=int)
+AI_ADMIN_MAX_OUTPUT_TOKENS   = config("AI_ADMIN_MAX_OUTPUT_TOKENS", default=2048, cast=int)
+# C2 -- circuit breaker por proveedor de la cadena de modelos (model_runtime.py).
+AI_BREAKER_ENABLED        = config("AI_BREAKER_ENABLED", default=True, cast=bool)
+AI_BREAKER_FAILURES       = config("AI_BREAKER_FAILURES", default=3, cast=int)
+AI_BREAKER_WINDOW_SECONDS = config("AI_BREAKER_WINDOW_SECONDS", default=60, cast=int)
+AI_BREAKER_OPEN_SECONDS   = config("AI_BREAKER_OPEN_SECONDS", default=60, cast=int)
+
 # FASE 4b/5 (mision de simplificacion arquitectonica, 2026-09-14): CHROMA_*/
 # EMBEDDING_*/DOCS_SPECS_PATH/INGESTION_BATCH_SIZE/MAX_RETRIEVER_CHUNKS/
 # CODEBASE_PATH retirados -- este proceso ya no calcula embeddings ni
