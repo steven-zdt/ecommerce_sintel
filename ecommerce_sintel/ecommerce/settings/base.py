@@ -343,6 +343,10 @@ CORS_ALLOW_ALL_ORIGINS = False
 # sintel_ai NUNCA se expone a Internet: todos los canales (widget web,
 # WhatsApp) llegan al Action Graph a traves de Django via esta URL interna.
 AI_ENGINE_URL = config('AI_ENGINE_URL', default='http://sintel_ai:8100')
+# HARDENING F17: canary del ADK (ver support/services/engine_routing.py). Vacio/0 = apagado (todo a AI_ENGINE_URL).
+AI_CANARY_ENGINE_URL = config('AI_CANARY_ENGINE_URL', default='')
+AI_CANARY_USER_EMAILS = config('AI_CANARY_USER_EMAILS', default='')
+AI_CANARY_PERCENT = config('AI_CANARY_PERCENT', default=0, cast=int)
 # HARDENING F2 (2026-09-24): secreto de servicio Django -> ADK (cabecera X-AI-Service-Token). Vacio = no se envia.
 # Debe coincidir con AI_SERVICE_TOKEN del contenedor sintel_ai_adk; replicar en .env Y .env.production en el mismo paso.
 AI_SERVICE_TOKEN = config('AI_SERVICE_TOKEN', default='')

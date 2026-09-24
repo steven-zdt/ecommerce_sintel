@@ -90,7 +90,7 @@ def _bound_response_text(text: str) -> str:
 NL = chr(10)
 
 
-def _process_chat_response(resp, conversation_id: str, latency_ms: int) -> dict | None:
+def _process_chat_response(resp, conversation_id: str, latency_ms: int, track: str = 'stable') -> dict | None:
     """Logica de logging/parseo compartida entre ask_ai() y ask_ai_async() -- ambas
     reciben un objeto response ya resuelto (requests.Response o httpx.Response,
     misma interfaz .status_code/.text/.json() para lo que se usa aqui)."""
@@ -104,11 +104,14 @@ def _process_chat_response(resp, conversation_id: str, latency_ms: int) -> dict 
     if isinstance(data.get('response'), str):
         data['response'] = _bound_response_text(data['response'])
     metrics = data.get('metrics') or {}
+    # HARDENING F17: version del motor que atendio el turno (stable | canary); viaja a ChatMessage.ai_metrics y permite comparar.
+    metrics['engine_track'] = track
+    data['metrics'] = metrics
     logger.info(
-        '[AI_BRIDGE] response ok conversation_id=%s latency_ms=%d tokens=%s tools=%d agent=%s',
+        '[AI_BRIDGE] response ok conversation_id=%s latency_ms=%d tokens=%s tools=%d agent=%s track=%s',
         conversation_id, latency_ms,
         metrics.get('tokens', metrics.get('total_tokens', metrics.get('llm_tokens_out', '?'))),
-        len(data.get('tool_calls') or []), data.get('agent'),
+        len(data.get('tool_calls') or []), data.get('agent'), track,
     )
     return data
 
@@ -142,6 +145,7 @@ def record_ai_security_events(ai_response: dict | None, conversation_id: str, us
                 'output_flags': output_flags[:20],
                 'injection_flags': [str(f)[:60] for f in injection_flags[:20]],
                 'agent': str((ai_response or {}).get('agent') or '')[:60],
+                'engine_track': str(metrics.get('engine_track') or '')[:16],
             },
         )
     except Exception:  # noqa: BLE001 -- observabilidad: nunca debe romper el turno
@@ -183,16 +187,25 @@ def ask_ai(user, message: str, conversation_id: str) -> dict | None:
     """
     from rest_framework_simplejwt.tokens import AccessToken
 
+    from support.services import engine_routing
+
     token = str(AccessToken.for_user(user))
     start = time.monotonic()
-    logger.info('[AI_BRIDGE] request conversation_id=%s user=%s', conversation_id, user.email)
+    engine_url, track = engine_routing.resolve_engine(user)
+    logger.info('[AI_BRIDGE] request conversation_id=%s user=%s track=%s', conversation_id, user.email, track)
+    payload = {'message': message, 'conversation_id': conversation_id, 'channel': 'whatsapp'}  # ask_ai sync = WhatsApp
     try:
-        resp = requests.post(
-            f"{settings.AI_ENGINE_URL}/chat",
-            json={'message': message, 'conversation_id': conversation_id, 'channel': 'whatsapp'},  # ask_ai sync = WhatsApp
-            headers=build_ai_headers(token, conversation_id),
-            timeout=AI_CHAT_TIMEOUT_SECONDS,
-        )
+        try:
+            resp = requests.post(f"{engine_url}/chat", json=payload, headers=build_ai_headers(token, conversation_id),
+                                 timeout=AI_CHAT_TIMEOUT_SECONDS)
+        except requests.ConnectionError:
+            if track != engine_routing.CANARY:
+                raise
+            # F17: el canary no acepto la conexion (no se ejecuto NADA) -> se atiende con el stable, sin fallo para el usuario.
+            logger.warning('[AI_BRIDGE] canary inalcanzable (conexion) -> fallback a stable conversation_id=%s', conversation_id)
+            engine_url, track = engine_routing.stable_engine()
+            resp = requests.post(f"{engine_url}/chat", json=payload, headers=build_ai_headers(token, conversation_id),
+                                 timeout=AI_CHAT_TIMEOUT_SECONDS)
     except requests.RequestException as exc:
         latency_ms = int((time.monotonic() - start) * 1000)
         logger.warning(
@@ -201,7 +214,7 @@ def ask_ai(user, message: str, conversation_id: str) -> dict | None:
         )
         return None
     latency_ms = int((time.monotonic() - start) * 1000)
-    data = _process_chat_response(resp, conversation_id, latency_ms)
+    data = _process_chat_response(resp, conversation_id, latency_ms, track)
     record_ai_security_events(data, conversation_id, user)
     return data
 
@@ -224,16 +237,24 @@ async def ask_ai_async(user, message: str, conversation_id: str) -> dict | None:
     import httpx
     from rest_framework_simplejwt.tokens import AccessToken
 
+    from support.services import engine_routing
+
     token = str(AccessToken.for_user(user))
     start = time.monotonic()
-    logger.info('[AI_BRIDGE] request conversation_id=%s user=%s', conversation_id, user.email)
+    engine_url, track = engine_routing.resolve_engine(user)
+    logger.info('[AI_BRIDGE] request conversation_id=%s user=%s track=%s', conversation_id, user.email, track)
+    payload = {'message': message, 'conversation_id': conversation_id, 'channel': 'web'}
     try:
         async with httpx.AsyncClient(timeout=AI_CHAT_TIMEOUT_SECONDS) as client:
-            resp = await client.post(
-                f"{settings.AI_ENGINE_URL}/chat",
-                json={'message': message, 'conversation_id': conversation_id, 'channel': 'web'},
-                headers=build_ai_headers(token, conversation_id),
-            )
+            try:
+                resp = await client.post(f"{engine_url}/chat", json=payload, headers=build_ai_headers(token, conversation_id))
+            except httpx.ConnectError:
+                if track != engine_routing.CANARY:
+                    raise
+                # F17: el canary no acepto la conexion (no se ejecuto NADA) -> se atiende con el stable.
+                logger.warning('[AI_BRIDGE] canary inalcanzable (conexion) -> fallback a stable conversation_id=%s', conversation_id)
+                engine_url, track = engine_routing.stable_engine()
+                resp = await client.post(f"{engine_url}/chat", json=payload, headers=build_ai_headers(token, conversation_id))
     except httpx.HTTPError as exc:
         latency_ms = int((time.monotonic() - start) * 1000)
         logger.warning(
@@ -242,7 +263,7 @@ async def ask_ai_async(user, message: str, conversation_id: str) -> dict | None:
         )
         return None
     latency_ms = int((time.monotonic() - start) * 1000)
-    data = _process_chat_response(resp, conversation_id, latency_ms)
+    data = _process_chat_response(resp, conversation_id, latency_ms, track)
     flagged = data and any((data.get('metrics') or {}).get(k) for k in ('output_flags', 'injection_flags'))
     if flagged:
         from channels.db import database_sync_to_async

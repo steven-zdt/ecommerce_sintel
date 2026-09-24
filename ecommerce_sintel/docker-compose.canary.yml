@@ -1,0 +1,61 @@
+# =============================================================================
+# docker-compose.canary.yml -- HARDENING F17 (2026-09-24): ADK CANARY junto al estable, SOLO por perfil "canary".
+#
+# NO se aplica a nada por si solo (perfil "canary": `up -d` normal NO lo arranca) y NO toca sintel_ai_adk. Lo levanta el usuario:
+#
+#   COMPOSE="docker compose -f docker-compose.prod.yml -f docker-compose.canary.yml --profile canary --env-file .env.production"
+#   $COMPOSE build sintel_ai_adk_canary            # construye ecommerce_sintel_ai_adk:canary desde el arbol de trabajo actual
+#   $COMPOSE up -d --no-deps sintel_ai_adk_canary
+#   # luego en .env.production (y reiniciar django/celery): AI_CANARY_ENGINE_URL=http://sintel_ai_adk_canary:8101
+#   #   AI_CANARY_USER_EMAILS=<correos internos>   AI_CANARY_PERCENT=0   (subir despues: 5 -> 25 -> 50 -> 100)
+#
+# Es una COPIA explicita del bloque `sintel_ai_adk` de docker-compose.prod.yml (no usa `extends`: depends_on/anchors no se comparten
+# entre archivos). Si cambia ese bloque, replicar aqui en el mismo cambio. Comparte Redis, Postgres (sesiones) y el Ollama de
+# produccion -> el canary prueba CODIGO/PROMPTS/AGENTES/TOOLS/CONFIG; un modelo distinto se prueba con CANARY_LOCAL_MODEL_CHAIN (no
+# multiplica la VRAM: dos modelos distintos cargados a la vez si no caben en 8 GB!).
+# KILL SWITCH: AI_CANARY_ENGINE_URL vacia (o AI_CANARY_PERCENT=0 y sin correos) devuelve TODO al estable; ai_bridge tambien cae al
+# estable si el canary no acepta la conexion.
+# =============================================================================
+services:
+  sintel_ai_adk_canary:
+    profiles: ["canary"]
+    build:
+      context: .
+      dockerfile: ai_engine_adk/Dockerfile
+    image: ecommerce_sintel_ai_adk:canary
+    container_name: sintel_prod_ai_adk_canary
+    restart: unless-stopped
+    env_file: .env.production
+    environment:
+      LOCAL_MODEL_CHAIN: "${CANARY_LOCAL_MODEL_CHAIN:-ollama|ollama-nativo|http://sintel_ollama:11434|qwen3.5:9b;lmstudio|openai-compatible|http://host.docker.internal:1234/v1|qwen/qwen3.5-9b}"
+      DJANGO_INTERNAL_API_URL: "http://django:8000/api/v1"
+      DJANGO_INTERNAL_HOST_HEADER: "api.sintel.net.co"
+      CHECKPOINTER_REDIS_URL: "redis://:${REDIS_PASSWORD}@redis:6379/2"
+      ADK_SESSION_BACKEND: "database"
+      ADK_SESSION_DB_URL: "postgresql+asyncpg://${DB_USER}:${DB_PASSWORD}@db:5432/sintel_adk_sessions"
+    depends_on:
+      redis:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+      sintel_ollama:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8101/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - sintel-network
+      - ai_private
