@@ -54,6 +54,10 @@ Thumbs.db
 # ── Notas con credenciales en texto plano (hallazgo 2026-07-22) ────────────
 notas.txt
 
+# ── Documentacion interna: nunca se versiona (decision del usuario, 2026-09-24) ──
+# Ojo: ignorar NO des-versiona archivos ya trackeados; ver `git ls-files Documentacion`.
+Documentacion/
+
 # ── project_knowledge_graph: snapshot generado, regenerable via su propio CLI
 # (python -m project_knowledge_graph.cli ...) -- ~57MB de JSON (DEPENDENCY_GRAPH,
 # KNOWLEDGE_GRAPH, PROJECT_MAP, QUERY_AUDIT_LOG) que nunca se habia commiteado
