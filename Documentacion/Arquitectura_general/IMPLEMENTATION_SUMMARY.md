@@ -5,7 +5,10 @@
 > usarlo cuando la app exacta de una tarea no se conoce de antemano. Si SI se conoce la app,
 > ir directo a su fila en la tabla "DOCUMENTOS DE REFERENCIA POR MODULO" de `.AGENT.md`.
 
-Ultima revision: 2026-09-23 (v17 — sesion larga unica: migracion completa de WhatsApp a Baileys
+Ultima revision: 2026-09-24 (v18 — sistema de campanas de Marketing completo con catalogo/media/canales
+(commit `f465c81`), mejoras de UX del Home Builder (`1ce7ea5`), rediseno del detalle de producto y de
+renting (`ad18ee0`) y primer despliegue a produccion de todo lo anterior; ver items (F) a (J) despues
+de (E); mas Ollama en produccion, el cambio del chat de soporte a Ollama/Qwen3.5-9B y el baseline de hardening LLM, items (K) a (M)). Revision previa: 2026-09-23 (v17 — sesion larga unica: migracion completa de WhatsApp a Baileys
 (gateway Node/TypeScript propio, conectado a un numero de produccion real), desbloqueo del piloto
 Admin AI Assistant (`CatalogAgent`, congelado desde 2026-09-16) + su vertical nueva de Servicios
 tecnicos (Fase 1-3), una regla nueva de arquitectura Docker (cada contenedor construye su propia
@@ -99,6 +102,92 @@ reales del catalogo via `ServiceListTool`. Post-mortem completo con checklist de
 `AUDITORIA/INCIDENTE_ADMIN_AI_ASSISTANT_503_PROD_2026-09-23.md` — regla nueva: activar un kill
 switch en `.env` y en `.env.production` es el MISMO paso de trabajo, nunca dos pasos separados en
 el tiempo.
+
+(F) **Marketing — sistema de campanas operativo con catalogo, media y canales (2026-09-23/24,
+commit `f465c81`, plan `PLAN_SINTEL_MARKETING_CAMPANAS_CRUD_CATALOG_MEDIA_CANALES_LOOP.md`)**: causa
+real de "`/panel/marketing` no permite crear campanas": la ruta nunca estaba registrada en
+`router.js` (el backend `POST campaigns/` funcionaba desde antes) — creado
+`frontend/src/apps/admin/routes/adminMarketing.routes.js`. Modelos nuevos (migraciones `0006`-`0008`):
+`CampaignItem` (referencia a Producto/Servicio/Renting via `content_type`+`object_uuid`+`quantity`,
+patron `CatalogRelation`, sin `GenericForeignKey`; "2 camaras" = 1 item con `quantity=2`),
+`CampaignBenefit` (`FREE_SHIPPING`/`FREE_INSTALLATION`/`DISCOUNT_PERCENT`/`DISCOUNT_FIXED`),
+`CampaignMedia` (imagen/video, validacion real: Pillow `verify()` para imagen JPEG/PNG/WEBP, `.mp4`
+para video, limites `MARKETING_MEDIA_MAX_IMAGE_MB`=5 / `MARKETING_MEDIA_MAX_VIDEO_MB`=100, hash
+SHA-256; duracion/codec de video NO validados por falta de libreria) y campos de contenido
+estructurado/vigencia en `MarketingCampaign` (`subheadline`, `description`, `cta_label`, `cta_url`,
+`terms`, `valid_from`/`valid_until`, `target_audience` ya expuesto). API (todo `IsAdminUser`): acciones
+`media/`, `media/reorder/`, `media/<uuid>/`, `media/<uuid>/toggle/`, `send/` (conecta el
+`MarketingCommands.dispatch()` que ya existia y solo usaba el agente IA) y `preview/`;
+`MarketingCommands.build_message()` unifica preview y envio real. Hallazgos corregidos: checkbox
+"SMS" fantasma (no existe adapter) y 6 canales reales de broadcast que la UI nunca mostraba (los 8
+reales: email/whatsapp/facebook/instagram/youtube/tiktok/x/google_business); bug de rutas DRF
+`media/reorder/` -> 405 (regex de `media_uuid` restringido a shape UUID). UI: `CampaignForm.vue`
+(catalogo, items, beneficios, media, canales), nuevo `CampaignDispatchPanel.vue` (preview + "Enviar
+ahora") y estado derivado DRAFT/SCHEDULED/RUNNING/COMPLETED. Observabilidad por log estructurado
+`marketing_event=...`. Gaps abiertos: activar/desactivar manual (sin `is_active`), Pausar/Cancelar
+(el proyecto no cancela tasks Celery), DELETE fisico (no soft-delete), botones de IA (claves LLM de
+dev son placeholders). Ver `ecommerce_sintel/docs/marketing/` (BASELINE, GAPS, DEPENDENCY_MAP,
+CAMPAIGN_MODEL, CHANNELS, MEDIA, E2E_REPORT) y `marketing/.AGENT/docs/ARQUITECTURA_COMPLETA_MARKETING.md`.
+Decision del usuario desde esta fecha: las pruebas UI/E2E son manuales.
+
+(G) **Home Builder (`/panel/home-config`) — mejoras de UX (2026-09-24, commit `1ce7ea5`)**: seccion
+activa persistida en la URL (`?section=`), vista previa colapsable con preferencia en `localStorage`,
+layout responsive (medianas/tablet/movil), accesibilidad (`aria-current`, tooltips, foco visible,
+`prefers-reduced-motion`). Solo `HomeConfigView.vue`.
+
+(H) **Rediseno del detalle de producto (PDP) y de renting (2026-09-24, commit `ad18ee0`)**:
+`ShopDetailContent.vue`, `RentingDetailContent.vue`, `BaseGallery.vue`, `renting/services/
+presenters.py`, auditorias `AUDITORIA/PRODUCT_DETAIL_PDP_*` y `RENTING_DETAIL_*` y specs e2e
+(`pdp-redesign`, `pdp-regression-check`, `renting-pdp-redesign`).
+
+(I) **Despliegue a produccion (2026-09-24)**: `./deploy/deploy.sh` (build `--no-cache` de `django`/
+`celery_worker`/`celery_beat`) con backup previo (`backup.sh`) y `git stash -u` de lo no commiteado
+para que el build (que usa el arbol de trabajo) no arrastrara cambios ajenos. Migraciones
+`marketing.0006`-`0008` aplicadas; contenedores healthy; sitio y panel responden 200. Nota operativa:
+`deploy.sh` construye desde el arbol de trabajo, no desde lo commiteado — limpiar/stashear antes.
+Pendiente sin commitear (fuera de este despliegue): migraciones `orders/0018` y `renting/0038`
+(plantillas de email), notifications, service worker.
+
+(J) **Validacion de "olvide mi contrasena" (2026-09-24)**: `/forgot-password` (cliente,
+`AccountViewSet.forgot_password_request` -> `CustomerPasswordResetCommands`) responde siempre 200
+generico y solo genera el OTP si el correo es de un cliente (`is_staff=False`); administradores usan
+el flujo aislado `/panel/forgot-password` (`admin-auth/*`). SMTP prod (`mail.sintel.net.co:465`),
+certificado, SPF/DKIM/DMARC verificados; el reporte de "no llega el correo" fue un error de uso, no un
+defecto. Observacion abierta: `VerificationCommands._send_otp_email` traga los errores de envio como
+warning (GAP #3 de la auditoria de Email). Tambien: script de consola local
+`frontend/scripts/create_product_console.mjs` (no commiteado) para crear un producto via API admin.
+
+(K) **Ollama integrado a produccion (2026-09-24, commit `ca5bc7d`)**: servicio `sintel_ollama` en
+`docker-compose.prod.yml` (contenedor `sintel_prod_ollama`, imagen `ollama/ollama:0.30.10` fijada, sin puertos
+publicados — solo `sintel-network`, volumen propio `sintel_prod_ollama_models`, healthcheck `ollama list`, reserva de
+GPU NVIDIA). Revierte la decision del 2026-08-17 ("LM Studio como unico proveedor productivo, sin Ollama") en cuanto a
+tener el contenedor disponible. Modelos descargados via API HTTP desde un contenedor temporal en la red (sin `docker exec`
+sobre produccion): `bge-m3` (embeddings, 1024 dim — coincide con la columna pgvector de `ai_knowledge`, no requiere
+re-embeber) y `qwen3.5:9b` (digest `6488c96f…3ea7`, Q4_K_M, 6.59 GB). Correccion de un dato previo: el RAG real
+(`ai_knowledge`/pgvector) ya usaba `bge-m3` (canal `embeddings` de `ai_provider`); `nomic-embed-text-v1.5` de `.env` es del
+camino antiguo (ChromaDB, retirado). GPU: una sola RTX 4060 (8 GB) compartida con el Ollama de dev y LM Studio => contencion.
+
+(L) **Incidente "Soporte en Linea no responde" y cambio del chat a Ollama/Qwen3.5-9B (2026-09-24, commit `c4767ea`)**:
+`sintel_ai_adk` tenia `LOCAL_MODEL_CHAIN` con LM Studio (aplicacion de escritorio del host) como UNICO proveedor y no
+estaba corriendo; ademas la sala de prueba probablemente estaba `ai_paused` (handoff previo; `is_ai_mode_active` en
+`support/services/ai_bridge.py`). Corregido siguiendo la politica del plan de hardening (PRIMARY Ollama/Qwen, FALLBACK
+LM Studio): cadena `ollama|ollama-nativo|http://sintel_ollama:11434|qwen3.5:9b;lmstudio|openai-compatible|…` y
+`depends_on: sintel_ollama healthy`; desplegado recreando SOLO `sintel_ai_adk` (`--no-deps --force-recreate`, sin rebuild),
+healthy y cadena verificada en el contenedor. Limitacion real: el ADK solo usa la entrada primaria (sin fallback multi-entry
+automatico) y LM Studio sigue caido. Latencia medida contra Ollama de produccion: ~16-18 tok/s con el Ollama de dev detenido
+(~7 tok/s compitiendo por VRAM); con razonamiento activo una respuesta tarda ~9-22 s, con `think=false` ~3-5 s pero en una
+muestra de 1 no llamo la herramienta. Decision del usuario: mantener el razonamiento activo. No se probo `/chat` real
+(requiere JWT de cliente). Banco de pruebas de modelos en dev (`scripts/ai_eval/chat_model_bench.py`, 16 casos sinteticos):
+`qwen3.5:9b` 93.8 % de acierto de herramienta vs `llama3.1:8b` 62.5 % (Llama invoca herramientas en saludos), pero ~27 s
+vs ~1 s de mediana en esta GPU. Nota operativa: el stack de desarrollo se detuvo a proposito ese dia (libera VRAM).
+
+(M) **Plan de hardening LLM/Agentes — FASE 0 ejecutada (2026-09-24)**: `PLAN_HARDENING_LLM_AGENTS_PRODUCCION_SINTEL_QWEN_
+OLLAMA_PRIMARY_20260924.md`; evidencia en `ai_engine_adk/.AGENT/HARDENING_F0_BASELINE_2026-09-24.md` (`HARDENING_STATUS =
+IN_PROGRESS`, solo Wave 1/F0). Hallazgos: los contenedores de DESARROLLO publican Postgres (5432), AI (8100), ADK (8101) y
+Redis (6380) en `0.0.0.0` del mismo host (produccion no publica nada); `/chat` valida el JWT del usuario pero no hay token de
+servicio separado; presupuesto de turno parcial (6 tool calls, 90 s por LLM, mensaje max 4000 chars); rate limit de chat solo
+por sala (20 turnos/10 min); solo 2 kill switches de IA (`AI_SUPPORT_CHAT_ENABLED`, `ADMIN_AI_ASSISTANT_ENABLED`).
+Fases F2-F24 sin iniciar: requieren propuesta y aprobacion humana.
 
 <details>
 <summary>Historial de versiones anteriores (v1-v16) — click para expandir</summary>
@@ -324,7 +413,7 @@ Actualizar el documento de la app afectada despues de cada cambio estructural.
 | `ecommerce` (base) | [ARQUITECTURACOMPLETA_SETTING.md](../../ecommerce_sintel/ecommerce/.AGENT/docs/ARQUITECTURACOMPLETA_SETTING.md) | No releida en ninguna pasada reciente |
 | `inventory` | [ARQUITECTURA_COMPLETA_INVENTORY.md](../../ecommerce_sintel/inventory/.AGENT/docs/ARQUITECTURA_COMPLETA_INVENTORY.md) | No releido en ninguna pasada reciente |
 | `kyc` | [ARQUITECTURA_COMPLETA_KYC.md](../../ecommerce_sintel/kyc/.AGENT/docs/ARQUITECTURA_COMPLETA_KYC.md) | **App nueva, no listada en versiones anteriores** — verificacion de identidad (2026-07-06) |
-| `marketing` | [ARQUITECTURA_COMPLETA_MARKETING.md](../../ecommerce_sintel/marketing/.AGENT/docs/ARQUITECTURA_COMPLETA_MARKETING.md) | AUDITORIA/27 (2026-08-02): ImportError P0 + P1 + P2 corregidos |
+| `marketing` | [ARQUITECTURA_COMPLETA_MARKETING.md](../../ecommerce_sintel/marketing/.AGENT/docs/ARQUITECTURA_COMPLETA_MARKETING.md) | AUDITORIA/27 (2026-08-02): ImportError P0 + P1 + P2 corregidos. **Actualizado 2026-09-24**: campanas con items/beneficios/media/canales, `send/` y `preview/` (ver item F) |
 | `notifications` | [ARQUITECTURA_COMPLETA_NOTIFICATIONS.md](../../ecommerce_sintel/notifications/.AGENT/docs/ARQUITECTURA_COMPLETA_NOTIFICATIONS.md) | Actualizado — gano indices BD (2026-08-03, AUDITORIA/31): `template_slug` + GIN sobre `payload_context` |
 | `operations` | [ARQUITECTURA_COMPLETA_OPERATIONS.md](../../ecommerce_sintel/operations/.AGENT/docs/ARQUITECTURA_COMPLETA_OPERATIONS.md) | AUDITORIA/28 (2026-08-03) — referencias a clase inexistente `OperationTicketSelector` corregidas (nombre real: `OperationSelector`) |
 | `organization` | [ARQUITECTURA_COMPLETA_ORGANIZATION.md](../../ecommerce_sintel/organization/.AGENT/docs/ARQUITECTURA_COMPLETA_ORGANIZATION.md) | **App nueva** — AUDITORIA/25 (2026-08-02). `organization/CLAUDE.md` dice "Fase 3 de 9" pero los 8 recursos estan operativos — sigue sin corregir |
@@ -1223,6 +1312,11 @@ Services: `QuotationCommands`, `QuotationSelector`, `PdfService`
 Services: `MarketingSelector` (y comandos asociados). Existen ademas directorios `marketing/agent/`
 y `marketing/channels/` con tareas Celery, sugiriendo un sistema de marketing asistido por IA
 (`AgentRun`) mas alla de un CRUD de campanas — no se profundizo en esta pasada.
+
+**Actualizado 2026-09-24 (v18, item F):** `MarketingCampaignViewSet` (siempre `IsAdminUser`) ahora tambien
+expone `media/` (POST multipart), `media/reorder/`, `media/<uuid>/` (DELETE), `media/<uuid>/toggle/`,
+`send/` (POST, dispara difusion real via Celery por canal) y `preview/` (GET). Modelos satelite:
+`CampaignItem`, `CampaignBenefit`, `CampaignMedia`; `CampaignLog` sigue siendo el tracking por canal.
 
 **Corregido 2026-07-03 (Fase 6, auditoria de BD):** `MarketingCampaign.__str__()` referenciaba un
 campo `self.channel` inexistente (el real es `channels`, plural) -- `AttributeError` en cualquier
