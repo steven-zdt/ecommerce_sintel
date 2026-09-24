@@ -25,6 +25,7 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 
 BACKUP_ROOT="${SINTEL_BACKUP_ROOT:-/c/Users/Administrator/sintel_backups}"
 RETENTION_DAYS="${SINTEL_BACKUP_RETENTION_DAYS:-14}"
+BACKUP_KEY_FILE="${SINTEL_BACKUP_KEY_FILE:-/c/Users/Administrator/sintel_secrets/backup.key}"
 TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
 LOCK_DIR="$BACKUP_ROOT/.backup.lock"
 
@@ -48,7 +49,7 @@ MEDIA_ARCHIVE_FINAL="$BACKUP_ROOT/media/sintel_media_${TIMESTAMP}.tar.gz"
 MEDIA_ARCHIVE_TMP="${MEDIA_ARCHIVE_FINAL}.tmp"
 
 cleanup() {
-    rm -f "$DB_DUMP_TMP" "$MEDIA_ARCHIVE_TMP"
+    rm -f "$DB_DUMP_TMP" "$MEDIA_ARCHIVE_TMP" "${DB_DUMP_FINAL}.enc.tmp" "${MEDIA_ARCHIVE_FINAL}.enc.tmp"
     rmdir "$LOCK_DIR" 2>/dev/null || true
 }
 trap cleanup EXIT
@@ -87,25 +88,48 @@ fi
 mv "$MEDIA_ARCHIVE_TMP" "$MEDIA_ARCHIVE_FINAL"
 echo "    -> $MEDIA_ARCHIVE_FINAL (integridad verificada)"
 
-echo ">>> [3/5] Respaldo de configuracion (.env.production, certificados, compose)..."
+echo ">>> [3/5] Respaldo de configuracion NO secreta (compose, nginx)..."
+# HARDENING F15 (2026-09-24, decision del usuario): los SECRETOS (.env.production, origin.key, credenciales del tunel Cloudflare) YA NO
+# se copian al backup (antes iban en claro, en el mismo host, sin cifrar). Se guardan solo en el gestor de contrasenas del usuario.
+# ENV_FILE/CERTS_DIR/CLOUDFLARED_DIR se conservan definidos arriba solo como documentacion de donde viven.
 CONFIG_BACKUP_DIR="$BACKUP_ROOT/config/${TIMESTAMP}"
 mkdir -p "$CONFIG_BACKUP_DIR"
-cp "$ENV_FILE" "$CONFIG_BACKUP_DIR/.env.production"
 cp "$PROJECT_DIR/docker-compose.prod.yml" "$CONFIG_BACKUP_DIR/docker-compose.prod.yml"
 cp "$PROJECT_DIR/nginx.prod.conf" "$CONFIG_BACKUP_DIR/nginx.prod.conf"
-if [ -d "$CERTS_DIR" ]; then
-    mkdir -p "$CONFIG_BACKUP_DIR/certs"
-    cp "$CERTS_DIR"/origin.pem "$CERTS_DIR"/origin.key "$CONFIG_BACKUP_DIR/certs/" 2>/dev/null || true
+echo "    -> $CONFIG_BACKUP_DIR/ (sin secretos: guarda .env.production, origin.key y credenciales del tunel en tu gestor de contrasenas)"
+
+echo ">>> [3b/5] Cifrado (openssl AES-256, PBKDF2) de dump y media..."
+# La clave vive FUERA de $BACKUP_ROOT (SINTEL_BACKUP_KEY_FILE). Generarla UNA vez, a mano:
+#   mkdir -p /c/Users/Administrator/sintel_secrets && openssl rand -base64 48 > /c/Users/Administrator/sintel_secrets/backup.key
+#   chmod 600 /c/Users/Administrator/sintel_secrets/backup.key   (y guardar una copia en el gestor de contrasenas: sin ella no hay restauracion)
+# Sin clave: se AVISA y el backup queda sin cifrar; con SINTEL_BACKUP_REQUIRE_ENCRYPTION=true el backup FALLA.
+if [ -f "$BACKUP_KEY_FILE" ]; then
+    if ! command -v openssl >/dev/null 2>&1; then
+        echo "ERROR: openssl no esta disponible; no se puede cifrar el backup. Aborta." >&2
+        exit 1
+    fi
+    for plain in "$DB_DUMP_FINAL" "$MEDIA_ARCHIVE_FINAL"; do
+        openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt -in "$plain" -out "${plain}.enc.tmp" -pass "file:$BACKUP_KEY_FILE"
+        # Verifica que el cifrado se pueda DESCIFRAR con la misma clave antes de borrar el original.
+        if ! openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -in "${plain}.enc.tmp" -out /dev/null -pass "file:$BACKUP_KEY_FILE"; then
+            rm -f "${plain}.enc.tmp"
+            echo "ERROR: el archivo cifrado no supero la verificacion de descifrado. Aborta (el original se conserva)." >&2
+            exit 1
+        fi
+        mv "${plain}.enc.tmp" "${plain}.enc"
+        rm -f "$plain"
+        echo "    -> ${plain}.enc (cifrado)"
+    done
+elif [ "${SINTEL_BACKUP_REQUIRE_ENCRYPTION:-false}" = "true" ]; then
+    echo "ERROR: SINTEL_BACKUP_REQUIRE_ENCRYPTION=true pero no existe $BACKUP_KEY_FILE. Aborta." >&2
+    exit 1
+else
+    echo "    AVISO: no existe $BACKUP_KEY_FILE -> el backup queda SIN CIFRAR (datos personales en claro). Ver instrucciones arriba." >&2
 fi
-if [ -d "$CLOUDFLARED_DIR" ]; then
-    mkdir -p "$CONFIG_BACKUP_DIR/cloudflared"
-    cp "$CLOUDFLARED_DIR"/*.yml "$CLOUDFLARED_DIR"/*.json "$CONFIG_BACKUP_DIR/cloudflared/" 2>/dev/null || true
-fi
-echo "    -> $CONFIG_BACKUP_DIR/"
 
 echo ">>> [4/5] Aplicando retencion (${RETENTION_DAYS} dias)..."
-find "$BACKUP_ROOT/db" -name 'sintel_db_*.dump' -mtime "+${RETENTION_DAYS}" -delete
-find "$BACKUP_ROOT/media" -name 'sintel_media_*.tar.gz' -mtime "+${RETENTION_DAYS}" -delete
+find "$BACKUP_ROOT/db" \( -name 'sintel_db_*.dump' -o -name 'sintel_db_*.dump.enc' \) -mtime "+${RETENTION_DAYS}" -delete
+find "$BACKUP_ROOT/media" \( -name 'sintel_media_*.tar.gz' -o -name 'sintel_media_*.tar.gz.enc' \) -mtime "+${RETENTION_DAYS}" -delete
 find "$BACKUP_ROOT/config" -maxdepth 1 -mindepth 1 -type d -mtime "+${RETENTION_DAYS}" -exec rm -rf {} +
 
 echo ">>> [5/5] Verificacion final completada."

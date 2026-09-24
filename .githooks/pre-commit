@@ -1,0 +1,10 @@
+#!/bin/sh
+# HARDENING F15: bloquea el commit si el diff staged contiene un secreto (no imprime valores). Activar UNA vez por clon:
+#   git config core.hooksPath .githooks
+# Saltarlo solo con una razon documentada: git commit --no-verify
+PY=$(command -v python3 || command -v python)
+[ -z "$PY" ] && exit 0
+"$PY" ecommerce_sintel/scripts/security/scan_secrets.py --staged || {
+  echo "pre-commit: posible secreto en los cambios staged (ver arriba). Retiralo o agregalo como placeholder." >&2
+  exit 1
+}

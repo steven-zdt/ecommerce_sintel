@@ -66,3 +66,6 @@ Documentacion/
 # localmente. snapshots/ se conserva (pequeno, checkpoints deliberados, no output
 # de cada corrida).
 ecommerce_sintel/project_knowledge_graph/data/
+
+# F15: configuracion local de Claude Code (puede contener tokens pegados en permisos)
+.claude/settings.local.json
