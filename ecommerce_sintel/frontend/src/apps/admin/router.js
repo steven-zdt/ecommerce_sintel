@@ -25,6 +25,13 @@ import { adminSeoRoutes } from './routes/adminSeo.routes';
 // adminAiRoutes (/panel/asistente) -- descongelado a peticion explicita del
 // usuario (2026-09-23, ver settings.ADMIN_AI_ASSISTANT_ENABLED).
 import { adminAiRoutes } from './routes/adminAi.routes';
+// adminMarketingRoutes (/panel/marketing) -- el Sidebar (Sidebar.vue linea 180)
+// ya enlazaba aqui desde antes, pero el router nunca lo registraba: la unica
+// causa real de "`/panel/marketing` no permite crear campanias" (la API
+// POST /api/v1/marketing/campaigns/ funciona bien, verificado; el usuario
+// nunca podia LLEGAR al formulario). PLAN_SINTEL_MARKETING_CAMPANAS_CRUD_
+// CATALOG_MEDIA_CANALES_LOOP.md, Fase 1, 2026-09-23.
+import { adminMarketingRoutes } from './routes/adminMarketing.routes';
 
 // Lazy-load de vistas para mejor rendimiento
 const AppShell      = () => import('@/components/layout/AppShell.vue');
@@ -62,6 +69,7 @@ const router = createRouter({
         ...adminOpsRoutes,
         ...adminSeoRoutes,
         ...adminAiRoutes,
+        ...adminMarketingRoutes,
       ],
     },
 

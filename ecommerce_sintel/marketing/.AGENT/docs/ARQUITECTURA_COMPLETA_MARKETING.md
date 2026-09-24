@@ -1663,5 +1663,13 @@ Nada en BD. Los tokens nunca llegan al frontend / LLM / logs.
 
 ---
 
-**Última actualización:** 2026-05-14
+## Actualizacion 2026-09-24 (plan Campanas CRUD/Catalogo/Media/Canales)
+
+Nuevos modelos: `CampaignItem`, `CampaignBenefit`, `CampaignMedia`; campos de contenido estructurado y
+vigencia en `MarketingCampaign`. Nuevas acciones en `MarketingCampaignViewSet`: media (upload/reorder/
+toggle/delete), `send/`, `preview/`. `MarketingCommands.build_message()` unifica preview y envio real;
+`dispatch()` acepta `channels`. Eventos `marketing_event=...` en logs. Detalle en
+`docs/marketing/MARKETING_CAMPAIGN_MODEL.md`, `MARKETING_CHANNELS.md`, `MARKETING_MEDIA.md`.
+
+**Última actualización:** 2026-09-24
 

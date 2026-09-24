@@ -354,6 +354,10 @@ AI_BOT_EMAIL = config('AI_BOT_EMAIL', default='asistente.ia@sintel.internal')
 # orden -- default False. El codigo (Tools/agente/vista/UI) sigue intacto,
 # solo el gateway de Django (dashboard/api/ai_assistant_views.py) lo bloquea.
 ADMIN_AI_ASSISTANT_ENABLED = config('ADMIN_AI_ASSISTANT_ENABLED', default=False, cast=bool)
+# Marketing -- CampaignMedia (PLAN_SINTEL_MARKETING_CAMPANAS_CRUD_CATALOG_MEDIA_CANALES_LOOP.md,
+# Fase 12/13, 2026-09-23): limites reales y configurables, sin hardcodear en el modelo/serializer.
+MARKETING_MEDIA_MAX_IMAGE_MB = config('MARKETING_MEDIA_MAX_IMAGE_MB', default=5, cast=int)
+MARKETING_MEDIA_MAX_VIDEO_MB = config('MARKETING_MEDIA_MAX_VIDEO_MB', default=100, cast=int)
 # Clave dedicada para cifrar en reposo AIProvider.api_key (shared/fields.py::
 # EncryptedTextField, plan "CONFIGURACION DINAMICA DE MODELOS LOCALES", FASE 1,
 # 2026-08-13). Si no se configura, el campo cae a derivar la clave de SECRET_KEY

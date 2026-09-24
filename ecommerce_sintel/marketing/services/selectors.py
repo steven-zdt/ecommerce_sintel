@@ -21,11 +21,15 @@ class MarketingSelector:
 
     @staticmethod
     def list_campaigns_for_admin() -> QuerySet:
-        return MarketingCampaign.objects.all().order_by('-created_at')
+        return MarketingCampaign.objects.prefetch_related(
+            'logs', 'benefits', 'items__content_type',
+        ).order_by('-created_at')
 
     @staticmethod
     def get_campaign_by_uuid(uuid: str) -> MarketingCampaign:
-        return MarketingCampaign.objects.prefetch_related('logs').get(uuid=uuid)
+        return MarketingCampaign.objects.prefetch_related(
+            'logs', 'benefits', 'items__content_type',
+        ).get(uuid=uuid)
 
     @staticmethod
     def list_flash_offers() -> QuerySet:

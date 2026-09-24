@@ -49,8 +49,8 @@ export const useMarketingAdminStore = defineStore('marketingAdmin', {
     async _mutate(action) {
       this.actionLoading = true;
       try {
-        await action();
-        return { ok: true };
+        const data = await action();
+        return { ok: true, data };
       } catch (err) {
         return { ok: false, error: err };
       } finally {
@@ -74,6 +74,34 @@ export const useMarketingAdminStore = defineStore('marketingAdmin', {
       } catch (err) {
         return { ok: false, error: err };
       }
+    },
+
+    // Fase 11-14 (2026-09-23): galeria de media. No tocan this.campaigns -- CampaignForm.vue
+    // maneja su propio estado local de galeria (mismo criterio que items/benefits, que ya son
+    // locales al formulario, ver docstring de marketingAdmin.js arriba).
+    uploadCampaignMedia(campaignUuid, file, mediaType) {
+      return this._mutate(() => marketingService.uploadCampaignMedia(campaignUuid, file, mediaType));
+    },
+
+    deleteCampaignMedia(campaignUuid, mediaUuid) {
+      return this._mutate(() => marketingService.deleteCampaignMedia(campaignUuid, mediaUuid));
+    },
+
+    toggleCampaignMedia(campaignUuid, mediaUuid) {
+      return this._mutate(() => marketingService.toggleCampaignMedia(campaignUuid, mediaUuid));
+    },
+
+    reorderCampaignMedia(campaignUuid, orderedUuids) {
+      return this._mutate(() => marketingService.reorderCampaignMedia(campaignUuid, orderedUuids));
+    },
+
+    // Fase 17/22 (2026-09-24): preview y envio manual (endpoints preview/ y send/).
+    previewCampaign(uuid) {
+      return this._mutate(() => marketingService.previewCampaign(uuid));
+    },
+
+    sendCampaign(uuid, recipient) {
+      return this._mutate(() => marketingService.sendCampaign(uuid, recipient));
     },
   },
 });

@@ -98,8 +98,8 @@
                 </td>
                 <td>{{ formatDate(camp.scheduled_at) }}</td>
                 <td class="text-center">
-                  <span class="badge rounded-pill" :class="camp.is_completed ? 'bg-success-subtle text-success' : 'bg-info-subtle text-info'">
-                    {{ camp.is_completed ? 'Completada' : 'Pendiente' }}
+                  <span class="badge rounded-pill" :class="statusClass(camp)">
+                    {{ statusLabel(camp) }}
                   </span>
                 </td>
                 <td class="text-center">
@@ -109,6 +109,7 @@
                 </td>
                 <td class="text-end px-4">
                   <div class="d-flex gap-2 justify-content-end">
+                    <button class="btn btn-sm btn-outline-primary border" title="Previsualizar y enviar" @click="openDispatch(camp)"><i class="bi bi-send"></i></button>
                     <button class="btn btn-sm btn-light border" @click="openEdit(camp)"><i class="bi bi-pencil"></i></button>
                     <button class="btn btn-sm btn-outline-danger border" @click="deleteCampaign(camp)"><i class="bi bi-trash"></i></button>
                   </div>
@@ -221,7 +222,13 @@
           :mode="mode"
           @saved="onCampaignSaved" 
         />
-        <AgentRunDetail 
+        <CampaignDispatchPanel
+          v-else-if="offcanvasType === 'dispatch'"
+          :key="`dispatch-${selected?.uuid}`"
+          :campaign="selected"
+          @sent="loadData"
+        />
+        <AgentRunDetail
           v-else-if="offcanvasType === 'agent'" 
           :key="`agent-${selected?.uuid}`"
           :run="selected" 
@@ -240,6 +247,7 @@ import { useMarketingAdminStore } from '@/store/marketingAdmin';
 import SintelOffcanvas from '@/components/ui/SintelOffcanvas.vue';
 import CampaignForm from './CampaignForm.vue';
 import AgentRunDetail from './AgentRunDetail.vue';
+import CampaignDispatchPanel from './CampaignDispatchPanel.vue';
 const toast = useToast();
 const activeTab = ref('campaigns');
 const { show: showOffcanvas, mode, selected, openCreate, openEdit, openDetail } = useOffcanvas();
@@ -249,6 +257,7 @@ const { campaigns, offers, agentRuns, loading } = storeToRefs(store);
 const offcanvasType = ref('');
 
 const offcanvasTitle = computed(() => {
+  if (offcanvasType.value === 'dispatch') return 'Previsualizar y Enviar';
   if (offcanvasType.value === 'campaign') {
     return mode.value === 'create' ? 'Nueva Campaña' : 'Editar Campaña';
   }
@@ -271,6 +280,28 @@ async function deleteCampaign(camp) {
   if (res.ok) toast.success('Campaña eliminada.'); else toast.error('No se pudo eliminar la campaña.');
 }
 
+// openDetail() abre el offcanvas en modo 'detail'; el watcher de abajo decide el tipo segun
+// esta bandera (mismo mecanismo que ya usa el tab activo).
+let dispatchPending = false;
+function openDispatch(camp) {
+  dispatchPending = true;
+  openDetail(camp);
+}
+
+const STATUS_LABELS = { DRAFT: 'Borrador', SCHEDULED: 'Programada', RUNNING: 'En envío', COMPLETED: 'Completada' };
+const STATUS_CLASSES = {
+  DRAFT: 'bg-secondary-subtle text-secondary',
+  SCHEDULED: 'bg-info-subtle text-info',
+  RUNNING: 'bg-warning-subtle text-warning',
+  COMPLETED: 'bg-success-subtle text-success',
+};
+function statusLabel(camp) {
+  return STATUS_LABELS[camp.status] || (camp.is_completed ? 'Completada' : 'Pendiente');
+}
+function statusClass(camp) {
+  return STATUS_CLASSES[camp.status] || 'bg-info-subtle text-info';
+}
+
 function onCampaignSaved() {
   showOffcanvas.value = false;
   loadData();
@@ -280,7 +311,10 @@ function onCampaignSaved() {
 watch([showOffcanvas, mode], ([isOpen, newMode]) => {
   if (isOpen && newMode) {
     // Detectar tipo basado en el tab activo al abrir offcanvas
-    if (activeTab.value === 'campaigns') {
+    if (dispatchPending) {
+      offcanvasType.value = 'dispatch';
+      dispatchPending = false;
+    } else if (activeTab.value === 'campaigns') {
       offcanvasType.value = 'campaign';
     } else if (activeTab.value === 'agent') {
       offcanvasType.value = 'agent';
