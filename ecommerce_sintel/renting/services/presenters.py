@@ -404,7 +404,12 @@ class EquipmentPublicDetailPresenter:
                 title=video.title,
                 source_type=video.source_type,
                 video_url=video.video_url,
-                thumbnail=getattr(video, 'thumbnail', None),
+                # [FIX 2026-09-16, auditoria PDP Renting] `getattr(video, 'thumbnail', None)`
+                # devolvia el FieldFile vacio (no None) cuando no hay archivo subido -- el
+                # atributo SI existe en el modelo, getattr no cae al default. Eso rompia
+                # la serializacion JSON con un 500 real ("The 'thumbnail' attribute has no
+                # file associated with it") para cualquier RentalVideo sin thumbnail.
+                thumbnail=video.thumbnail.url if video.thumbnail else None,
             ))
 
         # Documentos

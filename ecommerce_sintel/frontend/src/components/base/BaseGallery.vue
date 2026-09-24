@@ -2,10 +2,11 @@
   <div class="bv-gallery" :class="{ 'bv-gallery--vertical': thumbLayout === 'vertical' }">
     <div
       class="bv-gallery-main"
-      :class="{ 'is-zoomable': zoom && activeImageUrl }"
+      :class="{ 'is-zoomable': zoom && activeImageUrl, 'is-expandable': lightbox && activeImageUrl }"
       :style="themeStyle"
       @mousemove="onZoomMove"
       @mouseleave="onZoomLeave"
+      @click="openLightbox"
     >
       <img
         v-if="activeImageUrl"
@@ -17,6 +18,9 @@
       <div v-else class="bv-gallery-placeholder">
         <i :class="['bi', iconClass]"></i>
       </div>
+      <span v-if="lightbox && activeImageUrl" class="bv-gallery-expand-hint" aria-hidden="true">
+        <i class="bi bi-arrows-fullscreen"></i>
+      </span>
       <slot name="badge" :active-image="activeImage" :active-index="activeIndex" />
     </div>
 
@@ -46,6 +50,49 @@
       </button>
     </div>
   </div>
+
+  <!-- Lightbox (opt-in via prop `lightbox`, default false -- Renting/Services sin
+       cambios). Teleport a <body> para escapar el `position: sticky` del contenedor
+       padre (Shop, .gallery-sticky) sin problemas de stacking context/overflow. -->
+  <Teleport to="body">
+    <div
+      v-if="lightbox && lightboxOpen"
+      class="bv-lightbox-backdrop"
+      role="dialog"
+      aria-modal="true"
+      :aria-label="`Imagen ampliada: ${activeImageAlt}`"
+      tabindex="-1"
+      ref="lightboxEl"
+      @click.self="closeLightbox"
+      @keydown.esc="closeLightbox"
+      @keydown.left="prevImage"
+      @keydown.right="nextImage"
+    >
+      <button type="button" class="bv-lightbox-close" aria-label="Cerrar imagen ampliada" @click="closeLightbox">
+        <i class="bi bi-x-lg"></i>
+      </button>
+      <button
+        v-if="images.length > 1"
+        type="button"
+        class="bv-lightbox-nav bv-lightbox-prev"
+        aria-label="Imagen anterior"
+        @click="prevImage"
+      >
+        <i class="bi bi-chevron-left"></i>
+      </button>
+      <img v-if="activeImageUrl" :src="activeImageUrl" :alt="activeImageAlt" class="bv-lightbox-img">
+      <button
+        v-if="images.length > 1"
+        type="button"
+        class="bv-lightbox-nav bv-lightbox-next"
+        aria-label="Imagen siguiente"
+        @click="nextImage"
+      >
+        <i class="bi bi-chevron-right"></i>
+      </button>
+      <span v-if="images.length > 1" class="bv-lightbox-counter">{{ activeIndex + 1 }} / {{ images.length }}</span>
+    </div>
+  </Teleport>
 </template>
 
 <script setup>
@@ -59,7 +106,7 @@
  * posiciones distintas por dominio, forzar una sola API de badge hubiera
  * añadido props sin reducir codigo real.
  */
-import { ref, computed } from 'vue';
+import { ref, computed, nextTick, watch } from 'vue';
 
 const props = defineProps({
   images:    { type: Array, default: () => [] }, // string[] | {image|url, alt_text?}[]
@@ -75,6 +122,11 @@ const props = defineProps({
   // opt-in, default false: Shop/Renting no tienen caption/description en
   // su modelo de imagen hoy, no se les fuerza este bloque.
   showCaption: { type: Boolean, default: false },
+  // Rediseno PDP 3 columnas (2026-09-16, gap real detectado en auditoria:
+  // no existia click-to-expand/lightbox) -- opt-in, default false, Renting/
+  // Services sin cambios. Reusa `images`/`activeIndex` ya existentes, no
+  // duplica estado.
+  lightbox: { type: Boolean, default: false },
 });
 
 const THEMES = {
@@ -145,6 +197,35 @@ const themeStyle = computed(() => {
     '--bg-image-fit': t.imageFit,
   };
 });
+
+// Lightbox (opt-in) -- reusa activeIndex/images, no duplica estado de la galeria.
+const lightboxOpen = ref(false);
+const lightboxEl = ref(null);
+
+function openLightbox() {
+  if (!props.lightbox || !activeImageUrl.value) return;
+  lightboxOpen.value = true;
+}
+function closeLightbox() {
+  lightboxOpen.value = false;
+}
+function prevImage() {
+  if (props.images.length < 2) return;
+  activeIndex.value = (activeIndex.value - 1 + props.images.length) % props.images.length;
+}
+function nextImage() {
+  if (props.images.length < 2) return;
+  activeIndex.value = (activeIndex.value + 1) % props.images.length;
+}
+// Foco al abrir (accesibilidad -- el dialog debe poder cerrarse con Escape de
+// inmediato) y bloqueo de scroll del body mientras esta abierto.
+watch(lightboxOpen, async (open) => {
+  document.body.style.overflow = open ? 'hidden' : '';
+  if (open) {
+    await nextTick();
+    lightboxEl.value?.focus();
+  }
+});
 </script>
 
 <style scoped>
@@ -163,6 +244,14 @@ const themeStyle = computed(() => {
 }
 .bv-gallery-main.is-zoomable { cursor: zoom-in; }
 .bv-gallery-main.is-zoomable:hover .bv-gallery-img { transform: scale(1.8); }
+.bv-gallery-main.is-expandable { cursor: pointer; }
+.bv-gallery-expand-hint {
+  position: absolute; bottom: 10px; right: 10px;
+  width: 34px; height: 34px; border-radius: 999px;
+  background: rgba(15, 23, 42, .55); color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  font-size: .95rem; pointer-events: none;
+}
 .bv-gallery-placeholder {
   width: 100%; height: 100%;
   display: flex; align-items: center; justify-content: center;
@@ -199,5 +288,48 @@ const themeStyle = computed(() => {
 @media (prefers-reduced-motion: reduce) {
   .bv-gallery-img, .bv-gallery-thumb { transition: none; }
   .bv-gallery-main.is-zoomable:hover .bv-gallery-img { transform: none; }
+}
+
+/* Lightbox -- fuera de .bv-gallery (Teleport a body), namespaced con su propio
+   prefijo bv-lightbox-* para no chocar con ningun otro modal del proyecto. */
+.bv-lightbox-backdrop {
+  position: fixed; inset: 0; z-index: 1080;
+  background: rgba(15, 23, 42, .92);
+  display: flex; align-items: center; justify-content: center;
+  padding: 2rem;
+}
+.bv-lightbox-img {
+  max-width: min(90vw, 1100px); max-height: 85vh;
+  object-fit: contain; border-radius: 8px;
+}
+.bv-lightbox-close {
+  position: absolute; top: 1.25rem; right: 1.25rem;
+  width: 42px; height: 42px; border-radius: 999px; border: 0;
+  background: rgba(255,255,255,.12); color: #fff; font-size: 1.1rem;
+  display: flex; align-items: center; justify-content: center; cursor: pointer;
+  transition: background-color .15s ease;
+}
+.bv-lightbox-close:hover { background: rgba(255,255,255,.22); }
+.bv-lightbox-nav {
+  position: absolute; top: 50%; transform: translateY(-50%);
+  width: 48px; height: 48px; border-radius: 999px; border: 0;
+  background: rgba(255,255,255,.12); color: #fff; font-size: 1.4rem;
+  display: flex; align-items: center; justify-content: center; cursor: pointer;
+  transition: background-color .15s ease;
+}
+.bv-lightbox-nav:hover { background: rgba(255,255,255,.22); }
+.bv-lightbox-prev { left: 1.25rem; }
+.bv-lightbox-next { right: 1.25rem; }
+.bv-lightbox-counter {
+  position: absolute; bottom: 1.25rem; left: 50%; transform: translateX(-50%);
+  color: #e2e8f0; font-size: .82rem; font-weight: 600;
+  background: rgba(255,255,255,.12); border-radius: 999px; padding: .3rem .8rem;
+}
+.bv-lightbox-close:focus-visible, .bv-lightbox-nav:focus-visible {
+  outline: 2px solid #fff; outline-offset: 2px;
+}
+@media (max-width: 575px) {
+  .bv-lightbox-backdrop { padding: 1rem; }
+  .bv-lightbox-nav { width: 40px; height: 40px; font-size: 1.15rem; }
 }
 </style>

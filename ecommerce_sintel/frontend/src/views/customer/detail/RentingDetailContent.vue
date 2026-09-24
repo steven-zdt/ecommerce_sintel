@@ -11,17 +11,31 @@
        El fetch NO vive aqui: el padre (PublicDetailView.vue) resuelve el
        DTO unificado y lo entrega ya resuelto via la prop `detail`, igual
        que antes de la descomposicion (cero cambio de secuencia de carga).
+
+       Rediseno 3 columnas (2026-09-16, mision "Remodelar PDP Renting", Fase 2
+       -- ver AUDITORIA/RENTING_DETAIL_BASELINE.md/RENTING_DETAIL_REDESIGN.md):
+       galeria | informacion del equipo | panel de reserva, separados en 3
+       columnas reales de Bootstrap (antes: galeria+disponibilidad + una sola
+       columna que anidaba info+package-panel al final). Acotado a puro
+       reacomodo de layout con los datos que YA trae el DTO -- el panel de
+       reserva interactivo (variante/modalidad/fechas/disponibilidad por
+       periodo) queda para una Fase 3 aparte, decision explicita del usuario
+       (no existe hoy ni siquiera como componente separado del wizard, ver
+       baseline seccion 2). Cero cambios de logica de negocio/API.
        ══════════════════════════════════════════════════════════════════════ -->
   <div class="rental-detail">
-    <div class="row g-4 g-lg-5">
-      <!-- Left Column: Gallery & Availability -->
-      <div class="col-lg-5">
+    <div class="row g-4 g-lg-4">
+      <!-- Columna 1: galeria -->
+      <div class="col-12 col-md-6 col-lg-4">
         <div class="gallery-sticky">
           <BaseGallery
             :images="detail.gallery?.all_images || []"
             :title="detail.hero?.name"
             icon-class="bi-hdd-rack"
             theme="renting"
+            thumb-layout="vertical"
+            zoom
+            lightbox
           >
             <template #badge="{ activeImage }">
               <span v-if="activeImage" class="eq-gallery-type-badge">
@@ -49,25 +63,11 @@
               <span>Soporte postventa</span>
             </div>
           </div>
-
-          <!-- Availability Card -->
-          <div class="availability-card">
-            <span class="section-kicker">Disponibilidad</span>
-            <h2>{{ detail.availability?.status_label }}</h2>
-            <p>{{ detail.availability?.status_detail }}</p>
-            <RouterLink
-              v-if="detail.hero?.cta_enabled"
-              :to="{ name: 'rental-request', params: { uuid: detail.uuid } }"
-              class="availability-link"
-            >
-              Consultar fechas exactas <i class="bi bi-arrow-right"></i>
-            </RouterLink>
-          </div>
         </div>
       </div>
 
-      <!-- Right Column: Details & Info -->
-      <div class="col-lg-7">
+      <!-- Columna 2: informacion del equipo -->
+      <div class="col-12 col-md-6 col-lg-5">
         <!-- Badges & Actions -->
         <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
           <TagBadge v-for="tag in detail.marketing?.tags" :key="tag.code" :tag="tag" />
@@ -162,20 +162,46 @@
           </div>
         </div>
 
-        <!-- Configuracion / Package Panel (estructura y valores calcados de produccion en vivo) -->
-        <div class="package-panel">
-          <div class="panel-head">
-            <div>
-              <span class="section-kicker">Configuracion</span>
-              <h2>Valor del alquiler</h2>
+      </div>
+
+      <!-- Columna 3: panel de reserva (Fase 2 -- precio + disponibilidad + CTA
+           al wizard, con los datos que YA trae el DTO. El panel interactivo
+           completo -- variante/modalidad/fechas/disponibilidad por periodo --
+           es una Fase 3 aparte, ver nota arquitectonica arriba). -->
+      <div class="col-12 col-lg-3">
+        <div class="reservation-panel-sticky">
+          <div class="package-panel">
+            <div class="panel-head">
+              <span class="section-kicker">Valor del alquiler</span>
             </div>
-            <span class="from-price">Desde {{ detail.pricing?.formatted_price_per_day }} / dia</span>
-          </div>
-          <div class="selected-package">
-            <div>
-              <h3>{{ rentingPackageLabel }}</h3>
-              <p>{{ detail.pricing?.formatted_price_per_day }} / dia</p>
+
+            <div class="rental-price-row">
+              <div class="rental-price-block">
+                <span class="rental-price-value">{{ detail.pricing?.formatted_price_per_day }}</span>
+                <span class="rental-price-unit">/ dia</span>
+              </div>
+              <div v-if="detail.pricing?.formatted_price_per_hour" class="rental-price-block rental-price-block-secondary">
+                <span class="rental-price-value">{{ detail.pricing.formatted_price_per_hour }}</span>
+                <span class="rental-price-unit">/ hora</span>
+              </div>
             </div>
+            <p class="rental-package-label">{{ rentingPackageLabel }}</p>
+
+            <div class="rental-sep"></div>
+
+            <div class="rental-info-rows">
+              <div class="rental-info-row">
+                <span class="rental-info-label"><i class="bi bi-box-seam"></i>Disponibilidad</span>
+                <span class="rental-info-value" :class="getAvailTextClass()">{{ detail.availability?.status_label }}</span>
+              </div>
+              <div v-if="detail.availability?.status_detail" class="rental-info-row">
+                <span class="rental-info-label"><i class="bi bi-info-circle"></i>Detalle</span>
+                <span class="rental-info-value">{{ detail.availability.status_detail }}</span>
+              </div>
+            </div>
+
+            <div class="rental-sep"></div>
+
             <RouterLink
               v-if="detail.hero?.cta_enabled"
               :to="{ name: 'rental-request', params: { uuid: detail.uuid } }"
@@ -186,6 +212,13 @@
             <p v-else-if="detail.hero?.cta_disabled_reason" class="text-danger small mb-0">
               {{ detail.hero.cta_disabled_reason }}
             </p>
+            <RouterLink
+              v-if="detail.hero?.cta_enabled"
+              :to="{ name: 'rental-request', params: { uuid: detail.uuid } }"
+              class="availability-link"
+            >
+              Consultar fechas exactas <i class="bi bi-arrow-right"></i>
+            </RouterLink>
           </div>
         </div>
       </div>
@@ -413,6 +446,15 @@ function getAvailBadge() {
   }[status] || base;
 }
 
+function getAvailTextClass() {
+  const status = props.detail?.availability?.status;
+  return {
+    available: 'rental-text-success',
+    limited: 'rental-text-warning',
+    unavailable: 'rental-text-danger',
+  }[status] || '';
+}
+
 function loadFavorites() {
   try {
     return JSON.parse(localStorage.getItem(FAVORITES_KEY) || '[]');
@@ -521,25 +563,9 @@ watch(
 
 .rental-detail .trust-grid i { font-size: 1.1rem; flex-shrink: 0; }
 
-.rental-detail .availability-card {
-  background: #fff;
-  border: 1px solid #e2e8f0;
-  border-radius: 16px;
-  padding: 1rem;
-  margin-top: .9rem;
-}
-
-.rental-detail .availability-card h2 {
-  font-size: 1.1rem;
-  font-weight: 850;
-  color: #0f172a;
-  margin: 0 0 .25rem;
-}
-
-.rental-detail .availability-card p {
-  font-size: .85rem;
-  color: #64748b;
-  margin-bottom: .75rem;
+.rental-detail .reservation-panel-sticky { position: static; }
+@media (min-width: 992px) {
+  .rental-detail .reservation-panel-sticky { position: sticky; top: 88px; }
 }
 
 .rental-detail .availability-link {
@@ -655,39 +681,40 @@ watch(
   box-shadow: 0 14px 30px rgba(15, 23, 42, .06);
 }
 
-.rental-detail .panel-head {
-  display: flex;
-  align-items: end;
-  justify-content: space-between;
-  gap: 1rem;
-  margin-bottom: .9rem;
+.rental-detail .panel-head { margin-bottom: .75rem; }
+
+.rental-detail .rental-price-row { display: flex; align-items: baseline; flex-wrap: wrap; gap: .5rem .9rem; }
+
+.rental-detail .rental-price-block { display: flex; align-items: baseline; gap: .3rem; }
+
+.rental-detail .rental-price-block-secondary .rental-price-value { font-size: 1.15rem; }
+.rental-detail .rental-price-block-secondary .rental-price-unit { font-size: .72rem; }
+
+.rental-detail .rental-price-value { color: #0f172a; font-size: 1.7rem; font-weight: 900; line-height: 1; }
+
+.rental-detail .rental-price-unit { color: #64748b; font-size: .8rem; font-weight: 600; }
+
+.rental-detail .rental-package-label { color: #64748b; font-size: .84rem; margin: .4rem 0 0; }
+
+.rental-detail .rental-sep { height: 1px; background: #e2e8f0; margin: 1rem 0; }
+
+.rental-detail .rental-info-rows { display: flex; flex-direction: column; gap: .6rem; }
+
+.rental-detail .rental-info-row { display: flex; align-items: center; justify-content: space-between; gap: .75rem; }
+
+.rental-detail .rental-info-label {
+  display: inline-flex; align-items: center; gap: .45rem;
+  color: #64748b; font-size: .84rem; font-weight: 600;
 }
+.rental-detail .rental-info-label i { color: #94a3b8; }
 
-.rental-detail .panel-head h2 {
-  color: #0f172a;
-  font-size: 1.25rem;
-  font-weight: 850;
-  margin: 0;
-}
-
-.rental-detail .from-price { color: #2563eb; font-weight: 850; white-space: nowrap; }
-
-.rental-detail .selected-package {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  border-top: 1px solid #e2e8f0;
-  margin-top: .9rem;
-  padding-top: .9rem;
-}
-
-.rental-detail .selected-package h3 { color: #0f172a; font-size: 1rem; font-weight: 850; margin: 0 0 .2rem; }
-
-.rental-detail .selected-package p { color: #64748b; font-size: .86rem; margin: 0; }
+.rental-detail .rental-info-value { color: #0f172a; font-size: .84rem; font-weight: 700; text-align: right; }
+.rental-detail .rental-text-success { color: #16a34a; }
+.rental-detail .rental-text-warning { color: #d97706; }
+.rental-detail .rental-text-danger { color: #dc2626; }
 
 .rental-detail .reserve-btn {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   justify-content: center;
   background: #2563eb;
@@ -698,9 +725,12 @@ watch(
   font-weight: 850;
   white-space: nowrap;
   border: none;
+  width: 100%;
 }
 
 .rental-detail .reserve-btn:hover { background: #1d4ed8; color: #fff; }
+
+.rental-detail .availability-link { justify-content: center; margin-top: .75rem; }
 
 /* Secciones inferiores: tarjetas dentro de .detail-sections */
 .rental-detail .detail-sections {

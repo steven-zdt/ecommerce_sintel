@@ -7,18 +7,23 @@
        ya existentes) y entrega el resultado ya resuelto via props, en la
        misma secuencia que antes de la descomposicion.
 
-       Rediseno Enterprise PDP (2026-08-04): la parte superior (galeria/
-       precio/CTA) ahora reusa la misma familia de componentes que Renting/
-       Services (BaseGallery, marketplace/*, StarRating) y el mismo lenguaje
-       visual premium (#0f172a/#64748b/#e2e8f0/#2563eb, radios 16px/999px,
-       headings 850) que ya tenian las .shop-detail-sections desde el cierre
-       del catalogo enriquecido -- cero cambios de logica de negocio/API,
-       solo presentacion. Ver plan en session history.
+       Rediseno 3 columnas (2026-09-16, mision "Remodelar PDP" -- ver
+       AUDITORIA/PRODUCT_DETAIL_PDP_BASELINE.md/PRODUCT_DETAIL_PDP_REDESIGN.md):
+       galeria | informacion | compra, separados en 3 columnas reales de
+       Bootstrap (antes: galeria + una sola columna que anidaba info+compra).
+       Desktop (lg+, 992px): 4/5/3. Tablet (md, 768-991px): galeria+info a 2
+       columnas, compra debajo a ancho completo (brief seccion 24: "purchase
+       below"). Mobile (<768px): las 3 apiladas en su orden natural del DOM
+       (galeria, info, compra) -- ver seccion "Gaps" del doc de rediseno para
+       la decision consciente de NO reordenar precio antes de variantes en
+       mobile via CSS order (hubiera exigido partir ProductPurchaseCard en
+       2 componentes, mas invasivo de lo que justifica esta iteracion).
+       Cero cambios de logica de negocio/API, solo presentacion + grid.
        ══════════════════════════════════════════════════════════════════════ -->
   <div class="product-detail-block">
-    <div class="row g-4 g-lg-5">
-      <!-- Columna izquierda: galeria -->
-      <div class="col-lg-5">
+    <div class="row g-4 g-lg-4">
+      <!-- Columna 1: galeria -->
+      <div class="col-12 col-md-6 col-lg-4">
         <div class="gallery-sticky">
           <BaseGallery
             :images="shopAllImages"
@@ -26,6 +31,7 @@
             theme="shop"
             thumb-layout="vertical"
             zoom
+            lightbox
             icon-class="bi-box-seam"
           >
             <template #badge>
@@ -56,8 +62,8 @@
         </div>
       </div>
 
-      <!-- Columna derecha: info + compra -->
-      <div class="col-lg-7">
+      <!-- Columna 2: informacion del producto -->
+      <div class="col-12 col-md-6 col-lg-5">
         <div class="pd-badges-row">
           <TagBadge v-if="shopFeaturedTag" :tag="shopFeaturedTag" />
           <TagBadge v-if="shopConditionTag" :tag="shopConditionTag" />
@@ -115,8 +121,12 @@
             <span v-if="shopSelectedVariant.height"><strong>Alto:</strong> {{ shopSelectedVariant.height }} cm</span>
           </div>
         </div>
+      </div>
 
-        <div class="purchase-sticky mt-4">
+      <!-- Columna 3: panel de compra (ya existia completo, solo se reubica en
+           su propia columna en vez de anidarlo al final de la columna de info) -->
+      <div class="col-12 col-lg-3">
+        <div class="purchase-sticky">
           <ProductPurchaseCard
             :price-label="fmtCOP(shopEffectivePrice)"
             :original-price-label="fmtCOP(shopOriginalPrice)"
