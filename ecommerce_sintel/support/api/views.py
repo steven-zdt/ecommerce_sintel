@@ -1,5 +1,5 @@
 from rest_framework import status
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAdminUser, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from drf_spectacular.utils import extend_schema
@@ -104,3 +104,27 @@ class CreateSupportTicketView(APIView):
             {'ticket': SupportTicketSerializer(ticket).data, 'room_uuid': str(room.uuid)},
             status=status.HTTP_201_CREATED,
         )
+
+
+class ResumeAiView(APIView):
+    """
+    POST /api/v1/support/chats/{room_uuid}/resume-ai/
+    HARDENING F18: reactivacion EXPLICITA del asistente en una sala escalada (ai_paused) -- solo administradores. Sin este paso la IA no
+    vuelve a responder tras un handoff o una respuesta humana (plan sec. 22: "salvo reactivacion explicita").
+    """
+    permission_classes = [IsAdminUser]
+
+    @extend_schema(summary="Reactiva el asistente IA en una sala de soporte (admin)", request=None, responses={200: dict, 400: dict, 404: dict})
+    def post(self, request, room_uuid=None):
+        from django.core.exceptions import ValidationError
+        try:
+            room = ChatRoom.objects.filter(uuid=room_uuid, is_deleted=False).select_related('user').first()
+        except (ValidationError, ValueError):  # uuid mal formado: 404, no 500
+            room = None
+        if room is None:
+            return Response({'detail': 'Sala no encontrada.'}, status=status.HTTP_404_NOT_FOUND)
+        try:
+            room = ChatCommands.resume_ai(room, request.user)
+        except ValueError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({'room_uuid': str(room.uuid), 'ai_paused': room.ai_paused, 'assigned_admin': None})

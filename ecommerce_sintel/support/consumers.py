@@ -125,6 +125,8 @@ class SupportChatConsumer(AsyncWebsocketConsumer):
                 return
             room, client_uuid = result
             msg = await self._save_message(room, user, text)
+            # HARDENING F18: toma de control humana => la IA deja de contestar en esta sala hasta reactivacion explicita.
+            await self._pause_ai_on_human_reply(room)
             logger.info(
                 '[CHAT] room=%s user=%s message_len=%d is_admin=True status=sent%s',
                 room.uuid, user.email, len(text), _debug_preview(text),
@@ -272,6 +274,15 @@ class SupportChatConsumer(AsyncWebsocketConsumer):
         send_whatsapp_agent_reply_task.delay(user_id=user_id, text=text)
 
     @database_sync_to_async
+    def _pause_ai_on_human_reply(self, room):
+        from django.conf import settings
+        if not settings.AI_PAUSE_ON_HUMAN_REPLY:
+            return
+        from support.services.commands import ChatCommands
+        if ChatCommands.pause_ai_for_human_takeover(room):
+            logger.info('ai_operation_event=ai_paused_human_reply room=%s', room.uuid)
+
+    @database_sync_to_async
     def _ai_mode_active(self, room):
         from support.services.ai_bridge import is_ai_mode_active
         room.refresh_from_db(fields=['status', 'ai_paused', 'assigned_admin'])
@@ -302,6 +313,9 @@ class SupportChatConsumer(AsyncWebsocketConsumer):
             room, bot, ai_response.get('response') or '',
             ai_metrics=ai_response.get('metrics'),
         )
+        if (ai_response.get('metrics') or {}).get('engine_unavailable'):
+            # F18: turno degradado con texto de handoff (timeout, cola llena...): avisar a un humano de verdad.
+            ChatCommands.alert_admins_ai_degraded(room, 'engine_unavailable')
         if ai_response_opened_ticket(ai_response):
             # Human Handoff: el AI escalo -- deja de responder en esta sala.
             room.ai_paused = True
@@ -319,6 +333,7 @@ class SupportChatConsumer(AsyncWebsocketConsumer):
             'Un agente humano revisará tu mensaje pronto.',
             ai_metrics={'engine_unavailable': True},
         )
+        ChatCommands.alert_admins_ai_degraded(room, 'no_response')  # F18: el mensaje promete revision humana; avisar de verdad
         return msg, bot.email
 
     async def _ai_reply(self, room, text):

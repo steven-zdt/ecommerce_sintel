@@ -347,6 +347,11 @@ AI_ENGINE_URL = config('AI_ENGINE_URL', default='http://sintel_ai:8100')
 AI_CANARY_ENGINE_URL = config('AI_CANARY_ENGINE_URL', default='')
 AI_CANARY_USER_EMAILS = config('AI_CANARY_USER_EMAILS', default='')
 AI_CANARY_PERCENT = config('AI_CANARY_PERCENT', default=0, cast=int)
+# HARDENING F18 (safe handoff): (1) una respuesta de un agente HUMANO en la sala pausa la IA (toma de control); (2) un turno degradado (motor
+# caido, timeout, cola llena) avisa a los admins con un cooldown por sala. Ambos default true = comportamiento exigido por el plan; false los apaga.
+AI_PAUSE_ON_HUMAN_REPLY = config('AI_PAUSE_ON_HUMAN_REPLY', default=True, cast=bool)
+AI_DEGRADED_ADMIN_ALERT = config('AI_DEGRADED_ADMIN_ALERT', default=True, cast=bool)
+AI_DEGRADED_ALERT_COOLDOWN_SECONDS = config('AI_DEGRADED_ALERT_COOLDOWN_SECONDS', default=900, cast=int)
 # HARDENING F2 (2026-09-24): secreto de servicio Django -> ADK (cabecera X-AI-Service-Token). Vacio = no se envia.
 # Debe coincidir con AI_SERVICE_TOKEN del contenedor sintel_ai_adk; replicar en .env Y .env.production en el mismo paso.
 AI_SERVICE_TOKEN = config('AI_SERVICE_TOKEN', default='')
