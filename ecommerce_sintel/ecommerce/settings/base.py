@@ -347,6 +347,8 @@ AI_ENGINE_URL = config('AI_ENGINE_URL', default='http://sintel_ai:8100')
 AI_SERVICE_TOKEN = config('AI_SERVICE_TOKEN', default='')
 # Modo AI del chat de soporte (widget web reusa support/consumers.py).
 AI_SUPPORT_CHAT_ENABLED = config('AI_SUPPORT_CHAT_ENABLED', default=False, cast=bool)
+# HARDENING F6/C2 (2026-09-24): dominios https permitidos como `source` de un documento de conocimiento (CSV).
+AI_KNOWLEDGE_ALLOWED_SOURCE_HOSTS = config('AI_KNOWLEDGE_ALLOWED_SOURCE_HOSTS', default='sintel.net.co,panel.sintel.net.co', cast=lambda v: [h.strip() for h in v.split(',') if h.strip()])
 # Usuario bot que firma los mensajes del asistente en ChatMessage (FK sender
 # NOT NULL). Inactivo y sin password utilizable -- jamas puede autenticarse.
 AI_BOT_EMAIL = config('AI_BOT_EMAIL', default='asistente.ia@sintel.internal')

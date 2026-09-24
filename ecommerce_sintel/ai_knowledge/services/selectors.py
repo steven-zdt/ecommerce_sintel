@@ -17,14 +17,17 @@ senala (SKUs, codigos, UUIDs, nombres exactos) sin agregar una dependencia
 nueva (pg_trgm) ni el costo de mantener un SearchVectorField indexado sin
 contenido real todavia que lo justifique (hallazgo F-1 del baseline).
 """
+import logging
 import re
 
-from django.db.models import QuerySet
+from django.db.models import Q, QuerySet
 from django.utils import timezone
 from pgvector.django import CosineDistance
 
 from .embedding_service import EmbeddingProviderUnavailable, EmbeddingService
 from ..models import AIKnowledgeChunk, AIKnowledgeDocument
+
+logger = logging.getLogger(__name__)
 
 # Mision RAG Enterprise (2026-09-16, FASE 4): reranking -- no depender solo
 # del score de retrieval crudo (distance). Se combina similitud (semantica o
@@ -104,6 +107,15 @@ class AIKnowledgeChunkSelector:
         return AIKnowledgeChunk.objects.filter(is_deleted=False, embedding__isnull=True).count()
 
 
+def _warn_embedding_mismatch(chunk_model: str, query_model: str) -> None:
+    """Aviso (una vez cada 10 min) cuando un chunk recuperado se embebio con un modelo distinto al de la consulta."""
+    from django.core.cache import cache
+
+    if cache.add('ai_knowledge:embedding_mismatch_warned', 1, timeout=600):
+        logger.warning('ai_operation_event=embedding_model_mismatch chunk_model=%s query_model=%s -- re-embeber con '
+                       'reembed_stale_chunks()', chunk_model, query_model)
+
+
 class RetrievalService:
     @staticmethod
     def retrieve_public_knowledge(query: str, app_names: list[str] | None = None, k: int = 8) -> list[dict]:
@@ -143,6 +155,7 @@ class RetrievalService:
         original (para confidence/answerability en sintel_rag_adapter.py);
         el orden de la lista es el que decide `_rerank_score`.
         """
+        now = timezone.now()
         qs = (
             AIKnowledgeChunk.objects.filter(
                 is_deleted=False,
@@ -150,7 +163,11 @@ class RetrievalService:
                 document__is_deleted=False,
                 document__is_active=True,
                 document__visibility=AIKnowledgeDocument.VISIBILITY_PUBLIC,
+                # HARDENING F6/C3: solo contenido APROBADO y VIGENTE, filtrado ANTES de rankear (plan sec. 10.2).
+                document__review_status=AIKnowledgeDocument.REVIEW_APPROVED,
             )
+            .filter(Q(document__effective_from__isnull=True) | Q(document__effective_from__lte=now))
+            .filter(Q(document__effective_until__isnull=True) | Q(document__effective_until__gte=now))
             .select_related('document')
         )
         if app_names:
@@ -174,6 +191,9 @@ class RetrievalService:
                 if chunk.id in ranked:
                     continue  # ya esta por match exacto -- prioridad mas alta, no se pisa
                 ranked[chunk.id] = {'chunk': chunk, 'distance': float(chunk.distance)}
+                # HARDENING F6/C6: nunca mezclar vectores de dos modelos en la misma columna (ver models.EMBEDDING_DIMENSIONS).
+                if chunk.embedding_model and _model_id and chunk.embedding_model != _model_id:
+                    _warn_embedding_mismatch(chunk.embedding_model, _model_id)
         elif not ranked:
             return []
 

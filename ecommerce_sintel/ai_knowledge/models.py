@@ -74,6 +74,33 @@ class AIKnowledgeDocument(SintelBaseModel):
         settings.AUTH_USER_MODEL, related_name='+', on_delete=models.SET_NULL, null=True, blank=True,
     )
 
+    # HARDENING F6/C1 (2026-09-24, plan sec. 10.1) -- metadata de gobierno. Todas con default/null: la migracion es aditiva
+    # y los documentos EXISTENTES quedan `approved` (no cambia su comportamiento actual).
+    AUTHORITY_OFFICIAL = 'official'
+    AUTHORITY_INTERNAL = 'internal'
+    AUTHORITY_THIRD_PARTY = 'third_party'
+    AUTHORITY_CHOICES = [
+        (AUTHORITY_OFFICIAL, 'Oficial (politica/contenido aprobado por la empresa)'),
+        (AUTHORITY_INTERNAL, 'Interno'),
+        (AUTHORITY_THIRD_PARTY, 'Tercero (menor autoridad)'),
+    ]
+    REVIEW_DRAFT = 'draft'
+    REVIEW_NEEDS_REVIEW = 'needs_review'
+    REVIEW_APPROVED = 'approved'
+    REVIEW_CHOICES = [
+        (REVIEW_DRAFT, 'Borrador'),
+        (REVIEW_NEEDS_REVIEW, 'Requiere revision (el analisis de ingesta encontro banderas)'),
+        (REVIEW_APPROVED, 'Aprobado'),
+    ]
+    document_version = models.PositiveIntegerField(default=1)
+    content_hash = models.CharField(max_length=64, blank=True, default='', db_index=True)
+    effective_from = models.DateTimeField(null=True, blank=True, help_text='Vigencia: no se recupera antes de esta fecha.')
+    effective_until = models.DateTimeField(null=True, blank=True, help_text='Vigencia: no se recupera despues de esta fecha.')
+    authority = models.CharField(max_length=20, choices=AUTHORITY_CHOICES, default=AUTHORITY_INTERNAL)
+    review_status = models.CharField(max_length=20, choices=REVIEW_CHOICES, default=REVIEW_APPROVED, db_index=True)
+    injection_flags = models.JSONField(default=list, blank=True,
+                                       help_text='Categorias de inyeccion halladas al ingerir (sin el texto).')
+
     class Meta:
         ordering = ['-updated_at']
         indexes = [
@@ -100,6 +127,7 @@ class AIKnowledgeChunk(SintelBaseModel):
     # -- ver AIKnowledgeChunkSelector.count_stale_embeddings().
     embedding_model = models.CharField(max_length=200, blank=True, default='')
     embedded_at = models.DateTimeField(null=True, blank=True)
+    content_hash = models.CharField(max_length=64, blank=True, default='')  # HARDENING F6/C1
 
     class Meta:
         ordering = ['document_id', 'chunk_index']
@@ -122,3 +150,30 @@ class AIKnowledgeChunk(SintelBaseModel):
 
     def __str__(self):
         return f'{self.document.title} #{self.chunk_index}'
+
+
+class AIKnowledgeDocumentVersion(SintelBaseModel):
+    """
+    HARDENING F6/C1 (2026-09-24): historial de versiones de un documento (plan sec. 10.3 "versionar", sec. 21.2 rollback).
+    Antes, `upsert_document` sobrescribia el contenido y borraba los chunks previos sin conservar nada. Cada cambio de
+    contenido guarda aqui la version ANTERIOR.
+    """
+    document = models.ForeignKey(AIKnowledgeDocument, related_name='versions', on_delete=models.CASCADE)
+    version = models.PositiveIntegerField()
+    title = models.CharField(max_length=255)
+    content = models.TextField()
+    content_hash = models.CharField(max_length=64, blank=True, default='')
+    authority = models.CharField(max_length=20, blank=True, default='')
+    review_status = models.CharField(max_length=20, blank=True, default='')
+    saved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, related_name='+', on_delete=models.SET_NULL, null=True, blank=True,
+    )
+
+    class Meta:
+        ordering = ['document_id', '-version']
+        constraints = [
+            models.UniqueConstraint(fields=['document', 'version'], name='unique_version_per_document'),
+        ]
+
+    def __str__(self):
+        return f'{self.document.title} v{self.version}'

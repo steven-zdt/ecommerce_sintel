@@ -11,11 +11,16 @@ para el razonamiento completo.
 
 Ruteado bajo /api/v1/internal/ai/ (ecommerce/internal_ai_urls.py).
 """
+from rest_framework import status
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from ai_knowledge.services.selectors import RetrievalService
+
+
+MAX_K = 20
+MAX_APP_NAMES = 10
 
 
 class AiKnowledgeRetrieveView(APIView):
@@ -35,7 +40,20 @@ class AiKnowledgeRetrieveView(APIView):
         query = (request.data.get('query') or '').strip()
         if not query:
             return Response({'chunks': []})
+        # HARDENING F6/C0 (2026-09-24): `k` y `app_names` validados (antes int() sin tope => k enorme fuerza consultas pesadas
+        # y un valor no numerico daba 500).
+        raw_k = request.data.get('k')
+        try:
+            k = int(raw_k) if raw_k not in (None, '') else 8
+        except (TypeError, ValueError):
+            return Response({'detail': 'k debe ser un entero.'}, status=status.HTTP_400_BAD_REQUEST)
+        if not 1 <= k <= MAX_K:
+            return Response({'detail': f'k debe estar entre 1 y {MAX_K}.'}, status=status.HTTP_400_BAD_REQUEST)
         app_names = request.data.get('app_names') or None
-        k = int(request.data.get('k') or 8)
+        if app_names is not None:
+            if (not isinstance(app_names, list) or len(app_names) > MAX_APP_NAMES
+                    or not all(isinstance(a, str) and 0 < len(a) <= 100 for a in app_names)):
+                return Response({'detail': f'app_names debe ser una lista de hasta {MAX_APP_NAMES} textos.'},
+                                status=status.HTTP_400_BAD_REQUEST)
         chunks = RetrievalService.retrieve_public_knowledge(query, app_names=app_names, k=k)
         return Response({'chunks': chunks})

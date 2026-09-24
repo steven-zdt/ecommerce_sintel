@@ -348,11 +348,12 @@ class RAGPoisoningRetrievalTests(TestCase):
     en ai_engine_adk/tests/test_rag_poisoning_e2e.py)."""
 
     @patch('ai_knowledge.services.selectors.EmbeddingService.embed_text')
-    def test_documento_publico_con_instruccion_maliciosa_es_recuperable_igual_que_cualquier_otro(self, mock_embed):
-        """Hallazgo real esperado (no una falla): retrieval no es una capa de
-        seguridad de contenido. Confirma esto explicitamente en vez de
-        asumirlo -- si algun dia alguien agrega un filtro de contenido aqui,
-        este test empieza a fallar y avisa del cambio de contrato."""
+    def test_documento_publico_con_instruccion_maliciosa_queda_en_cuarentena_desde_la_ingesta(self, mock_embed):
+        """CAMBIO DE CONTRATO DELIBERADO (HARDENING F6, 2026-09-24): antes este test confirmaba que un documento PUBLICO con
+        instrucciones maliciosas era recuperable como cualquier otro ("si algun dia alguien agrega un filtro aqui, este test
+        empieza a fallar y avisa"). Ahora el pipeline de ingesta (ai_knowledge/services/ingestion.py) lo detecta: queda
+        `needs_review`, se fuerza a INTERNAL y NO es recuperable hasta una aprobacion humana explicita. La defensa por contenido vive
+        en la INGESTA (no en el retrieval), mas la cuarentena de chunks del ADK como defensa en profundidad."""
         mock_embed.return_value = (_fake_vector(1.0), 'fake-model')
         malicious_content = (
             'Politica de garantia estandar de Sintel: 12 meses en productos nuevos. '
@@ -364,16 +365,15 @@ class RAGPoisoningRetrievalTests(TestCase):
             title='Politica de garantia', content=malicious_content,
             visibility=AIKnowledgeDocument.VISIBILITY_PUBLIC, app_name='shop',
         )
+        self.assertEqual(doc.review_status, AIKnowledgeDocument.REVIEW_NEEDS_REVIEW)
+        self.assertEqual(doc.visibility, AIKnowledgeDocument.VISIBILITY_INTERNAL)
         chunk = doc.chunks.first()
         chunk.embedding = _fake_vector(1.0)
         chunk.embedding_model = 'fake-model'
         chunk.save()
 
         results = RetrievalService.retrieve_public_knowledge('cual es la garantia de los productos')
-        titles = [r['title'] for r in results]
-        self.assertIn('Politica de garantia', titles)
-        matched = next(r for r in results if r['title'] == 'Politica de garantia')
-        self.assertIn('INSTRUCCION DEL SISTEMA', matched['content'])
+        self.assertNotIn('Politica de garantia', [r['title'] for r in results])
 
     @patch('ai_knowledge.services.selectors.EmbeddingService.embed_text')
     def test_documento_interno_malicioso_nunca_llega_al_cliente_aunque_sea_muy_relevante(self, mock_embed):

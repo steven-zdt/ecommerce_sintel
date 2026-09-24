@@ -12,8 +12,11 @@ import logging
 from django.db import transaction
 from django.utils import timezone
 
+from django.core.exceptions import ValidationError
+
+from . import ingestion
 from .embedding_service import EmbeddingProviderUnavailable, EmbeddingService
-from ..models import AIKnowledgeChunk, AIKnowledgeDocument
+from ..models import AIKnowledgeChunk, AIKnowledgeDocument, AIKnowledgeDocumentVersion
 
 logger = logging.getLogger(__name__)
 
@@ -41,32 +44,102 @@ class AIKnowledgeDocumentCommands:
     @transaction.atomic
     def upsert_document(*, uuid=None, title: str, content: str, app_name: str = '',
                          source: str = '', visibility: str = AIKnowledgeDocument.VISIBILITY_INTERNAL,
-                         user=None) -> AIKnowledgeDocument:
-        """Crea o actualiza un documento y re-chunkea su contenido. Los
-        embeddings de los chunks NO se calculan aqui (puede no haber
-        proveedor disponible en el momento de guardar) -- ver
-        embed_pending_chunks(), pensado para correr aparte (management
-        command / tarea Celery futura, no atado al request de guardado)."""
+                         user=None, authority: str = AIKnowledgeDocument.AUTHORITY_INTERNAL,
+                         effective_from=None, effective_until=None) -> AIKnowledgeDocument:
+        """Crea o actualiza un documento pasando por el pipeline de ingesta (HARDENING F6/C2, plan sec. 10.3):
+        validar fuente -> sanear -> clasificar -> hash/dedupe -> versionar -> indexar (chunks). Los embeddings NO se
+        calculan aqui (puede no haber proveedor en el momento de guardar) -- ver embed_pending_chunks().
+
+        - Fuente invalida => ValidationError (nada se guarda).
+        - Banderas de inyeccion bloqueantes => review_status=needs_review y visibility forzada a INTERNAL (no publicable
+          hasta `approve_document` + `publish_document`).
+        - Mismo contenido (hash) => solo se actualizan metadatos; no se re-chunkea ni se cambia de version (dedupe).
+        - Cambio de contenido => la version anterior se guarda en AIKnowledgeDocumentVersion y `document_version` sube."""
+        source = ingestion.validate_source(source)
+        clean = ingestion.sanitize_content(content)
+        digest = ingestion.content_hash(clean)
+        verdict = ingestion.classify(clean)
+        blocked = bool(verdict['blocking'])
+        if blocked:
+            logger.warning('[ai_knowledge] ingesta con banderas bloqueantes %s title=%r -> needs_review', verdict['blocking'], title)
+            visibility = AIKnowledgeDocument.VISIBILITY_INTERNAL
+        review_status = AIKnowledgeDocument.REVIEW_NEEDS_REVIEW if blocked else AIKnowledgeDocument.REVIEW_APPROVED
+
         if uuid:
             document = AIKnowledgeDocument.objects.select_for_update().get(uuid=uuid, is_deleted=False)
+            changed = document.content_hash != digest or document.content != clean
+            if changed:
+                AIKnowledgeDocumentVersion.objects.get_or_create(
+                    document=document, version=document.document_version,
+                    defaults=dict(title=document.title, content=document.content, content_hash=document.content_hash,
+                                  authority=document.authority, review_status=document.review_status, saved_by=user),
+                )
+                document.document_version += 1
             document.title = title
-            document.content = content
+            document.content = clean
+            document.content_hash = digest
             document.app_name = app_name
             document.source = source
             document.visibility = visibility
+            document.authority = authority
+            document.effective_from = effective_from
+            document.effective_until = effective_until
+            document.review_status = review_status
+            document.injection_flags = verdict['flags']
             document.updated_by = user
             document.save()
+            if not changed:
+                return document  # dedupe: mismo contenido -> no se re-chunkea
             document.chunks.all().delete()
         else:
             document = AIKnowledgeDocument.objects.create(
-                title=title, content=content, app_name=app_name,
-                source=source, visibility=visibility, updated_by=user,
+                title=title, content=clean, app_name=app_name, source=source, visibility=visibility,
+                updated_by=user, authority=authority, effective_from=effective_from, effective_until=effective_until,
+                content_hash=digest, review_status=review_status, injection_flags=verdict['flags'], document_version=1,
             )
 
-        for index, chunk_text in enumerate(_split_into_chunks(content)):
-            AIKnowledgeChunk.objects.create(document=document, chunk_index=index, content=chunk_text)
-
+        for index, chunk_text in enumerate(_split_into_chunks(clean)):
+            AIKnowledgeChunk.objects.create(
+                document=document, chunk_index=index, content=chunk_text, content_hash=ingestion.content_hash(chunk_text),
+            )
         return document
+
+    @staticmethod
+    @transaction.atomic
+    def approve_document(uuid, reviewer=None) -> AIKnowledgeDocument:
+        """Accion HUMANA explicita: una persona revisa un documento `needs_review` y lo aprueba. NO lo publica (sigue INTERNAL)."""
+        document = AIKnowledgeDocument.objects.select_for_update().get(uuid=uuid, is_deleted=False)
+        document.review_status = AIKnowledgeDocument.REVIEW_APPROVED
+        document.updated_by = reviewer
+        document.save(update_fields=['review_status', 'updated_by', 'updated_at'])
+        logger.info('[ai_knowledge] documento %s aprobado por revision humana (flags=%s)', document.uuid, document.injection_flags)
+        return document
+
+    @staticmethod
+    @transaction.atomic
+    def publish_document(uuid, user=None) -> AIKnowledgeDocument:
+        """Publicacion EXPLICITA (visibility=public). Exige review_status=approved y sin banderas bloqueantes sin revisar."""
+        document = AIKnowledgeDocument.objects.select_for_update().get(uuid=uuid, is_deleted=False)
+        if document.review_status != AIKnowledgeDocument.REVIEW_APPROVED:
+            raise ValidationError('El documento requiere revision aprobada antes de publicarse.')
+        if not document.is_active:
+            raise ValidationError('El documento esta inactivo.')
+        document.visibility = AIKnowledgeDocument.VISIBILITY_PUBLIC
+        document.updated_by = user
+        document.save(update_fields=['visibility', 'updated_by', 'updated_at'])
+        return document
+
+    @staticmethod
+    @transaction.atomic
+    def rollback_to_version(uuid, version: int, user=None) -> AIKnowledgeDocument:
+        """Restaura una version anterior (crea una version nueva con ese contenido; nunca borra el historial)."""
+        document = AIKnowledgeDocument.objects.get(uuid=uuid, is_deleted=False)
+        old = AIKnowledgeDocumentVersion.objects.get(document=document, version=version)
+        return AIKnowledgeDocumentCommands.upsert_document(
+            uuid=uuid, title=old.title, content=old.content, app_name=document.app_name, source=document.source,
+            visibility=AIKnowledgeDocument.VISIBILITY_INTERNAL, user=user, authority=document.authority,
+            effective_from=document.effective_from, effective_until=document.effective_until,
+        )
 
     @staticmethod
     def deactivate(uuid, user=None) -> None:

@@ -58,6 +58,10 @@ AI_INPUT_GUARD_ENABLED = config("AI_INPUT_GUARD_ENABLED", default=True, cast=boo
 AI_MAX_HISTORY_TURNS   = config("AI_MAX_HISTORY_TURNS", default=12, cast=int)
 AI_MAX_CONTEXT_CHARS   = config("AI_MAX_CONTEXT_CHARS", default=48000, cast=int)
 
+# HARDENING F6/C4 (2026-09-24): cuarentena de chunks RAG con banderas de inyeccion en el contexto del ADK.
+# false (default) = MONITOR: solo loguea `rag_chunk_quarantined`; true = excluye esos chunks del contexto.
+AI_RAG_QUARANTINE_FLAGGED = config("AI_RAG_QUARANTINE_FLAGGED", default=False, cast=bool)
+
 # FASE 4b/5 (mision de simplificacion arquitectonica, 2026-09-14): CHROMA_*/
 # EMBEDDING_*/DOCS_SPECS_PATH/INGESTION_BATCH_SIZE/MAX_RETRIEVER_CHUNKS/
 # CODEBASE_PATH retirados -- este proceso ya no calcula embeddings ni

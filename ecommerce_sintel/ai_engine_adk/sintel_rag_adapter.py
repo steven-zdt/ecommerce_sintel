@@ -33,9 +33,15 @@ motivo: sin este marcador, el LLM alucino una respuesta (horario de
 atencion) rellenando el hueco con un chunk irrelevante. Omitir este
 marcador en la migracion reintroduciria ese bug ya corregido.
 """
+import logging
 from typing import Any
 
+logger = logging.getLogger("sintel_rag_adapter")
+
 SINTEL_KNOWLEDGE_CONTEXT_STATE_KEY = "sintel_knowledge_context"
+
+# HARDENING F6/C4: categorias de F5 (input_guard) que ponen un chunk en cuarentena.
+_QUARANTINE_CATEGORIES = {"override_instructions", "fake_system_message", "delimiter_forgery"}
 
 # Diagnosticos por defecto cuando el turno NO es intent=="knowledge" -- nunca
 # se llama a fetch_and_assemble_knowledge en ese caso (mismo criterio de
@@ -121,6 +127,22 @@ async def fetch_and_assemble_knowledge(message: str, apps: list[str] | None = No
     docs_all: list[dict[str, Any]] = await retrieve_knowledge_for_chat(message, apps=apps)
     retrieval_latency_ms = round((time.monotonic() - started) * 1000)
     docs = docs_all[:MAX_KNOWLEDGE_CHUNKS]
+    # HARDENING F6/C4: cuarentena de chunks con banderas de inyeccion (defensa en profundidad para contenido que llegue
+    # sin pasar por el pipeline de ingesta). Monitor por defecto; con AI_RAG_QUARANTINE_FLAGGED=true se excluyen.
+    import config as ai_config
+    import input_guard
+
+    if ai_config.AI_INPUT_GUARD_ENABLED:
+        kept = []
+        for d in docs:
+            cats = sorted(set(input_guard.detect_injection(d.get("content", ""))) & _QUARANTINE_CATEGORIES)
+            if cats:
+                logger.warning("security_event=rag_chunk_quarantined enforced=%s title=%r categories=%s",
+                               ai_config.AI_RAG_QUARANTINE_FLAGGED, d.get("title"), cats)
+                if ai_config.AI_RAG_QUARANTINE_FLAGGED:
+                    continue
+            kept.append(d)
+        docs = kept
 
     diagnostics: dict[str, Any] = {
         "metadata_filters": resolved_apps,
