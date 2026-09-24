@@ -36,7 +36,9 @@ class BuildAiHeadersTests(SimpleTestCase):
     @override_settings(AI_SERVICE_TOKEN='')
     def test_sin_secreto_configurado_solo_jwt(self):
         headers = ai_bridge.build_ai_headers('jwt123')
-        self.assertEqual(headers, {'Authorization': 'Bearer jwt123'})
+        # F9: ademas del JWT viaja X-Request-ID (correlacion); sin secreto de servicio no hay X-AI-Service-Token.
+        self.assertEqual(set(headers), {'Authorization', 'X-Request-ID'})
+        self.assertEqual(headers['Authorization'], 'Bearer jwt123')
 
 
 class AskAiSendsServiceTokenTests(SimpleTestCase):

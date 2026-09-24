@@ -1,3 +1,4 @@
+import math
 from collections import Counter
 from datetime import timedelta
 
@@ -99,6 +100,74 @@ class ChatAnalyticsSelector:
     """
 
     @staticmethod
+    def _percentile(sorted_values: list, pct: float):
+        """Percentil por rango mas cercano (sin interpolar); None si no hay datos."""
+        if not sorted_values:
+            return None
+        idx = max(0, min(len(sorted_values) - 1, math.ceil(pct / 100.0 * len(sorted_values)) - 1))
+        return sorted_values[idx]
+
+    @staticmethod
+    def summarize_observability(ai_metrics_list: list) -> dict:
+        """
+        HARDENING F9/C4: metricas de operacion y seguridad del runtime ADK, calculadas sobre la MISMA lista de
+        ai_metrics que get_summary (una sola query). Todas las claves son nuevas y aditivas.
+        TTFT no existe: /chat no hace streaming (solo latencia total y por etapa).
+        """
+        durations, tools_per_turn = [], []
+        turns = degraded = provider_fallback = rate_limited = tool_calls = 0
+        tokens_in = tokens_out = 0
+        injection, output = Counter(), Counter()
+        providers = Counter()
+        for m in ai_metrics_list:
+            if not isinstance(m, dict):
+                continue
+            if m.get('engine_unavailable'):
+                degraded += 1
+                continue
+            turns += 1
+            if isinstance(m.get('duration_ms'), (int, float)):
+                durations.append(m['duration_ms'])
+            trace = m.get('model_trace') or {}
+            if trace.get('fallback_used'):
+                provider_fallback += 1
+            if trace.get('provider'):
+                providers[trace['provider']] += 1
+            if m.get('rate_limited'):
+                rate_limited += 1
+            n_tools = m.get('tool_calls')
+            if isinstance(n_tools, int):
+                tool_calls += n_tools
+                tools_per_turn.append(n_tools)
+            tokens_in += m.get('llm_tokens_in') or 0
+            tokens_out += m.get('llm_tokens_out') or 0
+            for flag in m.get('injection_flags') or []:
+                injection[str(flag)] += 1
+            for flag in m.get('output_flags') or []:
+                output[str(flag)] += 1
+        durations.sort()
+        attempts = turns + degraded
+
+        def _rate(count: int, base: int) -> float:
+            return round(count / base, 4) if base else 0.0
+
+        return {
+            'p50_duration_ms': ChatAnalyticsSelector._percentile(durations, 50),
+            'p95_duration_ms': ChatAnalyticsSelector._percentile(durations, 95),
+            'p99_duration_ms': ChatAnalyticsSelector._percentile(durations, 99),
+            'degraded_rate': _rate(degraded, attempts),
+            'provider_fallback_rate': _rate(provider_fallback, turns),
+            'provider_breakdown': [{'provider': p, 'count': c} for p, c in providers.most_common()],
+            'tool_calls_total': tool_calls,
+            'avg_tool_calls_per_turn': round(sum(tools_per_turn) / len(tools_per_turn), 2) if tools_per_turn else 0.0,
+            'tokens_in_total': tokens_in,
+            'tokens_out_total': tokens_out,
+            'rate_limited_count': rate_limited,
+            'injection_flag_counts': dict(injection.most_common()),
+            'output_flag_counts': dict(output.most_common()),
+        }
+
+    @staticmethod
     def get_summary(days: int = 30) -> dict:
         cutoff = timezone.now() - timedelta(days=days)
 
@@ -159,6 +228,7 @@ class ChatAnalyticsSelector:
             return round(count / total_ai_turns, 4) if total_ai_turns else 0.0
 
         return {
+            **ChatAnalyticsSelector.summarize_observability(ai_metrics_list),
             'window_days': days,
             'total_conversations': total_conversations,
             'avg_csat': round(csat['avg'], 2) if csat['avg'] is not None else None,

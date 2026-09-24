@@ -96,6 +96,11 @@ class SupportChatConsumer(AsyncWebsocketConsumer):
         if not text:
             return
 
+        # HARDENING F9: un request_id por mensaje del cliente (el WS es una sola peticion HTTP larga; sin esto
+        # todos los mensajes compartirian id). Lo leen el filtro de logs y ai_bridge.build_ai_headers.
+        from ai_engine_adk import observability_logging as obs
+        obs.set_context(request_id=obs.new_request_id('ws'), session_id=None)
+
         user = self.user
 
         # Fase 11 (AUDITORIA/23_AUDITORIA_SEGURIDAD.md, 2026-08-01): antes esto no tenia NINGUN

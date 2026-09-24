@@ -107,15 +107,62 @@ def _process_chat_response(resp, conversation_id: str, latency_ms: int) -> dict 
     logger.info(
         '[AI_BRIDGE] response ok conversation_id=%s latency_ms=%d tokens=%s tools=%d agent=%s',
         conversation_id, latency_ms,
-        metrics.get('tokens', metrics.get('total_tokens', '?')),
+        metrics.get('tokens', metrics.get('total_tokens', metrics.get('llm_tokens_out', '?'))),
         len(data.get('tool_calls') or []), data.get('agent'),
     )
     return data
 
 
-def build_ai_headers(token: str) -> dict:
-    """Headers hacia el ADK: JWT del usuario + (F2) secreto de servicio si esta configurado."""
-    headers = {'Authorization': f'Bearer {token}'}
+_SECURITY_OUTPUT_PREFIXES = ('blocked_', 'secret_')
+
+
+def record_ai_security_events(ai_response: dict | None, conversation_id: str, user=None) -> None:
+    """
+    HARDENING F9: persiste en SecurityEvent (append-only) las senales de ALTO nivel de un turno: salida bloqueada o con
+    secretos redactados (output_guard) e inyeccion detectada (input_guard). Solo categorias + ids, nunca contenido.
+    Sincrona (usa el ORM): desde el consumer async se invoca con database_sync_to_async. Nunca rompe el chat.
+    """
+    try:
+        metrics = (ai_response or {}).get('metrics') or {}
+        output_flags = [f for f in (metrics.get('output_flags') or []) if str(f).startswith(_SECURITY_OUTPUT_PREFIXES)]
+        injection_flags = list(metrics.get('injection_flags') or [])
+        if not output_flags and not injection_flags:
+            return
+        from security.models import SecurityEvent
+        from security.services.commands import SecurityCommands
+
+        blocked = any(str(f).startswith('blocked_') for f in output_flags)
+        SecurityCommands.log_event(
+            SecurityEvent.AI_SECURITY_FLAG,
+            user=user,
+            severity=SecurityEvent.SEVERITY_WARNING if (blocked or output_flags) else SecurityEvent.SEVERITY_INFO,
+            metadata={
+                'conversation_id': str(conversation_id)[:80],
+                'request_id': str(metrics.get('request_id') or '')[:80],
+                'output_flags': output_flags[:20],
+                'injection_flags': [str(f)[:60] for f in injection_flags[:20]],
+                'agent': str((ai_response or {}).get('agent') or '')[:60],
+            },
+        )
+    except Exception:  # noqa: BLE001 -- observabilidad: nunca debe romper el turno
+        logger.exception('[AI_BRIDGE] no se pudo registrar el evento de seguridad del turno')
+
+
+def build_ai_headers(token: str, conversation_id: str | None = None) -> dict:
+    """Headers hacia el ADK: JWT del usuario + (F2) secreto de servicio + (F9) ids de correlacion.
+
+    X-Request-ID sale del contexto de la peticion (middleware HTTP / consumer WS); si no hay contexto
+    (tarea de Celery) se genera uno nuevo. X-Session-Id = conversation_id.
+    """
+    from ai_engine_adk import observability_logging as obs
+
+    headers = {
+        'Authorization': f'Bearer {token}',
+        'X-Request-ID': obs.current_request_id() or obs.new_request_id('req'),
+    }
+    session_id = obs.valid_id(conversation_id) or (str(conversation_id)[:64] if conversation_id else '')
+    if session_id:
+        headers['X-Session-Id'] = session_id
     service_token = getattr(settings, 'AI_SERVICE_TOKEN', '')
     if service_token:
         headers['X-AI-Service-Token'] = service_token
@@ -143,7 +190,7 @@ def ask_ai(user, message: str, conversation_id: str) -> dict | None:
         resp = requests.post(
             f"{settings.AI_ENGINE_URL}/chat",
             json={'message': message, 'conversation_id': conversation_id, 'channel': 'whatsapp'},  # ask_ai sync = WhatsApp
-            headers=build_ai_headers(token),
+            headers=build_ai_headers(token, conversation_id),
             timeout=AI_CHAT_TIMEOUT_SECONDS,
         )
     except requests.RequestException as exc:
@@ -154,7 +201,9 @@ def ask_ai(user, message: str, conversation_id: str) -> dict | None:
         )
         return None
     latency_ms = int((time.monotonic() - start) * 1000)
-    return _process_chat_response(resp, conversation_id, latency_ms)
+    data = _process_chat_response(resp, conversation_id, latency_ms)
+    record_ai_security_events(data, conversation_id, user)
+    return data
 
 
 async def ask_ai_async(user, message: str, conversation_id: str) -> dict | None:
@@ -183,7 +232,7 @@ async def ask_ai_async(user, message: str, conversation_id: str) -> dict | None:
             resp = await client.post(
                 f"{settings.AI_ENGINE_URL}/chat",
                 json={'message': message, 'conversation_id': conversation_id, 'channel': 'web'},
-                headers=build_ai_headers(token),
+                headers=build_ai_headers(token, conversation_id),
             )
     except httpx.HTTPError as exc:
         latency_ms = int((time.monotonic() - start) * 1000)
@@ -193,7 +242,12 @@ async def ask_ai_async(user, message: str, conversation_id: str) -> dict | None:
         )
         return None
     latency_ms = int((time.monotonic() - start) * 1000)
-    return _process_chat_response(resp, conversation_id, latency_ms)
+    data = _process_chat_response(resp, conversation_id, latency_ms)
+    flagged = data and any((data.get('metrics') or {}).get(k) for k in ('output_flags', 'injection_flags'))
+    if flagged:
+        from channels.db import database_sync_to_async
+        await database_sync_to_async(record_ai_security_events)(data, conversation_id, user)
+    return data
 
 
 def ai_response_opened_ticket(ai_response: dict) -> bool:

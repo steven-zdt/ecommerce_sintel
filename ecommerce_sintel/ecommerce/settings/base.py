@@ -87,6 +87,7 @@ DJANGO_VITE = {
 }
 
 MIDDLEWARE = [
+    'ecommerce.request_id.RequestIDMiddleware',  # HARDENING F9: correlacion (primero, para cubrir el resto)
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',
@@ -444,14 +445,21 @@ LOGGING = {
             # "support.tasks"/"notifications.tasks" -- ya usado consistentemente en todo el
             # proyecto via ese mismo patron, sin cambio de codigo necesario mas alla del
             # formatter.
-            'format': '{levelname} {asctime} {name} {process:d} {thread:d} {message}',
+            'format': '{levelname} {asctime} {name} {process:d} {thread:d} {message}{rid_suffix}',
             'style': '{',
         },
+        # HARDENING F9: LOG_FORMAT=json (opt-in) -> una linea JSON por evento con stream/request_id.
+        'json': {'()': 'ai_engine_adk.observability_logging.JsonFormatter'},
+    },
+    'filters': {
+        'request_context': {'()': 'ai_engine_adk.observability_logging.ContextFilter'},
+        'redact_secrets': {'()': 'ai_engine_adk.observability_logging.RedactionFilter'},
     },
     'handlers': {
         'console': {
             'class': 'logging.StreamHandler',
-            'formatter': 'verbose',
+            'formatter': 'json' if config('LOG_FORMAT', default='text').strip().lower() == 'json' else 'verbose',
+            'filters': ['request_context', 'redact_secrets'],
         },
     },
     'root': {

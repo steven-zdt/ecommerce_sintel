@@ -18,13 +18,15 @@ Arranque:
 import asyncio
 import logging
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request
 from pydantic import BaseModel, Field
 
+import observability_logging as obs
 from auth import get_validated_token, require_service_token
 from sintel_root_workflow import IdentityResolutionError, run_sintel_turn
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+# HARDENING F9: filtros de contexto (request_id) y redaccion de secretos en TODOS los logs; JSON solo con LOG_FORMAT=json.
+obs.configure_root(logging.INFO)
 logger = logging.getLogger("main")
 
 app = FastAPI(
@@ -66,10 +68,23 @@ class ChatResponse(BaseModel):
 
 # HARDENING F2: la dependencia del decorador corre ANTES que la del JWT (secreto de servicio primero).
 @app.post("/chat", response_model=ChatResponse, dependencies=[Depends(require_service_token)])
-async def chat(req: ChatRequest, token: str = Depends(get_validated_token)):
+async def chat(req: ChatRequest, request: Request, token: str = Depends(get_validated_token)):
     """Root Workflow real (Google ADK) -- ver sintel_root_workflow.py."""
     import config as ai_config
 
+    # HARDENING F9: correlacion. X-Request-ID / X-Session-Id vienen de Django (validados; si faltan o son
+    # invalidos se genera el id aqui, como antes). Todo log del turno (F3-F8 incluidos) los lleva via ContextFilter.
+    request_id = obs.valid_id(request.headers.get("x-request-id")) or obs.new_request_id("req")
+    session_id = request.headers.get("x-session-id") or req.conversation_id
+    ctx_tokens = obs.set_context(request_id=request_id, session_id=session_id)
+    try:
+        return await _chat_turn(req, token, ai_config)
+    finally:
+        obs.reset_context(ctx_tokens)
+
+
+async def _chat_turn(req: ChatRequest, token: str, ai_config):
+    channel = req.channel if req.channel in ("web", "whatsapp") else "unknown"
     try:
         # HARDENING F3/C1: tiempo maximo TOTAL del turno (antes solo habia 90 s por llamada al LLM en el ADK
         # y 300 s en Django). Al vencer, respuesta segura con handoff, sin dejar el socket colgado.
@@ -77,7 +92,7 @@ async def chat(req: ChatRequest, token: str = Depends(get_validated_token)):
             run_sintel_turn(
                 message=req.message, token=token,
                 conversation_id=req.conversation_id, confirm=req.confirm,
-                source=req.source, channel=req.channel if req.channel in ("web", "whatsapp") else "unknown",
+                source=req.source, channel=channel,
             ),
             timeout=ai_config.AI_TURN_MAX_SECONDS,
         )
@@ -85,6 +100,9 @@ async def chat(req: ChatRequest, token: str = Depends(get_validated_token)):
         logger.warning(
             "ai_operation_event=turn_timeout conversation_id=%s max_seconds=%s",
             req.conversation_id, ai_config.AI_TURN_MAX_SECONDS,
+        )
+        obs.emit_turn_metrics(
+            {"engine_unavailable": True, "turn_timeout": True}, status="timeout", source=req.source, channel=channel,
         )
         return ChatResponse(
             conversation_id=req.conversation_id or "",
@@ -103,6 +121,7 @@ async def chat(req: ChatRequest, token: str = Depends(get_validated_token)):
             "[chat] error no controlado en run_sintel_turn, conversation_id=%s",
             req.conversation_id,
         )
+        obs.emit_turn_metrics({"engine_unavailable": True}, status="degraded", source=req.source, channel=channel)
         return ChatResponse(
             conversation_id=req.conversation_id or "",
             intent="unknown", agent=None, tool_calls=[], tool_results=[],
@@ -110,6 +129,13 @@ async def chat(req: ChatRequest, token: str = Depends(get_validated_token)):
             response="En este momento nuestro asistente no esta disponible. Un agente humano revisara tu mensaje pronto.",
             metrics={"engine_unavailable": True},
         )
+    turn_metrics = result.get("metrics") or {}
+    obs.emit_turn_metrics(
+        {**turn_metrics, "agent": result.get("agent"), "intent": result.get("intent"),
+         "tool_calls": len(result.get("tool_calls") or []),
+         "needs_confirmation": bool(result.get("needs_confirmation"))},
+        status="degraded" if turn_metrics.get("engine_unavailable") else "ok", source=req.source, channel=channel,
+    )
     return ChatResponse(
         conversation_id=result["conversation_id"],
         intent=result["intent"],

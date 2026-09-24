@@ -72,6 +72,7 @@ from google.adk.agents import LlmAgent
 from google.adk.agents.run_config import RunConfig
 import input_guard
 import output_guard
+import observability_logging
 from google.adk.models.lite_llm import LiteLlm
 from google.adk.runners import Runner
 from google.adk.sessions.base_session_service import BaseSessionService
@@ -396,14 +397,15 @@ async def run_sintel_turn(
     # Mision RAG-POST2 (FASE 5, 2026-09-16): id real de correlacion por
     # turno -- ADK no expone uno propio estable entre eventos de un mismo
     # turno, se genera aqui, antes de cualquier rama de retorno.
-    request_id = f"req-{uuid.uuid4()}"
+    # HARDENING F9: el id lo fija main.py desde X-Request-ID (correlacion con nginx/Django); sin cabecera se genera aqui.
+    request_id = observability_logging.current_request_id() or f"req-{uuid.uuid4()}"
 
     context = await resolve_identity(token)
     user_id = context["user_id"]
     conversation_id = conversation_id or "adk-root-default"
     session_id = build_session_id(user_id, conversation_id)
     # HARDENING F3/C2: trazabilidad del proveedor/modelo/fallback de ESTE turno (sin prompts ni respuestas).
-    from model_runtime import begin_turn_trace
+    from model_runtime import begin_turn_trace, get_turn_usage
 
     model_trace = begin_turn_trace()
 
@@ -654,7 +656,14 @@ async def run_sintel_turn(
         "metadata_filters": knowledge_diagnostics.get("metadata_filters"),
         "retrieval_candidates": knowledge_diagnostics.get("retrieval_candidates"),
         "selected_sources": knowledge_diagnostics.get("selected_sources"),
+    # HARDENING F9/C3: tokens reales del turno (usage_metadata). llm_tokens_in/out son las claves que ya lee
+    # ChatAnalyticsSelector; tokens_per_s = generados / tiempo del agente. TTFT no existe (sin streaming).
+    usage = get_turn_usage()
         "best_similarity": knowledge_diagnostics.get("best_similarity"),
+        "llm_calls": usage["llm_calls"],
+        "llm_tokens_in": usage["prompt_tokens"],
+        "llm_tokens_out": usage["completion_tokens"],
+        "tokens_per_s": observability_logging.tokens_per_second(usage["completion_tokens"], agent_latency_ms),
         "grounding_result": grounding_verdict,
         "retrieval_latency_ms": knowledge_diagnostics.get("retrieval_latency_ms"),
         "agent_latency_ms": agent_latency_ms,

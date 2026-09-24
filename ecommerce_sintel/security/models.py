@@ -50,6 +50,9 @@ class SecurityEvent(SintelBaseModel):
     AI_PROVIDER_TESTED = 'AI_PROVIDER_TESTED'
     AI_MODEL_CHANGED = 'AI_MODEL_CHANGED'
     AI_CHANNEL_CHANGED = 'AI_CHANNEL_CHANGED'
+    # HARDENING F9 (2026-09-24): senales de alto nivel del turno de IA (salida bloqueada/redactada, inyeccion detectada).
+    # metadata: solo categorias (flags), request_id y conversation_id -- NUNCA contenido del mensaje ni de la respuesta.
+    AI_SECURITY_FLAG = 'AI_SECURITY_FLAG'
     EVENT_CHOICES = [
         (LOGIN_SUCCESS,  'Login exitoso'),
         (LOGIN_FAILED,   'Login fallido'),
@@ -77,6 +80,7 @@ class SecurityEvent(SintelBaseModel):
         (AI_PROVIDER_TESTED, 'Conexion de proveedor de IA probada'),
         (AI_MODEL_CHANGED, 'Modelo de IA agregado/eliminado'),
         (AI_CHANNEL_CHANGED, 'Configuracion de canal de IA modificada (primario/fallback)'),
+        (AI_SECURITY_FLAG, 'Senal de seguridad en un turno de IA (fuga bloqueada, secreto redactado, inyeccion)'),
     ]
 
     SEVERITY_INFO     = 'INFO'

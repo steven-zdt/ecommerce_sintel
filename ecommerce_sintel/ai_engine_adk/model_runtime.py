@@ -50,11 +50,43 @@ def begin_turn_trace() -> dict:
     trace = {"provider": None, "model": None, "fallback_used": False, "fallback_reason": None,
              "breaker_state": None, "attempts": 0}
     _turn_trace.set(trace)
+    _turn_usage.set({"llm_calls": 0, "prompt_tokens": 0, "completion_tokens": 0})
     return trace
 
 
 def _trace() -> dict | None:
     return _turn_trace.get()
+
+
+# HARDENING F9/C3: tokens del turno, sumados de LlmResponse.usage_metadata. Contexto APARTE de la traza (la traza
+# conserva su forma cerrada de F3). Ollama/LM Studio reportan prompt_token_count / candidates_token_count.
+_turn_usage: contextvars.ContextVar = contextvars.ContextVar("ai_turn_usage", default=None)
+
+
+def get_turn_usage() -> dict:
+    return dict(_turn_usage.get() or {"llm_calls": 0, "prompt_tokens": 0, "completion_tokens": 0})
+
+
+def _add_usage(resp) -> None:
+    usage = _turn_usage.get()
+    meta = getattr(resp, "usage_metadata", None)
+    if usage is None or meta is None:
+        return
+    prompt = getattr(meta, "prompt_token_count", None)
+    completion = getattr(meta, "candidates_token_count", None)
+    # Con streaming parcial cada chunk puede traer el acumulado; solo el ultimo con cifras cuenta (se sobrescribe por llamada).
+    if isinstance(prompt, int) or isinstance(completion, int):
+        usage["_call_prompt"] = prompt if isinstance(prompt, int) else usage.get("_call_prompt", 0)
+        usage["_call_completion"] = completion if isinstance(completion, int) else usage.get("_call_completion", 0)
+
+
+def _close_call_usage() -> None:
+    usage = _turn_usage.get()
+    if usage is None:
+        return
+    usage["llm_calls"] += 1
+    usage["prompt_tokens"] += usage.pop("_call_prompt", 0)
+    usage["completion_tokens"] += usage.pop("_call_completion", 0)
 
 
 #  Almacenes de estado del breaker 
@@ -313,6 +345,7 @@ class FallbackLiteLlm(LiteLlm):
             try:
                 async for resp in inner.generate_content_async(llm_request, stream=stream):
                     yielded = True
+                    _add_usage(resp)
                     yield resp
             except asyncio.CancelledError:
                 raise
@@ -329,6 +362,7 @@ class FallbackLiteLlm(LiteLlm):
                 continue
             if enabled:
                 await self._breaker.record_success(name)
+            _close_call_usage()
             if trace is not None:
                 trace.update(provider=name, model=entry["model"], attempts=attempts,
                              fallback_used=(idx != 0), fallback_reason=last_reason if idx != 0 else None)

@@ -74,7 +74,7 @@ class AdminAiAssistantChatView(APIView):
                 # CLIENTE (bug real encontrado 2026-09-23: SupportAgent abrio un ticket
                 # real tratando al admin como comprador).
                 json={'message': message, 'conversation_id': conversation_id, 'confirm': confirm, 'source': 'admin'},
-                headers=build_ai_headers(token),
+                headers=build_ai_headers(token, conversation_id),
                 timeout=AI_CHAT_TIMEOUT_SECONDS,
             )
         except requests.RequestException as exc:
