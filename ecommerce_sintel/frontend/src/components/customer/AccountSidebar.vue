@@ -62,6 +62,7 @@ const baseNavItems = [
   { to: '/mi-cuenta/tarjetas',    icon: 'bi-credit-card',    label: 'Metodos de pago' },
   { to: '/mi-cuenta/cotizaciones',icon: 'bi-clipboard-check',label: 'Cotizaciones' },
   { to: '/mi-cuenta/soporte',     icon: 'bi-headset',        label: 'Soporte' },
+  { to: '/mi-cuenta/memoria-asistente', icon: 'bi-chat-heart', label: 'Memoria del asistente' },
 ];
 
 const navItems = computed(() => {

@@ -81,7 +81,7 @@ def _parse_extraction(raw: str) -> tuple[str, str] | None:
 
 async def extract_and_store_memory(
     *, message: str, token: str, conversation_id: str, model: str,
-    api_base: str | None = None, api_key: str | None = None,
+    api_base: str | None = None, api_key: str | None = None, channel: str = "unknown",
 ) -> str | None:
     """Llamada litellm real -- NUNCA lanza, se degrada a "no se extrajo
     nada" ante cualquier fallo. Devuelve la categoria almacenada o None.
@@ -133,7 +133,8 @@ async def extract_and_store_memory(
         async with httpx.AsyncClient(timeout=10) as client:
             resp = await client.post(
                 f"{DJANGO_INTERNAL_API_URL}{_MEMORY_STORE_PATH}",
-                json={"category": category, "content": content, "source_conversation_id": conversation_id},
+                json={"category": category, "content": content, "source_conversation_id": conversation_id,
+                      "channel": channel},
                 headers=internal_django_headers({"Authorization": f"Bearer {token}"}),
             )
         if resp.status_code not in (200, 201):

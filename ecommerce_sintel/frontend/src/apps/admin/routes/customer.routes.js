@@ -30,6 +30,7 @@ const CustomerProfileView   = () => import('@/views/customer/account/CustomerPro
 const CustomerOrdersView    = () => import('@/views/customer/account/CustomerOrdersView.vue');
 const MyRentalsView            = () => import('@/views/customer/renting/MyRentalsView.vue');
 const CustomerWishlistView  = () => import('@/views/customer/account/CustomerWishlistView.vue');
+const CustomerAssistantMemoryView = () => import('@/views/customer/account/CustomerAssistantMemoryView.vue');
 const CustomerAddressView   = () => import('@/views/customer/account/CustomerAddressView.vue');
 const CustomerCardsView     = () => import('@/views/customer/account/CustomerCardsView.vue');
 const CustomerQuotesView    = () => import('@/views/customer/account/CustomerQuotesView.vue');
@@ -88,6 +89,7 @@ export const customerRoutes = {
         { path: 'pedidos',             name: 'customer-orders',        component: CustomerOrdersView,          meta: { requiresAuth: true } },
         { path: 'alquileres',           name: 'customer-rentals',       component: MyRentalsView,                meta: { requiresAuth: true } },
         { path: 'wishlist',            name: 'customer-wishlist',      component: CustomerWishlistView,        meta: { requiresAuth: true } },
+        { path: 'memoria-asistente',   name: 'customer-assistant-memory', component: CustomerAssistantMemoryView, meta: { requiresAuth: true } },
         { path: 'direcciones',         name: 'customer-addresses',     component: CustomerAddressView,         meta: { requiresAuth: true } },
         { path: 'tarjetas',            name: 'customer-cards',         component: CustomerCardsView,           meta: { requiresAuth: true } },
         { path: 'cotizaciones',        name: 'customer-quotes',        component: CustomerQuotesView,          meta: { requiresAuth: true } },

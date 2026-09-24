@@ -48,6 +48,8 @@ class ChatRequest(BaseModel):
     # en un agente de cara al cliente para una llamada del panel admin. Ver
     # el bug real que esto corrige en el docstring de resolve_turn_agent.
     source: str = "customer"
+    # HARDENING F7 (2026-09-24): canal de origen, SOLO para atribuir la memoria ("web" | "whatsapp" | "unknown").
+    channel: str = "web"
 
 
 class ChatResponse(BaseModel):
@@ -75,7 +77,7 @@ async def chat(req: ChatRequest, token: str = Depends(get_validated_token)):
             run_sintel_turn(
                 message=req.message, token=token,
                 conversation_id=req.conversation_id, confirm=req.confirm,
-                source=req.source,
+                source=req.source, channel=req.channel if req.channel in ("web", "whatsapp") else "unknown",
             ),
             timeout=ai_config.AI_TURN_MAX_SECONDS,
         )

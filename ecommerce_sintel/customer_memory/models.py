@@ -47,6 +47,16 @@ class CustomerMemoryRecord(SintelBaseModel):
     content = models.CharField(max_length=280)
     source_conversation_id = models.CharField(max_length=128, blank=True, default='')
     is_active = models.BooleanField(default=True, db_index=True)
+    # HARDENING F7/C2 (2026-09-24, plan sec. 11): minimizacion y trazabilidad. `expires_at` nullable (los registros existentes
+    # se rellenan en la migracion); `channel` y `origin` son solo ATRIBUCION (la memoria sigue siendo por cliente, compartida
+    # entre canales -- decision del usuario), no un ambito de acceso.
+    CHANNEL_WEB = 'web'
+    CHANNEL_WHATSAPP = 'whatsapp'
+    CHANNEL_UNKNOWN = 'unknown'
+    CHANNEL_CHOICES = [(CHANNEL_WEB, 'Web'), (CHANNEL_WHATSAPP, 'WhatsApp'), (CHANNEL_UNKNOWN, 'Desconocido')]
+    expires_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    channel = models.CharField(max_length=16, choices=CHANNEL_CHOICES, default=CHANNEL_UNKNOWN)
+    origin = models.CharField(max_length=20, default='user_message')
 
     class Meta:
         indexes = [

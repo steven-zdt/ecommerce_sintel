@@ -349,6 +349,10 @@ AI_SERVICE_TOKEN = config('AI_SERVICE_TOKEN', default='')
 AI_SUPPORT_CHAT_ENABLED = config('AI_SUPPORT_CHAT_ENABLED', default=False, cast=bool)
 # HARDENING F6/C2 (2026-09-24): dominios https permitidos como `source` de un documento de conocimiento (CSV).
 AI_KNOWLEDGE_ALLOWED_SOURCE_HOSTS = config('AI_KNOWLEDGE_ALLOWED_SOURCE_HOSTS', default='sintel.net.co,panel.sintel.net.co', cast=lambda v: [h.strip() for h in v.split(',') if h.strip()])
+# HARDENING F7 (2026-09-24): barrera de memoria del cliente. STRICT=false = solo monitor (`would_reject`) para volver atras sin migrar.
+AI_MEMORY_GATE_STRICT = config('AI_MEMORY_GATE_STRICT', default=True, cast=bool)
+# TTL (dias) por categoria de memoria; los defaults viven en customer_memory/services/policy.py.
+CUSTOMER_MEMORY_TTL_DAYS = {}
 # Usuario bot que firma los mensajes del asistente en ChatMessage (FK sender
 # NOT NULL). Inactivo y sin password utilizable -- jamas puede autenticarse.
 AI_BOT_EMAIL = config('AI_BOT_EMAIL', default='asistente.ia@sintel.internal')

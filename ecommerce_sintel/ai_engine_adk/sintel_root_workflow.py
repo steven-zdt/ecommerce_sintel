@@ -209,6 +209,13 @@ def build_session_id(user_id, conversation_id: str) -> str:
 _ADMIN_AGENT_NAMES = {"CatalogAgent"}
 
 
+def should_extract_memory(*, is_resume: bool, final_text, source: str, injection_flags: dict) -> bool:
+    """HARDENING F7/C6 (2026-09-24): la extraccion de memoria SOLO corre para un turno nuevo de cliente con respuesta, y NUNCA para el
+    asistente de administracion (`source="admin"`, la memoria es del CLIENTE) ni para un mensaje que F5 marco como inyeccion (fail-closed:
+    un intento de manipulacion no debe convertirse en un recuerdo). Solo lee el MENSAJE del usuario, jamas RAG ni salidas de Tools."""
+    return bool(not is_resume and final_text and source != "admin" and not injection_flags.get("user"))
+
+
 def _turn_max_llm_calls() -> int:
     import config as ai_config
 
@@ -370,7 +377,7 @@ _BACKGROUND_TASKS: set = set()
 
 
 async def run_sintel_turn(
-    *, message: str, token: str, conversation_id: str | None = None, confirm: bool | None = None,
+    *, message: str, token: str, conversation_id: str | None = None, confirm: bool | None = None, channel: str = "web",
     source: str = "customer",
 ) -> dict:
     """Punto de entrada del Root Workflow. Checklist completo: identidad ->
@@ -584,9 +591,9 @@ async def run_sintel_turn(
     # esto, asyncio puede recolectar la tarea a mitad de ejecucion (riesgo
     # real y documentado de asyncio.create_task, no teorico).
     memory_extraction_scheduled = False
-    if not is_resume and final_text:
+    if should_extract_memory(is_resume=is_resume, final_text=final_text, source=source, injection_flags=injection_flags):
         task = asyncio.create_task(extract_and_store_memory(
-            message=message, token=token, conversation_id=conversation_id,
+            message=message, token=token, conversation_id=conversation_id, channel=channel,
             **_resolve_primary_llm_params(),
         ))
         _BACKGROUND_TASKS.add(task)

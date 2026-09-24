@@ -70,6 +70,7 @@ urlpatterns = [
     path('api/v1/internal/ai/', include('ecommerce.internal_ai_urls')),
 
     # ── API ENDPOINTS (v1) ─────────────────────────────────────────────────────
+    path('api/v1/customer-memory/', include('customer_memory.api.owner_urls')),  # F7: el cliente ve/borra su memoria
     path('api/v1/auth/',      include('accounts.urls')),
     path('api/v1/auth/',      include('kyc.api.urls')),
     path('api/v1/users/',     include('users.urls')),

@@ -121,7 +121,7 @@ def ask_ai(user, message: str, conversation_id: str) -> dict | None:
     try:
         resp = requests.post(
             f"{settings.AI_ENGINE_URL}/chat",
-            json={'message': message, 'conversation_id': conversation_id},
+            json={'message': message, 'conversation_id': conversation_id, 'channel': 'whatsapp'},  # ask_ai sync = WhatsApp
             headers=build_ai_headers(token),
             timeout=AI_CHAT_TIMEOUT_SECONDS,
         )
@@ -161,7 +161,7 @@ async def ask_ai_async(user, message: str, conversation_id: str) -> dict | None:
         async with httpx.AsyncClient(timeout=AI_CHAT_TIMEOUT_SECONDS) as client:
             resp = await client.post(
                 f"{settings.AI_ENGINE_URL}/chat",
-                json={'message': message, 'conversation_id': conversation_id},
+                json={'message': message, 'conversation_id': conversation_id, 'channel': 'web'},
                 headers=build_ai_headers(token),
             )
     except httpx.HTTPError as exc:
