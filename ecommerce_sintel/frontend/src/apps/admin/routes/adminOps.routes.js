@@ -3,6 +3,7 @@ const TicketsListView = () => import('@/modules/support/TicketsListView.vue');
 const AIProviderConfigView = () => import('@/modules/support/AIProviderConfigView.vue');
 const WhatsAppConnectionStatusView = () => import('@/modules/whatsapp/WhatsAppConnectionStatusView.vue');
 const SecurityDashboardView = () => import('@/modules/security/SecurityDashboardView.vue');
+const McpTokensView = () => import('@/modules/security/McpTokensView.vue');
 const NotificationsAdminView = () => import('@/modules/notifications/NotificationsAdminView.vue');
 const PaymentTransactionsAdminView = () => import('@/modules/payment/PaymentTransactionsAdminView.vue');
 const OperationBoard      = () => import('@/modules/operations/OperationBoard.vue');
@@ -15,6 +16,7 @@ export const adminOpsRoutes = [
   { path: 'soporte/ia-config', name: 'ai-provider-config', component: AIProviderConfigView },
   { path: 'soporte/whatsapp', name: 'whatsapp-connection-status', component: WhatsAppConnectionStatusView },
   { path: 'seguridad',      name: 'security',         component: SecurityDashboardView },
+  { path: 'mcp-tokens', name: 'mcp-tokens', component: McpTokensView },
   { path: 'notificaciones', name: 'notifications-admin', component: NotificationsAdminView },
   { path: 'pagos',          name: 'payment-transactions', component: PaymentTransactionsAdminView },
   { path: 'operaciones',     name: 'admin-operations', component: OperationBoard },

@@ -248,6 +248,7 @@ const systemLinks = [
   { to: '/panel/usuarios', icon: 'bi-people', label: 'Usuarios' },
   { to: '/panel/validaciones', icon: 'bi-patch-check', label: 'Validaciones KYC' },
   { to: '/panel/seguridad', icon: 'bi-shield-lock', label: 'Seguridad' },
+  { to: '/panel/mcp-tokens', icon: 'bi-key', label: 'Tokens MCP' },
   { to: '/panel/notificaciones', icon: 'bi-bell', label: 'Notificaciones' },
 ];
 
