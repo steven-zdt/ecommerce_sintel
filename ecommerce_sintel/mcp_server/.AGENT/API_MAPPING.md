@@ -14,7 +14,7 @@ Todas las rutas cuelgan de `/api/v1/dashboard/` y se verifican contra `/api/sche
 | `renting-categories`, `renting-brands` | renting | `renting-categories/`, `renting-brands/` | list, get | ninguno | solo lectura |
 | `orders` | orders | `orders/` | list, get | ninguno | solo lectura, PII enmascarada; transiciones = logica de Django |
 | `quotations` | quotes | `quotations/` | list, get | ninguno | solo lectura, PII enmascarada |
-| `payment-transactions` | payment | `payment-transactions/` | list, get | `status` | solo lectura, datos financieros |
+| `payment-transactions` | payment | `payment-transactions/` | list | `status` | solo listado (Django no expone detalle; hallazgo de business.audit 2026-09-25), datos financieros |
 
 Un filtro que Django ignoraria en silencio se **rechaza** (`INVALID_ARGUMENT`) para no dar resultados engañosos.
 Delete: `DELETE <recurso>/<uuid>/` = borrado logico (204); el registro desaparece del listado. Al leerlo por uuid sigue siendo accesible.

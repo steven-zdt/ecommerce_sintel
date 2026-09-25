@@ -20,6 +20,7 @@ from starlette.responses import JSONResponse
 
 from . import audit, errors, policy, prompts, sanitize
 from .auth import DjangoTokenVerifier, current_principal
+from .business_audit import BusinessAuditor
 from .code_plane import CodePlane
 from .code_read import CodeReader
 from .config import Settings
@@ -50,6 +51,7 @@ class App:
         self.crud = CrudService(settings, self.api, self.limiter, Confirmations(settings.confirmation_secret, settings.confirmation_ttl), IdempotencyStore(), self.openapi)
         self.code = CodeReader(settings.workspace_root)
         self.plane = CodePlane(self.api)
+        self.auditor = BusinessAuditor(self)
         self.verifier = DjangoTokenVerifier(settings, self.api)
 
 
@@ -220,6 +222,12 @@ def build_server(app: App) -> MCPServer:
     @guarded("code.discard_change", is_write=True)
     async def code_discard(change_id: str) -> dict:
         return await app.plane.discard(current_principal(), change_id)
+
+    # ---------------- Auditoria de alineamiento (solo lectura) ----------------
+    @server.tool(name="business.audit", description="Audita el alineamiento documentacion/codigo/contrato de API con evidencia (MATCH, CONTRACT_DRIFT, INCONSISTENCY, SECURITY_GAP, STALE_DOCUMENTATION, MISSING_IMPLEMENTATION, UNVERIFIED). scope: all|contract|soft_delete|security|docs. No audita reglas de dominio (precios, IVA, pedidos).", annotations=ANN_READ)
+    @guarded("business.audit")
+    async def business_audit(scope: str = "all") -> dict:
+        return await app.auditor.run(current_principal(), scope)
 
     # ---------------- Resources (solo lectura, sin secretos) ----------------
     @server.resource("resource://sintel/architecture", name="architecture", mime_type="text/markdown", description="Arquitectura de SINTEL (resumen).")

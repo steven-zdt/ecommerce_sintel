@@ -164,6 +164,14 @@ async def phase_readonly():
         check("code.read de otro archivo permitido", ok)
         ok, sr = await call(s, "code.search", query="AdminProductViewSet", app_scope="dashboard")
         check("code.search encuentra simbolos (sin shell)", ok and len(sr["matches"]) > 0, str(len(sr["matches"])) if ok else str(sr))
+        ok, ba = await call(s, "business.audit", scope="all")
+        kinds = {f["classification"] for f in ba["findings"]} if ok else set()
+        check("business.audit devuelve hallazgos con evidencia por regla", ok and ba["findings"] and all(f["evidence"] and f["rule"] for f in ba["findings"]), str(ba)[:200] if not ok else "")
+        check("business.audit: contrato del registro alineado con el OpenAPI (sin CONTRACT_DRIFT)", ok and "CONTRACT_DRIFT" not in kinds and "MATCH" in kinds, str(sorted(kinds)))
+        check("business.audit: sin SECURITY_GAP ni documentacion obsoleta", ok and not ({"SECURITY_GAP", "STALE_DOCUMENTATION", "INCONSISTENCY", "MISSING_IMPLEMENTATION"} & kinds),
+              json.dumps([f for f in ba["findings"] if f["classification"] not in ("MATCH", "UNVERIFIED")])[:400] if ok else "")
+        ok, err = await call(s, "business.audit", scope="../etc")
+        check("business.audit rechaza un scope desconocido", not ok and err.get("code") == "INVALID_ARGUMENT", err.get("code", ""))
         # Secretos REALES del entorno (KNOWN_SECRETS, separados por coma): ninguno debe aparecer en lo que devuelve el MCP.
         # >= 16 caracteres: un valor corto y comun (p. ej. la clave de BD de dev "postgres") coincidiria con palabras normales del codigo y daria falsos positivos.
         known = [k for k in os.environ.get("KNOWN_SECRETS", "").split(",") if len(k) >= 16]

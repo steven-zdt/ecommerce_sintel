@@ -18,13 +18,13 @@ TOOL_CLASS = {
     "mcp.whoami": READ, "api.describe": READ, "crud.list": READ, "crud.get": READ,
     "crud.preview_create": READ, "crud.preview_update": READ, "crud.preview_delete": READ,
     "crud.create": WRITE, "crud.update": WRITE, "crud.delete": DESTRUCTIVE,
-    "code.search": READ, "code.read": READ,
+    "code.search": READ, "code.read": READ, "business.audit": READ,
     "code.graph_status": READ, "code.describe_symbol": READ, "code.find_references": READ, "code.impact_analysis": READ, "code.resolve_change": READ,
     "code.build_context": READ, "code.find_tests": READ, "code.list_changes": READ, "code.change_status": READ,
     "code.propose_change": WRITE, "code.discard_change": WRITE, "code.promote_change": DESTRUCTIVE, "code.rollback_change": DESTRUCTIVE,
 }
 
-_READ_ONLY = {"mcp.whoami", "api.describe", "crud.list", "crud.get", "code.search", "code.read"}
+_READ_ONLY = {"mcp.whoami", "api.describe", "crud.list", "crud.get", "code.search", "code.read", "business.audit"}
 _CRUD = {"crud.preview_create", "crud.preview_update", "crud.preview_delete", "crud.create", "crud.update", "crud.delete"}
 
 # Plano de codigo (ai_editor, solo desarrollo; Django lo apaga por defecto). NO existe Tool de aprobacion: la decision es de un humano en el panel (Django rechaza via=mcp).

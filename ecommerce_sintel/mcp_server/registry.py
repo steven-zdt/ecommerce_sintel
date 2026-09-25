@@ -68,8 +68,8 @@ RESOURCES: tuple = (
     Resource("orders", "orders", "orders/", "Pedidos (solo lectura: las transiciones de estado son logica de negocio de Django).",
              filters=_NO_FILTERS, sensitive=True),
     Resource("quotations", "quotes", "quotations/", "Cotizaciones (solo lectura).", filters=_NO_FILTERS, sensitive=True),
-    Resource("payment-transactions", "payment", "payment-transactions/", "Transacciones de pago (solo lectura, datos financieros).",
-             filters=("status",), sensitive=True),
+    Resource("payment-transactions", "payment", "payment-transactions/", "Transacciones de pago (solo listado: Django no expone detalle; datos financieros).",
+             ("list",), filters=("status",), sensitive=True),
 )
 
 _BY_NAME = {r.name: r for r in RESOURCES}

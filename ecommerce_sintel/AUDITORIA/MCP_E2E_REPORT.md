@@ -37,3 +37,8 @@ Tambien: `orders` y `payment-transactions` no admiten escritura (`OPERATION_NOT_
   MCP real (fase `code`, 17 OK): perfil CODE_CHANGE, sin Tool de aprobacion ni de tests, graph_status/describe_symbol/impact_analysis, ids malformados, `promote` sin confirm, propose/status/list/discard. Regresion `readonly` (con secretos reales, 2 comprobados) y `write`: 0 fallos.
 - **No verificado:** una propuesta generada por un LLM real (el proveedor de `ai_editor`, Ollama, esta deshabilitado: el camino probado es el de fallo limpio `state=FAILED`) y la promocion de una propuesta real (se uso un sandbox sintetico con el `Sandbox`/`promote_to_workspace` reales).
 - Sec. 41 (alineamiento de negocio): sigue pendiente de `business.audit`.
+
+## Adenda 2026-09-25 (business.audit, Fase 9)
+Tool `business.audit` (solo lectura, todos los perfiles): registro de recursos vs OpenAPI vivo, soft-delete de modelos (`SintelBaseModel`), recursos sensibles de solo lectura, perfil por defecto sin escrituras, ausencia de Tool de aprobacion y documentacion del propio MCP. Cada hallazgo lleva clasificacion + evidencia.
+**Primer resultado real: 1 CONTRACT_DRIFT** - el registro declaraba `payment-transactions.get` y Django solo expone `list` (`AdminPaymentViewSet`). Corregido en `registry.py`/`API_MAPPING.md`. Tras el fix: 0 hallazgos distintos de MATCH. Se corrigio ademas `business-rules.md` regla 9 (decia "codigo solo lectura": obsoleto tras Fase 7-8).
+Regresion completa tras el cambio: readonly 61 OK, write 0 fallos, code 0 fallos. Alcance: NO audita reglas de dominio (precios/IVA/pedidos) ni calcula `DEAD_CODE`; sec. 41 del plan queda PARCIAL.
