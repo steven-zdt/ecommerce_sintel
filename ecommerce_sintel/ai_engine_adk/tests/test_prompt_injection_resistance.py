@@ -88,7 +88,8 @@ def test_pi3_routing_de_agente_es_regex_determinista_no_semantico():
     # Confirma tambien que resolve_turn_agent es puro en el mensaje -- no
     # puede leer contexto de RAG/conocimiento (ver sintel_rag_adapter.py):
     # la firma real solo acepta `message`.
-    assert set(inspect.signature(resolve_turn_agent).parameters) == {"message"}
+    # `source` (customer|admin, del Admin AI Assistant) lo fija el gateway de Django, nunca el RAG ni el mensaje: sigue sin poder leer contexto.
+    assert set(inspect.signature(resolve_turn_agent).parameters) == {"message", "source"}
 
 
 @pytest.mark.asyncio

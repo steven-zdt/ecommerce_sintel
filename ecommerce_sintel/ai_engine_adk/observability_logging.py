@@ -176,7 +176,7 @@ _TURN_FIELDS = (
     "grounding_result", "duration_ms", "retrieval_latency_ms", "agent_latency_ms", "grounding_latency_ms", "memory_used",
     "rate_limited", "engine_unavailable", "turn_timeout", "llm_tokens_in", "llm_tokens_out", "tokens", "tokens_per_s", "queue_wait_ms", "queue_rejected", "queue_reason",
 )
-_TRACE_FIELDS = ("provider", "model", "fallback_used", "fallback_reason", "breaker_state", "attempts")
+_TRACE_FIELDS = ("provider", "model", "fallback_used", "fallback_reason", "breaker_state", "attempts", "provider_id", "config_version")
 
 
 def build_turn_payload(metrics: dict | None, *, status: str, source: str = "", channel: str = "") -> dict:

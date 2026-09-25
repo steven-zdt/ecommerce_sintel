@@ -199,6 +199,42 @@ no un resultado. Severidad = impacto potencial sin controles. Actualizar en el m
   residual_risk: LM Studio comparte GPU con Ollama; breaker fail-open sin Redis
 ```
 
+## 2b. Controles agregados por el Registry LLM dinamico (2026-09-25)
+```yaml
+- risk: SSRF via URL de proveedor/MCP configurable por un admin
+  asset: red interna Docker, metadatos de nube, API de Docker
+  attack_vector: URL en /panel/soporte/ia-config o en un servidor MCP
+  existing_control: ai_provider/services/url_guard.py en AIProvider.clean() y MCPServer.clean() (incluye Gemini con URL); loopback rechazado; adapters y MCP sin redirects; el ADK re-valida y descarta loopback
+  new_control: primario invalido/inseguro => el ADK ignora todo el Registry y usa LOCAL_MODEL_CHAIN
+  test: ai_provider/tests_url_guard.py, tests_capabilities_health_mcp.py, ai_engine_adk/tests/test_provider_registry.py
+  severity: alta
+  owner: ai_provider
+  status: mitigado
+  residual_risk: DNS rebinding no detectado; cualquier admin decide el destino del ADK
+
+- risk: Excessive Agency por un modelo sin tool calling como primario
+  asset: chat de soporte (usa tools)
+  attack_vector: un admin activa un modelo que no soporta tools
+  existing_control: activation.py bloquea tool_calling=false; desconocido = advertencia; tipos solo-registro no activables
+  new_control: detect_capabilities (nunca inventa: null)
+  test: ai_provider/tests_capabilities_health_mcp.py
+  severity: media
+  owner: ai_provider
+  status: mitigado
+  residual_risk: tool_calling desconocido se permite con advertencia
+
+- risk: fuga de secretos (API key de proveedor / MCP)
+  asset: keys cifradas en reposo
+  attack_vector: respuesta de la API admin, snapshots de historial, trazas del ADK, logs
+  existing_control: has_api_key (nunca la key) en proveedores y MCP; snapshots sin secretos; la traza del ADK no incluye api_key; rollback no toca la key
+  new_control: endpoint interno exige X-AI-Service-Token (monitor por defecto)
+  test: ai_provider/tests_revisions.py, tests_capabilities_health_mcp.py, ai_engine_adk/tests/test_llm_params_registry_v2.py
+  severity: alta
+  owner: ai_provider
+  status: mitigado
+  residual_risk: AI_SERVICE_TOKEN no configurado en prod (endpoint interno solo protegido por red)
+```
+
 ## 3. Brechas transversales (backlog)
 1. Activar enforce con datos reales: `AI_TOOL_STRICT_ARGS`, `AI_OUTPUT_LINKS_ENFORCE`, `AI_RAG_QUARANTINE_FLAGGED`, `AI_SERVICE_TOKEN_REQUIRED`.
 2. Calibrar `AI_MAX_CONCURRENT_TURNS` con la prueba de carga (F13).

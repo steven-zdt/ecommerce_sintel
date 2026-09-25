@@ -8,14 +8,19 @@ PLAN_LLMDINAMICO F1/F7/F18 (2026-09-25) -- config_version, historial y rollback 
 - El rollback es un cambio mas (nueva version, action `rollback_to_vN`): el historial nunca se reescribe.
 Solo los Commands (y esta capa) escriben; las vistas y el LLM no participan.
 """
+import logging
+
 from django.db import transaction
 from django.db.models import F
 
 from ai_provider.models import AIChannelConfig, AIChannelFallback, AIConfigRevision, AIModel, AIProvider
 from ai_provider.services import runtime_cache
 
-_PROVIDER_SNAPSHOT_FIELDS = ('name', 'kind', 'base_url', 'is_active', 'display_order', 'timeout', 'max_retries', 'metadata')
+_PROVIDER_SNAPSHOT_FIELDS = ('name', 'kind', 'base_url', 'is_active', 'display_order', 'timeout', 'max_retries', 'metadata',
+                             'auth_type', 'api_key_header', 'endpoint_path', 'verify_tls', 'connect_timeout')
 _CHANNEL_OVERRIDES = ('temperature', 'max_tokens', 'timeout')
+
+logger = logging.getLogger(__name__)
 
 
 class RollbackError(ValueError):
@@ -65,6 +70,8 @@ def touch_channel(action: str, user=None, channel: str = AIChannelConfig.CHANNEL
         action=action[:60], snapshot=channel_snapshot(config), changed_by=user,
     )
     runtime_cache.invalidate(channel)
+    # PLAN_LLMDINAMICO sec. 7 "emit provider_changed": evento estructurado (el ADK recarga la cadena en <= TTL y lo registra como registry_chain_loaded).
+    logger.info('ai_operation_event=provider_changed channel=%s config_version=%s action=%s', channel, version, action[:60])
     return version
 
 

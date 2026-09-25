@@ -36,6 +36,10 @@ Toda interacción y modificación de código respeta obligatoriamente los siguie
   (DNS publicos). Regla nueva **0-D** en `.AGENT.md`; detalle en `AUDITORIA/INCIDENTE_IA_CONFIG_LOCALHOST_2026-09-25.md`. Estado: `AI_PROVIDER_REGISTRY_ENABLED=true` ya
   esta en `.env`/`.env.production` pero el ADK de prod NO se ha recreado (el chat sigue mandado por `LOCAL_MODEL_CHAIN`). Los tests e2e del ADK que necesitan el stack
   completo estan anotados en `AUDITORIA/TESTS_PENDIENTES_STACK_COMPLETO_2026-09-25.md`. Pendiente sin commit: todo lo anterior.
+  (5) **Cierre del plan LLM dinamico (misma sesion):** migracion `ai_provider` 0008 (salud, capacidades, `top_p`, auth/TLS/timeouts, Gemini, `MCPServer`), adapters
+  `gemini.py`/`generic_rest.py`, API `health|primary|fallback|detect-capabilities|model-settings` y `ai-mcp-servers/`, UI (secciones, historial con comparacion, MCP), ADK con
+  `provider_id`/`config_version` en la traza y grounding/memoria sobre el Registry, log `ai_inactive` en Support. GENERIC_REST/CUSTOM solo registro y prueba. Detalle:
+  `AUDITORIA/LLM_PROVIDER_REGISTRY_F0_F4_2026-09-25.md` sec. 10. Verificado en dev con scripts; tests nuevos escritos y no ejecutados; prod pendiente de desplegar.
 
 - **MIGRACION COMPLETA DEL CHAT DE SOPORTE A GOOGLE ADK (2026-09-14, mision "ADK-SINTEL"
   ADK-00 a ADK-13, sesion larga unica):** cambio arquitectonico mayor -- reemplaza

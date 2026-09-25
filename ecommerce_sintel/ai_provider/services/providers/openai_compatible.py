@@ -1,22 +1,17 @@
 """
-ai_provider/services/providers/openai_compatible.py -- Plan "AI Provider Runtime"
-FASE 9.
+ai_provider/services/providers/openai_compatible.py -- Plan "AI Provider Runtime" FASE 9.
 
-Cubre CUALQUIER motor que hable /v1/chat/completions + /v1/models sin una clase
-de Python por motor: LM Studio, vLLM, llama.cpp (modo servidor), text-generation-
-webui, LocalAI, OpenAI real, DeepSeek. Ejemplo LM Studio en Windows (AI Engine en
-Docker, LM Studio nativo en Windows):
-    http://host.docker.internal:1234/v1
-NUNCA http://127.0.0.1:1234/v1 desde dentro de Docker -- ese loopback apunta al
-propio contenedor, no al host.
+OpenAI-compatible: LM Studio, vLLM, OpenAI, DeepSeek, etc. Autenticacion configurable (PLAN_LLMDINAMICO sec. 3): Bearer (default), cabecera
+personalizada o ninguna; ruta de descubrimiento configurable (`endpoint_path`, default /models).
 """
 import time
+from urllib.parse import urlparse
 
 import requests
 
 from ai_provider.services.providers.base import (
-    ERROR_CONNECTION_REFUSED, ERROR_DNS, ERROR_INVALID_RESPONSE, ERROR_TIMEOUT,
-    ERROR_UNAUTHORIZED, ERROR_UNKNOWN, SUCCESS, BaseProviderAdapter, ConnectionTestResult, connection_failure,
+    ERROR_INVALID_RESPONSE, ERROR_TIMEOUT, ERROR_UNAUTHORIZED, ERROR_UNKNOWN,
+    SUCCESS, BaseProviderAdapter, ConnectionTestResult, connection_failure,
 )
 from ai_provider.services.providers.ollama import _classify_connection_error
 
@@ -25,14 +20,18 @@ _TIMEOUT_SECONDS = 10
 
 class OpenAICompatibleAdapter(BaseProviderAdapter):
     def _headers(self) -> dict:
-        return {'Authorization': f'Bearer {self.provider.api_key}'} if self.provider.api_key else {}
+        return self._auth_headers()
+
+    def _models_url(self) -> str:
+        path = (self.provider.endpoint_path or '/models').strip()
+        if not path.startswith('/'):
+            path = '/' + path
+        return f'{self.provider.base_url.rstrip("/")}{path}'
 
     def test_connection(self) -> ConnectionTestResult:
         start = time.monotonic()
         try:
-            resp = requests.get(
-                f'{self.provider.base_url.rstrip("/")}/models', headers=self._headers(), timeout=_TIMEOUT_SECONDS, allow_redirects=False,
-            )
+            resp = requests.get(self._models_url(), headers=self._headers(), **self._request_kwargs())
             latency_ms = int((time.monotonic() - start) * 1000)
             if resp.status_code == 200:
                 return ConnectionTestResult(True, self.provider.name, self.provider.base_url, None, latency_ms, resp.status_code, SUCCESS, '')
@@ -52,10 +51,28 @@ class OpenAICompatibleAdapter(BaseProviderAdapter):
 
     def list_models(self) -> list[dict]:
         try:
-            resp = requests.get(
-                f'{self.provider.base_url.rstrip("/")}/models', headers=self._headers(), timeout=_TIMEOUT_SECONDS, allow_redirects=False,
-            )
+            resp = requests.get(self._models_url(), headers=self._headers(), **self._request_kwargs())
             resp.raise_for_status()
             return [{'model_id': m['id'], 'display_name': m['id']} for m in resp.json().get('data', [])]
         except (requests.RequestException, KeyError, ValueError):
             return []
+
+    def detect_capabilities(self, model_id: str) -> dict:
+        """OpenAI /v1/models no declara capacidades. LM Studio expone /api/v0/models/<id> con `type` (llm|vlm|embeddings) y `capabilities`
+        (p. ej. ["tool_use"]): se intenta ahi; si no existe (OpenAI, vLLM...) todo queda "desconocido" en vez de inventarse."""
+        caps = self._empty_capabilities()
+        parsed = urlparse(self.provider.base_url)
+        root = f'{parsed.scheme}://{parsed.netloc}'
+        try:
+            resp = requests.get(f'{root}/api/v0/models/{model_id}', headers=self._headers(), **self._request_kwargs())
+            resp.raise_for_status()
+            data = resp.json()
+        except (requests.RequestException, ValueError):
+            return caps
+        declared = data.get('capabilities')
+        if isinstance(declared, list):
+            caps['tool_calling'] = 'tool_use' in declared
+        if data.get('type') in ('llm', 'vlm', 'embeddings'):
+            caps['vision'] = data['type'] == 'vlm'
+        caps['streaming'] = True
+        return caps

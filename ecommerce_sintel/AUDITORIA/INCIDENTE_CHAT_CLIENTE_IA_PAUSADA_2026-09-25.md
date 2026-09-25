@@ -31,9 +31,9 @@ eso parecia un fallo silencioso.
 3. Una sala de cliente real queda sin IA tras una respuesta humana hasta pulsar "Reactivar IA" (`POST /api/v1/support/chats/<uuid>/resume-ai/`): es diseno, no bug.
 4. `AI_PAUSE_ON_HUMAN_REPLY=false` desactiva la pausa automatica (no recomendado: la IA y el humano responderian a la vez).
 
-## Mejora sugerida (no implementada)
-Registrar en el log el motivo cuando la IA no atiende una sala (`ai_operation_event=ai_inactive reason=paused|assigned|closed|flag_off room=...`). Costaria una linea en
-`support/consumers.py` y ahorraria este diagnostico. Pendiente de decision del usuario.
+## Mejora implementada (2026-09-25, requiere desplegar `django`)
+`support/services/ai_bridge.py::ai_inactive_reason` devuelve el motivo (`paused|assigned|closed|flag_off`) y `support/consumers.py` lo registra como
+`ai_operation_event=ai_inactive reason=... room=...`. Con esto el diagnostico de este incidente es una sola linea de log. Tests: `support/test_handoff_f18.py::AiInactiveReasonTests` (no ejecutados).
 
 ## Relacionado
 - Excepcion registrada a la regla 0-DEV-FIRST: consultas de solo lectura y una reactivacion en `sintel_prod_django` por autorizacion expresa del usuario.

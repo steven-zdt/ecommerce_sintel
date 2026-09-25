@@ -1,6 +1,6 @@
 # LLM Provider Registry dinamico - FASE 0 (discovery) y FASE 4 (resolver + runtime) - 2026-09-25
 
-Plan: `PLAN_LLMDINAMICO.md`. Estado global: **IN_PROGRESS**. Esta entrega cubre el discovery y la FASE 4; el resto queda como hoja de ruta.
+Plan: `PLAN_LLMDINAMICO.md`. Estado global: **IMPLEMENTADO EN DEV, PENDIENTE DE VALIDAR EN PRODUCCION** (backend + ADK + UI; ver sec. 10). Quedan fuera solo GENERIC_REST/CUSTOM como proveedor de inferencia y el retiro de `LOCAL_MODEL_CHAIN` (sec. 19 del plan, por decision: se mantiene como emergencia).
 Los tests se escribieron pero NO se ejecutaron (instruccion del usuario). Nada se toco en produccion (regla 0-DEV-FIRST).
 
 ## 1. Hallazgo principal
@@ -15,23 +15,23 @@ No se creo una segunda entidad: se reutiliza el modelo existente (el plan pide b
 |---|---|---|
 | 1 Capacidad admin (crear/editar/probar/detectar modelos/primary/fallback/orden) | Existe | `ai_provider` + `ia-config` |
 | 1 Historial, rollback, `config_version` | **Hecho (backend)** | `AIConfigRevision` + `services/revisions.py`, migracion `0007` (con baseline v1 de lo existente). Endpoints: `GET/POST ai-channel-config/history|rollback/` y `GET/POST ai-providers/<uuid>/history|rollback/`. Falta la UI (pestana Historial, comparar) |
-| 3 Modelo de datos | Existe parcial | `config_version` hecho (canal y proveedor). Faltan `verify_tls`, `top_p`, `auth_type`/`api_key_header`, `connect_timeout`, `endpoint_path`, capabilities |
-| 4 Proveedores | Parcial | OLLAMA, OPENAI_COMPATIBLE, ANTHROPIC. Faltan GEMINI, GENERIC_REST, MCP, CUSTOM |
-| 5 MCP como integracion independiente | Falta | existe `ai_engine/mcp_client` (Meta Ads) sin relacion con el Registry |
+| 3 Modelo de datos | **Hecho** | Migracion `0008`: `auth_type`, `api_key_header`, `endpoint_path`, `verify_tls`, `connect_timeout`, `health_status`/`last_health_at` (proveedor); `top_p`, `capabilities`, `capabilities_checked_at` (modelo); `config_version` (canal y proveedor). Los overrides de canal (`temperature`, `max_tokens`, `timeout`) ahora SI viajan al ADK |
+| 4 Proveedores | **Hecho (con limite)** | OLLAMA, OPENAI_COMPATIBLE, ANTHROPIC y **GEMINI** (ejecutables). **GENERIC_REST y CUSTOM**: se registran y prueban, pero NO se ejecutan como primario (no hay adaptador de inferencia declarativo): `activation.py` los bloquea con `KIND_NOT_RUNNABLE` en vez de degradar en silencio |
+| 5 MCP como integracion independiente | **Hecho (backend + UI)** | `MCPServer` (URL, transporte, auth cifrada, capacidades, estado), handshake real (`initialize` + `tools/list`), API `dashboard/ai-mcp-servers/` y seccion en `ia-config`. NO es proveedor de inferencia (`exposes_model_invocation=false`). Transporte SSE legado: solo registro |
 | 6 PRIMARY/FALLBACK ordenados | Existe | `AIChannelConfig` + `AIChannelFallback`; ADK ya recorre la cadena con breaker (F3) |
-| 7 Cambio en caliente + snapshot por turno | **Hecho en esta fase (ADK)** | ver sec. 3. Falta `provider_changed` y validar antes de activar |
+| 7 Cambio en caliente + snapshot por turno | **Hecho** | snapshot por turno en el ADK; validacion previa al activar; evento `ai_operation_event=provider_changed` (log estructurado) en cada cambio |
 | 8 Secretos | Existe | cifrado en reposo, la API admin solo devuelve `has_api_key` |
 | 9 SSRF | **Hecho en Django (parcial)** | `ai_provider/services/url_guard.py` llamado desde `AIProvider.clean()` (create y update pasan por `full_clean`): bloquea esquemas no http(s), metadatos de nube, link-local, puerto de la API de Docker y credenciales en la URL; los adapters ya no siguen redirects. El ADK re-valida la URL con su copia `ai_engine_adk/url_guard.py` y descarta entradas inseguras. Falta cubrir DNS rebinding |
-| 10 Capabilities | Falta | solo `TOOL_CALLING_UNSUPPORTED` como codigo de error |
+| 10 Capabilities | **Hecho** | `detect_capabilities` por adapter (Ollama `/api/show`, LM Studio `/api/v0/models/<id>`, Anthropic/Gemini declaradas); lo no declarado queda `null`, nunca se inventa. Activacion: `tool_calling=false` BLOQUEA (canal de soporte), desconocido = advertencia |
 | 11 ADK + LiteLLM | **Hecho en esta fase** | `FallbackLiteLlm` resuelve la cadena por turno |
-| 12 Commands | Parcial | `AIProviderCommands`, rollback en `services/revisions.py`; **SetPrimary ya valida antes de persistir** (`services/activation.py`). Faltan comandos separados Activate/SetFallback con validacion |
-| 13 API admin | Parcial | faltan `/activate`, `/primary`, `/fallback`, `/health`, `/history`, `/rollback` con esos nombres |
-| 14 UI | Parcial (mejorada) | `AIProviderConfigView.vue` ahora muestra proveedor/modelo activos, estado, latencia de la ultima prueba y `config_version`; aviso 409 con "Activar de todas formas"; `AIConfigHistory.vue` (historial + restaurar). Faltan: comparar versiones, historial por proveedor, formulario por secciones |
-| 15-16 Test de conexion / health / circuit | Parcial | breaker por proveedor en el ADK (F3); falta estado HEALTHY/DEGRADED/... persistido |
-| 17 Observabilidad | Parcial | ADK ya registra provider/model/fallback_used/reason; `config_version` viaja en el endpoint interno y se loguea al cargar la cadena (`registry_chain_loaded`); falta en las metricas por turno |
+| 12 Commands | **Hecho** | `AIProviderCommands`, `AIModelCommands.detect_capabilities`, rollback en `services/revisions.py`, SetPrimary con validacion previa, `MCPServerCommands`. Activate/SetFallback separados: cubiertos por los endpoints `/primary/` y `/fallback/` |
+| 13 API admin | **Hecho** | `/health/`, `/primary/`, `/fallback/`, `/history/`, `/rollback/`, `/detect-capabilities/<model>/`, `/model-settings/<model>/` por proveedor; `ai-mcp-servers/` con `/test/` |
+| 14 UI | **Hecho** | configuracion activa, badge de salud, historial del canal y del proveedor con **comparacion de versiones**, formulario por secciones (Basico/Conexion/Autenticacion/Tiempos/Seguridad), parametros y capacidades por modelo, seccion MCP. La prueba visual es manual |
+| 15-16 Test de conexion / health / circuit | **Hecho** | `services/health.py`: HEALTHY/DEGRADED/UNAVAILABLE/MISCONFIGURED/DISABLED persistidos ("Probar conexion" y `/health/`); circuit breaker por proveedor en el ADK (F3) |
+| 17 Observabilidad | **Hecho** | la traza y las metricas por turno llevan `provider_id` y `config_version` (sin secretos) ademas de provider/model/fallback |
 | 19 Compatibilidad `LOCAL_MODEL_CHAIN` | **Hecho** | queda como bootstrap/emergencia si el Registry esta apagado, vacio o inalcanzable sin cadena previa |
 | 20 Seguridad admin | Existe | `IsAdminUser` en todo `dashboard/ai-*` |
-| 21-23 Tests / E2E / fallback real | Parcial | tests de F4 escritos; E2E y fallback real los corre el usuario |
+| 21-23 Tests / E2E / fallback real | Parcial | tests escritos (no ejecutados) y verificacion funcional con scripts contra dev (29 + 11 comprobaciones OK); el E2E y el fallback real con Ollama apagado los corre el usuario |
 
 ## 3. Que cambio en FASE 4
 - `ai_engine_adk/provider_registry.py` (nuevo): consulta el endpoint interno, cache con TTL (15 s), conserva la ultima cadena buena hasta
@@ -43,8 +43,7 @@ No se creo una segunda entidad: se reutiliza el modelo existente (el plan pide b
 - Tests: `ai_engine_adk/tests/test_provider_registry.py`.
 
 ## 4. Limitaciones conocidas de esta entrega
-1. `grounding.py` sigue usando `_resolve_primary_llm_params()` (primera entrada de `LOCAL_MODEL_CHAIN`) para su llamada directa de
-   verificacion: con el Registry activo esa llamada no sigue el cambio. Se corrige en la siguiente entrega.
+1. ~~`grounding.py` sigue usando `LOCAL_MODEL_CHAIN`~~ **corregido (entrega 5)**: grounding y la extraccion de memoria usan `resolve_primary_llm_params()`, que sigue al Registry / snapshot del turno.
 2. Los agentes estan cacheados por proceso, por eso el modelo resuelve la cadena en cada llamada y no al construir el agente.
 3. El endpoint interno devuelve `api_key_value`. Defensa en profundidad agregada: exige `X-AI-Service-Token` (mismo `AI_SERVICE_TOKEN` de F2,
    con rotacion por `AI_SERVICE_TOKEN_PREVIOUS`). `AI_PROVIDER_CONFIG_TOKEN_REQUIRED=false` (default) = solo monitor (log
@@ -101,3 +100,20 @@ No se creo una segunda entidad: se reutiliza el modelo existente (el plan pide b
   el contenedor) con la instruccion de usar `host.docker.internal`. Verificado en dev con 5 escenarios reales; tests escritos en
   `ai_provider/tests_providers.py::TestConnectionFailureMessages` (no ejecutados).
 - **Nota:** el chat NO usa lo que se configura en el panel hasta activar `AI_PROVIDER_REGISTRY_ENABLED`; hoy manda `LOCAL_MODEL_CHAIN`.
+
+## 10. Entrega 5: cierre del plan (2026-09-25)
+- **Migracion `0008_provider_capabilities_health_mcp`** (generada con `makemigrations`, sin deriva): campos de proveedor/modelo, tipos nuevos (`gemini`, `generic-rest`, `custom`) y `MCPServer`.
+  Aplicada en dev. Prod: la aplica el entrypoint de `django` al desplegar; **respaldar antes** (`deploy/backup.sh`).
+- **Adaptadores:** `providers/base.py` centraliza auth (bearer/cabecera/ninguna), TLS, timeout de conexion, sin redirects y `detect_capabilities`; nuevos `gemini.py` y
+  `generic_rest.py`. El guard SSRF tambien se aplica a `base_url` de Gemini cuando se rellena.
+- **ADK:** `llm_params_for_entry` soporta gemini, auth por cabecera, `temperature`/`top_p` (nunca `max_tokens`: el tope es por agente), `ssl_verify` y `timeout` por entrada;
+  `resolve_primary_llm_params()` para grounding/memoria; traza con `provider_id`/`config_version`. `VALID_KINDS` incluye `gemini`.
+- **Endpoint interno:** entrega `provider_uuid`, `auth_type`, `api_key_header`, `verify_tls` y `generation` con los overrides del canal aplicados.
+- **Support:** `ai_bridge.ai_inactive_reason` y log `ai_operation_event=ai_inactive reason=paused|assigned|closed|flag_off` (mejora del incidente del chat).
+- **Tests desactualizados corregidos:** `test_pi3` (firma con `source`) y los 3 tests de `tests_providers.py` que exigian el Ollama real (ahora se saltan si no esta).
+- **Verificacion:** scripts funcionales contra dev (`smoke_dev`: 29 comprobaciones; `smoke_adk`: 11), incluida la deteccion real de capacidades en LM Studio
+  (`tool_calling` y `vision` verdaderos para `qwen/qwen3.5-9b`). Tests nuevos escritos, NO ejecutados: `ai_provider/tests_capabilities_health_mcp.py`,
+  `ai_engine_adk/tests/test_llm_params_registry_v2.py`, `support/test_handoff_f18.py::AiInactiveReasonTests`.
+- **Decisiones/limites documentados:** GENERIC_REST/CUSTOM sin inferencia; MCP sin transporte SSE legado ni invocacion de tools desde el chat (solo registro y prueba);
+  `LOCAL_MODEL_CHAIN` se conserva como emergencia (retirarlo seria un riesgo operativo sin beneficio hoy).
+

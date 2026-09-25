@@ -44,11 +44,34 @@ class AIProvider(SintelBaseModel):
     KIND_OLLAMA_NATIVE = 'ollama-nativo'
     KIND_OPENAI_COMPATIBLE = 'openai-compatible'
     KIND_ANTHROPIC = 'anthropic'
+    # PLAN_LLMDINAMICO sec. 4. GEMINI se ejecuta via LiteLLM. GENERIC_REST y CUSTOM se pueden registrar y probar, pero NO se ejecutan como primario
+    # (no hay adaptador de inferencia declarativo todavia): ver RUNNABLE_KINDS y ai_provider/services/activation.py.
+    KIND_GEMINI = 'gemini'
+    KIND_GENERIC_REST = 'generic-rest'
+    KIND_CUSTOM = 'custom'
     KIND_CHOICES = [
         (KIND_OLLAMA_NATIVE, 'Ollama (nativo)'),
         (KIND_OPENAI_COMPATIBLE, 'OpenAI-compatible (LM Studio, vLLM, OpenAI, DeepSeek, ...)'),
         (KIND_ANTHROPIC, 'Anthropic (Claude)'),
+        (KIND_GEMINI, 'Google Gemini'),
+        (KIND_GENERIC_REST, 'REST generico (solo registro y prueba)'),
+        (KIND_CUSTOM, 'Personalizado (solo registro y prueba)'),
     ]
+    RUNNABLE_KINDS = (KIND_OLLAMA_NATIVE, KIND_OPENAI_COMPATIBLE, KIND_ANTHROPIC, KIND_GEMINI)
+    KINDS_REQUIRING_URL = (KIND_OLLAMA_NATIVE, KIND_OPENAI_COMPATIBLE, KIND_GENERIC_REST, KIND_CUSTOM)
+
+    AUTH_BEARER = 'bearer'
+    AUTH_HEADER = 'header'
+    AUTH_NONE = 'none'
+    AUTH_CHOICES = [(AUTH_BEARER, 'Authorization: Bearer <key>'), (AUTH_HEADER, 'Cabecera personalizada'), (AUTH_NONE, 'Sin autenticacion')]
+
+    HEALTH_UNKNOWN = 'UNKNOWN'
+    HEALTH_HEALTHY = 'HEALTHY'
+    HEALTH_DEGRADED = 'DEGRADED'
+    HEALTH_UNAVAILABLE = 'UNAVAILABLE'
+    HEALTH_MISCONFIGURED = 'MISCONFIGURED'
+    HEALTH_DISABLED = 'DISABLED'
+    HEALTH_CHOICES = [(h, h) for h in (HEALTH_UNKNOWN, HEALTH_HEALTHY, HEALTH_DEGRADED, HEALTH_UNAVAILABLE, HEALTH_MISCONFIGURED, HEALTH_DISABLED)]
 
     name = models.CharField(max_length=100, unique=True)
     slug = models.SlugField(max_length=110, unique=True, blank=True)
@@ -78,6 +101,16 @@ class AIProvider(SintelBaseModel):
     metadata = models.JSONField(default=dict, blank=True)
     # PLAN_LLMDINAMICO F1: version propia del proveedor (historial/rollback por proveedor).
     config_version = models.PositiveIntegerField(default=1)
+    # PLAN_LLMDINAMICO sec. 3: autenticacion, TLS y ruta de descubrimiento configurables (sin secretos aqui: la key vive cifrada en api_key).
+    auth_type = models.CharField(max_length=10, choices=AUTH_CHOICES, default=AUTH_BEARER)
+    api_key_header = models.CharField(max_length=60, blank=True, help_text='Nombre de la cabecera si auth_type=header (p. ej. x-api-key).')
+    endpoint_path = models.CharField(max_length=200, blank=True, help_text='Ruta para listar modelos (openai-compatible/generic-rest). Vacio = /models.')
+    verify_tls = models.BooleanField(default=True)
+    connect_timeout = models.PositiveIntegerField(default=5, validators=[MinValueValidator(1), MaxValueValidator(60)],
+                                                  help_text='Segundos para establecer la conexion (distinto de timeout total).')
+    # PLAN_LLMDINAMICO sec. 16: estado de salud persistido por la ultima comprobacion (test o /health).
+    health_status = models.CharField(max_length=15, choices=HEALTH_CHOICES, default=HEALTH_UNKNOWN)
+    last_health_at = models.DateTimeField(null=True, blank=True)
 
     last_tested_at = models.DateTimeField(null=True, blank=True)
     last_test_ok = models.BooleanField(null=True, blank=True)
@@ -91,7 +124,8 @@ class AIProvider(SintelBaseModel):
         return f'{self.name} ({self.get_kind_display()})'
 
     def clean(self):
-        if self.kind in (self.KIND_OLLAMA_NATIVE, self.KIND_OPENAI_COMPATIBLE):
+        # Tambien se valida cuando la URL es opcional pero se rellena (p. ej. gemini): el adaptador la usaria tal cual, asi que debe pasar el guard SSRF.
+        if self.kind in self.KINDS_REQUIRING_URL or self.base_url:
             if not self.base_url:
                 raise ValidationError({'base_url': 'Requerido para este tipo de proveedor.'})
             # Deliberadamente NO se usa django.core.validators.URLValidator: exige un
@@ -141,6 +175,11 @@ class AIModel(SintelBaseModel):
         help_text='Vacio = usa el default del proveedor/motor (0.1 hoy en llm_factory.py).',
     )
     max_tokens = models.PositiveIntegerField(null=True, blank=True, help_text='Vacio = default del motor.')
+    top_p = models.FloatField(null=True, blank=True, validators=[MinValueValidator(0.0), MaxValueValidator(1.0)],
+                              help_text='Vacio = default del proveedor.')
+    # PLAN_LLMDINAMICO sec. 10: {tool_calling, streaming, structured_output, vision, reasoning, json_mode} -> True/False/None (None = desconocido).
+    capabilities = models.JSONField(default=dict, blank=True)
+    capabilities_checked_at = models.DateTimeField(null=True, blank=True)
     context_window = models.PositiveIntegerField(
         null=True, blank=True, help_text='Informativo -- no se envia al proveedor, solo referencia para el admin.',
     )
@@ -252,3 +291,49 @@ class AIConfigRevision(SintelBaseModel):
 
     def __str__(self):
         return f'{self.scope}:{self.target_uuid} v{self.version} ({self.action})'
+
+
+class MCPServer(SintelBaseModel):
+    """PLAN_LLMDINAMICO sec. 5 -- servidor MCP registrado como integracion INDEPENDIENTE (MCP != API HTTP de un LLM).
+
+    Solo Tools/Context: nunca es un proveedor de inferencia salvo que el servidor exponga invocacion de modelo (`exposes_model_invocation`,
+    informativo, false por defecto). La API key va cifrada; la API admin nunca la devuelve."""
+
+    TRANSPORT_STREAMABLE_HTTP = 'streamable-http'
+    TRANSPORT_SSE = 'sse'
+    TRANSPORT_CHOICES = [(TRANSPORT_STREAMABLE_HTTP, 'Streamable HTTP'), (TRANSPORT_SSE, 'SSE (legado)')]
+    STATUS_CHOICES = [(h, h) for h in ('UNKNOWN', 'HEALTHY', 'UNAVAILABLE', 'MISCONFIGURED', 'DISABLED')]
+
+    name = models.CharField(max_length=100, unique=True)
+    server_url = models.CharField(max_length=500)
+    transport = models.CharField(max_length=20, choices=TRANSPORT_CHOICES, default=TRANSPORT_STREAMABLE_HTTP)
+    auth_type = models.CharField(max_length=10, choices=AIProvider.AUTH_CHOICES, default=AIProvider.AUTH_NONE)
+    api_key_header = models.CharField(max_length=60, blank=True)
+    api_key = EncryptedTextField(blank=True, help_text='Cifrada en reposo.')
+    verify_tls = models.BooleanField(default=True)
+    is_active = models.BooleanField(default=True)
+    capabilities = models.JSONField(default=dict, blank=True)
+    tools_count = models.PositiveIntegerField(default=0)
+    exposes_model_invocation = models.BooleanField(default=False)
+    status = models.CharField(max_length=15, choices=STATUS_CHOICES, default='UNKNOWN')
+    last_checked_at = models.DateTimeField(null=True, blank=True)
+    last_error = models.TextField(blank=True)
+    last_latency_ms = models.PositiveIntegerField(null=True, blank=True)
+    metadata = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        ordering = ['name']
+
+    def __str__(self):
+        return f'{self.name} (MCP)'
+
+    def clean(self):
+        parsed = urlparse(self.server_url or '')
+        if parsed.scheme not in ('http', 'https') or not parsed.hostname:
+            raise ValidationError({'server_url': 'URL invalida (debe ser http:// o https://<host>[:puerto]).'})
+        if (parsed.hostname or '').lower() in ('localhost', '127.0.0.1', '::1', '0.0.0.0') and not getattr(settings, 'AI_PROVIDER_ALLOW_LOOPBACK', False):
+            raise ValidationError({'server_url': 'localhost/127.0.0.1 dentro de Docker es el propio contenedor. Usa http://host.docker.internal:PUERTO o el nombre del servicio.'})
+        try:
+            validate_provider_url(self.server_url)
+        except UnsafeProviderURL as exc:
+            raise ValidationError({'server_url': str(exc)})

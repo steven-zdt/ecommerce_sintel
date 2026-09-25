@@ -179,7 +179,7 @@ async def test_traza_no_contiene_prompts(monkeypatch):
     model, _, _ = make(monkeypatch, [p, FakeInner("f")])
     trace = begin_turn_trace()
     await collect(model)
-    assert set(trace) == {"provider", "model", "fallback_used", "fallback_reason", "breaker_state", "attempts"}
+    assert set(trace) == {"provider", "model", "fallback_used", "fallback_reason", "breaker_state", "attempts", "provider_id", "config_version"}
 
 
 async def test_breaker_deshabilitado_no_consulta_estado(monkeypatch):

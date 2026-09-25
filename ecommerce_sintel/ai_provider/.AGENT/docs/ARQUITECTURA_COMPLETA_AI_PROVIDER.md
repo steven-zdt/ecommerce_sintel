@@ -124,3 +124,13 @@ Store: `frontend/src/store/aiProviderAdmin.js`. Servicio:
 - `django` en prod necesita `extra_hosts: host.docker.internal:host-gateway` (tiene `dns:` publicos). Lo mismo para cualquier servicio que llame al host.
 - Diagnostico: si la peticion no aparece en el log del servidor LLM, el problema es red/URL. `config_version 1` = nunca se guardo una edicion.
 
+### 2026-09-25 (entrega 5) - Cierre del plan LLM dinamico: salud, capacidades, Gemini, MCP, generacion y auth
+- **Modelos (migracion 0008):** `AIProvider` +`auth_type`/`api_key_header`/`endpoint_path`/`verify_tls`/`connect_timeout`/`health_status`/`last_health_at`, tipos `gemini`,
+  `generic-rest`, `custom`; `AIModel` +`top_p`/`capabilities`/`capabilities_checked_at`; nuevo `MCPServer`. `AIProvider.RUNNABLE_KINDS` define lo que el chat puede ejecutar.
+- **Servicios nuevos:** `health.py` (estados HEALTHY/DEGRADED/UNAVAILABLE/MISCONFIGURED/DISABLED), `mcp_servers.py` (handshake MCP + comandos), `activation.py` ahora valida
+  tipo ejecutable y capacidades (`tool_calling=false` bloquea el canal de soporte). Adapters: `gemini.py`, `generic_rest.py`; `base.py` centraliza auth/TLS/timeouts/`detect_capabilities`.
+- **API (IsAdminUser):** por proveedor `health/`, `primary/`, `fallback/`, `history/`, `rollback/`, `detect-capabilities/<model>/`, `model-settings/<model>/`; nuevo
+  `ai-mcp-servers/` (+`test/`). El endpoint interno entrega `provider_uuid`, `generation` (con overrides del canal), `auth_type`, `api_key_header`, `verify_tls`.
+- **Reglas:** MCP es integracion independiente (no proveedor de inferencia); las capacidades no declaradas quedan `null`; GENERIC_REST/CUSTOM solo registro y prueba
+  (`KIND_NOT_RUNNABLE`); `max_tokens` no viaja al ADK (tope por agente); toda `base_url` no vacia pasa el guard SSRF.
+- Detalle y limites: `AUDITORIA/LLM_PROVIDER_REGISTRY_F0_F4_2026-09-25.md` sec. 10.

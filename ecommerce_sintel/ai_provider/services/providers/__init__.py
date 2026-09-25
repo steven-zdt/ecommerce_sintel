@@ -2,6 +2,8 @@
 from ai_provider.models import AIProvider
 from ai_provider.services.providers.anthropic import AnthropicAdapter
 from ai_provider.services.providers.base import BaseProviderAdapter
+from ai_provider.services.providers.gemini import GeminiAdapter
+from ai_provider.services.providers.generic_rest import GenericRestAdapter
 from ai_provider.services.providers.ollama import OllamaAdapter
 from ai_provider.services.providers.openai_compatible import OpenAICompatibleAdapter
 
@@ -9,6 +11,9 @@ _ADAPTERS = {
     AIProvider.KIND_OLLAMA_NATIVE: OllamaAdapter,
     AIProvider.KIND_OPENAI_COMPATIBLE: OpenAICompatibleAdapter,
     AIProvider.KIND_ANTHROPIC: AnthropicAdapter,
+    AIProvider.KIND_GEMINI: GeminiAdapter,
+    AIProvider.KIND_GENERIC_REST: GenericRestAdapter,
+    AIProvider.KIND_CUSTOM: GenericRestAdapter,
 }
 
 

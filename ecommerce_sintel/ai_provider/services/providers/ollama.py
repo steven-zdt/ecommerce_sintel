@@ -18,6 +18,9 @@ from ai_provider.services.providers.base import (
 
 _TIMEOUT_SECONDS = 10
 
+# PLAN_LLMDINAMICO sec. 10: capacidades que Ollama declara en /api/show ("capabilities": ["completion", "tools", "vision", "thinking", ...]).
+_OLLAMA_CAPABILITY_MAP = {'tools': 'tool_calling', 'vision': 'vision', 'thinking': 'reasoning'}
+
 
 def _classify_connection_error(exc: Exception) -> str:
     """DNS vs CONNECTION_REFUSED vs generico -- ambos llegan como
@@ -34,10 +37,13 @@ def _classify_connection_error(exc: Exception) -> str:
 
 
 class OllamaAdapter(BaseProviderAdapter):
+    def _url(self, path: str) -> str:
+        return f'{self.provider.base_url.rstrip("/")}{path}'
+
     def test_connection(self) -> ConnectionTestResult:
         start = time.monotonic()
         try:
-            resp = requests.get(f'{self.provider.base_url.rstrip("/")}/api/tags', timeout=_TIMEOUT_SECONDS, allow_redirects=False)
+            resp = requests.get(self._url('/api/tags'), headers=self._auth_headers(), **self._request_kwargs())
             latency_ms = int((time.monotonic() - start) * 1000)
             if resp.status_code == 200:
                 return ConnectionTestResult(
@@ -61,8 +67,23 @@ class OllamaAdapter(BaseProviderAdapter):
 
     def list_models(self) -> list[dict]:
         try:
-            resp = requests.get(f'{self.provider.base_url.rstrip("/")}/api/tags', timeout=_TIMEOUT_SECONDS, allow_redirects=False)
+            resp = requests.get(self._url('/api/tags'), headers=self._auth_headers(), **self._request_kwargs())
             resp.raise_for_status()
             return [{'model_id': m['name'], 'display_name': m['name']} for m in resp.json().get('models', [])]
         except (requests.RequestException, KeyError, ValueError):
             return []
+
+    def detect_capabilities(self, model_id: str) -> dict:
+        caps = self._empty_capabilities()
+        try:
+            resp = requests.post(self._url('/api/show'), json={'model': model_id}, headers=self._auth_headers(), **self._request_kwargs())
+            resp.raise_for_status()
+            declared = resp.json().get('capabilities')
+        except (requests.RequestException, ValueError):
+            return caps
+        if not isinstance(declared, list):
+            return caps  # versiones antiguas de Ollama no declaran capacidades: se deja "desconocido", no se inventa
+        for ollama_name, ours in _OLLAMA_CAPABILITY_MAP.items():
+            caps[ours] = ollama_name in declared
+        caps['streaming'] = True  # /api/chat de Ollama siempre soporta streaming
+        return caps

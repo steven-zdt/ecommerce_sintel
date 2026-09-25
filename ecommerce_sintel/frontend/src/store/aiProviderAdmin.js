@@ -12,6 +12,7 @@ export const useAIProviderAdminStore = defineStore('aiProviderAdmin', {
   state: () => ({
     providers: [],
     channelConfig: null,
+    mcpServers: [],
     loading: false,
     actionLoading: false,
     error: null,
@@ -108,6 +109,75 @@ export const useAIProviderAdminStore = defineStore('aiProviderAdmin', {
 
     async validateModel(modelUuid) {
       return this._mutate(() => aiProviderService.validateModel(modelUuid));
+    },
+
+    // PLAN_LLMDINAMICO sec. 16: "Probar conexion"/"Salud" persisten el estado; la fila del proveedor se refresca con el resultado.
+    async checkHealth(uuid) {
+      const res = await this._mutate(() => aiProviderService.checkHealth(uuid));
+      if (res.ok) {
+        const fresh = await aiProviderService.listProviders();
+        this.providers = fresh;
+      }
+      return res;
+    },
+
+    async updateModelSettings(providerUuid, modelUuid, payload) {
+      const res = await this._mutate(() => aiProviderService.updateModelSettings(providerUuid, modelUuid, payload));
+      if (res.ok) {
+        const provider = this.providers.find((p) => p.uuid === providerUuid);
+        const idx = provider ? provider.models.findIndex((m) => m.uuid === modelUuid) : -1;
+        if (idx !== -1) provider.models[idx] = res.data;
+      }
+      return res;
+    },
+
+    async detectCapabilities(providerUuid, modelUuid) {
+      const res = await this._mutate(() => aiProviderService.detectCapabilities(providerUuid, modelUuid));
+      if (res.ok) {
+        const provider = this.providers.find((p) => p.uuid === providerUuid);
+        const idx = provider ? provider.models.findIndex((m) => m.uuid === modelUuid) : -1;
+        if (idx !== -1) provider.models[idx] = res.data;
+      }
+      return res;
+    },
+
+    async fetchProviderHistory(uuid) {
+      return this._mutate(() => aiProviderService.getProviderHistory(uuid));
+    },
+
+    async rollbackProvider(uuid, version) {
+      const res = await this._mutate(() => aiProviderService.rollbackProvider(uuid, version));
+      if (res.ok) {
+        const idx = this.providers.findIndex((p) => p.uuid === uuid);
+        if (idx !== -1) this.providers[idx] = res.data;
+      }
+      return res;
+    },
+
+    async fetchMcpServers() {
+      const res = await this._mutate(() => aiProviderService.listMcpServers());
+      if (res.ok) this.mcpServers = res.data;
+      return res;
+    },
+
+    async saveMcpServer(uuid, payload) {
+      const res = await this._mutate(() => (uuid
+        ? aiProviderService.updateMcpServer(uuid, payload)
+        : aiProviderService.createMcpServer(payload)));
+      if (res.ok) await this.fetchMcpServers();
+      return res;
+    },
+
+    async deleteMcpServer(uuid) {
+      const res = await this._mutate(() => aiProviderService.deleteMcpServer(uuid));
+      if (res.ok) this.mcpServers = this.mcpServers.filter((s) => s.uuid !== uuid);
+      return res;
+    },
+
+    async testMcpServer(uuid) {
+      const res = await this._mutate(() => aiProviderService.testMcpServer(uuid));
+      if (res.ok) await this.fetchMcpServers();
+      return res;
     },
 
     async fetchChannelHistory() {

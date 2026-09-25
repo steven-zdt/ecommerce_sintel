@@ -49,7 +49,7 @@ def _service_token_ok(request) -> bool:
     return bool(given) and any(hmac.compare_digest(given.encode(), t.encode()) for t in valid)
 
 
-def _serialize_model(model) -> dict:
+def _serialize_model(model, config=None) -> dict:
     """FASE 19: delega en BaseProviderAdapter.build_runtime_config() en vez de
     duplicar el mapeo modelo->dict aqui -- este ya es exactamente el shape que
     ai_engine/llm_factory.py::_build_model() espera (name/kind/base_url/model/
@@ -57,7 +57,16 @@ def _serialize_model(model) -> dict:
     sin volver a traducirla (antes _fetch_dynamic_chain() desanidaba 'provider'
     a mano en cada entrada). `api_key_value` viene descifrada -- ver docstring
     del modulo (consumidor interno sancionado)."""
-    return get_adapter(model.provider).build_runtime_config(model)
+    entry = get_adapter(model.provider).build_runtime_config(model)
+    if config is not None:
+        # PLAN_LLMDINAMICO sec. 3: los overrides del canal (temperature/max_tokens/timeout) ganan sobre los del modelo. timeout viaja aparte.
+        generation = entry['generation']
+        for name in ('temperature', 'max_tokens'):
+            if getattr(config, name, None) is not None:
+                generation[name] = getattr(config, name)
+        if getattr(config, 'timeout', None) is not None:
+            entry['timeout'] = config.timeout
+    return entry
 
 
 class AiProviderConfigView(APIView):
@@ -98,6 +107,6 @@ class AiProviderConfigView(APIView):
             'channel': channel,
             'enabled': config.enabled,
             'config_version': config.config_version,
-            'primary': _serialize_model(primary) if primary else None,
-            'fallbacks': [_serialize_model(m) for m in fallbacks],
+            'primary': _serialize_model(primary, config) if primary else None,
+            'fallbacks': [_serialize_model(m, config) for m in fallbacks],
         })

@@ -16,7 +16,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-VALID_KINDS = {"ollama-nativo", "openai-compatible", "anthropic"}
+VALID_KINDS = {"ollama-nativo", "openai-compatible", "anthropic", "gemini"}
 
 
 def parse_local_model_chain(raw: str) -> list[dict]:

@@ -6,8 +6,24 @@ from ai_provider.services import revisions, runtime_cache  # noqa: F401 (runtime
 
 _PROVIDER_ALLOWED_FIELDS = (
     'name', 'kind', 'base_url', 'api_key', 'is_active', 'display_order', 'timeout', 'max_retries', 'metadata',
+    'auth_type', 'api_key_header', 'endpoint_path', 'verify_tls', 'connect_timeout',
 )
-_MODEL_ALLOWED_FIELDS = ('display_name', 'is_active', 'temperature', 'max_tokens', 'context_window', 'metadata')
+_MODEL_ALLOWED_FIELDS = ('display_name', 'is_active', 'temperature', 'top_p', 'max_tokens', 'context_window', 'metadata', 'capabilities')
+
+
+def _validate_capabilities(value) -> dict:
+    """{tool_calling, streaming, structured_output, vision, reasoning, json_mode} -> True/False/None. Cualquier otra clave o valor se rechaza."""
+    from django.core.exceptions import ValidationError
+    from ai_provider.services.providers.base import BaseProviderAdapter
+
+    if not isinstance(value, dict):
+        raise ValidationError({'capabilities': 'Debe ser un objeto {capacidad: true|false|null}.'})
+    unknown = set(value) - set(BaseProviderAdapter.CAPABILITY_KEYS)
+    if unknown:
+        raise ValidationError({'capabilities': f'Capacidades desconocidas: {sorted(unknown)}.'})
+    if any(v not in (True, False, None) for v in value.values()):
+        raise ValidationError({'capabilities': 'Los valores deben ser true, false o null.'})
+    return {key: value.get(key) for key in BaseProviderAdapter.CAPABILITY_KEYS}
 
 
 def _audit(event_type, user, metadata: dict):
@@ -140,12 +156,30 @@ class AIModelCommands:
     def update_model(model: AIModel, data: dict, user=None) -> AIModel:
         for field in _MODEL_ALLOWED_FIELDS:
             if field in data:
-                setattr(model, field, data[field])
+                setattr(model, field, _validate_capabilities(data[field]) if field == 'capabilities' else data[field])
         model.full_clean()
         model.save()
         # is_active/temperature/max_tokens pueden ser el modelo primary/fallback de un
         # canal ahora mismo -- FASE 20, ver AIProviderCommands.deactivate().
         revisions.touch_channel(f'model_updated:{model.model_id}', user=user)
+        return model
+
+    @staticmethod
+    @transaction.atomic
+    def detect_capabilities(model: AIModel, user=None) -> AIModel:
+        """PLAN_LLMDINAMICO sec. 10 "Detectar capacidades": pregunta al proveedor (nunca inventa: lo no declarado queda en None) y lo persiste.
+        Si el proveedor no responde, no se sobrescribe lo que ya se sabia."""
+        from ai_provider.services.providers import get_adapter
+
+        adapter = get_adapter(model.provider)
+        detected = adapter.detect_capabilities(model.model_id)
+        if all(v is None for v in detected.values()):
+            return model  # nada declarado / sin respuesta: conservar lo previo
+        model.capabilities = {**{k: None for k in adapter.CAPABILITY_KEYS}, **(model.capabilities or {}), **{k: v for k, v in detected.items() if v is not None}}
+        model.capabilities_checked_at = timezone.now()
+        model.save(update_fields=['capabilities', 'capabilities_checked_at', 'updated_at'])
+        from security.models import SecurityEvent
+        _audit(SecurityEvent.AI_MODEL_CHANGED, user, {'action': 'capabilities_detected', 'provider_uuid': str(model.provider.uuid), 'model_id': model.model_id})
         return model
 
     @staticmethod

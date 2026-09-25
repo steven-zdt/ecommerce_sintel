@@ -103,6 +103,12 @@
                     :class="provider.is_active ? 'online' : 'offline'"
                     :title="provider.is_active ? 'Activo' : 'Inactivo'"
                   ></span>
+                  <span class="badge ms-2" :class="healthClass(provider.health_status)" :title="healthTitle(provider)">
+                    {{ healthLabel(provider.health_status) }}
+                  </span>
+                  <span v-if="provider.runnable === false" class="badge bg-warning text-dark ms-1" title="Se puede registrar y probar; aun no se ejecuta como proveedor del chat">
+                    solo registro
+                  </span>
                 </h6>
                 <div class="text-muted small">
                   {{ provider.kind_display }}
@@ -134,6 +140,7 @@
                   <span v-if="discoveringUuid === provider.uuid" class="spinner-border spinner-border-sm"></span>
                   <template v-else>Descubrir modelos</template>
                 </button>
+                <button class="btn btn-sm btn-outline-secondary" @click="historyUuid = historyUuid === provider.uuid ? null : provider.uuid">Historial</button>
                 <button class="btn btn-sm btn-outline-secondary" @click="offcanvas.openEdit(provider)">Editar</button>
                 <button
                   v-if="confirmingDeleteUuid !== provider.uuid"
@@ -160,6 +167,10 @@
                 >
                   {{ model.display_name || model.model_id }}
                   <i v-if="isPrimary(model)" class="bi bi-star-fill ms-1" title="Modelo primario"></i>
+                  <i :class="toolIcon(model)" :title="toolTitle(model)"></i>
+                  <button type="button" class="btn-set-primary" @click="toggleSettings(provider, model)" title="Parametros y capacidades">
+                    <i class="bi bi-gear"></i>
+                  </button>
                   <button type="button" class="btn-set-primary" @click="handleSetPrimary(model)" title="Usar como primario">
                     <i class="bi bi-check2"></i>
                   </button>
@@ -175,6 +186,12 @@
                 </span>
                 <span v-if="!provider.models.length" class="text-muted small">Sin modelos agregados.</span>
               </div>
+
+              <AIModelSettings
+                v-if="settingsTarget && settingsTarget.provider.uuid === provider.uuid"
+                :provider="provider" :model="settingsTarget.model" @close="settingsTarget = null"
+              />
+              <AIProviderHistory v-if="historyUuid === provider.uuid" :provider="provider" @close="historyUuid = null" />
 
               <div v-if="discovered[provider.uuid]" class="mt-2 p-2 border rounded">
                 <div class="small text-muted mb-1">Modelos descubiertos en el proveedor real:</div>
@@ -199,6 +216,8 @@
       </div>
     </div>
 
+    <AIMcpServers v-if="!store.loading" />
+
     <SintelOffcanvas
       v-model="offcanvas.show.value"
       :title="offcanvas.mode.value === 'edit' ? 'Editar proveedor' : 'Nuevo proveedor'"
@@ -221,6 +240,9 @@ import { useErrorHandler } from '@/composables/useErrorHandler';
 import SintelOffcanvas from '@/components/ui/SintelOffcanvas.vue';
 import AIProviderForm from './AIProviderForm.vue';
 import AIConfigHistory from './AIConfigHistory.vue';
+import AIModelSettings from './AIModelSettings.vue';
+import AIProviderHistory from './AIProviderHistory.vue';
+import AIMcpServers from './AIMcpServers.vue';
 
 const store = useAIProviderAdminStore();
 const offcanvas = useOffcanvas();
@@ -233,6 +255,37 @@ const confirmingDeleteUuid = ref(null);
 const discovered = reactive({});
 
 const pendingForce = ref(null);
+const historyUuid = ref(null);
+const settingsTarget = ref(null);
+
+function toggleSettings(provider, model) {
+  settingsTarget.value = settingsTarget.value?.model.uuid === model.uuid ? null : { provider, model };
+}
+
+// PLAN_LLMDINAMICO sec. 16: estado de salud de la ultima comprobacion ("Probar conexion" lo actualiza).
+const HEALTH = {
+  HEALTHY: ['Saludable', 'bg-success'], DEGRADED: ['Degradado', 'bg-warning text-dark'], UNAVAILABLE: ['No disponible', 'bg-danger'],
+  MISCONFIGURED: ['Mal configurado', 'bg-danger'], DISABLED: ['Deshabilitado', 'bg-secondary'], UNKNOWN: ['Sin probar', 'bg-secondary'],
+};
+const healthLabel = (status) => (HEALTH[status] || HEALTH.UNKNOWN)[0];
+const healthClass = (status) => (HEALTH[status] || HEALTH.UNKNOWN)[1];
+const healthTitle = (provider) => (provider.last_health_at
+  ? `Ultima comprobacion: ${formatTime(provider.last_health_at)}`
+  : 'Pulsa "Probar conexion" para comprobar el estado');
+
+// Tool calling: el chat de soporte usa herramientas; un modelo que no lo soporta no se puede usar como primario.
+function toolIcon(model) {
+  const v = (model.capabilities || {}).tool_calling;
+  if (v === true) return 'bi bi-tools ms-1 text-success';
+  if (v === false) return 'bi bi-x-octagon-fill ms-1 text-danger';
+  return 'bi bi-question-circle ms-1 opacity-50';
+}
+function toolTitle(model) {
+  const v = (model.capabilities || {}).tool_calling;
+  if (v === true) return 'Soporta tool calling';
+  if (v === false) return 'NO soporta tool calling (no se puede usar como primario del chat)';
+  return 'Tool calling desconocido: abre Parametros y capacidades > Detectar capacidades';
+}
 const activeProvider = computed(() => {
   const primary = store.channelConfig?.primary_model;
   if (!primary) return null;

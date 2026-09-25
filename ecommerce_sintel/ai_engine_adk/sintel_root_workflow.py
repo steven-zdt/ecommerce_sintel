@@ -155,6 +155,8 @@ def _resolve_primary_llm_params() -> dict:
 
         api_key = env(entry["api_key_env"], default=ANTHROPIC_API_KEY) if entry.get("api_key_env") else ANTHROPIC_API_KEY
         return {"model": f"anthropic/{entry['model']}", "api_key": api_key}
+    if kind == "gemini":
+        return {"model": f"gemini/{entry['model']}"}
     raise RuntimeError(f"kind desconocido en LOCAL_MODEL_CHAIN: {kind!r}")
 
 
@@ -593,8 +595,10 @@ async def run_sintel_turn(
     grounding_latency_ms: int | None = None
     if has_real_knowledge_evidence and final_text:
         grounding_started_at = time.monotonic()
+        from model_runtime import resolve_primary_llm_params
+
         grounding_verdict = await check_grounding(
-            response=final_text, evidence=knowledge_context, **_resolve_primary_llm_params(),
+            response=final_text, evidence=knowledge_context, **(await resolve_primary_llm_params()),
         )
         grounding_latency_ms = round((time.monotonic() - grounding_started_at) * 1000)
         if grounding_verdict == UNSUPPORTED:
@@ -619,9 +623,12 @@ async def run_sintel_turn(
     # real y documentado de asyncio.create_task, no teorico).
     memory_extraction_scheduled = False
     if should_extract_memory(is_resume=is_resume, final_text=final_text, source=source, injection_flags=injection_flags):
+        from model_runtime import resolve_primary_llm_params
+
+        memory_llm_params = await resolve_primary_llm_params()  # se resuelve ANTES de lanzar la tarea: usa el snapshot de este turno
         task = asyncio.create_task(extract_and_store_memory(
             message=message, token=token, conversation_id=conversation_id, channel=channel,
-            **_resolve_primary_llm_params(),
+            **memory_llm_params,
         ))
         _BACKGROUND_TASKS.add(task)
         task.add_done_callback(_BACKGROUND_TASKS.discard)

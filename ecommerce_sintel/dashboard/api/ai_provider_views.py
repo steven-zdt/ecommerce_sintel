@@ -21,6 +21,9 @@ from dashboard.api.ai_provider_serializers import (
     AIConfigRevisionSerializer,
     AIModelInputSerializer,
     AIModelSerializer,
+    AIModelSettingsInputSerializer,
+    MCPServerInputSerializer,
+    MCPServerSerializer,
     AIProviderInputSerializer,
     AIProviderSerializer,
 )
@@ -114,6 +117,68 @@ class AdminAIProviderViewSet(viewsets.ViewSet):
         provider = AIProviderAdminOrchestrator.set_default_provider(provider.uuid, user=request.user)
         return Response(AIProviderSerializer(provider).data)
 
+    @action(detail=True, methods=['post'], url_path='health')
+    def health(self, request, uuid=None):
+        """Comprueba el proveedor (ping/catalogo, nunca una generacion) y persiste HEALTHY/DEGRADED/UNAVAILABLE/MISCONFIGURED/DISABLED."""
+        provider = self._get_or_404(uuid)
+        return Response(AIProviderAdminOrchestrator.check_health(provider.uuid, user=request.user))
+
+    @action(detail=True, methods=['post'], url_path='primary')
+    def primary(self, request, uuid=None):
+        """Usa un modelo de ESTE proveedor como primario del canal (con validacion previa; `force=true` la omite). 409 si la validacion falla."""
+        provider = self._get_or_404(uuid)
+        model_uuid = request.data.get('model_uuid')
+        if not model_uuid:
+            default = provider.models.filter(is_deleted=False, is_active=True).order_by('-is_default', 'model_id').first()
+            model_uuid = default and str(default.uuid)
+        if not model_uuid or not provider.models.filter(uuid=model_uuid, is_deleted=False).exists():
+            raise DRFValidationError({'model_uuid': 'Indica un modelo activo de este proveedor.'})
+        force = str(request.data.get('force', '')).lower() in ('true', '1')
+        try:
+            config = AIProviderAdminOrchestrator.set_primary_model(model_uuid, request.user, channel=request.data.get('channel', 'support_chat'), force=force)
+        except ActivationCheckFailed as exc:
+            return Response({'error': 'validation_failed', 'report': exc.report}, status=status.HTTP_409_CONFLICT)
+        return Response(AIChannelConfigSerializer(config).data)
+
+    @action(detail=True, methods=['post'], url_path='fallback')
+    def fallback(self, request, uuid=None):
+        """Agrega un modelo de este proveedor a la cadena de fallback ({model_uuid, position?}). Determinista: nunca el primario ni repetidos."""
+        provider = self._get_or_404(uuid)
+        model_uuid = request.data.get('model_uuid')
+        if not model_uuid:
+            raise DRFValidationError({'model_uuid': 'Requerido.'})
+        try:
+            config = AIProviderAdminOrchestrator.add_fallback_model(
+                model_uuid, request.user, position=request.data.get('position'),
+                channel=request.data.get('channel', 'support_chat'), provider_uuid=provider.uuid)
+        except AIModel.DoesNotExist:
+            raise Http404
+        except (ValueError, DjangoValidationError) as exc:
+            raise DRFValidationError({'model_uuid': str(exc)})
+        return Response(AIChannelConfigSerializer(config).data)
+
+    @action(detail=True, methods=['patch'], url_path='model-settings/(?P<model_uuid>[^/.]+)')
+    def model_settings(self, request, uuid=None, model_uuid=None):
+        """Parametros de generacion (temperature/top_p/max_tokens/context_window) y capacidades manuales de un modelo."""
+        provider = self._get_or_404(uuid)
+        if not provider.models.filter(uuid=model_uuid, is_deleted=False).exists():
+            raise Http404
+        serializer = AIModelSettingsInputSerializer(data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        try:
+            model = AIProviderAdminOrchestrator.update_model_settings(model_uuid, serializer.validated_data, user=request.user)
+        except DjangoValidationError as exc:
+            raise DRFValidationError(exc.message_dict if hasattr(exc, 'message_dict') else exc.messages)
+        return Response(AIModelSerializer(model).data)
+
+    @action(detail=True, methods=['post'], url_path='detect-capabilities/(?P<model_uuid>[^/.]+)')
+    def detect_capabilities(self, request, uuid=None, model_uuid=None):
+        """"Detectar capacidades": pregunta al proveedor; lo que no declara queda desconocido (null), nunca se inventa."""
+        provider = self._get_or_404(uuid)
+        if not provider.models.filter(uuid=model_uuid, is_deleted=False).exists():
+            raise Http404
+        return Response(AIModelSerializer(AIProviderAdminOrchestrator.detect_model_capabilities(model_uuid, user=request.user)).data)
+
     @action(detail=True, methods=['get'], url_path='history')
     def history(self, request, uuid=None):
         provider = self._get_or_404(uuid)
@@ -184,7 +249,7 @@ class AdminAIChannelConfigViewSet(viewsets.ViewSet):
     def validate_model(self, request):
         """Prueba previa sin persistir: {model_uuid} -> {ok, checks, warnings, latency_ms} o 409 con el motivo."""
         try:
-            report = AIProviderAdminOrchestrator.validate_model(request.data.get('model_uuid'))
+            report = AIProviderAdminOrchestrator.validate_model(request.data.get('model_uuid'), channel=request.data.get('channel', 'support_chat'))
         except (AIModel.DoesNotExist, DRFValidationError, DjangoValidationError, ValueError) as exc:
             if isinstance(exc, ActivationCheckFailed):
                 return Response({'error': 'validation_failed', 'report': exc.report}, status=status.HTTP_409_CONFLICT)
@@ -214,3 +279,57 @@ class AdminAIChannelConfigViewSet(viewsets.ViewSet):
         except RollbackError as exc:
             raise DRFValidationError({'version': str(exc)})
         return Response(AIChannelConfigSerializer(config).data)
+
+
+class AdminMCPServerViewSet(viewsets.ViewSet):
+    """
+    /api/v1/dashboard/ai-mcp-servers/ -- PLAN_LLMDINAMICO sec. 5: servidores MCP como integracion INDEPENDIENTE de los proveedores LLM
+    (server_url, transporte, autenticacion, capacidades, estado). Solo IsAdminUser; la API key nunca se devuelve.
+    """
+    permission_classes = ADMIN_PERMISSIONS
+    lookup_field = 'uuid'
+
+    def _get_or_404(self, uuid):
+        from ai_provider.models import MCPServer
+        try:
+            return MCPServer.objects.get(uuid=uuid, is_deleted=False)
+        except (MCPServer.DoesNotExist, DjangoValidationError, ValueError):
+            raise Http404
+
+    def list(self, request):
+        return Response(MCPServerSerializer(AIProviderAdminOrchestrator.list_mcp_servers(), many=True).data)
+
+    def retrieve(self, request, uuid=None):
+        return Response(MCPServerSerializer(self._get_or_404(uuid)).data)
+
+    def create(self, request):
+        serializer = MCPServerInputSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            server = AIProviderAdminOrchestrator.create_mcp_server(serializer.validated_data, user=request.user)
+        except DjangoValidationError as exc:
+            raise DRFValidationError(exc.message_dict if hasattr(exc, 'message_dict') else exc.messages)
+        return Response(MCPServerSerializer(server).data, status=status.HTTP_201_CREATED)
+
+    def update(self, request, uuid=None):
+        self._get_or_404(uuid)
+        serializer = MCPServerInputSerializer(data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        try:
+            server = AIProviderAdminOrchestrator.update_mcp_server(uuid, serializer.validated_data, user=request.user)
+        except DjangoValidationError as exc:
+            raise DRFValidationError(exc.message_dict if hasattr(exc, 'message_dict') else exc.messages)
+        return Response(MCPServerSerializer(server).data)
+
+    partial_update = update
+
+    def destroy(self, request, uuid=None):
+        self._get_or_404(uuid)
+        AIProviderAdminOrchestrator.delete_mcp_server(uuid, user=request.user)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(detail=True, methods=['post'], url_path='test')
+    def test(self, request, uuid=None):
+        """Handshake MCP real (initialize + tools/list). Devuelve el reporte (sin secretos) y persiste estado/capacidades."""
+        self._get_or_404(uuid)
+        return Response(AIProviderAdminOrchestrator.test_mcp_server(uuid, user=request.user))

@@ -111,7 +111,7 @@ from dashboard.api.content_blocks_views import (
     AdminServiceContentBlockViewSet, AdminServiceRelationViewSet,
 )
 from operations.api.views import AdminOperationViewSet, AdminDispatcherViewSet
-from dashboard.api.ai_provider_views import AdminAIProviderViewSet, AdminAIChannelConfigViewSet
+from dashboard.api.ai_provider_views import AdminAIProviderViewSet, AdminAIChannelConfigViewSet, AdminMCPServerViewSet
 
 router = DefaultRouter()
 
@@ -254,6 +254,7 @@ router.register(r'payment-transactions',   AdminPaymentViewSet,          basenam
 # AI Providers (Config dinamica de modelos locales, FASE 3, 2026-08-13)
 router.register(r'ai-providers',      AdminAIProviderViewSet,       basename='admin-ai-providers')
 router.register(r'ai-channel-config', AdminAIChannelConfigViewSet,  basename='admin-ai-channel-config')
+router.register(r'ai-mcp-servers',    AdminMCPServerViewSet,        basename='admin-ai-mcp-servers')
 
 urlpatterns = [
     path('metrics/', AdminMetricsView.as_view(), name='admin-metrics'),

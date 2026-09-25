@@ -284,9 +284,13 @@ class SupportChatConsumer(AsyncWebsocketConsumer):
 
     @database_sync_to_async
     def _ai_mode_active(self, room):
-        from support.services.ai_bridge import is_ai_mode_active
+        from support.services.ai_bridge import ai_inactive_reason
         room.refresh_from_db(fields=['status', 'ai_paused', 'assigned_admin'])
-        return is_ai_mode_active(room)
+        reason = ai_inactive_reason(room)
+        if reason:
+            # Antes no dejaba traza: un "el chat no responde" sin errores era indistinguible de una caida (INCIDENTE 2026-09-25).
+            logger.info('ai_operation_event=ai_inactive reason=%s room=%s', reason, room.uuid)
+        return reason is None
 
     @database_sync_to_async
     def _ai_rate_limited(self, room) -> bool:

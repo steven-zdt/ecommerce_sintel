@@ -40,6 +40,30 @@ export const aiProviderService = {
   rollbackChannel(version, channel = 'support_chat') {
     return useApi().post('dashboard/ai-channel-config/rollback/', { version, channel }).then(r => r.data);
   },
+  checkHealth(uuid) {
+    return useApi().post(`dashboard/ai-providers/${uuid}/health/`).then(r => r.data);
+  },
+  updateModelSettings(providerUuid, modelUuid, payload) {
+    return useApi().patch(`dashboard/ai-providers/${providerUuid}/model-settings/${modelUuid}/`, payload).then(r => r.data);
+  },
+  detectCapabilities(providerUuid, modelUuid) {
+    return useApi().post(`dashboard/ai-providers/${providerUuid}/detect-capabilities/${modelUuid}/`).then(r => r.data);
+  },
+  listMcpServers() {
+    return useApi().get('dashboard/ai-mcp-servers/').then(r => r.data);
+  },
+  createMcpServer(payload) {
+    return useApi().post('dashboard/ai-mcp-servers/', payload).then(r => r.data);
+  },
+  updateMcpServer(uuid, payload) {
+    return useApi().patch(`dashboard/ai-mcp-servers/${uuid}/`, payload).then(r => r.data);
+  },
+  deleteMcpServer(uuid) {
+    return useApi().delete(`dashboard/ai-mcp-servers/${uuid}/`).then(r => r.data);
+  },
+  testMcpServer(uuid) {
+    return useApi().post(`dashboard/ai-mcp-servers/${uuid}/test/`).then(r => r.data);
+  },
   getProviderHistory(uuid) {
     return useApi().get(`dashboard/ai-providers/${uuid}/history/`).then(r => r.data);
   },

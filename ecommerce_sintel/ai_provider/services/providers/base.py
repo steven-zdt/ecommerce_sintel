@@ -102,13 +102,48 @@ class BaseProviderAdapter(ABC):
         con una llamada dedicada mas barata si el proveedor la ofrece."""
         return any(m['model_id'] == model_id for m in self.list_models())
 
+    # ---- PLAN_LLMDINAMICO sec. 3/10: auth, TLS, timeouts y capacidades compartidos por todos los adapters ----
+    CAPABILITY_KEYS = ('tool_calling', 'streaming', 'structured_output', 'vision', 'reasoning', 'json_mode')
+
+    @classmethod
+    def _empty_capabilities(cls) -> dict:
+        """Todo "desconocido" (None): una capacidad solo pasa a True/False cuando el proveedor la declara de verdad."""
+        return {key: None for key in cls.CAPABILITY_KEYS}
+
+    def detect_capabilities(self, model_id: str) -> dict:
+        """Capacidades declaradas por el proveedor para `model_id` (True/False/None). Default: todo desconocido. Nunca lanza."""
+        return self._empty_capabilities()
+
+    def _auth_headers(self) -> dict:
+        key = self.provider.api_key
+        auth_type = getattr(self.provider, 'auth_type', 'bearer')
+        if not key or auth_type == 'none':
+            return {}
+        if auth_type == 'header':
+            return {(self.provider.api_key_header or 'x-api-key'): key}
+        return {'Authorization': f'Bearer {key}'}
+
+    def _request_kwargs(self) -> dict:
+        """timeout=(conexion, total), TLS y sin redirects (SSRF): mismos parametros en toda llamada HTTP del adapter."""
+        return {
+            'timeout': (getattr(self.provider, 'connect_timeout', 5) or 5, 10),
+            'verify': getattr(self.provider, 'verify_tls', True),
+            'allow_redirects': False,
+        }
+
     def build_runtime_config(self, model) -> dict:
-        """Dict con la forma que ai_engine/llm_factory.py::_build_model() ya entiende
-        (name/kind/base_url/model/api_key_env/api_key_value) -- mismo contrato que
-        ai_provider/api/internal_ai.py ya serializa para el endpoint interno."""
+        """Dict con la forma que consume el ADK (provider_registry.py) y ai_engine/llm_factory.py:
+        name/kind/base_url/model/api_key_env/api_key_value + (PLAN_LLMDINAMICO) provider_uuid, auth_type, api_key_header, verify_tls y
+        `generation` (temperature/top_p/max_tokens; el llamador puede aplicar overrides del canal). Mismo contrato que
+        ai_provider/api/internal_ai.py serializa para el endpoint interno."""
         return {
             'name': self.provider.name, 'kind': self.provider.kind, 'base_url': self.provider.base_url,
             'model': model.model_id, 'api_key_env': None, 'api_key_value': self.provider.api_key or None,
+            'provider_uuid': str(self.provider.uuid),
+            'auth_type': getattr(self.provider, 'auth_type', 'bearer'),
+            'api_key_header': getattr(self.provider, 'api_key_header', '') or None,
+            'verify_tls': getattr(self.provider, 'verify_tls', True),
+            'generation': {'temperature': model.temperature, 'top_p': model.top_p, 'max_tokens': model.max_tokens},
         }
 
     def get_provider_health(self) -> dict:

@@ -55,7 +55,7 @@ _chain_snapshot: contextvars.ContextVar = contextvars.ContextVar("ai_turn_chain_
 def begin_turn_trace() -> dict:
     _chain_snapshot.set(None)
     trace = {"provider": None, "model": None, "fallback_used": False, "fallback_reason": None,
-             "breaker_state": None, "attempts": 0}
+             "breaker_state": None, "attempts": 0, "provider_id": None, "config_version": None}
     _turn_trace.set(trace)
     _turn_usage.set({"llm_calls": 0, "prompt_tokens": 0, "completion_tokens": 0})
     return trace
@@ -284,22 +284,70 @@ def get_breaker() -> ProviderBreaker:
 
 #  Parametros por entrada de la cadena 
 def llm_params_for_entry(entry: dict) -> dict:
-    """Mismos parametros litellm que sintel_root_workflow._resolve_primary_llm_params(), para CUALQUIER entrada."""
+    """Mismos parametros litellm que sintel_root_workflow._resolve_primary_llm_params(), para CUALQUIER entrada.
+
+    PLAN_LLMDINAMICO: ademas de LOCAL_MODEL_CHAIN admite entradas del Registry con `api_key_value`, autenticacion por cabecera (`auth_type`), `verify_tls`,
+    `timeout` por entrada y `generation` (temperature/top_p; max_tokens NO se pasa: el tope de salida es por agente, ver _max_output_tokens_for)."""
     kind = entry["kind"]
+    key = entry.get("api_key_value")
     if kind == "ollama-nativo":
-        return {"model": f"ollama_chat/{entry['model']}", "api_base": entry["base_url"]}
-    if kind == "openai-compatible":
-        # PLAN_LLMDINAMICO F4: la key cifrada del Registry (api_key_value) tiene prioridad; LOCAL_MODEL_CHAIN no la trae.
-        return {"model": f"openai/{entry['model']}", "api_base": entry["base_url"],
-                "api_key": entry.get("api_key_value") or "not-needed"}
-    if kind == "anthropic":
+        params = {"model": f"ollama_chat/{entry['model']}", "api_base": entry["base_url"]}
+    elif kind == "openai-compatible":
+        # La key cifrada del Registry (api_key_value) tiene prioridad; LOCAL_MODEL_CHAIN no la trae.
+        auth_type = entry.get("auth_type") or "bearer"
+        params = {"model": f"openai/{entry['model']}", "api_base": entry["base_url"],
+                  "api_key": key if (key and auth_type == "bearer") else "not-needed"}
+        if key and auth_type == "header":
+            params["extra_headers"] = {(entry.get("api_key_header") or "x-api-key"): key}
+    elif kind == "anthropic":
         from decouple import config as env
 
-        api_key = entry.get("api_key_value") or (
+        api_key = key or (
             env(entry["api_key_env"], default=ai_config.ANTHROPIC_API_KEY) if entry.get("api_key_env")
             else ai_config.ANTHROPIC_API_KEY)
-        return {"model": f"anthropic/{entry['model']}", "api_key": api_key}
-    raise RuntimeError(f"kind desconocido en LOCAL_MODEL_CHAIN: {kind!r}")
+        params = {"model": f"anthropic/{entry['model']}", "api_key": api_key}
+    elif kind == "gemini":
+        params = {"model": f"gemini/{entry['model']}"}
+        if key:
+            params["api_key"] = key
+    else:
+        raise RuntimeError(f"kind desconocido en la cadena de modelos: {kind!r}")
+    generation = entry.get("generation") or {}
+    for name in ("temperature", "top_p"):
+        if generation.get(name) is not None:
+            params[name] = generation[name]
+    if entry.get("verify_tls") is False:
+        params["ssl_verify"] = False
+    if entry.get("timeout"):
+        params["timeout"] = entry["timeout"]
+    return params
+
+
+_BASIC_PARAM_KEYS = ("model", "api_base", "api_key")
+
+
+async def resolve_primary_llm_params() -> dict:
+    """model/api_base/api_key del proveedor PRIMARIO vigente, para las llamadas directas de litellm (grounding, extraccion de memoria).
+
+    PLAN_LLMDINAMICO sec. 11: sigue al Registry (snapshot del turno si ya lo hay, si no la cadena vigente); sin Registry usa LOCAL_MODEL_CHAIN.
+    Solo devuelve los 3 parametros que aceptan esas funciones (no temperature/top_p)."""
+    snapshot = _chain_snapshot.get()
+    if snapshot is not None and snapshot[1]:
+        entry = snapshot[1][0][0]
+    else:
+        entry = None
+        if ai_config.AI_PROVIDER_REGISTRY_ENABLED:
+            import provider_registry
+
+            entries = await provider_registry.get_registry_entries()
+            entry = entries[0] if entries else None
+        if entry is None:
+            env_entries = parse_local_model_chain(ai_config.LOCAL_MODEL_CHAIN)
+            if not env_entries:
+                raise RuntimeError("LOCAL_MODEL_CHAIN vacio o invalido -- ningun proveedor LLM configurado para ai_engine_adk.")
+            entry = env_entries[0]
+    params = llm_params_for_entry(entry)
+    return {k: params[k] for k in _BASIC_PARAM_KEYS if k in params}
 
 
 def _is_client_error(exc: Exception) -> bool:
@@ -327,8 +375,9 @@ class FallbackLiteLlm(LiteLlm):
                  inner_factory=None, use_registry: bool = False):
         if not entries:
             raise RuntimeError("LOCAL_MODEL_CHAIN vacio o invalido -- ningun proveedor LLM configurado.")
-        factory = inner_factory or (lambda params: LiteLlm(timeout=timeout, **params))
-        super().__init__(timeout=timeout, **llm_params_for_entry(entries[0]))
+        # `timeout` por defecto = el global; una entrada del Registry puede traer el suyo (params lo sobreescribe).
+        factory = inner_factory or (lambda params: LiteLlm(**{"timeout": timeout, **params}))
+        super().__init__(**{"timeout": timeout, **llm_params_for_entry(entries[0])})
         self._chain = [(e, factory(llm_params_for_entry(e))) for e in entries]
         self._breaker = breaker or get_breaker()
         self._factory = factory
@@ -358,6 +407,9 @@ class FallbackLiteLlm(LiteLlm):
             entries = await provider_registry.get_registry_entries()
             if entries:
                 chain = [(e, self._inner_for(e)) for e in entries]
+                trace = _trace()
+                if trace is not None:
+                    trace["config_version"] = provider_registry.current_config_version()
         _chain_snapshot.set((self._snapshot_key, chain))
         return chain
 
@@ -407,7 +459,7 @@ class FallbackLiteLlm(LiteLlm):
                 await self._breaker.record_success(name)
             _close_call_usage()
             if trace is not None:
-                trace.update(provider=name, model=entry["model"], attempts=attempts,
+                trace.update(provider=name, model=entry["model"], attempts=attempts, provider_id=entry.get("provider_uuid"),
                              fallback_used=(idx != 0), fallback_reason=last_reason if idx != 0 else None)
             return
         if trace is not None:

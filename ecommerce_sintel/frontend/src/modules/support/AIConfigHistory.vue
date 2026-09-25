@@ -18,10 +18,11 @@
       <div v-if="items.length" class="table-responsive">
         <table class="table table-sm align-middle mb-0">
           <thead>
-            <tr><th>Version</th><th>Accion</th><th>Primario</th><th>Fallbacks</th><th>Por</th><th>Fecha</th><th></th></tr>
+            <tr><th></th><th>Version</th><th>Accion</th><th>Primario</th><th>Fallbacks</th><th>Por</th><th>Fecha</th><th></th></tr>
           </thead>
           <tbody>
             <tr v-for="rev in items" :key="rev.version">
+              <td><input type="checkbox" :checked="selected.includes(rev.version)" @change="toggle(rev.version)" /></td>
               <td>
                 v{{ rev.version }}
                 <span v-if="rev.version === currentVersion" class="badge bg-success ms-1">actual</span>
@@ -48,6 +49,15 @@
           </tbody>
         </table>
       </div>
+
+      <div v-if="diff.length" class="small mt-2">
+        <strong>Diferencias v{{ sortedSelected[0] }} → v{{ sortedSelected[1] }}</strong>
+        <ul class="mb-0 mt-1">
+          <li v-for="d in diff" :key="d.field"><code>{{ d.field }}</code>: {{ d.before }} → <strong>{{ d.after }}</strong></li>
+        </ul>
+      </div>
+      <div v-else-if="selected.length === 2" class="small text-muted mt-2">Sin diferencias entre esas versiones.</div>
+      <div v-else-if="items.length" class="small text-muted mt-2">Marca dos versiones para compararlas.</div>
     </div>
   </div>
 </template>
@@ -66,6 +76,7 @@ const items = ref([]);
 const loading = ref(false);
 const loaded = ref(false);
 const confirmingVersion = ref(null);
+const selected = ref([]);
 
 const currentVersion = computed(() => store.channelConfig?.config_version);
 
@@ -80,6 +91,29 @@ async function load() {
     handleError(res.error, 'No se pudo cargar el historial.');
   }
 }
+
+function toggle(version) {
+  selected.value = selected.value.includes(version)
+    ? selected.value.filter((v) => v !== version)
+    : [...selected.value, version].slice(-2);
+}
+
+const sortedSelected = computed(() => [...selected.value].sort((a, b) => a - b));
+
+// Compara las dos versiones elegidas (mas antigua -> mas nueva) mostrando modelos con su etiqueta legible (sin secretos por construccion).
+const diff = computed(() => {
+  if (selected.value.length !== 2) return [];
+  const revs = sortedSelected.value.map((v) => items.value.find((r) => r.version === v));
+  if (revs.some((r) => !r)) return [];
+  const view = (rev) => ({
+    habilitado: rev.snapshot.enabled,
+    primario: label(rev, rev.snapshot.primary_model_uuid),
+    fallbacks: (rev.snapshot.fallback_model_uuids || []).map((u) => label(rev, u)).join(' > ') || '-',
+    overrides: JSON.stringify(rev.snapshot.overrides || {}),
+  });
+  const [a, b] = [view(revs[0]), view(revs[1])];
+  return Object.keys(a).filter((field) => a[field] !== b[field]).map((field) => ({ field, before: String(a[field]), after: String(b[field]) }));
+});
 
 function label(rev, modelUuid) {
   if (!modelUuid) return '-';

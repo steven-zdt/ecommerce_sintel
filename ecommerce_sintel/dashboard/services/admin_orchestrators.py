@@ -1599,11 +1599,72 @@ class AIProviderAdminOrchestrator:
         from ai_provider.services.selectors import AIProviderSelector
         from ai_provider.services.connection_test import AIProviderConnectionTestService
         provider = AIProviderSelector.get_provider(uuid)
-        result = AIProviderConnectionTestService.test(provider)
-        return AIProviderCommands.record_test_result(
-            provider, ok=result.success, latency_ms=result.latency_ms,
-            error=result.error_message_safe if not result.success else '', user=user,
-        )
+        # PLAN_LLMDINAMICO sec. 16: "Probar conexion" tambien persiste el estado de salud (HEALTHY/DEGRADED/UNAVAILABLE/MISCONFIGURED/DISABLED).
+        from ai_provider.services.health import check_provider_health
+        check_provider_health(provider, user=user)
+        provider.refresh_from_db()
+        return provider
+
+    @staticmethod
+    def check_health(uuid, user=None):
+        from ai_provider.services.health import check_provider_health
+        from ai_provider.services.selectors import AIProviderSelector
+        return check_provider_health(AIProviderSelector.get_provider(uuid), user=user)
+
+    @staticmethod
+    def update_model_settings(model_uuid, data, user=None):
+        from ai_provider.services.commands import AIModelCommands
+        from ai_provider.services.selectors import AIModelSelector
+        return AIModelCommands.update_model(AIModelSelector.get(model_uuid), data, user=user)
+
+    @staticmethod
+    def detect_model_capabilities(model_uuid, user=None):
+        from ai_provider.services.commands import AIModelCommands
+        from ai_provider.services.selectors import AIModelSelector
+        return AIModelCommands.detect_capabilities(AIModelSelector.get(model_uuid), user=user)
+
+    @staticmethod
+    def add_fallback_model(model_uuid, user, position=None, channel='support_chat', provider_uuid=None):
+        """Agrega un modelo al final (o en `position`) de la cadena de fallback. Rechaza el primario y los ya presentes (la cadena es determinista)."""
+        from ai_provider.services.commands import AIChannelConfigCommands
+        from ai_provider.services.selectors import AIChannelConfigSelector, AIModelSelector
+        config = AIChannelConfigSelector.get_or_create_config(channel)
+        model = AIModelSelector.get(model_uuid)
+        if provider_uuid and str(model.provider.uuid) != str(provider_uuid):
+            raise ValueError('El modelo no pertenece a ese proveedor.')
+        chain = [fb.model for fb in config.fallbacks.filter(is_deleted=False).select_related('model').order_by('order')]
+        if config.primary_model_id == model.id:
+            raise ValueError('El modelo es el primario: no puede estar tambien en la cadena de fallback.')
+        if any(m.id == model.id for m in chain):
+            raise ValueError('El modelo ya esta en la cadena de fallback.')
+        chain.insert(len(chain) if position is None else max(0, min(int(position), len(chain))), model)
+        return AIChannelConfigCommands.set_fallback_chain(config, chain, user=user)
+
+    # ---- MCP (PLAN_LLMDINAMICO sec. 5): integracion independiente de los proveedores LLM ----
+    @staticmethod
+    def list_mcp_servers():
+        from ai_provider.services.mcp_servers import MCPServerSelector
+        return MCPServerSelector.list_servers()
+
+    @staticmethod
+    def create_mcp_server(data, user=None):
+        from ai_provider.services.mcp_servers import MCPServerCommands
+        return MCPServerCommands.create_server(data, user=user)
+
+    @staticmethod
+    def update_mcp_server(uuid, data, user=None):
+        from ai_provider.services.mcp_servers import MCPServerCommands, MCPServerSelector
+        return MCPServerCommands.update_server(MCPServerSelector.get_server(uuid), data, user=user)
+
+    @staticmethod
+    def delete_mcp_server(uuid, user=None):
+        from ai_provider.services.mcp_servers import MCPServerCommands, MCPServerSelector
+        MCPServerCommands.delete_server(MCPServerSelector.get_server(uuid), user=user)
+
+    @staticmethod
+    def test_mcp_server(uuid, user=None):
+        from ai_provider.services.mcp_servers import MCPServerCommands, MCPServerSelector
+        return MCPServerCommands.test_server(MCPServerSelector.get_server(uuid), user=user)
 
     @staticmethod
     def discover_models(uuid):
@@ -1665,11 +1726,11 @@ class AIProviderAdminOrchestrator:
         return revisions.rollback_provider(provider, int(version), user=user)
 
     @staticmethod
-    def validate_model(model_uuid):
+    def validate_model(model_uuid, channel='support_chat'):
         """Dry-run "Probar antes de activar": mismos chequeos que set_primary_model, sin persistir nada. Lanza ActivationCheckFailed."""
         from ai_provider.services.activation import validate_model_for_activation
         from ai_provider.services.selectors import AIModelSelector
-        return validate_model_for_activation(AIModelSelector.get(model_uuid))
+        return validate_model_for_activation(AIModelSelector.get(model_uuid), channel=channel)
 
     @staticmethod
     def set_primary_model(model_uuid, user, channel='support_chat', force=False):
@@ -1681,7 +1742,7 @@ class AIProviderAdminOrchestrator:
         config = AIChannelConfigSelector.get_or_create_config(channel)
         model = AIModelSelector.get(model_uuid) if model_uuid else None
         if model is not None and not force:
-            validate_model_for_activation(model)
+            validate_model_for_activation(model, channel=channel)
         return AIChannelConfigCommands.set_primary(config, model, user=user)
 
     @staticmethod

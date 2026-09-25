@@ -46,6 +46,13 @@ class AnthropicAdapter(BaseProviderAdapter):
     def list_models(self) -> list[dict]:
         return []
 
+    def detect_capabilities(self, model_id: str) -> dict:
+        """Los modelos Claude actuales soportan tools, vision, salida estructurada y streaming; razonamiento y json_mode dependen del modelo: quedan desconocidos."""
+        caps = self._empty_capabilities()
+        if model_id and model_id.strip():
+            caps.update(tool_calling=True, vision=True, streaming=True, structured_output=True)
+        return caps
+
     def validate_model(self, model_id: str) -> bool:
         # Sin catalogo dinamico -- validacion real requeriria una llamada de generacion
         # (costo real). Se acepta cualquier model_id no vacio; el error real (si el

@@ -25,8 +25,11 @@ class AIModelSerializer(serializers.Serializer):
     is_default = serializers.BooleanField(required=False)
     discovered_automatically = serializers.BooleanField(read_only=True)
     temperature = serializers.FloatField(required=False, allow_null=True)
+    top_p = serializers.FloatField(required=False, allow_null=True)
     max_tokens = serializers.IntegerField(required=False, allow_null=True)
     context_window = serializers.IntegerField(required=False, allow_null=True)
+    capabilities = serializers.JSONField(read_only=True)
+    capabilities_checked_at = serializers.DateTimeField(read_only=True)
 
 
 class AIProviderSerializer(serializers.Serializer):
@@ -43,6 +46,14 @@ class AIProviderSerializer(serializers.Serializer):
     timeout = serializers.IntegerField(required=False)
     max_retries = serializers.IntegerField(required=False)
     config_version = serializers.IntegerField(read_only=True)
+    auth_type = serializers.CharField(read_only=True)
+    api_key_header = serializers.CharField(read_only=True)
+    endpoint_path = serializers.CharField(read_only=True)
+    verify_tls = serializers.BooleanField(read_only=True)
+    connect_timeout = serializers.IntegerField(read_only=True)
+    health_status = serializers.CharField(read_only=True)
+    last_health_at = serializers.DateTimeField(read_only=True)
+    runnable = serializers.SerializerMethodField()
     last_tested_at = serializers.DateTimeField(read_only=True)
     last_test_ok = serializers.BooleanField(read_only=True)
     last_test_latency_ms = serializers.IntegerField(read_only=True)
@@ -51,6 +62,9 @@ class AIProviderSerializer(serializers.Serializer):
 
     def get_has_api_key(self, obj) -> bool:
         return bool(obj.api_key)
+
+    def get_runnable(self, obj) -> bool:
+        return obj.kind in AIProvider.RUNNABLE_KINDS
 
 
 class AIProviderInputSerializer(serializers.Serializer):
@@ -62,6 +76,11 @@ class AIProviderInputSerializer(serializers.Serializer):
     display_order = serializers.IntegerField(required=False)
     timeout = serializers.IntegerField(required=False)
     max_retries = serializers.IntegerField(required=False)
+    auth_type = serializers.ChoiceField(choices=AIProvider.AUTH_CHOICES, required=False)
+    api_key_header = serializers.CharField(max_length=60, allow_blank=True, required=False)
+    endpoint_path = serializers.CharField(max_length=200, allow_blank=True, required=False)
+    verify_tls = serializers.BooleanField(required=False)
+    connect_timeout = serializers.IntegerField(required=False)
 
 
 class AIModelInputSerializer(serializers.Serializer):
@@ -100,3 +119,48 @@ class AIConfigRevisionSerializer(serializers.Serializer):
 
     def get_changed_by(self, obj):
         return getattr(obj.changed_by, 'email', None)
+
+
+class AIModelSettingsInputSerializer(serializers.Serializer):
+    """Parametros de generacion y capacidades de un modelo (PATCH). `capabilities` manual: {capacidad: true|false|null}."""
+    display_name = serializers.CharField(max_length=200, allow_blank=True, required=False)
+    is_active = serializers.BooleanField(required=False)
+    temperature = serializers.FloatField(required=False, allow_null=True, min_value=0.0, max_value=2.0)
+    top_p = serializers.FloatField(required=False, allow_null=True, min_value=0.0, max_value=1.0)
+    max_tokens = serializers.IntegerField(required=False, allow_null=True, min_value=1)
+    context_window = serializers.IntegerField(required=False, allow_null=True, min_value=1)
+    capabilities = serializers.JSONField(required=False)
+
+
+class MCPServerSerializer(serializers.Serializer):
+    """Lectura de un servidor MCP: NUNCA incluye api_key (solo has_api_key)."""
+    uuid = serializers.UUIDField(read_only=True)
+    name = serializers.CharField()
+    server_url = serializers.CharField()
+    transport = serializers.CharField()
+    auth_type = serializers.CharField()
+    api_key_header = serializers.CharField()
+    has_api_key = serializers.SerializerMethodField()
+    verify_tls = serializers.BooleanField()
+    is_active = serializers.BooleanField()
+    capabilities = serializers.JSONField()
+    tools_count = serializers.IntegerField()
+    exposes_model_invocation = serializers.BooleanField()
+    status = serializers.CharField()
+    last_checked_at = serializers.DateTimeField()
+    last_latency_ms = serializers.IntegerField()
+    last_error = serializers.CharField()
+
+    def get_has_api_key(self, obj) -> bool:
+        return bool(obj.api_key)
+
+
+class MCPServerInputSerializer(serializers.Serializer):
+    name = serializers.CharField(max_length=100)
+    server_url = serializers.CharField(max_length=500)
+    transport = serializers.ChoiceField(choices=[('streamable-http', 'x'), ('sse', 'x')], required=False)
+    auth_type = serializers.ChoiceField(choices=AIProvider.AUTH_CHOICES, required=False)
+    api_key_header = serializers.CharField(max_length=60, allow_blank=True, required=False)
+    api_key = serializers.CharField(allow_blank=True, required=False, write_only=True)
+    verify_tls = serializers.BooleanField(required=False)
+    is_active = serializers.BooleanField(required=False)

@@ -47,15 +47,23 @@ def get_ai_bot_user():
     return bot
 
 
+def ai_inactive_reason(room) -> str | None:
+    """None si la IA atiende la sala; si no, el MOTIVO (flag_off | closed | paused | assigned). Incidente 2026-09-25: una sala con ai_paused=True dejo de
+    responder sin ninguna traza en el log; con esto el motivo queda registrado (ver support/consumers.py)."""
+    if not getattr(settings, 'AI_GLOBAL_ENABLED', True) or not settings.AI_SUPPORT_CHAT_ENABLED:
+        return 'flag_off'
+    if room.status != room.STATUS_OPEN:
+        return 'closed'
+    if room.ai_paused:
+        return 'paused'
+    if room.assigned_admin_id is not None:
+        return 'assigned'
+    return None
+
+
 def is_ai_mode_active(room) -> bool:
     """El AI atiende la sala solo si nadie la escalo ni la tomo un humano."""
-    return (
-        getattr(settings, 'AI_GLOBAL_ENABLED', True)
-        and settings.AI_SUPPORT_CHAT_ENABLED
-        and room.status == room.STATUS_OPEN
-        and not room.ai_paused
-        and room.assigned_admin_id is None
-    )
+    return ai_inactive_reason(room) is None
 
 
 def is_ai_rate_limited(room) -> bool:

@@ -41,6 +41,11 @@ def _get_lock() -> asyncio.Lock:
     return _lock
 
 
+def current_config_version():
+    """config_version del canal en la ultima carga del Registry (None si nunca se cargo o no se usa)."""
+    return _state.get("version")
+
+
 def reset_cache() -> None:
     """Solo para tests y para forzar recarga."""
     _state.update(entries=None, fetched_at=0.0, good_at=0.0, good=None)
@@ -71,10 +76,15 @@ def _to_entry(item) -> dict | None:
         except UnsafeProviderURL as exc:
             logger.warning("security_event=registry_entry_unsafe_url name=%s reason=%s", name, exc)
             return None
-    return {
+    entry = {
         "name": str(name), "kind": kind, "base_url": item.get("base_url") or "", "model": str(model),
         "api_key_env": item.get("api_key_env") or None, "api_key_value": item.get("api_key_value") or None,
     }
+    # PLAN_LLMDINAMICO sec. 3: campos opcionales del Registry (los entrega ai_provider.services.providers.base.build_runtime_config).
+    for key in ("provider_uuid", "auth_type", "api_key_header", "verify_tls", "generation", "timeout"):
+        if item.get(key) is not None:
+            entry[key] = item[key]
+    return entry
 
 
 def parse_registry_payload(payload: dict) -> list[dict] | None:

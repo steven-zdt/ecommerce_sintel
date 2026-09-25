@@ -113,3 +113,33 @@ class DegradedAlertTests(TestCase):
         self.assertIn('await self._pause_ai_on_human_reply(room)', src)
         self.assertIn("alert_admins_ai_degraded(room, 'no_response')", src)
         self.assertIn("alert_admins_ai_degraded(room, 'engine_unavailable')", src)
+
+
+class AiInactiveReasonTests(TestCase):
+    """INCIDENTE 2026-09-25: el motivo por el que la IA no atiende una sala queda identificable (y se registra). Escritos, no ejecutados."""
+
+    def _room(self, **kw):
+        from types import SimpleNamespace
+        base = dict(status='OPEN', STATUS_OPEN='OPEN', ai_paused=False, assigned_admin_id=None)
+        base.update(kw)
+        return SimpleNamespace(**base)
+
+    @override_settings(AI_SUPPORT_CHAT_ENABLED=True)
+    def test_motivos(self):
+        from support.services.ai_bridge import ai_inactive_reason, is_ai_mode_active
+        self.assertIsNone(ai_inactive_reason(self._room()))
+        self.assertEqual(ai_inactive_reason(self._room(ai_paused=True)), 'paused')
+        self.assertEqual(ai_inactive_reason(self._room(assigned_admin_id=3)), 'assigned')
+        self.assertEqual(ai_inactive_reason(self._room(status='CLOSED')), 'closed')
+        self.assertTrue(is_ai_mode_active(self._room()))
+        self.assertFalse(is_ai_mode_active(self._room(ai_paused=True)))
+
+    @override_settings(AI_SUPPORT_CHAT_ENABLED=False)
+    def test_flag_apagado(self):
+        from support.services.ai_bridge import ai_inactive_reason
+        self.assertEqual(ai_inactive_reason(self._room()), 'flag_off')
+
+    @override_settings(AI_SUPPORT_CHAT_ENABLED=True, AI_GLOBAL_ENABLED=False)
+    def test_kill_switch_global(self):
+        from support.services.ai_bridge import ai_inactive_reason
+        self.assertEqual(ai_inactive_reason(self._room()), 'flag_off')
