@@ -12,7 +12,10 @@ from .registry import RESOURCES, WRITE_OPS
 
 SCOPES = ("all", "contract", "soft_delete", "security", "docs")
 # recurso -> (archivo del modelo, clase). Solo los recursos con `delete` habilitado.
-_MODELS = {"products": ("shop/models.py", "Product"), "categories": ("shop/models.py", "Category"), "brands": ("shop/models.py", "Brand")}
+_MODELS = {"products": ("shop/models.py", "Product"), "categories": ("shop/models.py", "Category"), "brands": ("shop/models.py", "Brand"),
+           "services": ("technical_services/models.py", "TechnicalService"), "service-categories": ("technical_services/models.py", "ServiceCategory"),
+           "equipment": ("renting/models/equipment.py", "Equipment"), "renting-categories": ("renting/models/common.py", "RentingCategory"),
+           "renting-brands": ("renting/models/common.py", "RentingBrand")}
 _DOC_FILE = "mcp_server/.AGENT/TOOL_REGISTRY.md"
 
 

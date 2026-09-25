@@ -343,6 +343,63 @@ async def phase_code():
             check("discard_change limpia la propuesta", ok and dis.get("discarded") == cid)
 
 
+async def phase_domains():
+    """ADMIN_CRUD: servicios, renting y sitio web. Ciclo completo sobre renting-brands (datos de prueba); sitio web: edicion sin cambio de valor."""
+    name = "MCP Smoke Marca " + _rand()
+    async with connect(TOKEN_ADMIN) as s:
+        ok, who = await call(s, "mcp.whoami")
+        check("perfil ADMIN_CRUD activo", ok and who["profile"] == "ADMIN_CRUD", who.get("profile", "") if ok else str(who))
+        ok, cat = await call(s, "api.describe")
+        ops = {r["resource"]: set(r["operations"]) for r in cat["resources"]} if ok else {}
+        for res in ("services", "service-categories", "equipment", "renting-categories", "renting-brands"):
+            check(f"{res}: lectura y escritura declaradas", {"list", "get", "create", "update", "delete"} <= ops.get(res, set()), str(sorted(ops.get(res, []))))
+        for res in ("home-cards", "home-card-groups", "feature-banner-sections", "feature-banner-blocks", "footer-groups", "navbar", "brand-slider", "about-us"):
+            check(f"{res} (sitio web): listar/leer/editar, sin crear ni borrar", ops.get(res) == {"list", "get", "update"}, str(sorted(ops.get(res, []))))
+        for res in ("services", "equipment"):
+            ok, lst = await call(s, "crud.list", resource=res, limit=2)
+            check(f"{res}: crud.list", ok and "items" in lst, str(lst)[:150] if not ok else "")
+        ok, pv = await call(s, "crud.preview_create", resource="equipment", data={"name": "MCP Smoke equipo"})
+        check("equipment: preview_create no escribe", ok and pv["executes"] is False, str(pv)[:150] if not ok else "")
+
+        # ciclo completo en renting-brands
+        ok, pv = await call(s, "crud.preview_create", resource="renting-brands", data={"name": name})
+        key = "smoke-d-" + _rand(12)
+        ok2, created = await call(s, "crud.create", resource="renting-brands", data={"name": name}, idempotency_key=key, confirmation_token=pv.get("confirmation_token") if ok else None)
+        check("renting-brands: create con preview + idempotency_key", ok2 and created["record"]["name"] == name, str(created)[:200] if not ok2 else "")
+        if ok2:
+            uid = created["record"]["uuid"]
+            ok, got = await call(s, "crud.get", resource="renting-brands", target=uid)
+            check("renting-brands: get devuelve version", ok and got.get("version"), str(got)[:150] if not ok else "")
+            new_name = name + " B"
+            ok, pv = await call(s, "crud.preview_update", resource="renting-brands", target=uid, changes={"name": new_name})
+            ok, up = await call(s, "crud.update", resource="renting-brands", target=uid, changes={"name": new_name}, expected_version=got["version"], confirmation_token=pv.get("confirmation_token"))
+            check("renting-brands: update", ok and up["record"]["name"] == new_name, str(up)[:200] if not ok else "")
+            ok, pv = await call(s, "crud.preview_delete", resource="renting-brands", target=uid)
+            ok, cur = await call(s, "crud.get", resource="renting-brands", target=uid)
+            ok, dl = await call(s, "crud.delete", resource="renting-brands", target=uid, expected_version=cur["version"], confirmation_token=pv.get("confirmation_token"), confirm=True)
+            check("renting-brands: delete logico", ok, str(dl)[:200] if not ok else "")
+            ok, lst = await call(s, "crud.list", resource="renting-brands", limit=50)
+            check("renting-brands: el registro borrado ya no se lista", ok and not any(i.get("uuid") == uid for i in lst["items"]))
+
+        # sitio web: edicion sin cambio de valor (verifica lectura via listado + PATCH)
+        for res in ("navbar", "home-cards"):
+            ok, lst = await call(s, "crud.list", resource=res, limit=5)
+            check(f"{res}: crud.list", ok, str(lst)[:150] if not ok else "")
+            if not ok or not lst["items"]:
+                continue
+            item = lst["items"][0]
+            field = next((k for k, v in item.items() if isinstance(v, str) and k not in ("uuid", "_version", "slug") and v and not k.startswith("_")), None)
+            if not field:
+                continue
+            ok, got = await call(s, "crud.get", resource=res, target=item["uuid"])
+            check(f"{res}: get por uuid (via listado)", ok and got.get("version"), str(got)[:150] if not ok else "")
+            ok, pv = await call(s, "crud.preview_update", resource=res, target=item["uuid"], changes={field: item[field]})
+            ok, up = await call(s, "crud.update", resource=res, target=item["uuid"], changes={field: item[field]}, expected_version=got["version"], confirmation_token=pv.get("confirmation_token"))
+            check(f"{res}: update (mismo valor) via PATCH", ok, str(up)[:250] if not ok else "")
+        ok, err = await call(s, "crud.create", resource="navbar", data={"x": 1}, idempotency_key="smoke-x-" + _rand(12))
+        check("navbar: no admite create", not ok and err.get("code") == "OPERATION_NOT_ALLOWED", err.get("code", ""))
+
+
 async def phase_ratelimit():
     """Requiere el servidor con MCP_RATE_LIMIT=60 (por defecto) recien reiniciado."""
     async with connect(TOKEN_ADMIN) as s:
@@ -357,7 +414,7 @@ async def phase_ratelimit():
 
 async def main() -> int:
     print(f"## fase={PHASE} url={MCP_URL}", flush=True)
-    await {"readonly": phase_readonly, "write": phase_write, "ratelimit": phase_ratelimit, "pat": phase_pat, "code": phase_code}[PHASE]()
+    await {"readonly": phase_readonly, "write": phase_write, "ratelimit": phase_ratelimit, "pat": phase_pat, "code": phase_code, "domains": phase_domains}[PHASE]()
     print(f"## RESUMEN: {len(FAILS)} fallo(s)", FAILS, flush=True)
     return 1 if FAILS else 0
 

@@ -97,10 +97,28 @@ class CrudService:
 
     async def _fetch(self, principal, resource: Resource, target: str) -> dict:
         target = validate_uuid(target)
+        if resource.detail_via_list:
+            return await self._fetch_via_list(principal, resource, target)
         resp = await self.api.call("GET", f"{resource.api_tail}{target}/", token=principal.token, request_id=audit.request_id_var.get())
         if not resp.ok or not isinstance(resp.data, dict):
             raise self._map_error(resp, "la lectura")
         return resp.data
+
+    async def _fetch_via_list(self, principal, resource: Resource, target: str) -> dict:
+        """Recursos sin GET de detalle: se busca el uuid en el listado (paginado por Django o lista completa), con tope de paginas."""
+        for page_no in range(1, self.s.max_page_depth + 1):
+            resp = await self.api.call("GET", resource.api_tail, token=principal.token, request_id=audit.request_id_var.get(),
+                                       params={"page_size": 100, "page": page_no})
+            if not resp.ok:
+                raise self._map_error(resp, "la lectura")
+            data = resp.data
+            rows = data.get("results", []) if isinstance(data, dict) else (data if isinstance(data, list) else [])
+            for row in rows:
+                if isinstance(row, dict) and str(row.get("uuid", "")).lower() == target.lower():
+                    return row
+            if not (isinstance(data, dict) and data.get("next")):
+                break
+        raise McpToolError(errors.NOT_FOUND, "El registro no existe o no es visible.")
 
     def _needs_confirmation(self, resource: Resource, op: str) -> bool:
         return RISK_ORDER[resource.risk_of(op)] >= RISK_ORDER["medium"]

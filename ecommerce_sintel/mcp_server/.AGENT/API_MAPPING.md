@@ -8,10 +8,11 @@ Todas las rutas cuelgan de `/api/v1/dashboard/` y se verifican contra `/api/sche
 | `categories` | shop | `categories/` | list, get, create, update, delete | ninguno | lista sin paginar (el MCP pagina) |
 | `brands` | shop | `brands/` | list, get, create, update, delete | ninguno | idem |
 | `taxes` | shop | `taxes/` | list, get | ninguno | solo lectura (afecta precios/facturacion) |
-| `services` | services | `services/` | list, get | ninguno | solo lectura |
-| `service-categories` | services | `service-categories/` | list, get | ninguno | solo lectura |
-| `equipment` | renting | `equipment/` | list, get | `search`, `category__slug`, `brand__slug` | solo lectura |
-| `renting-categories`, `renting-brands` | renting | `renting-categories/`, `renting-brands/` | list, get | ninguno | solo lectura |
+| `services` | services | `services/` | list, get, create, update, delete | ninguno | lectura y escritura (borrado logico) |
+| `service-categories` | services | `service-categories/` | list, get, create, update, delete | ninguno | lectura y escritura |
+| `equipment` | renting | `equipment/` | list, get, create, update, delete | `search`, `category__slug`, `brand__slug` | lectura y escritura del equipo; variantes/precios por dia y logistica son sub-endpoints (`equipment/<uuid>/variants/`, `/logistics/`) NO habilitados aun |
+| `renting-categories`, `renting-brands` | renting | `renting-categories/`, `renting-brands/` | list, get, create, update, delete | ninguno | lectura y escritura |
+| `home-cards`, `home-card-groups`, `feature-banner-sections`, `feature-banner-blocks`, `footer-groups`, `navbar`, `brand-slider`, `about-us` | site | `<recurso>/` | list, get, update | ninguno | sitio web: Django solo expone listado y PATCH (sin GET de detalle: el MCP lo resuelve buscando el uuid en el listado, `detail_via_list`); no crea ni borra. Singletons (`footer`, `site-brand`, `footer-cta`, `home-config`) no incluidos |
 | `orders` | orders | `orders/` | list, get | ninguno | solo lectura, PII enmascarada; transiciones = logica de Django |
 | `quotations` | quotes | `quotations/` | list, get | ninguno | solo lectura, PII enmascarada |
 | `payment-transactions` | payment | `payment-transactions/` | list | `status` | solo listado (Django no expone detalle; hallazgo de business.audit 2026-09-25), datos financieros |
