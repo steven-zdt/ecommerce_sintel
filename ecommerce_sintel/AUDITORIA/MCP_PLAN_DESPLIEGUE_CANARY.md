@@ -52,3 +52,10 @@ Plano de codigo/`ai_editor`, dominios bloqueados (marketing, support, inventory,
   - `.env.production` (no versionado): `MCP_CONFIRMATION_SECRET` aleatorio nuevo, `MCP_PRINCIPAL_PROFILES=` vacio, limites; `AI_EDITOR_CODE_PLANE_ENABLED=false` ya estaba.
   - Prueba de arranque con las variables de produccion (contenedor desechable en la red de dev): responde 401 sin token en `/mcp`.
 - **Falta (requiere tu "adelante" explicito):** Fase 1 = `DEPLOY_MCP=1 ./deploy/deploy.sh` (reconstruye Django con `security.0011`, recrea celery/django brevemente, levanta MCP), luego `nginx -s reload`/recrear nginx. Comprobar tambien que la ruta del tunel de Cloudflare para `panel.sintel.net.co` no filtre `/mcp` (configuracion fuera del repo).
+
+## 8. Fase 1 EJECUTADA (2026-09-25, ~17:10-17:25 hora local): MCP en produccion, solo lectura
+- Backup previo (`deploy/backup.sh`): dump + media verificados (sin cifrar: falta `sintel_secrets/backup.key`).
+- `DEPLOY_MCP=1 ./deploy/deploy.sh`: imagenes django/celery reconstruidas `--no-cache`, `sintel_prod_mcp` (imagen `sintel_ecommerce_mcp:prod`) creado y healthy; `nginx -s reload` aplicado (config validada antes).
+- Verificado: `security.0011_mcp_access_tokens` aplicada; todos los contenedores healthy; `POST https://panel.sintel.net.co/mcp` sin token = 401; `/mcp-health` desde fuera = 404; `api.sintel.net.co/mcp` = 403 (no expuesto); `sintel.net.co` y `panel.sintel.net.co` = 200; sin trazas en django ni ai_adk.
+- NO verificado: un cliente MCP autenticado contra produccion (requiere que el admin cree su token personal desde una sesion suya: `POST /api/v1/dashboard/mcp-tokens/`); chat de cliente con un mensaje real.
+- Siguiente: crear el token personal (30 dias), probar `mcp.whoami` / `api.describe` / `crud.list` / `business.audit`, observar 24-48 h (Fases 1-2). Escritura (Fase 3) solo con nuevo visto bueno.
