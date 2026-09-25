@@ -18,13 +18,23 @@ from rest_framework.response import Response
 from ai_provider.models import AIModel, AIProvider
 from dashboard.api.ai_provider_serializers import (
     AIChannelConfigSerializer,
+    AIConfigRevisionSerializer,
     AIModelInputSerializer,
     AIModelSerializer,
     AIProviderInputSerializer,
     AIProviderSerializer,
 )
 from dashboard.api.views import ADMIN_PERMISSIONS
+from ai_provider.services.activation import ActivationCheckFailed
+from ai_provider.services.revisions import RollbackError
 from dashboard.services.admin_orchestrators import AIProviderAdminOrchestrator
+
+
+def _parse_version(request):
+    try:
+        return int(request.data.get('version'))
+    except (TypeError, ValueError):
+        raise DRFValidationError({'version': 'Numero de version invalido.'})
 
 
 class AdminAIProviderViewSet(viewsets.ViewSet):
@@ -104,6 +114,20 @@ class AdminAIProviderViewSet(viewsets.ViewSet):
         provider = AIProviderAdminOrchestrator.set_default_provider(provider.uuid, user=request.user)
         return Response(AIProviderSerializer(provider).data)
 
+    @action(detail=True, methods=['get'], url_path='history')
+    def history(self, request, uuid=None):
+        provider = self._get_or_404(uuid)
+        return Response(AIConfigRevisionSerializer(AIProviderAdminOrchestrator.provider_history(provider.uuid), many=True).data)
+
+    @action(detail=True, methods=['post'], url_path='rollback')
+    def rollback(self, request, uuid=None):
+        provider = self._get_or_404(uuid)
+        try:
+            provider = AIProviderAdminOrchestrator.rollback_provider(provider.uuid, _parse_version(request), request.user)
+        except RollbackError as exc:
+            raise DRFValidationError({'version': str(exc)})
+        return Response(AIProviderSerializer(provider).data)
+
     @action(detail=True, methods=['get'], url_path='discover-models')
     def discover_models(self, request, uuid=None):
         provider = self._get_or_404(uuid)
@@ -146,11 +170,26 @@ class AdminAIChannelConfigViewSet(viewsets.ViewSet):
     def set_primary(self, request):
         channel = request.data.get('channel', 'support_chat')
         model_uuid = request.data.get('model_uuid') or None
+        force = str(request.data.get('force', '')).lower() in ('true', '1')
         try:
-            config = AIProviderAdminOrchestrator.set_primary_model(model_uuid, request.user, channel=channel)
+            config = AIProviderAdminOrchestrator.set_primary_model(model_uuid, request.user, channel=channel, force=force)
         except AIModel.DoesNotExist:
             raise Http404
+        except ActivationCheckFailed as exc:
+            # 409: la configuracion actual NO cambio. El reporte no contiene secretos.
+            return Response({'error': 'validation_failed', 'report': exc.report}, status=status.HTTP_409_CONFLICT)
         return Response(AIChannelConfigSerializer(config).data)
+
+    @action(detail=False, methods=['post'], url_path='validate-model')
+    def validate_model(self, request):
+        """Prueba previa sin persistir: {model_uuid} -> {ok, checks, warnings, latency_ms} o 409 con el motivo."""
+        try:
+            report = AIProviderAdminOrchestrator.validate_model(request.data.get('model_uuid'))
+        except (AIModel.DoesNotExist, DRFValidationError, DjangoValidationError, ValueError) as exc:
+            if isinstance(exc, ActivationCheckFailed):
+                return Response({'error': 'validation_failed', 'report': exc.report}, status=status.HTTP_409_CONFLICT)
+            raise Http404
+        return Response(report)
 
     @action(detail=False, methods=['post'], url_path='set-fallback-chain')
     def set_fallback_chain(self, request):
@@ -160,4 +199,18 @@ class AdminAIChannelConfigViewSet(viewsets.ViewSet):
             config = AIProviderAdminOrchestrator.set_fallback_chain(model_uuids, request.user, channel=channel)
         except AIModel.DoesNotExist:
             raise Http404
+        return Response(AIChannelConfigSerializer(config).data)
+
+    @action(detail=False, methods=['get'], url_path='history')
+    def history(self, request):
+        channel = request.query_params.get('channel', 'support_chat')
+        return Response(AIConfigRevisionSerializer(AIProviderAdminOrchestrator.channel_history(channel), many=True).data)
+
+    @action(detail=False, methods=['post'], url_path='rollback')
+    def rollback(self, request):
+        channel = request.data.get('channel', 'support_chat')
+        try:
+            config = AIProviderAdminOrchestrator.rollback_channel(_parse_version(request), request.user, channel=channel)
+        except RollbackError as exc:
+            raise DRFValidationError({'version': str(exc)})
         return Response(AIChannelConfigSerializer(config).data)

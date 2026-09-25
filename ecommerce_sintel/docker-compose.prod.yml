@@ -157,8 +157,15 @@ services:
     dns:
       - 1.1.1.1
       - 8.8.8.8
+    # 2026-09-25 (bug real "Conexion fallo" en /panel/soporte/ia-config): con `dns:` publicos, host.docker.internal NO resuelve
+    # dentro de este contenedor (reproducido: "Name or service not known"); "Probar conexion" y "Detectar modelos" corren en Django y
+    # necesitan llegar a LM Studio en el host. extra_hosts escribe el nombre en /etc/hosts y evita el DNS (mismo patron que
+    # sintel_ai / sintel_ai_adk).
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks:
       - sintel-network
+      - ai_private
 
   # ─── WORKERS ASINCRONOS ────────────────────────────────────────────────────
   celery_worker:
@@ -270,7 +277,7 @@ services:
       retries: 5
       start_period: 20s
     networks:
-      - sintel-network
+      - ai_private
     deploy:
       resources:
         reservations:
@@ -417,7 +424,13 @@ services:
       # fallback automatico multi-entry (pendiente, FASE 3 del plan) -- la 2da entrada documenta el
       # orden objetivo pero todavia no se activa sola. Solo sintel_ai_adk: sintel_ai (OLD) no corre
       # motor de chat y conserva su cadena de LM Studio sin efecto.
-      LOCAL_MODEL_CHAIN: "ollama|ollama-nativo|http://sintel_ollama:11434|qwen3.5:9b;lmstudio|openai-compatible|http://host.docker.internal:1234/v1|qwen/qwen3.5-9b"
+      # CAMBIADO 2026-09-25 (a pedido del usuario, "deshabilitar Ollama por el momento"): el chat usa SOLO LM Studio
+      # (verificado alcanzable desde un contenedor con host-gateway y generando con qwen/qwen3.5-9b). Ollama NO se apaga:
+      # Django (ai_knowledge) lo sigue usando para los embeddings del RAG. Para volver al plan (Ollama primario, LM Studio
+      # fallback) restaurar la cadena anterior:
+      #   "ollama|ollama-nativo|http://sintel_ollama:11434|qwen3.5:9b;lmstudio|openai-compatible|http://host.docker.internal:1234/v1|qwen/qwen3.5-9b"
+      # Riesgo: LM Studio es una aplicacion de escritorio en el host; si no corre, el chat degrada a handoff humano.
+      LOCAL_MODEL_CHAIN: "lmstudio|openai-compatible|http://host.docker.internal:1234/v1|qwen/qwen3.5-9b"
       DJANGO_INTERNAL_API_URL: "http://django:8000/api/v1"
       # Mismo bug/fix real que sintel_ai (ver ese servicio arriba,
       # 2026-09-14) -- ALLOWED_HOSTS estricto de produccion rechaza Host:
@@ -458,6 +471,7 @@ services:
       - "host.docker.internal:host-gateway"
     networks:
       - sintel-network
+      - ai_private
 
   # ─── REVERSE PROXY (unico punto de entrada interno) ────────────────────────
   nginx:
@@ -551,3 +565,9 @@ networks:
   sintel-network:
     driver: bridge
     name: sintel-network
+  # HARDENING F1/C2 (2026-09-24, aprobado por el usuario, plan PLAN_HARDENING_LLM_AGENTS_...): segmento
+  # privado del runtime de inferencia. Solo sintel_ollama (unica red), sintel_ai_adk (chat) y django
+  # (embeddings de ai_knowledge contra Ollama) pertenecen a el. Redis/Postgres/nginx/cloudflared NO.
+  ai_private:
+    driver: bridge
+    name: sintel-ai-private

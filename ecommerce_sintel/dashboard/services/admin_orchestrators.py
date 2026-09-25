@@ -1635,11 +1635,53 @@ class AIProviderAdminOrchestrator:
         return AIChannelConfigSelector.get_or_create_config(channel)
 
     @staticmethod
-    def set_primary_model(model_uuid, user, channel='support_chat'):
+    def channel_history(channel='support_chat'):
+        from ai_provider.models import AIConfigRevision
+        from ai_provider.services import revisions
+        from ai_provider.services.selectors import AIChannelConfigSelector
+        config = AIChannelConfigSelector.get_or_create_config(channel)
+        return revisions.list_history(AIConfigRevision.SCOPE_CHANNEL, config.uuid)
+
+    @staticmethod
+    def rollback_channel(version, user, channel='support_chat'):
+        from ai_provider.services import revisions
+        from ai_provider.services.selectors import AIChannelConfigSelector
+        config = AIChannelConfigSelector.get_or_create_config(channel)
+        return revisions.rollback_channel(config, int(version), user=user)
+
+    @staticmethod
+    def provider_history(uuid):
+        from ai_provider.models import AIConfigRevision
+        from ai_provider.services import revisions
+        from ai_provider.services.selectors import AIProviderSelector
+        provider = AIProviderSelector.get_provider(uuid)
+        return revisions.list_history(AIConfigRevision.SCOPE_PROVIDER, provider.uuid)
+
+    @staticmethod
+    def rollback_provider(uuid, version, user):
+        from ai_provider.services import revisions
+        from ai_provider.services.selectors import AIProviderSelector
+        provider = AIProviderSelector.get_provider(uuid)
+        return revisions.rollback_provider(provider, int(version), user=user)
+
+    @staticmethod
+    def validate_model(model_uuid):
+        """Dry-run "Probar antes de activar": mismos chequeos que set_primary_model, sin persistir nada. Lanza ActivationCheckFailed."""
+        from ai_provider.services.activation import validate_model_for_activation
+        from ai_provider.services.selectors import AIModelSelector
+        return validate_model_for_activation(AIModelSelector.get(model_uuid))
+
+    @staticmethod
+    def set_primary_model(model_uuid, user, channel='support_chat', force=False):
+        """PLAN_LLMDINAMICO sec. 7: un primario nuevo se valida (proveedor activo, conectividad, modelo disponible) ANTES de persistir.
+        `force=True` omite la validacion (accion explicita). Quitar el primario (model_uuid vacio) no requiere validacion."""
+        from ai_provider.services.activation import validate_model_for_activation
         from ai_provider.services.commands import AIChannelConfigCommands
         from ai_provider.services.selectors import AIChannelConfigSelector, AIModelSelector
         config = AIChannelConfigSelector.get_or_create_config(channel)
         model = AIModelSelector.get(model_uuid) if model_uuid else None
+        if model is not None and not force:
+            validate_model_for_activation(model)
         return AIChannelConfigCommands.set_primary(config, model, user=user)
 
     @staticmethod

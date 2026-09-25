@@ -28,8 +28,23 @@ export const aiProviderService = {
   getChannelConfig(channel = 'support_chat') {
     return useApi().get('dashboard/ai-channel-config/', { params: { channel } }).then(r => r.data);
   },
-  setPrimary(modelUuid, channel = 'support_chat') {
-    return useApi().post('dashboard/ai-channel-config/set-primary/', { model_uuid: modelUuid, channel }).then(r => r.data);
+  setPrimary(modelUuid, channel = 'support_chat', force = false) {
+    return useApi().post('dashboard/ai-channel-config/set-primary/', { model_uuid: modelUuid, channel, force }).then(r => r.data);
+  },
+  validateModel(modelUuid) {
+    return useApi().post('dashboard/ai-channel-config/validate-model/', { model_uuid: modelUuid }).then(r => r.data);
+  },
+  getChannelHistory(channel = 'support_chat') {
+    return useApi().get('dashboard/ai-channel-config/history/', { params: { channel } }).then(r => r.data);
+  },
+  rollbackChannel(version, channel = 'support_chat') {
+    return useApi().post('dashboard/ai-channel-config/rollback/', { version, channel }).then(r => r.data);
+  },
+  getProviderHistory(uuid) {
+    return useApi().get(`dashboard/ai-providers/${uuid}/history/`).then(r => r.data);
+  },
+  rollbackProvider(uuid, version) {
+    return useApi().post(`dashboard/ai-providers/${uuid}/rollback/`, { version }).then(r => r.data);
   },
   setFallbackChain(modelUuids, channel = 'support_chat') {
     return useApi().post('dashboard/ai-channel-config/set-fallback-chain/', { model_uuids: modelUuids, channel }).then(r => r.data);

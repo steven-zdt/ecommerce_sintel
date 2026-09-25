@@ -46,7 +46,7 @@ class AdminAiAssistantChatView(APIView):
         # ver settings.ADMIN_AI_ASSISTANT_ENABLED. El resto del codigo (Tools, agente,
         # rutas /internal/ai/catalog/*, UI en /panel/asistente) sigue intacto, solo
         # este gateway lo bloquea -- reactivar es cambiar esta unica variable.
-        if not settings.ADMIN_AI_ASSISTANT_ENABLED:
+        if not (getattr(settings, 'AI_GLOBAL_ENABLED', True) and settings.ADMIN_AI_ASSISTANT_ENABLED):
             return Response(
                 {'error': 'El Asistente IA esta deshabilitado temporalmente por el administrador.'},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,

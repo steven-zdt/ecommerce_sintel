@@ -89,6 +89,21 @@ async def chat(req: ChatRequest, request: Request, token: str = Depends(get_vali
     request_id = obs.valid_id(request.headers.get("x-request-id")) or obs.new_request_id("req")
     session_id = request.headers.get("x-session-id") or req.conversation_id
     ctx_tokens = obs.set_context(request_id=request_id, session_id=session_id)
+    # HARDENING F21: AI_GLOBAL_ENABLED / AI_MODEL_CHAIN_ENABLED = false -> respuesta segura con handoff, sin tocar modelo ni tools.
+    if not (ai_config.AI_GLOBAL_ENABLED and ai_config.AI_MODEL_CHAIN_ENABLED):
+        reason = "global_disabled" if not ai_config.AI_GLOBAL_ENABLED else "model_chain_disabled"
+        logger.warning("security_event=ai_kill_switch_turn_denied reason=%s", reason)
+        channel = req.channel if req.channel in ("web", "whatsapp") else "unknown"
+        metrics = {"engine_unavailable": True, "kill_switch": reason}
+        obs.emit_turn_metrics(metrics, status="degraded", source=req.source, channel=channel)
+        obs.reset_context(ctx_tokens)
+        return ChatResponse(
+            conversation_id=req.conversation_id or "",
+            intent="unknown", agent=None, tool_calls=[], tool_results=[],
+            needs_confirmation=False, confirmation=None,
+            response="El asistente no esta disponible en este momento. Un agente humano revisara tu mensaje pronto.",
+            metrics=metrics,
+        )
     gate = _get_admission(ai_config)
     try:
         try:

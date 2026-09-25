@@ -16,6 +16,7 @@ sin pasar antes por un `ApprovalRecord` con `decision == APPROVE`
 construido aca (ver POST-GRAPH 12, Commit Control).
 """
 from ai_editor.approval.schema import ApprovalRecord, ChangeSummary
+from ai_editor.approval.security_gate import classify_security_impact
 
 
 def build_change_summary(context, plan, validation_report=None, test_report=None) -> ChangeSummary:
@@ -70,11 +71,14 @@ def build_change_summary(context, plan, validation_report=None, test_report=None
         documentation=documentation,
         validation_status=validation_status,
         validation_issues=validation_issues,
+        security_categories=classify_security_impact(files),
     )
 
 
-def record_decision(decision: str, reviewer_note: str | None = None) -> ApprovalRecord:
+def record_decision(decision: str, reviewer_note: str | None = None,
+                    security_review_acknowledged: bool = False) -> ApprovalRecord:
     """Lanza `ValueError` (via `ApprovalRecord.__post_init__`) si
     `decision` no es una de las 4 opciones validas -- no hay forma de
     registrar una decision ambigua."""
-    return ApprovalRecord(decision=decision, reviewer_note=reviewer_note)
+    return ApprovalRecord(decision=decision, reviewer_note=reviewer_note,
+                          security_review_acknowledged=security_review_acknowledged)

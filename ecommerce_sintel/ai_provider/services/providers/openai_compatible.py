@@ -16,7 +16,7 @@ import requests
 
 from ai_provider.services.providers.base import (
     ERROR_CONNECTION_REFUSED, ERROR_DNS, ERROR_INVALID_RESPONSE, ERROR_TIMEOUT,
-    ERROR_UNAUTHORIZED, ERROR_UNKNOWN, SUCCESS, BaseProviderAdapter, ConnectionTestResult,
+    ERROR_UNAUTHORIZED, ERROR_UNKNOWN, SUCCESS, BaseProviderAdapter, ConnectionTestResult, connection_failure,
 )
 from ai_provider.services.providers.ollama import _classify_connection_error
 
@@ -31,7 +31,7 @@ class OpenAICompatibleAdapter(BaseProviderAdapter):
         start = time.monotonic()
         try:
             resp = requests.get(
-                f'{self.provider.base_url.rstrip("/")}/models', headers=self._headers(), timeout=_TIMEOUT_SECONDS,
+                f'{self.provider.base_url.rstrip("/")}/models', headers=self._headers(), timeout=_TIMEOUT_SECONDS, allow_redirects=False,
             )
             latency_ms = int((time.monotonic() - start) * 1000)
             if resp.status_code == 200:
@@ -44,10 +44,8 @@ class OpenAICompatibleAdapter(BaseProviderAdapter):
             return ConnectionTestResult(False, self.provider.name, self.provider.base_url, None, latency_ms, None, ERROR_TIMEOUT, 'Timeout de conexion.')
         except requests.exceptions.ConnectionError as exc:
             latency_ms = int((time.monotonic() - start) * 1000)
-            return ConnectionTestResult(
-                False, self.provider.name, self.provider.base_url, None, latency_ms, None,
-                _classify_connection_error(exc), 'No se pudo establecer conexion.',
-            )
+            code, message = connection_failure(self.provider.base_url, _classify_connection_error(exc))
+            return ConnectionTestResult(False, self.provider.name, self.provider.base_url, None, latency_ms, None, code, message)
         except requests.RequestException as exc:
             latency_ms = int((time.monotonic() - start) * 1000)
             return ConnectionTestResult(False, self.provider.name, self.provider.base_url, None, latency_ms, None, ERROR_UNKNOWN, type(exc).__name__)
@@ -55,7 +53,7 @@ class OpenAICompatibleAdapter(BaseProviderAdapter):
     def list_models(self) -> list[dict]:
         try:
             resp = requests.get(
-                f'{self.provider.base_url.rstrip("/")}/models', headers=self._headers(), timeout=_TIMEOUT_SECONDS,
+                f'{self.provider.base_url.rstrip("/")}/models', headers=self._headers(), timeout=_TIMEOUT_SECONDS, allow_redirects=False,
             )
             resp.raise_for_status()
             return [{'model_id': m['id'], 'display_name': m['id']} for m in resp.json().get('data', [])]

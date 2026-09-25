@@ -37,3 +37,11 @@ Ollama prod `0.30.10` (dev fijado igual); `google-adk==2.9.0`, `litellm==1.100.1
 
 ## 8. Rollback del modelo
 Antes de un `pull` que cambie el tag: `ollama cp qwen3.5:9b qwen3.5:9b-prev`; volver = `ollama cp qwen3.5:9b-prev qwen3.5:9b` (o cambiar el tag en `LOCAL_MODEL_CHAIN`). El resto (imagen, prompts, perfiles, tools) se revierte con `deploy/release_ai.sh rollback`.
+
+## Cambio temporal 2026-09-25: el chat usa SOLO LM Studio
+Decision del usuario ("deshabilitar Ollama por el momento"). Contradice la decision fija del plan de hardening (Ollama primario, LM Studio fallback): es **temporal**.
+- `LOCAL_MODEL_CHAIN` = `lmstudio|openai-compatible|http://host.docker.internal:1234/v1|qwen/qwen3.5-9b` en `.env` (dev) y en el `environment:` de `sintel_ai_adk` en `docker-compose.prod.yml` (prod, pendiente de desplegar por el usuario).
+- **Ollama NO se apaga**: en prod Django (`ai_knowledge`) lo usa para los embeddings del RAG y el ADK declara `depends_on: sintel_ollama`. Solo dejo de ser proveedor del chat.
+- Riesgo: LM Studio es una aplicacion de escritorio en el host; si se cierra, el chat degrada a handoff humano (no hay segunda entrada). Sin breaker util: la cadena tiene una sola entrada.
+- Verificado (2026-09-25): host:1234 responde, un contenedor con `host.docker.internal:host-gateway` lo alcanza y genero con `qwen/qwen3.5-9b` (20 s en frio, incluida la carga del modelo).
+- Revertir: restaurar la cadena anterior (comentada en el compose) y recrear `sintel_ai_adk` (`--force-recreate`; un `restart` no relee el entorno).

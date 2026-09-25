@@ -25,6 +25,11 @@
         LM Studio en Windows: <code>http://host.docker.internal:1234/v1</code> ·
         Ollama en Docker: <code>http://sintel_ollama:11434</code>
       </small>
+      <div v-if="isLoopbackUrl" class="text-danger small mt-1">
+        <i class="bi bi-exclamation-triangle-fill"></i>
+        <code>localhost</code> / <code>127.0.0.1</code> dentro de Docker es el propio contenedor, no tu equipo: aunque LM Studio muestre esa
+        URL, aqui debes usar <code>http://host.docker.internal:PUERTO</code>. El servidor no permitira guardarla.
+      </div>
     </div>
 
     <div class="mb-3">
@@ -78,6 +83,14 @@ watch(() => props.item, (item) => {
   form.is_active = item?.is_active ?? true;
   form.display_order = item?.display_order ?? 0;
 }, { immediate: true });
+
+// LM Studio/Ollama muestran http://localhost:PUERTO (vista desde tu equipo); dentro de Docker eso apunta al contenedor. Aviso en vivo.
+const isLoopbackUrl = computed(() => {
+  try {
+    const host = new URL(form.base_url).hostname.replace(/^\[|\]$/g, '').toLowerCase();
+    return ['localhost', '127.0.0.1', '::1', '0.0.0.0'].includes(host);
+  } catch { return false; }
+});
 
 const urlPlaceholder = computed(() =>
   form.kind === 'ollama-nativo' ? 'http://sintel_ollama:11434' : 'http://host.docker.internal:1234/v1'

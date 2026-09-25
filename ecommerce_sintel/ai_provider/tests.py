@@ -194,7 +194,7 @@ class InternalProviderConfigViewTests(TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(
             resp.json(),
-            {'channel': 'support_chat', 'enabled': True, 'primary': None, 'fallbacks': []},
+            {'channel': 'support_chat', 'enabled': True, 'config_version': 1, 'primary': None, 'fallbacks': []},
         )
 
     def test_resolved_chain_shape_matches_llm_factory_entry_format(self):
@@ -337,7 +337,8 @@ class AdminAIProviderAPITests(TestCase):
         self.assertEqual(resp.status_code, 201, resp.content)
         model_uuid = resp.json()['uuid']
 
-        resp = self.client.post('/api/v1/dashboard/ai-channel-config/set-primary/', {'model_uuid': model_uuid})
+        resp = self.client.post('/api/v1/dashboard/ai-channel-config/set-primary/', {'model_uuid': model_uuid, 'force': True})
+        # force=True: el proveedor de este test (http://x:11434) no existe; la validacion previa se prueba en tests_activation.py
         self.assertEqual(resp.status_code, 200, resp.content)
         self.assertEqual(resp.json()['primary_model']['model_id'], 'phi3:mini')
 

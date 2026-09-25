@@ -81,3 +81,16 @@ aparece en la excepcion).
   (ver "Fork del sandbox", `MEMORY.md`/`AI_EDITOR_BASELINE.md`).
 - No hay generacion de codigo real -- por lo tanto, Graph Reconciliation
   (POST-GRAPH 9) tampoco tiene un escenario real que cubrir todavia.
+
+## 9. Security impact gate (HARDENING F22, 2026-09-25)
+
+`approval/security_gate.py` clasifica, por patrones de ruta (determinista, sin LLM), los archivos de un cambio que tocan superficies de seguridad:
+config de produccion (compose prod, nginx prod, `deploy/`), autenticacion/autorizacion, politicas de Tools, kill switches y endpoints de modelo,
+RAG, memoria, backups, la propia frontera del editor (`approval/`, `repository/`, `patch/`) y las guardias de entrada/salida del asistente.
+
+- `ChangeSummary.security_review_required` / `security_categories` y una linea `SECURITY_REVIEW_REQUIRED` en `render_text()`.
+- `promote_to_workspace()` devuelve `SECURITY_REVIEW_REQUIRED` (sin escribir nada) salvo que el `ApprovalRecord` lleve
+  `security_review_acknowledged=True` (`record_decision(..., security_review_acknowledged=True)`), ademas de APPROVE y `confirm=True`.
+- Los secretos (`.env`, claves, certificados) siguen bloqueados por completo por `sandbox._SENSITIVE_PATTERNS` (nunca se promueven).
+- Tests escritos, no ejecutados: `approval/tests_security_gate.py`.
+- Lista de rutas: `SECURITY_PATH_RULES`; ampliarla en el mismo cambio que agregue una superficie nueva.

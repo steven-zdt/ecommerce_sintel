@@ -17,6 +17,8 @@ from datetime import datetime, timezone
 ERROR_DNS = 'DNS'
 ERROR_CONNECTION_REFUSED = 'CONNECTION_REFUSED'
 ERROR_TIMEOUT = 'TIMEOUT'
+ERROR_NETWORK_UNREACHABLE = 'NETWORK_UNREACHABLE'
+ERROR_LOOPBACK_URL = 'LOOPBACK_URL'
 ERROR_UNAUTHORIZED = 'UNAUTHORIZED'
 ERROR_NOT_FOUND = 'NOT_FOUND'
 ERROR_MODEL_NOT_FOUND = 'MODEL_NOT_FOUND'
@@ -46,6 +48,34 @@ class ConnectionTestResult:
             'error_code': self.error_code, 'error_message_safe': self.error_message_safe,
             'timestamp': self.timestamp,
         }
+
+
+_LOOPBACK_HOSTS = frozenset({'localhost', '127.0.0.1', '::1', '0.0.0.0'})
+
+_MESSAGES = {
+    ERROR_DNS: 'El nombre de host no se resuelve desde el servidor. Revisa la URL; en Docker usa host.docker.internal (tu equipo) '
+               'o el nombre del servicio (p. ej. sintel_ollama).',
+    ERROR_CONNECTION_REFUSED: 'Conexion rechazada: no hay ningun servicio escuchando en ese host y puerto. Si es LM Studio u Ollama en tu '
+                              'equipo, inicia el servidor local y usa http://host.docker.internal:PUERTO.',
+    ERROR_NETWORK_UNREACHABLE: 'No hay ruta hasta ese host desde el servidor (servicio apagado, puerto cerrado o firewall). Con LM Studio '
+                               'verifica que el servidor local este iniciado y accesible desde otros equipos/contenedores.',
+    ERROR_UNKNOWN: 'No se pudo establecer conexion (motivo no identificado). Revisa la URL, el puerto y que el servicio este iniciado.',
+}
+
+
+def is_loopback_url(base_url: str) -> bool:
+    from urllib.parse import urlparse
+    return (urlparse(base_url or '').hostname or '').lower() in _LOOPBACK_HOSTS
+
+
+def connection_failure(base_url: str, code: str) -> tuple[str, str]:
+    """(codigo, mensaje seguro en espanol) para un fallo de conexion. Si la URL apunta a localhost/127.0.0.1, la causa mas probable
+    es que ese 'localhost' es el del CONTENEDOR (no tu equipo): se avisa explicitamente. Nunca incluye secretos."""
+    message = _MESSAGES.get(code, _MESSAGES[ERROR_UNKNOWN])
+    if is_loopback_url(base_url):
+        return ERROR_LOOPBACK_URL, ('La URL usa localhost/127.0.0.1, que dentro de Docker es el propio contenedor y no tu equipo. '
+                                    'Usa http://host.docker.internal:PUERTO (LM Studio suele ser el 1234, Ollama el 11434).')
+    return code, message
 
 
 class BaseProviderAdapter(ABC):

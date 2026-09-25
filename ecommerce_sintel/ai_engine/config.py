@@ -73,6 +73,21 @@ AI_BREAKER_FAILURES       = config("AI_BREAKER_FAILURES", default=3, cast=int)
 AI_BREAKER_WINDOW_SECONDS = config("AI_BREAKER_WINDOW_SECONDS", default=60, cast=int)
 AI_BREAKER_OPEN_SECONDS   = config("AI_BREAKER_OPEN_SECONDS", default=60, cast=int)
 
+# HARDENING F21 (2026-09-25, propuesta ai_engine_adk/.AGENT/HARDENING_F21_PROPOSAL_2026-09-25.md): jerarquia de kill switches del ADK.
+# Todos default true = comportamiento anterior. false apaga solo esa capa; AI_GLOBAL_ENABLED=false apaga todo. Se leen en cada llamada (sin cache).
+AI_GLOBAL_ENABLED           = config("AI_GLOBAL_ENABLED", default=True, cast=bool)
+AI_MODEL_CHAIN_ENABLED      = config("AI_MODEL_CHAIN_ENABLED", default=True, cast=bool)
+AI_TOOLS_ENABLED            = config("AI_TOOLS_ENABLED", default=True, cast=bool)
+AI_WRITE_TOOLS_ENABLED      = config("AI_WRITE_TOOLS_ENABLED", default=True, cast=bool)
+AI_EXTERNAL_ACTIONS_ENABLED = config("AI_EXTERNAL_ACTIONS_ENABLED", default=True, cast=bool)
+
+# PLAN_LLMDINAMICO FASE 4 (2026-09-25): el ADK toma la cadena de modelos del Registry de Django (/panel/soporte/ia-config) en vez de
+# solo LOCAL_MODEL_CHAIN. false (default) = comportamiento anterior. Con true, LOCAL_MODEL_CHAIN queda como bootstrap/emergencia.
+AI_PROVIDER_REGISTRY_ENABLED       = config("AI_PROVIDER_REGISTRY_ENABLED", default=False, cast=bool)
+AI_PROVIDER_REGISTRY_TTL_SECONDS   = config("AI_PROVIDER_REGISTRY_TTL_SECONDS", default=15, cast=int)
+AI_PROVIDER_REGISTRY_TIMEOUT_SECONDS = config("AI_PROVIDER_REGISTRY_TIMEOUT_SECONDS", default=3, cast=int)
+AI_PROVIDER_REGISTRY_STALE_SECONDS = config("AI_PROVIDER_REGISTRY_STALE_SECONDS", default=300, cast=int)
+
 # HARDENING F4 (2026-09-24, propuesta ai_engine_adk/.AGENT/HARDENING_F4_PROPOSAL_2026-09-24.md).
 # AI_TOOL_STRICT_ARGS=false (default) = MONITOR: valida argumentos y solo loguea `ai_tool_args_invalid`; true = rechaza (400).
 AI_TOOL_STRICT_ARGS             = config("AI_TOOL_STRICT_ARGS", default=False, cast=bool)

@@ -355,6 +355,15 @@ AI_DEGRADED_ALERT_COOLDOWN_SECONDS = config('AI_DEGRADED_ALERT_COOLDOWN_SECONDS'
 # HARDENING F2 (2026-09-24): secreto de servicio Django -> ADK (cabecera X-AI-Service-Token). Vacio = no se envia.
 # Debe coincidir con AI_SERVICE_TOKEN del contenedor sintel_ai_adk; replicar en .env Y .env.production en el mismo paso.
 AI_SERVICE_TOKEN = config('AI_SERVICE_TOKEN', default='')
+# HARDENING F21 (2026-09-25): interruptor global de TODA la IA (chat de soporte + Admin AI Assistant). Default true = sin cambio; false apaga ambas
+# superficies en Django (el ADK tiene su propio AI_GLOBAL_ENABLED). Los switches de tools/escrituras/acciones externas/cadena de modelo viven en el ADK.
+AI_GLOBAL_ENABLED = config('AI_GLOBAL_ENABLED', default=True, cast=bool)
+# PLAN_LLMDINAMICO F3 (2026-09-25): el endpoint interno provider-config entrega API keys descifradas; ademas del aislamiento de red exige
+# X-AI-Service-Token (mismo AI_SERVICE_TOKEN de F2, sentido ADK -> Django). false (default) = solo monitor (loguea); true = 403 uniforme.
+# INCIDENTE 2026-09-25: rechazar URLs localhost/127.0.0.1 al guardar un proveedor LLM (dentro de Docker apuntan al contenedor). True solo si Django corre fuera de Docker.
+AI_PROVIDER_ALLOW_LOOPBACK = config('AI_PROVIDER_ALLOW_LOOPBACK', default=False, cast=bool)
+AI_PROVIDER_CONFIG_TOKEN_REQUIRED = config('AI_PROVIDER_CONFIG_TOKEN_REQUIRED', default=False, cast=bool)
+AI_SERVICE_TOKEN_PREVIOUS = config('AI_SERVICE_TOKEN_PREVIOUS', default='')
 # Modo AI del chat de soporte (widget web reusa support/consumers.py).
 AI_SUPPORT_CHAT_ENABLED = config('AI_SUPPORT_CHAT_ENABLED', default=False, cast=bool)
 # HARDENING F6/C2 (2026-09-24): dominios https permitidos como `source` de un documento de conocimiento (CSV).

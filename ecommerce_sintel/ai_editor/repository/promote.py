@@ -51,6 +51,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from ai_editor.approval.schema import DECISION_APPROVE
+from ai_editor.approval.security_gate import classify_security_impact
 from ai_editor.patch.fingerprint import compute_fingerprint
 from ai_editor.workspace import resolve_repo_file
 
@@ -59,6 +60,7 @@ STATUS_NOT_APPROVED = "NOT_APPROVED"
 STATUS_NOT_CONFIRMED = "NOT_CONFIRMED"
 STATUS_WORKSPACE_DRIFT = "WORKSPACE_DRIFT"
 STATUS_VALIDATION_FAILED = "VALIDATION_FAILED"
+STATUS_SECURITY_REVIEW_REQUIRED = "SECURITY_REVIEW_REQUIRED"
 
 
 @dataclass
@@ -86,6 +88,16 @@ def promote_to_workspace(sandbox, approval, workspace_root: Path, confirm: bool 
         return PromoteResult(
             status=STATUS_NOT_APPROVED,
             detail="No hay un ApprovalRecord con decision=APPROVE -- nada se promueve.",
+        )
+
+    # HARDENING F22: superficies de seguridad (auth, tools, kill switches, produccion, RAG, memoria, backups) exigen aprobacion ELEVADA.
+    security_impact = classify_security_impact(sandbox.copied_files)
+    if security_impact and not getattr(approval, "security_review_acknowledged", False):
+        return PromoteResult(
+            status=STATUS_SECURITY_REVIEW_REQUIRED,
+            detail="SECURITY_REVIEW_REQUIRED -- el cambio toca superficies de seguridad ("
+                   + "; ".join(f"{cat}: {', '.join(fs)}" for cat, fs in security_impact.items())
+                   + "). Se necesita un ApprovalRecord con security_review_acknowledged=True tras revision humana.",
         )
 
     if not confirm:

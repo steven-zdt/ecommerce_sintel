@@ -86,6 +86,7 @@ from sintel_adapter import (
     clear_ephemeral_token,
     clear_tool_call_count,
     deny_after_max_tool_calls_per_turn,
+    kill_switch_tools_before,
     validate_tool_args_before,
     handle_tool_error,
     set_ephemeral_token,
@@ -333,7 +334,7 @@ def get_domain_agent(profile_name: str) -> LlmAgent:
         # Auditoria de hardening (2026-09-14): cap real de tool calls por turno,
         # ver deny_after_max_tool_calls_per_turn() en sintel_adapter.py.
         # HARDENING F4/C2: ademas del tope por turno, validacion de argumentos contra args_schema.
-        before_tool_callback=[deny_after_max_tool_calls_per_turn, validate_tool_args_before],
+        before_tool_callback=[kill_switch_tools_before, deny_after_max_tool_calls_per_turn, validate_tool_args_before],
         # HARDENING F5/C5: acota el historial que llega al modelo (AI_MAX_HISTORY_TURNS / AI_MAX_CONTEXT_CHARS).
         before_model_callback=input_guard.trim_history_callback,
         # Auditoria de hardening (2026-09-14): degradacion por-Tool en vez de

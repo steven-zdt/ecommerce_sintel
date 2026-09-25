@@ -144,3 +144,32 @@ class TestConnectionTestServiceAndDiscovery(TestCase):
         self.assertIsInstance(models, list)
         # Motor real -- confirmado en la campaña previa que trae al menos llama3.1:8b.
         self.assertTrue(any(m['model_id'] == 'llama3.1:8b' for m in models))
+
+
+class TestConnectionFailureMessages(TestCase):
+    """Mensajes especificos en lugar de un generico 'No se pudo establecer conexion' (2026-09-25). Escritos, no ejecutados."""
+
+    def test_localhost_se_explica_como_url_de_contenedor(self):
+        from ai_provider.services.providers.base import ERROR_LOOPBACK_URL, connection_failure
+        for url in ('http://127.0.0.1:1234/v1', 'http://localhost:11434', 'http://[::1]:1234/v1'):
+            code, message = connection_failure(url, 'CONNECTION_REFUSED')
+            self.assertEqual(code, ERROR_LOOPBACK_URL)
+            self.assertIn('host.docker.internal', message)
+
+    def test_cada_causa_tiene_mensaje_propio_y_accionable(self):
+        from ai_provider.services.providers.base import (
+            ERROR_CONNECTION_REFUSED, ERROR_DNS, ERROR_NETWORK_UNREACHABLE, ERROR_UNKNOWN, connection_failure,
+        )
+        messages = set()
+        for code in (ERROR_DNS, ERROR_CONNECTION_REFUSED, ERROR_NETWORK_UNREACHABLE, ERROR_UNKNOWN):
+            got_code, message = connection_failure('http://host.docker.internal:1234/v1', code)
+            self.assertEqual(got_code, code)
+            self.assertNotEqual(message, 'No se pudo establecer conexion.')
+            messages.add(message)
+        self.assertEqual(len(messages), 4)
+
+    def test_red_inalcanzable_se_clasifica(self):
+        from ai_provider.services.providers.base import ERROR_NETWORK_UNREACHABLE
+        from ai_provider.services.providers.ollama import _classify_connection_error
+        exc = requests.exceptions.ConnectionError('[Errno 101] Network is unreachable')
+        self.assertEqual(_classify_connection_error(exc), ERROR_NETWORK_UNREACHABLE)

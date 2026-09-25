@@ -151,7 +151,7 @@ def test_la_superficie_admin_conserva_los_enlaces(monkeypatch):
 #  6. largo 
 def test_recorta_en_limite_de_frase(monkeypatch):
     monkeypatch.setattr(ai_config, "AI_OUTPUT_MAX_CHARS", 100)
-    text = ("Primera frase completa. " * 3) + "Esta ultima frase es larga y no cabe en el limite establecido por la configuracion."
+    text = ("Primera frase completa. " * 4) + "Esta ultima frase es larga y no cabe en el limite establecido por la configuracion."
     out, flags = og.guard_public_response(text)
     assert len(out) <= 101 and out.endswith("\u2026") and "truncated" in flags
     assert out.rstrip("\u2026").endswith(".")

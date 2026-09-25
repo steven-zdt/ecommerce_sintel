@@ -42,6 +42,7 @@ class AIProviderSerializer(serializers.Serializer):
     display_order = serializers.IntegerField()
     timeout = serializers.IntegerField(required=False)
     max_retries = serializers.IntegerField(required=False)
+    config_version = serializers.IntegerField(read_only=True)
     last_tested_at = serializers.DateTimeField(read_only=True)
     last_test_ok = serializers.BooleanField(read_only=True)
     last_test_latency_ms = serializers.IntegerField(read_only=True)
@@ -77,6 +78,7 @@ class AIChannelFallbackSerializer(serializers.Serializer):
 class AIChannelConfigSerializer(serializers.Serializer):
     channel = serializers.CharField(read_only=True)
     enabled = serializers.BooleanField(required=False)
+    config_version = serializers.IntegerField(read_only=True)
     primary_model = AIModelSerializer(read_only=True)
     fallbacks = serializers.SerializerMethodField()
     updated_at = serializers.DateTimeField(read_only=True)
@@ -85,3 +87,16 @@ class AIChannelConfigSerializer(serializers.Serializer):
         return AIChannelFallbackSerializer(
             obj.fallbacks.filter(is_deleted=False).select_related('model').order_by('order'), many=True,
         ).data
+
+
+class AIConfigRevisionSerializer(serializers.Serializer):
+    """Historial de configuracion (PLAN_LLMDINAMICO F18). El snapshot no contiene secretos por construccion (ver revisions.py)."""
+    version = serializers.IntegerField()
+    scope = serializers.CharField()
+    action = serializers.CharField()
+    snapshot = serializers.JSONField()
+    changed_by = serializers.SerializerMethodField()
+    created_at = serializers.DateTimeField()
+
+    def get_changed_by(self, obj):
+        return getattr(obj.changed_by, 'email', None)

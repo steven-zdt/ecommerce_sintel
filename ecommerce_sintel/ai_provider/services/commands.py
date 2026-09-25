@@ -2,7 +2,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from ai_provider.models import AIChannelConfig, AIChannelFallback, AIModel, AIProvider
-from ai_provider.services import runtime_cache
+from ai_provider.services import revisions, runtime_cache  # noqa: F401 (runtime_cache: compat con imports existentes)
 
 _PROVIDER_ALLOWED_FIELDS = (
     'name', 'kind', 'base_url', 'api_key', 'is_active', 'display_order', 'timeout', 'max_retries', 'metadata',
@@ -29,6 +29,7 @@ class AIProviderCommands:
         provider.save()
         from security.models import SecurityEvent
         _audit(SecurityEvent.AI_PROVIDER_CREATED, user, {'provider_uuid': str(provider.uuid), 'name': provider.name, 'kind': provider.kind})
+        revisions.touch_provider(provider, 'created', user=user, initial=True)
         return provider
 
     @staticmethod
@@ -52,7 +53,8 @@ class AIProviderCommands:
         })
         # FASE 20 -- un provider referenciado como primary/fallback de un canal puede
         # cambiar de base_url/api_key/kind aqui; el runtime debe recogerlo sin esperar el TTL.
-        runtime_cache.invalidate(AIChannelConfig.CHANNEL_SUPPORT_CHAT)
+        revisions.touch_provider(provider, 'updated', user=user)
+        revisions.touch_channel(f'provider_updated:{provider.name}', user=user)
         return provider
 
     @staticmethod
@@ -62,7 +64,8 @@ class AIProviderCommands:
         provider.save(update_fields=['is_deleted'])
         from security.models import SecurityEvent
         _audit(SecurityEvent.ADMIN_RESOURCE_DELETED, user, {'resource': 'AIProvider', 'provider_uuid': str(provider.uuid), 'name': provider.name})
-        runtime_cache.invalidate(AIChannelConfig.CHANNEL_SUPPORT_CHAT)
+        revisions.touch_provider(provider, 'deleted', user=user)
+        revisions.touch_channel(f'provider_deleted:{provider.name}', user=user)
 
     @staticmethod
     @transaction.atomic
@@ -71,7 +74,8 @@ class AIProviderCommands:
         provider.save(update_fields=['is_active'])
         from security.models import SecurityEvent
         _audit(SecurityEvent.AI_PROVIDER_ACTIVATED, user, {'provider_uuid': str(provider.uuid), 'name': provider.name})
-        runtime_cache.invalidate(AIChannelConfig.CHANNEL_SUPPORT_CHAT)
+        revisions.touch_provider(provider, 'activated', user=user)
+        revisions.touch_channel(f'provider_activated:{provider.name}', user=user)
         return provider
 
     @staticmethod
@@ -83,7 +87,8 @@ class AIProviderCommands:
         _audit(SecurityEvent.AI_PROVIDER_DEACTIVATED, user, {'provider_uuid': str(provider.uuid), 'name': provider.name})
         # is_active=False saca al provider (y por lo tanto sus modelos) de
         # get_resolved_chain() -- el runtime debe dejar de usarlo de inmediato.
-        runtime_cache.invalidate(AIChannelConfig.CHANNEL_SUPPORT_CHAT)
+        revisions.touch_provider(provider, 'deactivated', user=user)
+        revisions.touch_channel(f'provider_deactivated:{provider.name}', user=user)
         return provider
 
     @staticmethod
@@ -140,7 +145,7 @@ class AIModelCommands:
         model.save()
         # is_active/temperature/max_tokens pueden ser el modelo primary/fallback de un
         # canal ahora mismo -- FASE 20, ver AIProviderCommands.deactivate().
-        runtime_cache.invalidate(AIChannelConfig.CHANNEL_SUPPORT_CHAT)
+        revisions.touch_channel(f'model_updated:{model.model_id}', user=user)
         return model
 
     @staticmethod
@@ -151,7 +156,7 @@ class AIModelCommands:
         model.save(update_fields=['is_deleted'])
         from security.models import SecurityEvent
         _audit(SecurityEvent.AI_MODEL_CHANGED, user, {'action': 'removed', 'provider_uuid': provider_uuid, 'model_id': model_id})
-        runtime_cache.invalidate(AIChannelConfig.CHANNEL_SUPPORT_CHAT)
+        revisions.touch_channel(f'model_removed:{model_id}', user=user)
 
     @staticmethod
     @transaction.atomic
@@ -177,7 +182,8 @@ class AIChannelConfigCommands:
             'channel': config.channel, 'action': 'set_primary',
             'model_id': model.model_id if model else None,
         })
-        runtime_cache.invalidate(config.channel)
+        revisions.touch_channel('set_primary', user=user, channel=config.channel)
+        config.refresh_from_db()
         return config
 
     @staticmethod
@@ -195,7 +201,8 @@ class AIChannelConfigCommands:
             'channel': config.channel, 'action': 'set_fallback_chain',
             'model_ids': [m.model_id for m in ordered_models],
         })
-        runtime_cache.invalidate(config.channel)
+        revisions.touch_channel('set_fallback_chain', user=user, channel=config.channel)
+        config.refresh_from_db()
         return config
 
     @staticmethod
@@ -206,5 +213,6 @@ class AIChannelConfigCommands:
         config.save(update_fields=['enabled', 'updated_by', 'updated_at'])
         from security.models import SecurityEvent
         _audit(SecurityEvent.AI_CHANNEL_CHANGED, user, {'channel': config.channel, 'action': 'set_enabled', 'enabled': enabled})
-        runtime_cache.invalidate(config.channel)
+        revisions.touch_channel('set_enabled', user=user, channel=config.channel)
+        config.refresh_from_db()
         return config

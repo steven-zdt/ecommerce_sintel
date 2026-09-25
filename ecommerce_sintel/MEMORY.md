@@ -26,6 +26,17 @@ Toda interacción y modificación de código respeta obligatoriamente los siguie
 
 ## 4. Historial Reciente y Tareas Actuales (Julio 2026)
 
+- **2026-09-25 -- Hardening F20-F24, Registry LLM dinamico e incidente `localhost` (una sola sesion):**
+  (1) Hardening: F21 kill switches del ADK (`AI_GLOBAL_ENABLED`, `AI_TOOLS_ENABLED`, `AI_WRITE_TOOLS_ENABLED`, `AI_EXTERNAL_ACTIONS_ENABLED`,
+  `AI_MODEL_CHAIN_ENABLED`), F22 security gate del AI Editor (`ai_editor/approval/security_gate.py`), F23 `SECURITY_MATRIX.md`, F24 `SLO.md` (parcial: faltan
+  mediciones en vivo), F20 playbooks. (2) `PLAN_LLMDINAMICO`: el ADK puede tomar la cadena de modelos del Registry de Django
+  (`ai_engine_adk/provider_registry.py`, flag `AI_PROVIDER_REGISTRY_ENABLED`), guard SSRF, `config_version`/historial/rollback (`ai_provider` migracion 0007),
+  validacion previa al activar un primario; estado en `AUDITORIA/LLM_PROVIDER_REGISTRY_F0_F4_2026-09-25.md`. (3) El chat usa SOLO LM Studio (Ollama de prod sigue vivo
+  para embeddings; decision temporal). (4) **Incidente:** el panel `ia-config` no conectaba con LM Studio: URL guardada `localhost` + `django` prod sin `extra_hosts`
+  (DNS publicos). Regla nueva **0-D** en `.AGENT.md`; detalle en `AUDITORIA/INCIDENTE_IA_CONFIG_LOCALHOST_2026-09-25.md`. Estado: `AI_PROVIDER_REGISTRY_ENABLED=true` ya
+  esta en `.env`/`.env.production` pero el ADK de prod NO se ha recreado (el chat sigue mandado por `LOCAL_MODEL_CHAIN`). Los tests e2e del ADK que necesitan el stack
+  completo estan anotados en `AUDITORIA/TESTS_PENDIENTES_STACK_COMPLETO_2026-09-25.md`. Pendiente sin commit: todo lo anterior.
+
 - **MIGRACION COMPLETA DEL CHAT DE SOPORTE A GOOGLE ADK (2026-09-14, mision "ADK-SINTEL"
   ADK-00 a ADK-13, sesion larga unica):** cambio arquitectonico mayor -- reemplaza
   LangGraph/`action_graph.py` como orquestador del chat de soporte por Google ADK

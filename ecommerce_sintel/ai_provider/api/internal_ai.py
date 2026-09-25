@@ -26,12 +26,27 @@ serializa `api_key`, solo `has_api_key`) -- no a este endpoint interno.
 
 Ruteado bajo /api/v1/internal/ai/ (ecommerce/internal_ai_urls.py).
 """
+import hmac
+import logging
+
+from django.conf import settings
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from ai_provider.services.providers import get_adapter
 from ai_provider.services.selectors import AIChannelConfigSelector
+
+
+logger = logging.getLogger(__name__)
+SERVICE_TOKEN_HEADER = 'X-AI-Service-Token'
+
+
+def _service_token_ok(request) -> bool:
+    """PLAN_LLMDINAMICO F3: token de servicio ADK -> Django (mismo AI_SERVICE_TOKEN de F2, con rotacion via *_PREVIOUS), en tiempo constante."""
+    given = request.headers.get(SERVICE_TOKEN_HEADER, '')
+    valid = [t for t in (getattr(settings, 'AI_SERVICE_TOKEN', ''), getattr(settings, 'AI_SERVICE_TOKEN_PREVIOUS', '')) if t]
+    return bool(given) and any(hmac.compare_digest(given.encode(), t.encode()) for t in valid)
 
 
 def _serialize_model(model) -> dict:
@@ -69,6 +84,12 @@ class AiProviderConfigView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request):
+        if not _service_token_ok(request):
+            # Este endpoint devuelve API keys descifradas: enforce -> 403 uniforme (no revela si falto o fue incorrecto).
+            enforce = getattr(settings, 'AI_PROVIDER_CONFIG_TOKEN_REQUIRED', False)
+            logger.warning('security_event=ai_provider_config_token_invalid mode=%s', 'enforce' if enforce else 'monitor')
+            if enforce:
+                return Response({'error': 'forbidden'}, status=403)
         channel = request.query_params.get('channel', 'support_chat')
         config = AIChannelConfigSelector.get_or_create_config(channel)
         chain = AIChannelConfigSelector.get_resolved_chain(channel)
@@ -76,6 +97,7 @@ class AiProviderConfigView(APIView):
         return Response({
             'channel': channel,
             'enabled': config.enabled,
+            'config_version': config.config_version,
             'primary': _serialize_model(primary) if primary else None,
             'fallbacks': [_serialize_model(m) for m in fallbacks],
         })

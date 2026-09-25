@@ -98,9 +98,29 @@ export const useAIProviderAdminStore = defineStore('aiProviderAdmin', {
       return res;
     },
 
-    async setPrimary(modelUuid) {
-      const res = await this._mutate(() => aiProviderService.setPrimary(modelUuid));
+    // El backend valida el modelo (conectividad + disponibilidad) antes de activarlo. Si falla responde 409 con `report`;
+    // el llamador puede reintentar con force=true tras confirmar con el admin.
+    async setPrimary(modelUuid, force = false) {
+      const res = await this._mutate(() => aiProviderService.setPrimary(modelUuid, 'support_chat', force));
       if (res.ok) this.channelConfig = res.data;
+      return res;
+    },
+
+    async validateModel(modelUuid) {
+      return this._mutate(() => aiProviderService.validateModel(modelUuid));
+    },
+
+    async fetchChannelHistory() {
+      return this._mutate(() => aiProviderService.getChannelHistory());
+    },
+
+    async rollbackChannel(version) {
+      const res = await this._mutate(() => aiProviderService.rollbackChannel(version));
+      if (res.ok) {
+        this.channelConfig = res.data;
+        // Restaurar un canal puede reactivar proveedores/modelos: recargar la lista para mostrar el estado real.
+        this.providers = await aiProviderService.listProviders();
+      }
       return res;
     },
 

@@ -50,7 +50,8 @@ def get_ai_bot_user():
 def is_ai_mode_active(room) -> bool:
     """El AI atiende la sala solo si nadie la escalo ni la tomo un humano."""
     return (
-        settings.AI_SUPPORT_CHAT_ENABLED
+        getattr(settings, 'AI_GLOBAL_ENABLED', True)
+        and settings.AI_SUPPORT_CHAT_ENABLED
         and room.status == room.STATUS_OPEN
         and not room.ai_paused
         and room.assigned_admin_id is None

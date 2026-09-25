@@ -29,6 +29,7 @@ from django.utils.text import slugify
 
 from ecommerce.base_models import SintelBaseModel
 from shared.fields import EncryptedTextField
+from ai_provider.services.url_guard import UnsafeProviderURL, validate_provider_url
 
 # Plan "AI Provider Runtime" (2026-08-13), FASE 2: limites razonables para timeout/
 # reintentos -- evita que un admin configure un proveedor que cuelgue el chat
@@ -75,6 +76,8 @@ class AIProvider(SintelBaseModel):
     )
     max_retries = models.PositiveIntegerField(default=1, validators=[MaxValueValidator(MAX_RETRIES_LIMIT)])
     metadata = models.JSONField(default=dict, blank=True)
+    # PLAN_LLMDINAMICO F1: version propia del proveedor (historial/rollback por proveedor).
+    config_version = models.PositiveIntegerField(default=1)
 
     last_tested_at = models.DateTimeField(null=True, blank=True)
     last_test_ok = models.BooleanField(null=True, blank=True)
@@ -99,6 +102,17 @@ class AIProvider(SintelBaseModel):
             parsed = urlparse(self.base_url)
             if parsed.scheme not in ('http', 'https') or not parsed.hostname:
                 raise ValidationError({'base_url': 'URL invalida (debe ser http:// o https://<host>[:puerto]).'})
+            # INCIDENTE 2026-09-25: localhost/127.0.0.1 dentro de Docker es el propio contenedor, nunca el equipo con LM Studio/Ollama; guardarlo
+            # producia un proveedor que "nunca conecta". Se rechaza al guardar (AI_PROVIDER_ALLOW_LOOPBACK=true solo para Django fuera de Docker).
+            if (parsed.hostname or '').lower() in ('localhost', '127.0.0.1', '::1', '0.0.0.0') and not getattr(settings, 'AI_PROVIDER_ALLOW_LOOPBACK', False):
+                raise ValidationError({'base_url': (
+                    'localhost/127.0.0.1 dentro de Docker es el propio contenedor, no tu equipo. Usa http://host.docker.internal:PUERTO '
+                    '(LM Studio: 1234, Ollama: 11434) o el nombre del servicio Docker (p. ej. http://sintel_ollama:11434).')})
+            # PLAN_LLMDINAMICO F3: guard SSRF (metadatos de nube, link-local, API de Docker, credenciales en la URL).
+            try:
+                validate_provider_url(self.base_url)
+            except UnsafeProviderURL as exc:
+                raise ValidationError({'base_url': str(exc)})
 
     def save(self, *args, **kwargs):
         if not self.slug:
@@ -169,6 +183,9 @@ class AIChannelConfig(SintelBaseModel):
     # tambien usa otro canal). Si enabled=False, get_dynamic_llm() debe tratarlo
     # igual que "cadena vacia" (cae a LOCAL_MODEL_CHAIN) -- FASE 19.
     enabled = models.BooleanField(default=True)
+    # PLAN_LLMDINAMICO F1/F7: sube en cada cambio que afecte a este canal (primario, fallbacks, o edicion/activacion de un proveedor o
+    # modelo). Viaja en el endpoint interno y en los logs del ADK para saber con que configuracion se atendio un turno.
+    config_version = models.PositiveIntegerField(default=1)
     primary_model = models.ForeignKey(
         AIModel, related_name='primary_for_channels', on_delete=models.PROTECT, null=True, blank=True,
     )
@@ -204,3 +221,34 @@ class AIChannelFallback(SintelBaseModel):
 
     def __str__(self):
         return f'{self.channel_config} fallback #{self.order}: {self.model}'
+
+
+class AIConfigRevision(SintelBaseModel):
+    """PLAN_LLMDINAMICO F1/F18 -- historial inmutable de cambios de configuracion, base del rollback.
+
+    scope='channel': snapshot del canal (enabled, primario, cadena de fallback, overrides) -- `version` = AIChannelConfig.config_version.
+    scope='provider': snapshot de los campos NO secretos de un AIProvider -- `version` propia por proveedor.
+    NUNCA guarda api_key ni ningun secreto (solo `has_api_key`): un rollback de proveedor conserva la key actual."""
+
+    SCOPE_CHANNEL = 'channel'
+    SCOPE_PROVIDER = 'provider'
+    SCOPE_CHOICES = [(SCOPE_CHANNEL, 'Canal'), (SCOPE_PROVIDER, 'Proveedor')]
+
+    scope = models.CharField(max_length=20, choices=SCOPE_CHOICES)
+    target_uuid = models.UUIDField(db_index=True)
+    channel = models.CharField(max_length=50, blank=True)
+    version = models.PositiveIntegerField()
+    action = models.CharField(max_length=60)
+    snapshot = models.JSONField(default=dict)
+    changed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, related_name='+', on_delete=models.SET_NULL, null=True, blank=True,
+    )
+
+    class Meta:
+        ordering = ['-version', '-created_at']
+        constraints = [
+            models.UniqueConstraint(fields=['scope', 'target_uuid', 'version'], name='unique_revision_version_per_target'),
+        ]
+
+    def __str__(self):
+        return f'{self.scope}:{self.target_uuid} v{self.version} ({self.action})'

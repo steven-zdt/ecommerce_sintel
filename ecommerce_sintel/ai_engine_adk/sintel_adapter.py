@@ -195,6 +195,30 @@ def _sintel_ctx_from_adk_state(adk_tool_context: AdkToolContext):
     )
 
 
+def kill_switch_tools_before(*, tool, args, tool_context, **_ignored):
+    """HARDENING F21: `before_tool_callback` con la jerarquia de kill switches. Se evalua ANTES que cualquier otra guardia y no
+    depende del modelo. AI_TOOLS_ENABLED=false niega toda Tool; AI_WRITE_TOOLS_ENABLED=false niega nivel >= 1 (y sin clasificar,
+    fail-closed); AI_EXTERNAL_ACTIONS_ENABLED=false niega nivel >= 3. Devuelve dict 503 (la Tool no se ejecuta) o None."""
+    import config as ai_config
+    from tools.registry import get_tool
+
+    reason = None
+    if not ai_config.AI_TOOLS_ENABLED:
+        reason = "tools_disabled"
+    else:
+        registered = get_tool(tool.name)
+        level = getattr(getattr(registered, "metadata", None), "level", -1) if registered is not None else -1
+        if level < 0 or level >= 1:
+            if not ai_config.AI_WRITE_TOOLS_ENABLED:
+                reason = "write_tools_disabled"
+        if reason is None and level >= 3 and not ai_config.AI_EXTERNAL_ACTIONS_ENABLED:
+            reason = "external_actions_disabled"
+    if reason is None:
+        return None
+    logger.warning("security_event=ai_kill_switch_tool_denied reason=%s tool=%s", reason, tool.name)
+    return {"error": "Esta accion esta deshabilitada temporalmente. Un agente humano puede ayudarte.", "status_code": 503}
+
+
 def validate_tool_args_before(*, tool, args, tool_context, **_ignored):
     """HARDENING F4/C2: `before_tool_callback` que valida los argumentos CRUDOS del modelo contra `args_schema`
     (campos desconocidos, requeridos, tipos, UUID, enum, rangos). El ADK descarta en silencio los campos ajenos a la

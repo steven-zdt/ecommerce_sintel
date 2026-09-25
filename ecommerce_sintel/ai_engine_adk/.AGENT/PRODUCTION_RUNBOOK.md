@@ -30,3 +30,12 @@ Hecho en prod: Ollama de producción (F1/C1) y ADK con cadena Ollama primario + 
 
 ## 6. Pendientes operativos
 Baseline en vivo de F10 y SLO (F24); mediciones de F12 (`num_ctx`, `keep_alive`) y F13 (carga/concurrencia); simulacros de F14 (`chaos_dev.py`); conectar el lock del ADK al build y fijar digests (F16); copia externa cifrada de backups (F15); mover confirmaciones pendientes a Redis (F14); cola dedicada de Celery para `ask_ai` (F13); healthcheck del ADK de dev.
+
+## Troubleshooting: el chat o el panel no conectan con LM Studio (agregado 2026-09-25)
+1. En el host: `curl http://127.0.0.1:1234/v1/models` debe listar modelos (LM Studio con el servidor local iniciado).
+2. Log de LM Studio (`~/.lmstudio/apps/bionic/server-logs`): al probar debe aparecer `Received request: GET to /v1/models`. **Si no aparece, el fallo es de red/URL**, no del modelo.
+3. URL en el panel / `LOCAL_MODEL_CHAIN`: `http://host.docker.internal:1234/v1`, nunca `localhost`/`127.0.0.1`.
+4. `docker inspect <contenedor> --format '{{.HostConfig.ExtraHosts}}'` debe incluir `host.docker.internal:host-gateway` (django, sintel_ai, sintel_ai_adk).
+5. Reproducir con un contenedor desechable con las mismas redes/DNS/`--add-host` (no con los defaults de Docker).
+6. Cambios de entorno/compose: `up -d --force-recreate <servicio>`; de codigo: rebuild. Ver `AUDITORIA/INCIDENTE_IA_CONFIG_LOCALHOST_2026-09-25.md`.
+

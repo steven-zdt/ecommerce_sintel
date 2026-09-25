@@ -27,6 +27,12 @@ class ChangeSummary:
     validation_status: str = "UNKNOWN"
     validation_issues: list[str] = field(default_factory=list)
     unexpected_changes_note: str = "No verificado -- Graph Reconciliation (POST-GRAPH 9) esta NOT_IMPLEMENTED."
+    # HARDENING F22: superficies de seguridad tocadas ({categoria: [archivos]}); no vacio = SECURITY_REVIEW_REQUIRED.
+    security_categories: dict = field(default_factory=dict)
+
+    @property
+    def security_review_required(self) -> bool:
+        return bool(self.security_categories)
 
     def to_dict(self) -> dict:
         return {
@@ -37,6 +43,8 @@ class ChangeSummary:
             "documentation": self.documentation, "validation_status": self.validation_status,
             "validation_issues": self.validation_issues,
             "unexpected_changes_note": self.unexpected_changes_note,
+            "security_review_required": self.security_review_required,
+            "security_categories": self.security_categories,
         }
 
     def render_text(self) -> str:
@@ -60,6 +68,11 @@ class ChangeSummary:
             + (f" -- {'; '.join(self.validation_issues)}" if self.validation_issues else ""),
             f"Unexpected changes: {self.unexpected_changes_note}",
         ]
+        if self.security_review_required:
+            lines.append(
+                "SECURITY_REVIEW_REQUIRED: "
+                + "; ".join(f"{cat} -> {', '.join(fs)}" for cat, fs in self.security_categories.items())
+            )
         return "\n".join(lines)
 
 
@@ -67,6 +80,8 @@ class ChangeSummary:
 class ApprovalRecord:
     decision: str
     reviewer_note: str | None = None
+    # HARDENING F22: aprobacion elevada. Sin esto, promote_to_workspace rechaza cambios que tocan superficies de seguridad.
+    security_review_acknowledged: bool = False
     timestamp: str = field(default_factory=lambda: datetime.datetime.now(datetime.timezone.utc).isoformat())
 
     def __post_init__(self) -> None:
@@ -74,4 +89,5 @@ class ApprovalRecord:
             raise ValueError(f"decision invalida: '{self.decision}' -- validas: {_VALID_DECISIONS}")
 
     def to_dict(self) -> dict:
-        return {"decision": self.decision, "reviewer_note": self.reviewer_note, "timestamp": self.timestamp}
+        return {"decision": self.decision, "reviewer_note": self.reviewer_note,
+                "security_review_acknowledged": self.security_review_acknowledged, "timestamp": self.timestamp}

@@ -46,7 +46,14 @@ class ModelUnavailableError(RuntimeError):
 _turn_trace: contextvars.ContextVar = contextvars.ContextVar("ai_turn_model_trace", default=None)
 
 
+# PLAN_LLMDINAMICO F4: snapshot de la cadena de modelos al primer uso del turno; un cambio en el Registry a mitad de un
+# turno (varias llamadas al modelo) no cambia de proveedor hasta el turno siguiente. Contexto aparte de la traza: NUNCA
+# entra a las metricas (las entradas pueden llevar api_key_value).
+_chain_snapshot: contextvars.ContextVar = contextvars.ContextVar("ai_turn_chain_snapshot", default=None)
+
+
 def begin_turn_trace() -> dict:
+    _chain_snapshot.set(None)
     trace = {"provider": None, "model": None, "fallback_used": False, "fallback_reason": None,
              "breaker_state": None, "attempts": 0}
     _turn_trace.set(trace)
@@ -282,12 +289,15 @@ def llm_params_for_entry(entry: dict) -> dict:
     if kind == "ollama-nativo":
         return {"model": f"ollama_chat/{entry['model']}", "api_base": entry["base_url"]}
     if kind == "openai-compatible":
-        return {"model": f"openai/{entry['model']}", "api_base": entry["base_url"], "api_key": "not-needed"}
+        # PLAN_LLMDINAMICO F4: la key cifrada del Registry (api_key_value) tiene prioridad; LOCAL_MODEL_CHAIN no la trae.
+        return {"model": f"openai/{entry['model']}", "api_base": entry["base_url"],
+                "api_key": entry.get("api_key_value") or "not-needed"}
     if kind == "anthropic":
         from decouple import config as env
 
-        api_key = env(entry["api_key_env"], default=ai_config.ANTHROPIC_API_KEY) if entry.get("api_key_env") \
-            else ai_config.ANTHROPIC_API_KEY
+        api_key = entry.get("api_key_value") or (
+            env(entry["api_key_env"], default=ai_config.ANTHROPIC_API_KEY) if entry.get("api_key_env")
+            else ai_config.ANTHROPIC_API_KEY)
         return {"model": f"anthropic/{entry['model']}", "api_key": api_key}
     raise RuntimeError(f"kind desconocido en LOCAL_MODEL_CHAIN: {kind!r}")
 
@@ -308,15 +318,48 @@ class FallbackLiteLlm(LiteLlm):
 
     _chain: list = PrivateAttr(default_factory=list)
     _breaker: object = PrivateAttr(default=None)
+    _factory: object = PrivateAttr(default=None)
+    _use_registry: bool = PrivateAttr(default=False)
+    _inner_cache: dict = PrivateAttr(default_factory=dict)
+    _snapshot_key: object = PrivateAttr(default_factory=object)  # identidad unica (id(self) puede reutilizarse tras liberar la instancia)
 
     def __init__(self, entries: list[dict], timeout: int, breaker: ProviderBreaker | None = None,
-                 inner_factory=None):
+                 inner_factory=None, use_registry: bool = False):
         if not entries:
             raise RuntimeError("LOCAL_MODEL_CHAIN vacio o invalido -- ningun proveedor LLM configurado.")
         factory = inner_factory or (lambda params: LiteLlm(timeout=timeout, **params))
         super().__init__(timeout=timeout, **llm_params_for_entry(entries[0]))
         self._chain = [(e, factory(llm_params_for_entry(e))) for e in entries]
         self._breaker = breaker or get_breaker()
+        self._factory = factory
+        self._use_registry = use_registry
+        self._inner_cache = {}
+
+    def _inner_for(self, entry: dict):
+        """LiteLlm por entrada del Registry, reutilizado mientras no cambien sus parametros (URL, modelo, key)."""
+        params = llm_params_for_entry(entry)
+        key = tuple(sorted((k, str(v)) for k, v in params.items()))
+        inner = self._inner_cache.get(key)
+        if inner is None:
+            if len(self._inner_cache) >= 16:
+                self._inner_cache.clear()
+            inner = self._inner_cache[key] = self._factory(params)
+        return inner
+
+    async def _resolve_chain(self) -> list:
+        """Cadena a usar en este turno: snapshot del turno > Registry (si esta habilitado y responde) > LOCAL_MODEL_CHAIN."""
+        snapshot = _chain_snapshot.get()
+        if snapshot is not None and snapshot[0] is self._snapshot_key:
+            return snapshot[1]
+        chain = self._chain
+        if self._use_registry:
+            import provider_registry
+
+            entries = await provider_registry.get_registry_entries()
+            if entries:
+                chain = [(e, self._inner_for(e)) for e in entries]
+        _chain_snapshot.set((self._snapshot_key, chain))
+        return chain
 
     async def generate_content_async(self, llm_request, stream: bool = False):
         trace = _trace()
@@ -324,7 +367,7 @@ class FallbackLiteLlm(LiteLlm):
         attempts = 0
         last_reason = None
         first_index = None
-        for idx, (entry, inner) in enumerate(self._chain):
+        for idx, (entry, inner) in enumerate(await self._resolve_chain()):
             name = entry["name"]
             if enabled:
                 allowed, state = await self._breaker.allow(name)
@@ -374,4 +417,4 @@ class FallbackLiteLlm(LiteLlm):
 
 def build_fallback_model(timeout: int) -> FallbackLiteLlm:
     entries = parse_local_model_chain(ai_config.LOCAL_MODEL_CHAIN)
-    return FallbackLiteLlm(entries, timeout=timeout)
+    return FallbackLiteLlm(entries, timeout=timeout, use_registry=ai_config.AI_PROVIDER_REGISTRY_ENABLED)

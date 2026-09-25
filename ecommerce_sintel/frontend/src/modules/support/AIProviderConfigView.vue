@@ -18,6 +18,47 @@
 
     <div v-else-if="store.channelConfig" class="card mb-3">
       <div class="card-body">
+        <h6 class="mb-2">Configuracion activa (chat de soporte)</h6>
+        <div class="row g-2 small mb-3">
+          <div class="col-6 col-md-3">
+            <div class="text-muted">Proveedor activo</div>
+            <strong>{{ activeProvider?.name || 'LOCAL_MODEL_CHAIN (arranque)' }}</strong>
+          </div>
+          <div class="col-6 col-md-3">
+            <div class="text-muted">Modelo activo</div>
+            <strong>{{ store.channelConfig.primary_model?.display_name || store.channelConfig.primary_model?.model_id || '-' }}</strong>
+          </div>
+          <div class="col-6 col-md-2">
+            <div class="text-muted">Estado</div>
+            <strong v-if="!activeProvider">-</strong>
+            <strong v-else-if="!store.channelConfig.enabled" class="text-muted">Canal apagado</strong>
+            <strong v-else-if="activeProvider.last_test_ok === true" class="text-success">Conexion OK</strong>
+            <strong v-else-if="activeProvider.last_test_ok === false" class="text-danger">Conexion fallo</strong>
+            <strong v-else class="text-muted">Sin probar</strong>
+          </div>
+          <div class="col-6 col-md-2">
+            <div class="text-muted">Latencia (ultima prueba)</div>
+            <strong>{{ activeProvider?.last_test_latency_ms != null ? activeProvider.last_test_latency_ms + ' ms' : '-' }}</strong>
+          </div>
+          <div class="col-6 col-md-2">
+            <div class="text-muted">Version de config</div>
+            <strong>v{{ store.channelConfig.config_version }}</strong>
+          </div>
+        </div>
+
+        <div v-if="pendingForce" class="alert alert-warning small d-flex justify-content-between align-items-center gap-2">
+          <span>
+            <strong>La validacion previa fallo</strong> para "{{ pendingForce.label }}": {{ pendingForce.message }}
+            No se cambio el modelo primario.
+          </span>
+          <span class="d-flex gap-2 flex-shrink-0">
+            <button class="btn btn-sm btn-outline-secondary" @click="pendingForce = null">Cancelar</button>
+            <button class="btn btn-sm btn-warning" :disabled="store.actionLoading" @click="handleSetPrimary(pendingForce.model, true)">
+              Activar de todas formas
+            </button>
+          </span>
+        </div>
+
         <h6 class="mb-2">Cadena de fallback (chat de soporte)</h6>
         <p class="text-muted small mb-2">
           Si el modelo primario falla, se intenta con el siguiente de esta lista, en orden.
@@ -46,6 +87,8 @@
         >Guardar orden de fallback</button>
       </div>
     </div>
+
+    <AIConfigHistory v-if="!store.loading && store.channelConfig" />
 
     <div v-if="!store.loading" class="row g-3">
       <div class="col-12" v-for="provider in store.providers" :key="provider.uuid">
@@ -170,13 +213,14 @@
 </template>
 
 <script setup>
-import { onMounted, reactive, ref, watch } from 'vue';
+import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useAIProviderAdminStore } from '@/store/aiProviderAdmin';
 import { useOffcanvas } from '@/composables/useOffcanvas';
 import { useToast } from '@/composables/useToast';
 import { useErrorHandler } from '@/composables/useErrorHandler';
 import SintelOffcanvas from '@/components/ui/SintelOffcanvas.vue';
 import AIProviderForm from './AIProviderForm.vue';
+import AIConfigHistory from './AIConfigHistory.vue';
 
 const store = useAIProviderAdminStore();
 const offcanvas = useOffcanvas();
@@ -187,6 +231,13 @@ const testingUuid = ref(null);
 const discoveringUuid = ref(null);
 const confirmingDeleteUuid = ref(null);
 const discovered = reactive({});
+
+const pendingForce = ref(null);
+const activeProvider = computed(() => {
+  const primary = store.channelConfig?.primary_model;
+  if (!primary) return null;
+  return store.providers.find((p) => (p.models || []).some((m) => m.uuid === primary.uuid)) || null;
+});
 
 const fallbackChain = ref([]);
 const fallbackChainDirty = ref(false);
@@ -297,10 +348,20 @@ async function handleDeleteModel(provider, model) {
   else handleError(res.error, 'No se pudo eliminar el modelo.');
 }
 
-async function handleSetPrimary(model) {
-  const res = await store.setPrimary(model.uuid);
-  if (res.ok) toast.success(`"${model.display_name || model.model_id}" es ahora el modelo primario del chat.`);
-  else handleError(res.error, 'No se pudo actualizar el modelo primario.');
+async function handleSetPrimary(model, force = false) {
+  const res = await store.setPrimary(model.uuid, force);
+  if (res.ok) {
+    pendingForce.value = null;
+    toast.success(`"${model.display_name || model.model_id}" es ahora el modelo primario del chat.`);
+    return;
+  }
+  // 409 = la validacion previa (conectividad/modelo disponible) fallo y NO se cambio nada: pedir confirmacion para forzar.
+  const report = res.error?.response?.status === 409 ? res.error.response.data?.report : null;
+  if (report) {
+    pendingForce.value = { model, label: model.display_name || model.model_id, message: report.message };
+  } else {
+    handleError(res.error, 'No se pudo actualizar el modelo primario.');
+  }
 }
 </script>
 
