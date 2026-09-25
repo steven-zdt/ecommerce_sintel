@@ -26,6 +26,13 @@ Toda interacción y modificación de código respeta obligatoriamente los siguie
 
 ## 4. Historial Reciente y Tareas Actuales (Julio 2026)
 
+- **2026-09-25 -- Servidor MCP de administracion (`mcp_server/`, PROMPT_IMPLEMENTAR_MCP_ECOMMERCE_ADMIN_CODE_AGENT_SINTEL):** adapter Streamable HTTP (SDK oficial `mcp` 2.2.0) sobre la API REST del panel.
+  Bearer = JWT de un admin validado por Django (`GET /api/v1/dashboard/mcp/whoami/`, nuevo); perfiles MCP por email (`MCP_PRINCIPAL_PROFILES`, por defecto `READ_ONLY`); `api.describe`, `crud.list|get|preview_*|create|update|delete`
+  (shop escribible; taxes/services/renting/orders/quotes/payment solo lectura; marketing/support/inventory/users/notifications bloqueados con motivo), fichas de confirmacion HMAC, `idempotency_key`, `expected_version`
+  (VERSION_CONFLICT), auditoria JSON, rate limit, PII/secretos redactados, `code.search|read` de solo lectura con guardas. Imagen propia `sintel_ecommerce_mcp`, perfil compose `mcp` (solo dev). 83 comprobaciones
+  funcionales OK con un cliente MCP real; tests unitarios escritos y no ejecutados. **NO desplegado; plano de codigo con escritura (ai_editor), business.audit, OAuth/tokens largos y produccion pendientes.**
+  Detalle: `mcp_server/.AGENT/`, `AUDITORIA/MCP_IMPLEMENTATION_REPORT.md`, `MCP_SECURITY_AUDIT.md`, `MCP_E2E_REPORT.md`.
+
 - **2026-09-25 -- Hardening F20-F24, Registry LLM dinamico e incidente `localhost` (una sola sesion):**
   (1) Hardening: F21 kill switches del ADK (`AI_GLOBAL_ENABLED`, `AI_TOOLS_ENABLED`, `AI_WRITE_TOOLS_ENABLED`, `AI_EXTERNAL_ACTIONS_ENABLED`,
   `AI_MODEL_CHAIN_ENABLED`), F22 security gate del AI Editor (`ai_editor/approval/security_gate.py`), F23 `SECURITY_MATRIX.md`, F24 `SLO.md` (parcial: faltan

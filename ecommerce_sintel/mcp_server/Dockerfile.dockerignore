@@ -1,0 +1,6 @@
+# Contexto = raiz del repo; el MCP solo necesita mcp_server/ (nunca .env, secretos, media, backups ni el resto del codigo).
+*
+!mcp_server/
+mcp_server/**/__pycache__
+mcp_server/tests/
+mcp_server/.empty

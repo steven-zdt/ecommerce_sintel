@@ -112,6 +112,7 @@ from dashboard.api.content_blocks_views import (
 )
 from operations.api.views import AdminOperationViewSet, AdminDispatcherViewSet
 from dashboard.api.ai_provider_views import AdminAIProviderViewSet, AdminAIChannelConfigViewSet, AdminMCPServerViewSet
+from dashboard.api.mcp_views import AdminMcpWhoAmIView
 
 router = DefaultRouter()
 
@@ -257,6 +258,7 @@ router.register(r'ai-channel-config', AdminAIChannelConfigViewSet,  basename='ad
 router.register(r'ai-mcp-servers',    AdminMCPServerViewSet,        basename='admin-ai-mcp-servers')
 
 urlpatterns = [
+    path('mcp/whoami/', AdminMcpWhoAmIView.as_view(), name='admin-mcp-whoami'),
     path('metrics/', AdminMetricsView.as_view(), name='admin-metrics'),
     path('whatsapp/connection-status/', AdminWhatsAppConnectionStatusView.as_view(), name='admin-whatsapp-connection-status'),
     path('whatsapp/session-action/', AdminWhatsAppSessionActionView.as_view(), name='admin-whatsapp-session-action'),

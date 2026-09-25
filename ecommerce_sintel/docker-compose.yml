@@ -326,6 +326,54 @@ services:
     networks:
       - ecommerce_sintel_network
 
+  # PROMPT_IMPLEMENTAR_MCP_ECOMMERCE_ADMIN_CODE_AGENT_SINTEL (2026-09-25): servidor MCP de administracion. Perfil `mcp` => NO arranca con `up -d` normal:
+  #   docker compose --profile mcp up -d mcp_server
+  # Imagen propia, no root, filesystem de solo lectura, sin capacidades, sin Postgres/Redis/Docker socket, sin `env_file` (no hereda secretos de .env).
+  # Habla solo con Django (http://django:8000) con el token del propio cliente. El workspace se monta SOLO LECTURA y con .env* tapados (defensa en profundidad).
+  mcp_server:
+    profiles: ["mcp"]
+    build:
+      context: .
+      dockerfile: mcp_server/Dockerfile
+    image: sintel_ecommerce_mcp:latest
+    container_name: ecommerce_sintel_mcp
+    restart: unless-stopped
+    environment:
+      MCP_ENABLED: "true"
+      MCP_HOST: "0.0.0.0"
+      MCP_PORT: "8200"
+      MCP_PUBLIC_BASE_URL: "http://127.0.0.1:8200"
+      MCP_AUTH_MODE: "django_jwt"
+      MCP_DJANGO_API_URL: "http://django:8000"
+      MCP_DEFAULT_PROFILE: "READ_ONLY"
+      # perfiles por admin (email=PERFIL,...): sin entrada => READ_ONLY. Ejemplo: MCP_PRINCIPAL_PROFILES: "admin@sintel.net.co=ADMIN_CRUD"
+      MCP_PRINCIPAL_PROFILES: "${MCP_PRINCIPAL_PROFILES:-}"
+      MCP_RATE_LIMIT: "${MCP_RATE_LIMIT:-60}"
+      MCP_WRITE_RATE_LIMIT: "${MCP_WRITE_RATE_LIMIT:-20}"
+      MCP_WORKSPACE_ROOT: "/workspace"
+      MCP_ALLOWED_HOSTS: "127.0.0.1:*,localhost:*,mcp_server:*,ecommerce_sintel_mcp:*"
+    volumes:
+      - ./:/workspace:ro
+      - /dev/null:/workspace/.env:ro
+      - /dev/null:/workspace/.env.production:ro
+    ports:
+      - "127.0.0.1:8200:8200"
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 512m
+    cpus: 1.0
+    pids_limit: 200
+    depends_on:
+      django:
+        condition: service_healthy
+    networks:
+      - ecommerce_sintel_network
+
   # ─── REVERSE PROXY ─────────────────────────────────────────────────────────
   nginx:
     image: nginx:1.26-alpine

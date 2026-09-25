@@ -328,3 +328,9 @@ fuente adicional de logica de validacion.
 - **Tests**: verificado en vivo con `curl` real contra el servidor de desarrollo (connect sin
   gateway → `NOT_IMPLEMENTED` limpio, acción inválida → 400, `qr_image` presente en el shape) —
   ver `AUDITORIA/WHATSAPP_BAILEYS_ARCHITECTURE.md`.
+
+### 2026-09-25 - Endpoint de identidad para el servidor MCP
+- `GET /api/v1/dashboard/mcp/whoami/` (`dashboard/api/mcp_views.py::AdminMcpWhoAmIView`, `ADMIN_PERMISSIONS`): solo lectura; devuelve `{uuid, email, is_admin, is_staff, is_superuser}` del propio token.
+  Existe porque `/api/v1/auth/profile/` no expone `is_superuser`. Lo consume `mcp_server/auth.py` para validar el bearer de los clientes MCP con la autoridad de Django (sin RBAC paralelo).
+- Tests escritos (no ejecutados): `dashboard/tests_mcp_whoami.py`. Ver `mcp_server/.AGENT/ARCHITECTURE.md` y `AUDITORIA/MCP_IMPLEMENTATION_REPORT.md`.
+

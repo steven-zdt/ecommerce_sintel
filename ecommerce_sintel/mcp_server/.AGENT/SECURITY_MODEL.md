@@ -1,0 +1,48 @@
+# SECURITY_MODEL - SINTEL MCP
+
+Principio: `MCP permission != Django permission != Tool permission != business authorization`. El MCP AGREGA capas; nunca sustituye a Django.
+
+## 1. Identidad y autenticacion
+- Bearer = JWT de acceso (simplejwt) de un **admin**. El MCP no tiene el secreto de firma: pregunta a Django (`GET /api/v1/dashboard/mcp/whoami/`, `IsAdminUser` = `is_staff AND is_superuser`).
+  Django responde 401 (invalido/caducado) o 403 (no admin) => el MCP responde 401. Django inalcanzable => falla cerrado.
+- La identidad NUNCA viene de argumentos (`user_id`, `role`, `is_admin` se ignoran). El token viaja reenviado a Django en cada llamada: **Django aplica sus permisos** (no hay RBAC paralelo).
+- Limite conocido: el access token dura 15 min (SimpleJWT). Tokens personales/OAuth de larga duracion NO estan implementados (`MCP_AUTH_MODE=service_token|oauth` => el servidor no arranca).
+
+## 2. Perfiles MCP (capa adicional)
+`READ_ONLY` (por defecto para todo admin), `ADMIN_CRUD`, `CODE_REVIEW`, `CODE_CHANGE`, `FULL_MAINTAINER`. Se asignan por email en `MCP_PRINCIPAL_PROFILES` (`email=PERFIL,...`). Un perfil desconocido cae al por defecto.
+Hoy CODE_REVIEW/CODE_CHANGE == READ_ONLY (las Tools de propuesta/promocion no existen) y FULL_MAINTAINER == ADMIN_CRUD; ningun perfil salta la aprobacion humana de `ai_editor`.
+
+## 3. Escrituras
+Riesgo por operacion en `registry.py` (create/update medio, delete alto, lecturas bajo). Medio/alto: **preview -> confirmation_token** (HMAC, un solo uso, 5 min, atado a principal+tool+recurso+operacion+objetivo+hash del payload+version).
+Alto: ademas `confirm=true` (se comprueba ANTES de consumir la ficha). `create` exige `idempotency_key`; `update/delete` exigen `expected_version` (`VERSION_CONFLICT` si el registro cambio; nunca se sobrescribe en silencio).
+Limite honesto: la ficha prueba que se previsualizo con esos parametros; la decision humana la toma el cliente MCP al aprobar la llamada. Entre releer y escribir hay una ventana (TOCTOU) porque la API de Django no admite `If-Match`.
+
+## 4. Sin acceso arbitrario
+- Sin URL arbitraria: `django_client.call` solo compone `/api/v1/dashboard/<recurso del registro>/[uuid]/` (regex estricta, uuid validado). No hay SSRF por construccion.
+- Sin SQL/ORM/shell/Docker/filesystem: no existen esas capacidades ni Tools con esos nombres. El contenedor no monta Postgres/Redis/socket.
+- Borrado: solo logico (regla del proyecto). Sin DELETE fisico.
+
+## 5. Datos no confiables (prompt injection)
+Todo texto de la BD (descripciones, mensajes, tickets, campanas) se devuelve como DATO: `data_notice` + `suspicious_fields` (senal informativa). Los prompts MCP no contienen bypass. Ninguna Tool interpreta contenido de un registro como instruccion.
+
+## 6. Salida y secretos
+`sanitize.redact` (claves sensibles -> `[REDACTED]`, cadenas y listas acotadas), PII enmascarada en recursos sensibles (`orders`, `quotations`, `payment-transactions`: solo lectura), tope de bytes por respuesta.
+Codigo: `redact_text` enmascara `SECRET_KEY = '...'`, `password: ...`, `config('X', default='valor')`. Los tokens jamas entran a logs (`Principal.token` con `repr=False`; auditoria con `redact`).
+
+## 7. Plano de codigo (solo lectura)
+`MCP_WORKSPACE_ROOT` vacio => desactivado. Rutas relativas normalizadas, sin `..`, sin absolutas/unidades, sin bytes nulos, **sin symlinks**, dentro del workspace, tope 64 KB, solo extensiones de texto, lista de rutas sensibles
+(`.env`, `secret`, `credential`, `.pem`, `.key`, `backup`, `.dump`, `private_media`, `.git/`, `token`...). Compose monta el repo `:ro` y tapa `.env` y `.env.production` con `/dev/null`. `code.search` sin regex del usuario ni shell.
+
+## 8. Limites y abuso
+Rate limit por ventana de 60 s: global (x10), principal (`MCP_RATE_LIMIT`, 60), operacion (escrituras `MCP_WRITE_RATE_LIMIT`, 20) y recurso; `limit<=50` registros, `page<=20`, payload de escritura <= 64 KB, cuerpo HTTP <= 256 KB (`413`),
+timeout upstream 20 s. Todo en memoria por proceso (varias replicas => cada una cuenta aparte).
+
+## 9. Red y transporte
+Proteccion DNS-rebinding activa (`allowed_hosts`/`allowed_origins`). `/mcp-health` es interno (no publicar por nginx). Produccion: HTTPS por Cloudflare/nginx, nunca puertos internos (5432, 6379, 11434, 8100, 8101).
+
+## 10. Auditoria
+Cada escritura y cada denegacion deja una linea JSON (`logger mcp.audit`): principal, herramienta, recurso, operacion, objetivo, campos cambiados (solo nombres), riesgo, confirmacion, resultado, `request_id`, `trace_id`. Sin secretos.
+Limite: la auditoria va a los logs del contenedor (no a `SecurityEvent` de Django todavia).
+
+## Riesgos residuales
+Token de 15 min; idempotencia/confirmaciones/rate limit en memoria (se pierden al reiniciar); TOCTOU en update/delete; auditoria solo en logs; plano de codigo sin integrar con `ai_editor` (no hay escritura de codigo).
