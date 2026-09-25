@@ -24,6 +24,10 @@ DJANGO = os.environ.get("DJANGO_URL", "http://django:8000").rstrip("/")
 TOKEN_ADMIN = os.environ.get("TOKEN_ADMIN", "")
 TOKEN_CUSTOMER = os.environ.get("TOKEN_CUSTOMER", "")
 ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "")
+TOKEN_PAT = os.environ.get("TOKEN_PAT", "")
+TOKEN_PAT_REVOKED = os.environ.get("TOKEN_PAT_REVOKED", "")
+PAT_UUID = os.environ.get("PAT_UUID", "")
+PAT_CACHE_TTL = int(os.environ.get("PAT_CACHE_TTL", "3"))
 PHASE = os.environ.get("PHASE", "readonly")
 FAILS = []
 
@@ -272,6 +276,25 @@ async def phase_write():
         check("idempotency_key invalida rechazada", not ok and err.get("code") == "INVALID_ARGUMENT", err.get("code", ""))
 
 
+async def phase_pat():
+    """Tokens personales (smcp_...): requiere el servidor con MCP_PAT_CACHE_TTL corto (p. ej. 3)."""
+    await denied(TOKEN_PAT_REVOKED, "token personal REVOCADO: rechazado")
+    await denied("smcp_" + "z" * 43, "token personal desconocido: rechazado")
+    async with connect(TOKEN_PAT) as s:
+        ok, who = await call(s, "mcp.whoami")
+        check("token personal: identidad del admin dueno y perfil por defecto", ok and who["profile"] == "READ_ONLY" and (not ADMIN_EMAIL or who["principal"] == ADMIN_EMAIL),
+              who.get("principal", "") if ok else str(who))
+        ok, lst = await call(s, "crud.list", resource="brands", limit=2)
+        check("token personal: la API responde con la autoridad de Django (JWT canjeado)", ok and "items" in lst, "" if ok else str(lst))
+        ok, err = await call(s, "crud.create", resource="categories", data={"name": "x"}, idempotency_key="pat-key-00001")
+        check("token personal respeta los perfiles MCP (READ_ONLY no escribe)", not ok and err.get("code") == "FORBIDDEN_TOOL", err.get("code", ""))
+    # revocar en caliente desde Django (sesion normal del admin) y esperar el TTL de cache del verificador
+    resp = await django_call("DELETE", f"/api/v1/dashboard/mcp-tokens/{PAT_UUID}/", TOKEN_ADMIN)
+    check("revocacion desde el panel (204)", resp.status_code == 204, str(resp.status_code))
+    await asyncio.sleep(PAT_CACHE_TTL + 2)
+    await denied(TOKEN_PAT, f"token personal revocado en caliente: rechazado tras el TTL de cache ({PAT_CACHE_TTL}s)")
+
+
 async def phase_ratelimit():
     """Requiere el servidor con MCP_RATE_LIMIT=60 (por defecto) recien reiniciado."""
     async with connect(TOKEN_ADMIN) as s:
@@ -286,7 +309,7 @@ async def phase_ratelimit():
 
 async def main() -> int:
     print(f"## fase={PHASE} url={MCP_URL}", flush=True)
-    await {"readonly": phase_readonly, "write": phase_write, "ratelimit": phase_ratelimit}[PHASE]()
+    await {"readonly": phase_readonly, "write": phase_write, "ratelimit": phase_ratelimit, "pat": phase_pat}[PHASE]()
     print(f"## RESUMEN: {len(FAILS)} fallo(s)", FAILS, flush=True)
     return 1 if FAILS else 0
 

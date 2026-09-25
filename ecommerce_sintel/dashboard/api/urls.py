@@ -112,7 +112,7 @@ from dashboard.api.content_blocks_views import (
 )
 from operations.api.views import AdminOperationViewSet, AdminDispatcherViewSet
 from dashboard.api.ai_provider_views import AdminAIProviderViewSet, AdminAIChannelConfigViewSet, AdminMCPServerViewSet
-from dashboard.api.mcp_views import AdminMcpWhoAmIView
+from dashboard.api.mcp_views import AdminMcpAuditView, AdminMcpTokenViewSet, AdminMcpWhoAmIView
 
 router = DefaultRouter()
 
@@ -256,9 +256,11 @@ router.register(r'payment-transactions',   AdminPaymentViewSet,          basenam
 router.register(r'ai-providers',      AdminAIProviderViewSet,       basename='admin-ai-providers')
 router.register(r'ai-channel-config', AdminAIChannelConfigViewSet,  basename='admin-ai-channel-config')
 router.register(r'ai-mcp-servers',    AdminMCPServerViewSet,        basename='admin-ai-mcp-servers')
+router.register(r'mcp-tokens',        AdminMcpTokenViewSet,         basename='admin-mcp-tokens')
 
 urlpatterns = [
     path('mcp/whoami/', AdminMcpWhoAmIView.as_view(), name='admin-mcp-whoami'),
+    path('mcp/audit/', AdminMcpAuditView.as_view(), name='admin-mcp-audit'),
     path('metrics/', AdminMetricsView.as_view(), name='admin-metrics'),
     path('whatsapp/connection-status/', AdminWhatsAppConnectionStatusView.as_view(), name='admin-whatsapp-connection-status'),
     path('whatsapp/session-action/', AdminWhatsAppSessionActionView.as_view(), name='admin-whatsapp-session-action'),

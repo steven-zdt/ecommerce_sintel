@@ -53,6 +53,13 @@ class SecurityEvent(SintelBaseModel):
     # HARDENING F9 (2026-09-24): senales de alto nivel del turno de IA (salida bloqueada/redactada, inyeccion detectada).
     # metadata: solo categorias (flags), request_id y conversation_id -- NUNCA contenido del mensaje ni de la respuesta.
     AI_SECURITY_FLAG = 'AI_SECURITY_FLAG'
+    # PROMPT MCP (2026-09-25): tokens personales del servidor MCP. metadata: uuid del token, nombre y motivo; NUNCA el token ni su hash.
+    MCP_TOKEN_CREATED = 'MCP_TOKEN_CREATED'
+    MCP_TOKEN_REVOKED = 'MCP_TOKEN_REVOKED'
+    MCP_TOKEN_EXCHANGED = 'MCP_TOKEN_EXCHANGED'
+    MCP_TOKEN_EXCHANGE_FAILED = 'MCP_TOKEN_EXCHANGE_FAILED'
+    # Acciones ejecutadas por un cliente MCP (escrituras y cambios de codigo): el MCP las audita tambien en sus logs, aqui queda el registro durable.
+    MCP_ACTION = 'MCP_ACTION'
     EVENT_CHOICES = [
         (LOGIN_SUCCESS,  'Login exitoso'),
         (LOGIN_FAILED,   'Login fallido'),
@@ -81,6 +88,11 @@ class SecurityEvent(SintelBaseModel):
         (AI_MODEL_CHANGED, 'Modelo de IA agregado/eliminado'),
         (AI_CHANNEL_CHANGED, 'Configuracion de canal de IA modificada (primario/fallback)'),
         (AI_SECURITY_FLAG, 'Senal de seguridad en un turno de IA (fuga bloqueada, secreto redactado, inyeccion)'),
+        (MCP_TOKEN_CREATED, 'Token personal del servidor MCP creado'),
+        (MCP_TOKEN_REVOKED, 'Token personal del servidor MCP revocado'),
+        (MCP_TOKEN_EXCHANGED, 'Token del servidor MCP canjeado por un JWT corto'),
+        (MCP_TOKEN_EXCHANGE_FAILED, 'Canje de token MCP rechazado (invalido, revocado, caducado o sin permisos)'),
+        (MCP_ACTION, 'Accion ejecutada por un cliente MCP'),
     ]
 
     SEVERITY_INFO     = 'INFO'
@@ -111,3 +123,30 @@ class SecurityEvent(SintelBaseModel):
 
     def __str__(self):
         return f'SecurityEvent({self.event_type}, {self.severity})'
+
+
+class McpAccessToken(SintelBaseModel):
+    """Token personal de larga duracion para clientes del servidor MCP (`mcp_server/`). PROMPT MCP, FASE 2.
+
+    Solo se guarda el HASH (sha256) del token: el valor en claro se muestra UNA vez al crearlo. Es un secreto de alta entropia (32 bytes aleatorios), por eso un hash rapido basta.
+    No da acceso por si mismo: se canjea (`security.services.mcp_tokens.McpTokenCommands.exchange`) por un JWT corto del propio admin, asi que Django sigue siendo la autoridad
+    (si el usuario deja de ser admin o se desactiva, el canje falla) y la revocacion surte efecto en el siguiente canje."""
+
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, related_name='mcp_tokens', on_delete=models.CASCADE)
+    name = models.CharField(max_length=100)
+    token_prefix = models.CharField(max_length=16, help_text='Primeros caracteres, solo para identificar el token en listados.')
+    token_hash = models.CharField(max_length=64, unique=True)
+    expires_at = models.DateTimeField(db_index=True)
+    last_used_at = models.DateTimeField(null=True, blank=True)
+    revoked_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'{self.name} ({self.token_prefix}...)'
+
+    @property
+    def is_active(self) -> bool:
+        from django.utils import timezone
+        return self.revoked_at is None and not self.is_deleted and self.expires_at > timezone.now()

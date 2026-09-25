@@ -56,6 +56,21 @@ def new_ids() -> tuple:
     return request_id_var.get(), trace_id_var.get()
 
 
+DURABLE_EVENTS = {"write_result", "write_conflict", "tool_denied"}
+
+
+def durable_payload(event: str, **f) -> dict:
+    """Solo nombres/ids/codigos (nada de valores de datos): lo que se envia a Django."""
+    keys = ("tool", "resource", "operation", "target", "risk", "confirmation", "result", "changed_fields")
+    payload = {k: f[k] for k in keys if f.get(k) not in (None, "", "-", [])}
+    if "changed_fields" in payload:
+        payload["changed_fields"] = sorted(str(x) for x in payload["changed_fields"])
+    payload["event"] = event
+    payload["request_id"] = request_id_var.get()
+    payload["trace_id"] = trace_id_var.get()
+    return payload
+
+
 def audit(event: str, *, principal: str = "-", tool: str = "-", resource: str = "-", operation: str = "-", target: str = "-",
           changed_fields=None, risk: str = "-", confirmation: str = "-", result: str = "-", **extra) -> None:
     METRICS[f"event.{event}"] += 1

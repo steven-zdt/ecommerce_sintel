@@ -20,6 +20,8 @@ from .django_client import DjangoAPI
 from .errors import McpToolError
 
 WHOAMI = "/api/v1/dashboard/mcp/whoami/"
+EXCHANGE = "/api/v1/internal/mcp/exchange/"
+PAT_PREFIX = "smcp_"
 POSITIVE_TTL = 60.0     # un token valido se reconfirma con Django cada minuto (revocacion/desactivacion se nota rapido)
 NEGATIVE_TTL = 5.0      # un fallo no martillea a Django
 
@@ -51,6 +53,21 @@ class DjangoTokenVerifier:
         self.s, self.api, self._clock = settings, api, clock
         self._cache: dict[str, tuple] = {}
 
+    async def _verify_pat(self, pat: str) -> AccessToken | None:
+        """Token personal (smcp_...): se canjea en Django por un JWT corto del mismo admin (claim via=mcp). Django sigue siendo la autoridad: revocado, caducado
+        o usuario sin permisos => 401. El resultado se cachea `pat_cache_ttl` segundos (= lo que tarda en notarse una revocacion) y nunca mas que la vida del JWT."""
+        try:
+            resp = await self.api.exchange(EXCHANGE, secret=pat)
+        except McpToolError:
+            return None  # Django inalcanzable => fallar cerrado
+        if not (resp.ok and isinstance(resp.data, dict) and resp.data.get("access") and (resp.data.get("user") or {}).get("is_admin") is True):
+            return None
+        user = resp.data["user"]
+        email = str(user.get("email") or "").lower()
+        profile = self.s.principal_profiles.get(email, self.s.default_profile)
+        return AccessToken(token=resp.data["access"], client_id=email or str(user.get("uuid")), scopes=[profile], expires_at=_jwt_exp(resp.data["access"]),
+                           subject=str(user.get("uuid")), claims={"uuid": str(user.get("uuid")), "email": email, "profile": profile, "via_pat": True})
+
     async def verify_token(self, token: str) -> AccessToken | None:
         if not token or len(token) > 4096:
             return None
@@ -59,6 +76,13 @@ class DjangoTokenVerifier:
         hit = self._cache.get(key)
         if hit and hit[0] > now:
             return hit[1]
+        if token.startswith(PAT_PREFIX):
+            access = await self._verify_pat(token)
+            ttl = min(float(self.s.pat_cache_ttl), 600.0) if access else NEGATIVE_TTL
+            if len(self._cache) > 500:
+                self._cache.clear()
+            self._cache[key] = (now + ttl, access)
+            return access
         try:
             resp = await self.api.probe(WHOAMI, token=token)
         except McpToolError:

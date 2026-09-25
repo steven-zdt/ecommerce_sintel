@@ -37,11 +37,11 @@ Modelo de amenazas y controles: `mcp_server/.AGENT/SECURITY_MODEL.md`.
 ## Hallazgos abiertos (riesgo residual)
 | ID | Sev. | Hallazgo | Mitigacion / decision |
 |---|---|---|---|
-| M-1 | Media | El access token dura 15 min y el MCP no renueva | Tokens de larga duracion/OAuth (pendiente) |
+| M-1 | ~~Media~~ Cerrado | El access token duraba 15 min | **Tokens personales `smcp_` (2026-09-25)**: canje por JWT corto con `via=mcp`, revocacion, caducidad, frontera `via=mcp`; 29 + 7 comprobaciones OK (ver MCP_E2E_REPORT.md). Sigue sin haber OAuth |
 | M-2 | Media | Idempotencia, fichas y rate limit en memoria del proceso | Se pierden al reiniciar; con replicas cada una cuenta aparte -> Redis si se escala |
 | M-3 | Media | TOCTOU entre releer y escribir (Django no admite `If-Match`) | Documentado; `VERSION_CONFLICT` cubre el caso normal |
 | M-4 | Media | La ficha de confirmacion no equivale a aprobacion humana: un cliente MCP que apruebe en automatico puede encadenar preview+ejecucion | La decision humana esta en el cliente; mantener perfil `READ_ONLY` por defecto y `ADMIN_CRUD` solo para admins concretos |
-| M-5 | Baja | Auditoria solo en logs del contenedor | Enviar a `SecurityEvent` de Django |
+| M-5 | ~~Baja~~ Cerrado | Auditoria solo en logs | Copia durable en `SecurityEvent MCP_ACTION` (best-effort; los logs siguen siendo la fuente completa) |
 | M-6 | Baja | `/mcp-health` sin autenticacion (coarse, sin secretos) | No publicarlo por nginx/Cloudflare |
 | M-7 | Baja | Cuerpo de errores de Django (400 por campo) se devuelve redactado y acotado | Aceptado: es lo que necesita el cliente para corregir |
 | M-8 | Baja | Sin OpenAPI de cuerpos => el preview no valida el esquema | Django valida al ejecutar |

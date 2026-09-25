@@ -18,7 +18,7 @@ from mcp_server.limits import Limiter, SlidingWindow
 def _settings(**over) -> Settings:
     base = dict(enabled=True, host="127.0.0.1", port=8200, public_base_url="http://127.0.0.1:8200", auth_mode="django_jwt", django_api_url="http://django:8000",
                 django_host_header="", allowed_origins=(), allowed_hosts=("127.0.0.1:*",), rate_limit_per_minute=5, write_rate_limit_per_minute=2, max_body_bytes=262144,
-                request_timeout=5.0, max_output_bytes=200000, max_records=50, max_page_depth=20, confirmation_ttl=300, confirmation_secret="s" * 32,
+                request_timeout=5.0, max_output_bytes=200000, max_records=50, max_page_depth=20, pat_cache_ttl=120, confirmation_ttl=300, confirmation_secret="s" * 32,
                 default_profile="READ_ONLY", principal_profiles={}, workspace_root="", log_level="INFO")
     base.update(over)
     return Settings(**base)

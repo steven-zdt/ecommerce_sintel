@@ -58,6 +58,7 @@ class Settings:
     max_output_bytes: int
     max_records: int
     max_page_depth: int
+    pat_cache_ttl: int
     confirmation_ttl: int
     confirmation_secret: str
     default_profile: str
@@ -97,6 +98,8 @@ def load() -> Settings:
         max_output_bytes=_int("MCP_MAX_OUTPUT_BYTES", 200000),
         max_records=_int("MCP_MAX_RECORDS", 50),
         max_page_depth=_int("MCP_MAX_PAGE_DEPTH", 20),
+        # Cuanto tarda en notarse la REVOCACION de un token personal (smcp_...): el canje con Django se cachea este numero de segundos.
+        pat_cache_ttl=_int("MCP_PAT_CACHE_TTL", 120),
         confirmation_ttl=_int("MCP_CONFIRMATION_TTL", 300),
         # Sin secreto configurado se genera uno por proceso: las confirmaciones solo valen dentro de este proceso (y mueren al reiniciar).
         confirmation_secret=os.environ.get("MCP_CONFIRMATION_SECRET", "") or secrets.token_hex(32),

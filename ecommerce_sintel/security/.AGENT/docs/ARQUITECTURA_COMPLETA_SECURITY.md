@@ -150,3 +150,11 @@ que documenta esto por diseno, no por omision.
 | Frontend: `SecurityMetrics.vue`, `ThreatPanel.vue`, `AuditTimeline.vue`, `SecurityAlerts.vue` | Pendiente | Hoy todo vive en un unico `SecurityDashboardView.vue` |
 | CSP/HSTS/`limit_req` a nivel nginx | Pendiente | Cambio de infraestructura (`nginx.conf`), fuera del codigo Django |
 | Antivirus real (`DocumentScanner.scan()`) | Pendiente (preexistente) | Sigue siendo un stub que retorna `SKIPPED` -- reemplazar el cuerpo por ClamAV/clamd no requiere tocar callers |
+
+### 2026-09-25 - Tokens personales del servidor MCP y auditoria de acciones MCP
+- **Modelo** `McpAccessToken` (`security/models.py`, migracion `0011_mcp_access_tokens`): solo el sha256 del token, prefijo, caducidad (1-90 dias), `last_used_at`, `revoked_at`. **Eventos nuevos** en `SecurityEvent`:
+  `MCP_TOKEN_CREATED`, `MCP_TOKEN_REVOKED`, `MCP_TOKEN_EXCHANGED`, `MCP_TOKEN_EXCHANGE_FAILED`, `MCP_ACTION` (metadata solo con ids/codigos/nombres de campo; nunca el token, su hash ni valores de datos).
+- **Servicio** `security/services/mcp_tokens.py` (`McpTokenCommands.create_token|revoke_token|exchange`, `McpTokenSelectors`). El canje devuelve un JWT de 15 min con claim `via=mcp`; todo rechazo es un 401 generico auditado; limite 30/min por IP; el usuario debe seguir siendo admin activo.
+- **Frontera**: un JWT `via=mcp` no puede crear/revocar tokens (`is_mcp_authenticated`); mas adelante tampoco aprobar cambios de codigo.
+- **Rutas**: `GET/POST/DELETE /api/v1/dashboard/mcp-tokens/` (admin, solo sus propios tokens), `POST /api/v1/internal/mcp/exchange/` (interno, sin JWT: la credencial es el token), `POST /api/v1/dashboard/mcp/audit/` (copia durable de las escrituras del MCP), `GET /api/v1/dashboard/mcp/whoami/`.
+- Tests escritos (no ejecutados): `security/tests_mcp_tokens.py`. Detalle: `mcp_server/.AGENT/SECURITY_MODEL.md`, `AUDITORIA/MCP_SECURITY_AUDIT.md`.

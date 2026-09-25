@@ -350,6 +350,7 @@ services:
       MCP_PRINCIPAL_PROFILES: "${MCP_PRINCIPAL_PROFILES:-}"
       MCP_RATE_LIMIT: "${MCP_RATE_LIMIT:-60}"
       MCP_WRITE_RATE_LIMIT: "${MCP_WRITE_RATE_LIMIT:-20}"
+      MCP_PAT_CACHE_TTL: "${MCP_PAT_CACHE_TTL:-120}"
       MCP_WORKSPACE_ROOT: "/workspace"
       MCP_ALLOWED_HOSTS: "127.0.0.1:*,localhost:*,mcp_server:*,ecommerce_sintel_mcp:*"
     volumes:

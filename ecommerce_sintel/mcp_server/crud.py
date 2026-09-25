@@ -40,6 +40,11 @@ class CrudService:
         self.confirm, self.idem, self.openapi = confirmations, idempotency, openapi
 
     # ---------- utilidades ----------
+    async def _log(self, principal, event: str, **fields) -> None:
+        """Auditoria de una escritura: linea JSON en los logs del MCP + copia durable en Django (SecurityEvent MCP_ACTION, best-effort)."""
+        audit.audit(event, principal=principal.label, **fields)
+        await self.api.report_audit(token=principal.token, request_id=audit.request_id_var.get(), payload=audit.durable_payload(event, **fields))
+
     def _clean(self, resource: Resource, data):
         """Salida segura: redaccion de claves sensibles, PII enmascarada en recursos sensibles y version calculada."""
         redacted = sanitize.redact(data)
@@ -214,12 +219,12 @@ class CrudService:
                     risk=resource.risk_of("create"), confirmation=confirmation, result="attempt")
         resp = await self.api.call("POST", resource.api_tail, token=principal.token, request_id=audit.request_id_var.get(), json_body=data)
         if not resp.ok:
-            audit.audit("write_result", principal=principal.label, tool="crud.create", resource=resource.name, operation="create", result=f"upstream_{resp.status}")
+            await self._log(principal, "write_result", tool="crud.create", resource=resource.name, operation="create", result=f"upstream_{resp.status}")
             raise self._map_error(resp, "la creacion")
         result = {"ok": True, "operation": "create", "resource": resource.name, "record": self._clean(resource, resp.data), "version": self._version(resp.data),
                   "idempotent_replay": False}
         self.idem.store(principal.uuid, "crud.create:" + resource.name, key, digest, result)
-        audit.audit("write_result", principal=principal.label, tool="crud.create", resource=resource.name, operation="create",
+        await self._log(principal, "write_result", tool="crud.create", resource=resource.name, operation="create",
                     target=str((resp.data or {}).get("uuid", "-")) if isinstance(resp.data, dict) else "-", changed_fields=data.keys(), result="ok")
         return result
 
@@ -239,7 +244,7 @@ class CrudService:
         current = await self._fetch(principal, resource, target)
         version = self._version(current)
         if version != expected_version:
-            audit.audit("write_conflict", principal=principal.label, tool="crud.update", resource=resource.name, operation="update", target=target, result="version_conflict")
+            await self._log(principal, "write_conflict", tool="crud.update", resource=resource.name, operation="update", target=target, result="version_conflict")
             raise McpToolError(errors.VERSION_CONFLICT, "El registro cambio desde que lo leiste: vuelve a leerlo y previsualiza de nuevo. No se escribio nada.",
                                current_version=version, current_values={k: self._clean_value(current.get(k)) for k in changes})
         confirmation = self._guard_write(principal, resource, "update", "crud.update", target, changes, version, confirmation_token, confirm)
@@ -247,13 +252,13 @@ class CrudService:
                     changed_fields=changes.keys(), risk=resource.risk_of("update"), confirmation=confirmation, result="attempt")
         resp = await self.api.call("PATCH", f"{resource.api_tail}{target}/", token=principal.token, request_id=audit.request_id_var.get(), json_body=changes)
         if not resp.ok:
-            audit.audit("write_result", principal=principal.label, tool="crud.update", resource=resource.name, operation="update", target=target, result=f"upstream_{resp.status}")
+            await self._log(principal, "write_result", tool="crud.update", resource=resource.name, operation="update", target=target, result=f"upstream_{resp.status}")
             raise self._map_error(resp, "la actualizacion")
         result = {"ok": True, "operation": "update", "resource": resource.name, "target": target, "record": self._clean(resource, resp.data),
                   "version": self._version(resp.data), "idempotent_replay": False}
         if key:
             self.idem.store(principal.uuid, "crud.update:" + resource.name, key, digest, result)
-        audit.audit("write_result", principal=principal.label, tool="crud.update", resource=resource.name, operation="update", target=target, changed_fields=changes.keys(), result="ok")
+        await self._log(principal, "write_result", tool="crud.update", resource=resource.name, operation="update", target=target, changed_fields=changes.keys(), result="ok")
         return result
 
     async def delete(self, principal, resource_name, target, expected_version, idempotency_key=None, confirmation_token=None, confirm=False) -> dict:
@@ -271,18 +276,18 @@ class CrudService:
         current = await self._fetch(principal, resource, target)
         version = self._version(current)
         if version != expected_version:
-            audit.audit("write_conflict", principal=principal.label, tool="crud.delete", resource=resource.name, operation="delete", target=target, result="version_conflict")
+            await self._log(principal, "write_conflict", tool="crud.delete", resource=resource.name, operation="delete", target=target, result="version_conflict")
             raise McpToolError(errors.VERSION_CONFLICT, "El registro cambio desde que lo leiste: vuelve a leerlo. No se borro nada.", current_version=version)
         confirmation = self._guard_write(principal, resource, "delete", "crud.delete", target, {}, version, confirmation_token, confirm)
         audit.audit("write_attempt", principal=principal.label, tool="crud.delete", resource=resource.name, operation="delete", target=target, risk=resource.risk_of("delete"),
                     confirmation=confirmation, result="attempt")
         resp = await self.api.call("DELETE", f"{resource.api_tail}{target}/", token=principal.token, request_id=audit.request_id_var.get())
         if not resp.ok:
-            audit.audit("write_result", principal=principal.label, tool="crud.delete", resource=resource.name, operation="delete", target=target, result=f"upstream_{resp.status}")
+            await self._log(principal, "write_result", tool="crud.delete", resource=resource.name, operation="delete", target=target, result=f"upstream_{resp.status}")
             raise self._map_error(resp, "el borrado")
         result = {"ok": True, "operation": "delete", "resource": resource.name, "target": target, "deleted": True, "semantics": resource.delete_semantics,
                   "idempotent_replay": False}
         if key:
             self.idem.store(principal.uuid, "crud.delete:" + resource.name, key, digest, result)
-        audit.audit("write_result", principal=principal.label, tool="crud.delete", resource=resource.name, operation="delete", target=target, result="ok")
+        await self._log(principal, "write_result", tool="crud.delete", resource=resource.name, operation="delete", target=target, result="ok")
         return result

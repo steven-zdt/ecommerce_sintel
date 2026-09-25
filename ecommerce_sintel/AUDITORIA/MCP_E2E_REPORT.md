@@ -23,3 +23,11 @@ Tambien: `orders` y `payment-transactions` no admiten escritura (`OPERATION_NOT_
 - Produccion, canary y rollback de produccion: exigen security PASS + E2E PASS completos + aprobacion humana (plan sec. 47/50).
 - Escrituras reales sobre `products`/`brands`: no se ejecutaron (el ciclo se valido en `categories`; misma via de codigo, distinto recurso). Los productos requieren datos ricos (variantes, imagenes) que Django valida.
 - Los tests unitarios (`mcp_server/tests/test_core.py`, `dashboard/tests_mcp_whoami.py`) se escribieron pero no se ejecutaron (instruccion del usuario de no correr suites automatizadas sin orden directa).
+
+## Adenda 2026-09-25 (tokens personales y auditoria durable)
+- **Django (script funcional en dev, 29 comprobaciones OK):** crear (token en claro una sola vez, solo hash en BD), vigencia y nombre validados, canje -> JWT de 15 min con `via=mcp`, `via=mcp` NO crea ni revoca tokens, rechazos genericos (401) y auditados en `SecurityEvent`,
+  eventos sin token ni hash, caducado/revocado/usuario sin `is_superuser`/inactivo => 401, otro admin y customer sin acceso (404/403), limite 30/min por IP.
+- **Cliente MCP real, fase `pat` (7 OK):** token revocado y token desconocido rechazados, token valido con la identidad del admin dueno y perfil `READ_ONLY`, la API responde con el JWT canjeado, el perfil MCP se respeta,
+  revocacion desde el panel (204) y rechazo tras el TTL de cache.
+- **Auditoria durable:** un ciclo de escrituras dejo 5 `SecurityEvent MCP_ACTION` (create, 2 update, conflicto, delete) con usuario real, herramienta, recurso, operacion, objetivo y campos cambiados; sin valores ni JWT.
+- Migracion `security.0011_mcp_access_tokens` (modelo + nuevos tipos de evento) aplicada en dev; **hay que aplicarla en produccion al desplegar Django**.

@@ -61,6 +61,29 @@ class DjangoAPI:
             raise McpToolError(errors.INVALID_ARGUMENT, "Ruta no permitida.")
         return await self._request(method, API_PREFIX + tail, token=token, request_id=request_id, params=params, json_body=json_body)
 
+    async def report_audit(self, *, token: str, request_id: str, payload: dict) -> None:
+        """Copia durable de la auditoria en Django (SecurityEvent MCP_ACTION). Best-effort: un fallo NO afecta a la operacion (ya quedo en los logs del MCP)."""
+        try:
+            await self._client.post("/api/v1/dashboard/mcp/audit/", json=payload, headers=self._headers(token, request_id))
+        except httpx.HTTPError:
+            pass
+
+    async def exchange(self, path: str, *, secret: str, request_id: str = "-") -> ApiResponse:
+        """POST JSON sin Authorization a una ruta FIJA interna de Django (canje de token personal): el secreto viaja en el cuerpo, nunca en la URL ni en logs."""
+        headers = {"Accept": "application/json", "X-Request-ID": request_id}
+        if self.s.django_host_header:
+            headers["Host"] = self.s.django_host_header
+            headers["X-Forwarded-Proto"] = "https"
+        try:
+            resp = await self._client.post(path, json={"token": secret}, headers=headers)
+        except httpx.HTTPError:
+            raise McpToolError(errors.UPSTREAM_ERROR, "No se pudo contactar con Django.")
+        try:
+            data = resp.json()
+        except ValueError:
+            data = None
+        return ApiResponse(resp.status_code, data)
+
     async def probe(self, path: str, *, token: str, request_id: str = "-", params: dict | None = None) -> ApiResponse:
         """GET a una ruta FIJA interna del propio MCP (whoami, schema): el llamador nunca es el LLM."""
         return await self._request("GET", path, token=token, request_id=request_id, params=params, json_body=None)

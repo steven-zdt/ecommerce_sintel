@@ -6,7 +6,9 @@ Principio: `MCP permission != Django permission != Tool permission != business a
 - Bearer = JWT de acceso (simplejwt) de un **admin**. El MCP no tiene el secreto de firma: pregunta a Django (`GET /api/v1/dashboard/mcp/whoami/`, `IsAdminUser` = `is_staff AND is_superuser`).
   Django responde 401 (invalido/caducado) o 403 (no admin) => el MCP responde 401. Django inalcanzable => falla cerrado.
 - La identidad NUNCA viene de argumentos (`user_id`, `role`, `is_admin` se ignoran). El token viaja reenviado a Django en cada llamada: **Django aplica sus permisos** (no hay RBAC paralelo).
-- Limite conocido: el access token dura 15 min (SimpleJWT). Tokens personales/OAuth de larga duracion NO estan implementados (`MCP_AUTH_MODE=service_token|oauth` => el servidor no arranca).
+- **Tokens personales (`smcp_...`)** (2026-09-25): el admin los crea en `POST /api/v1/dashboard/mcp-tokens/` (vigencia 1-90 dias, se muestra UNA vez; solo se guarda el sha256). El MCP los canjea en `POST /api/v1/internal/mcp/exchange/` por un JWT de 15 min del mismo admin con el claim `via=mcp`; Django sigue siendo la autoridad (revocado, caducado o usuario sin `is_superuser`/inactivo => 401 generico auditado; limite 30/min por IP). El canje se cachea `MCP_PAT_CACHE_TTL` s (120 por defecto = lo que tarda en notarse una revocacion).
+- **Frontera `via=mcp`**: un JWT canjeado por el MCP NO puede crear ni revocar tokens (evita que un cliente comprometido se de persistencia) y, cuando exista el plano de codigo con escritura, NO podra aprobar cambios.
+- Un JWT normal de 15 min tambien sirve. `MCP_AUTH_MODE=service_token|oauth` no estan implementados (el servidor no arranca).
 
 ## 2. Perfiles MCP (capa adicional)
 `READ_ONLY` (por defecto para todo admin), `ADMIN_CRUD`, `CODE_REVIEW`, `CODE_CHANGE`, `FULL_MAINTAINER`. Se asignan por email en `MCP_PRINCIPAL_PROFILES` (`email=PERFIL,...`). Un perfil desconocido cae al por defecto.
@@ -42,7 +44,7 @@ Proteccion DNS-rebinding activa (`allowed_hosts`/`allowed_origins`). `/mcp-healt
 
 ## 10. Auditoria
 Cada escritura y cada denegacion deja una linea JSON (`logger mcp.audit`): principal, herramienta, recurso, operacion, objetivo, campos cambiados (solo nombres), riesgo, confirmacion, resultado, `request_id`, `trace_id`. Sin secretos.
-Limite: la auditoria va a los logs del contenedor (no a `SecurityEvent` de Django todavia).
+Ademas cada escritura/conflicto se copia (best-effort) a Django como `SecurityEvent MCP_ACTION` (`POST /api/v1/dashboard/mcp/audit/`, lista blanca de campos cortos, sin valores; el usuario del evento es el admin real).
 
 ## Riesgos residuales
-Token de 15 min; idempotencia/confirmaciones/rate limit en memoria (se pierden al reiniciar); TOCTOU en update/delete; auditoria solo en logs; plano de codigo sin integrar con `ai_editor` (no hay escritura de codigo).
+Idempotencia/confirmaciones/rate limit en memoria (se pierden al reiniciar); TOCTOU en update/delete; plano de codigo sin integrar con `ai_editor` (no hay escritura de codigo); la revocacion de un token personal tarda hasta `MCP_PAT_CACHE_TTL` s en notarse.

@@ -19,6 +19,7 @@ from users.api.admin_password_reset import (
     AdminResetPasswordView,
 )
 from users.api.internal import AiContextView
+from security.api.internal_mcp import McpTokenExchangeView
 from users.api.permissions import IsAdminUser
 from seo import views as seo_views
 
@@ -66,6 +67,7 @@ urlpatterns = [
     # Fase 1 AI Core: el motor reenvia el JWT del usuario final a esta ruta
     # para resolver identidad/perfil sin reimplementar ProfileResolver.
     path('api/v1/internal/ai-context/', AiContextView.as_view(), name='ai-context'),
+    path('api/v1/internal/mcp/exchange/', McpTokenExchangeView.as_view(), name='mcp-token-exchange'),
     # Fase 2 AI Core: endpoints read-only que respaldan las Tools del motor.
     path('api/v1/internal/ai/', include('ecommerce.internal_ai_urls')),
 
