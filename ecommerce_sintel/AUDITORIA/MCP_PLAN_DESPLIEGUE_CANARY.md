@@ -42,3 +42,13 @@ M-2 (idempotencia/fichas/rate limit en memoria: 1 sola replica), M-3 (TOCTOU), M
 
 ## 6. Lo que NO se hace en produccion
 Plano de codigo/`ai_editor`, dominios bloqueados (marketing, support, inventory, users, notifications), `/mcp-health` publico, OAuth, escrituras sobre pedidos/pagos/cotizaciones.
+
+## 7. Avance (2026-09-25): decisiones D1-D5 aceptadas con las recomendaciones; cambios preparados, SIN desplegar
+- **Decisiones:** D1 solo el admin del propietario; D2 READ_ONLY (ADMIN_CRUD solo en fase 3, solo `categories`); D3 M-4 aceptado; D4 `/mcp` por HTTPS **solo en `panel.sintel.net.co`** (host administrativo aislado; se decidio no publicarlo en api/sintel.net.co); D5 fuera de horas pico.
+- **Hecho en el repo (verificado sin tocar contenedores `sintel_prod_*`):**
+  - `docker-compose.prod.yml`: servicio `mcp_server` (profile `mcp`, imagen `sintel_ecommerce_mcp:prod`, container `sintel_prod_mcp`, sin `ports`, sin `env_file`, `read_only`, `cap_drop ALL`, sin workspace => plano de codigo apagado, `MCP_CONFIRMATION_SECRET` obligatorio). No arranca con `up -d` a secas. `docker compose config` valido (con y sin profile).
+  - `nginx.prod.conf` (bloque del panel): `location = /mcp` (sin buffering, timeout 300 s, cuerpo <= 256 KB, `limit_req`), `/.well-known/oauth-protected-resource/mcp`, y `location = /mcp-health { return 404; }`. `nginx -t` OK en un contenedor desechable.
+  - `deploy/deploy.sh`: paso opcional `DEPLOY_MCP=1` (build `--no-cache` + up del servicio). `bash -n` OK.
+  - `.env.production` (no versionado): `MCP_CONFIRMATION_SECRET` aleatorio nuevo, `MCP_PRINCIPAL_PROFILES=` vacio, limites; `AI_EDITOR_CODE_PLANE_ENABLED=false` ya estaba.
+  - Prueba de arranque con las variables de produccion (contenedor desechable en la red de dev): responde 401 sin token en `/mcp`.
+- **Falta (requiere tu "adelante" explicito):** Fase 1 = `DEPLOY_MCP=1 ./deploy/deploy.sh` (reconstruye Django con `security.0011`, recrea celery/django brevemente, levanta MCP), luego `nginx -s reload`/recrear nginx. Comprobar tambien que la ruta del tunel de Cloudflare para `panel.sintel.net.co` no filtre `/mcp` (configuracion fuera del repo).

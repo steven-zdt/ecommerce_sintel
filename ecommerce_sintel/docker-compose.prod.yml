@@ -474,6 +474,54 @@ services:
       - ai_private
 
   # ─── REVERSE PROXY (unico punto de entrada interno) ────────────────────────
+  # --- SERVIDOR MCP DE ADMINISTRACION (plan MCP, FASE 12-13; canary; 2026-09-25) --------------------------
+  # Solo plano API (CRUD acotado + lectura). Perfil "mcp": NO arranca con `up -d` a secas; se habilita a
+  # proposito (deploy/deploy.sh con DEPLOY_MCP=1 o `docker compose ... --profile mcp up -d mcp_server`).
+  # Sin "ports" (solo lo alcanza nginx por nombre de servicio), sin env_file (no recibe los secretos de
+  # Django: solo lo listado abajo), sin workspace montado (plano de codigo desactivado en produccion).
+  mcp_server:
+    profiles: ["mcp"]
+    build:
+      context: .
+      dockerfile: mcp_server/Dockerfile
+    image: sintel_ecommerce_mcp:prod
+    container_name: sintel_prod_mcp
+    restart: unless-stopped
+    logging: *default-logging
+    environment:
+      MCP_ENABLED: "true"
+      MCP_HOST: "0.0.0.0"
+      MCP_PORT: "8200"
+      MCP_PUBLIC_BASE_URL: "https://panel.sintel.net.co"
+      MCP_AUTH_MODE: "django_jwt"
+      MCP_DJANGO_API_URL: "http://django:8000"
+      # Mismo motivo que sintel_ai_adk: el ALLOWED_HOSTS estricto de produccion rechaza Host: django:8000.
+      DJANGO_INTERNAL_HOST_HEADER: "api.sintel.net.co"
+      MCP_DEFAULT_PROFILE: "READ_ONLY"
+      # Canary fase 1: vacio (todos READ_ONLY). Fase 3: "tu@email=ADMIN_CRUD" tras aprobacion humana.
+      MCP_PRINCIPAL_PROFILES: "${MCP_PRINCIPAL_PROFILES:-}"
+      MCP_RATE_LIMIT: "${MCP_RATE_LIMIT:-60}"
+      MCP_WRITE_RATE_LIMIT: "${MCP_WRITE_RATE_LIMIT:-20}"
+      MCP_PAT_CACHE_TTL: "${MCP_PAT_CACHE_TTL:-120}"
+      MCP_CONFIRMATION_SECRET: "${MCP_CONFIRMATION_SECRET:?MCP_CONFIRMATION_SECRET es obligatorio en .env.production}"
+      MCP_ALLOWED_HOSTS: "panel.sintel.net.co,panel.sintel.net.co:*,mcp_server:*,sintel_prod_mcp:*,127.0.0.1:*,localhost:*"
+      MCP_ALLOWED_ORIGINS: "https://panel.sintel.net.co"
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 512m
+    cpus: 1.0
+    pids_limit: 200
+    depends_on:
+      django:
+        condition: service_healthy
+    networks:
+      - sintel-network
+
   nginx:
     image: nginx:1.26-alpine
     container_name: sintel_prod_nginx

@@ -55,6 +55,14 @@ $COMPOSE build --no-cache django celery_worker celery_beat
 echo ">>> [2/5] Levantando el stack..."
 $COMPOSE up -d
 
+# MCP (plan MCP, canary): opt-in explicito -- el servicio tiene profile "mcp" y NO arranca con `up -d` a secas.
+# DEPLOY_MCP=1 ./deploy/deploy.sh -> construye (--no-cache) y levanta mcp_server.
+if [ "${DEPLOY_MCP:-0}" = "1" ]; then
+    echo ">>> [2b/5] Construyendo y levantando mcp_server (DEPLOY_MCP=1)..."
+    $COMPOSE --profile mcp build --no-cache mcp_server
+    $COMPOSE --profile mcp up -d mcp_server
+fi
+
 echo ">>> [3/5] Esperando a que django este healthy..."
 for i in $(seq 1 60); do
     STATUS="$(docker inspect --format='{{.State.Health.Status}}' sintel_prod_django 2>/dev/null || echo 'starting')"
