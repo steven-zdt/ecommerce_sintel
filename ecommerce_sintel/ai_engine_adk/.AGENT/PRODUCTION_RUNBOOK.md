@@ -39,3 +39,12 @@ Baseline en vivo de F10 y SLO (F24); mediciones de F12 (`num_ctx`, `keep_alive`)
 5. Reproducir con un contenedor desechable con las mismas redes/DNS/`--add-host` (no con los defaults de Docker).
 6. Cambios de entorno/compose: `up -d --force-recreate <servicio>`; de codigo: rebuild. Ver `AUDITORIA/INCIDENTE_IA_CONFIG_LOCALHOST_2026-09-25.md`.
 
+## Troubleshooting: el chat del cliente no responde (agregado 2026-09-25)
+Recorrer en orden; cada paso descarta una capa:
+1. **Django recibe el mensaje?** Log de `django`: `[CHAT] room=... status=sent`. Si no aparece: WebSocket/nginx/cloudflared o login.
+2. **Se llama a la IA?** Debe seguir `[CHAT] room=... AI request status=started`. Si falta => IA inactiva en esa sala: `ai_paused`, `assigned_admin`, sala cerrada, o
+   `AI_SUPPORT_CHAT_ENABLED`/`AI_GLOBAL_ENABLED` en falso. Solucion habitual: "Reactivar IA" (`POST /api/v1/support/chats/<uuid>/resume-ai/`).
+3. **Llega al ADK?** Log de `sintel_ai_adk`: `POST /chat`. Si no llega: `AI_ENGINE_URL`, `AI_SERVICE_TOKEN` (si `AI_SERVICE_TOKEN_REQUIRED=true`), red `ai_private`.
+4. **El ADK llega al modelo?** Log de LM Studio: `POST /v1/chat/completions`. Si no aparece: ver el troubleshooting de LM Studio (arriba) y `LOCAL_MODEL_CHAIN` / Registry.
+5. Con `ai_operation_event=turn_timeout|turn_rejected|provider_failed|breaker_opened` el problema es del modelo/carga (ver INCIDENT_RESPONSE playbook A).
+

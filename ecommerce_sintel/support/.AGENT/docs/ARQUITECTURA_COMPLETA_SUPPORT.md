@@ -723,6 +723,18 @@ if is_ai_mode_active(room) and not is_ai_rate_limited(room):
   telemetria por turno que el AI Engine ya calculaba (`observability.py::TurnMetrics`) pero
   antes se descartaba tras loguearla. Expuesto en el Dashboard admin, nunca por WebSocket.
 
+### 2026-09-25 — Incidente: el chat del cliente "no responde" (sala con la IA pausada)
+- **Síntoma:** en `sintel.net.co/tienda` el chat no contestaba; el mensaje llegaba (`[CHAT] ... status=sent`) pero el ADK no recibía turnos.
+- **Causa:** la sala tenía `ai_paused=True` (F18: una respuesta humana en la sala, o una escalación, pausa la IA hasta reactivarla explícitamente). `is_ai_mode_active`
+  devuelve `False` **sin registrar nada**: en el log solo falta la línea `[CHAT] room=... AI request status=started`. Afecta solo a esa sala.
+- **Diagnóstico rápido:** (1) tras `status=sent` sin `AI request status=started` => la IA está inactiva en esa sala; (2) estado de la sala (solo lectura, sin contenido):
+  `ChatRoom.status`, `ai_paused`, `assigned_admin`; condiciones completas en `support/services/ai_bridge.py::is_ai_mode_active`
+  (`AI_GLOBAL_ENABLED` y `AI_SUPPORT_CHAT_ENABLED` activos, sala OPEN, sin pausa, sin admin asignado).
+- **Arreglo:** botón "Reactivar IA" del panel de soporte, o `POST /api/v1/support/chats/<room_uuid>/resume-ai/`, o `ChatCommands.resume_ai(room, admin)`. Deja un mensaje
+  visible del asistente en la sala.
+- **Prevención:** probar el chat del lado cliente con una cuenta que NO sea admin (si el admin responde desde el panel en su propia sala de prueba, la IA se pausa). Una sala
+  de cliente real también queda sin IA tras una respuesta humana hasta que alguien pulse "Reactivar IA". Detalle: `AUDITORIA/INCIDENTE_CHAT_CLIENTE_IA_PAUSADA_2026-09-25.md`.
+
 ### 2026-09-24 — Hardening del asistente: handoff seguro, correlación y canary (F9, F17, F18)
 - **Handoff (F18)**: un agente HUMANO que responde en una sala pausa la IA (`ChatCommands.pause_ai_for_human_takeover`, flag `AI_PAUSE_ON_HUMAN_REPLY`); la IA solo vuelve con reactivación **explícita**: `POST /api/v1/support/chats/<room_uuid>/resume-ai/` (solo admins; `ChatCommands.resume_ai` también libera `assigned_admin`). Antes nada ponía `ai_paused=False`. Un turno degradado (motor caído, timeout, cola llena) avisa a `support_admins` con «[Asistente no disponible]» (`alert_admins_ai_degraded`, cooldown por sala).
 - **Correlación (F9)**: `ecommerce/request_id.py` (middleware) + un `request_id` `ws-...` por mensaje del WebSocket; `ai_bridge` envía `X-Request-ID`/`X-Session-Id` al ADK y persiste `SecurityEvent.AI_SECURITY_FLAG` (solo categorías e ids). `manage.py ai_observability_report`.

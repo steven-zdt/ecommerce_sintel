@@ -32,6 +32,7 @@
 **D. Fuga de memoria/datos entre clientes (SEV1)** — 1) Desactivar extracción: `AI_MEMORY_GATE_STRICT` + apagar IA del chat si es necesario. 2) `memory_event=` para trazar; `forget_customer_memory`/`purge_expired_memories`. 3) Notificar según la política de privacidad vigente.
 **E. Documento RAG envenenado** — 1) `rag_chunk_quarantined`; localizar el documento (`AIKnowledgeDocument`), `rollback_to_version`, pasar a `needs_review`/interno. 2) Revisar quién lo ingresó (`source`, versiones).
 **F. Despliegue defectuoso** — `deploy/release_ai.sh rollback`, o vaciar `AI_CANARY_ENGINE_URL` si es del canary; restaurar banderas desde `flags_<ts>.env`; migraciones aplicadas NO se revierten con la imagen (`restore.sh` solo si hace falta).
+**G. El chat del cliente no responde y no hay errores (SEV3)** — Suele ser una sala con la IA pausada (F18), no una caída. 1) Log de Django: tras `[CHAT] ... status=sent`, ¿aparece `AI request status=started`? Si no, la IA está inactiva en esa sala. 2) Estado de la sala (`ai_paused`, `assigned_admin`, `status`) y flags `AI_SUPPORT_CHAT_ENABLED`/`AI_GLOBAL_ENABLED`. 3) Reactivar con `resume-ai` (panel: "Reactivar IA"). 4) Si afecta a TODAS las salas: revisar flags y el ADK (playbook A). Caso real: `AUDITORIA/INCIDENTE_CHAT_CLIENTE_IA_PAUSADA_2026-09-25.md`.
 
 ## 5. Después del incidente
 Línea de tiempo con `request_id`; causa raíz; caso nuevo en el golden dataset / red team; actualizar este documento y `SECURITY_MODEL.md`; si hubo secretos, verificar la invalidación de los antiguos.
