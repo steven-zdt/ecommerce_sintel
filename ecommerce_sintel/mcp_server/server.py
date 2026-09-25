@@ -1,7 +1,7 @@
 """
 mcp_server/server.py -- ensamblado del servidor MCP (plan MCP sec. 1-3, 6, 17, 20, 33, 35). Streamable HTTP, sin acceso a SQL/shell/Docker.
 
-Tools: mcp.whoami, api.describe, crud.list|get|preview_create|preview_update|preview_delete|create|update|delete, code.search|read.
+Tools: mcp.whoami, api.describe, crud.*, code.search|read, code.graph_status|describe_symbol|find_references|impact_analysis|resolve_change|build_context|find_tests|propose_change|list_changes|change_status|promote_change|rollback_change|discard_change.
 Resources (solo lectura): resource://sintel/{architecture,openapi,apps,business-rules,agent-registry,tool-registry,environment-status}.
 Cada Tool pasa por `guarded`: ids de trazabilidad, principal (identidad de la autenticacion), politica de perfil, rate limit, auditoria y errores controlados (sin trazas).
 """
@@ -20,6 +20,7 @@ from starlette.responses import JSONResponse
 
 from . import audit, errors, policy, prompts, sanitize
 from .auth import DjangoTokenVerifier, current_principal
+from .code_plane import CodePlane
 from .code_read import CodeReader
 from .config import Settings
 from .confirmations import Confirmations, IdempotencyStore
@@ -48,6 +49,7 @@ class App:
         self.openapi = OpenAPIIndex(self.api)
         self.crud = CrudService(settings, self.api, self.limiter, Confirmations(settings.confirmation_secret, settings.confirmation_ttl), IdempotencyStore(), self.openapi)
         self.code = CodeReader(settings.workspace_root)
+        self.plane = CodePlane(self.api)
         self.verifier = DjangoTokenVerifier(settings, self.api)
 
 
@@ -169,6 +171,56 @@ def build_server(app: App) -> MCPServer:
     async def code_read(path: str, start_line: int = 1, end_line: int | None = None) -> dict:
         return app.code.read(path, start_line, end_line)
 
+    # ---------------- Plano de codigo controlado (ai_editor via Django; solo desarrollo) ----------------
+    def _analysis_tool(name: str, op: str, desc: str):
+        @server.tool(name=name, description=desc, annotations=ANN_READ)
+        @guarded(name)
+        async def _tool(query: str) -> dict:
+            return await app.plane.analysis(current_principal(), op, query)
+        return _tool
+
+    @server.tool(name="code.graph_status", description="Estado del grafo de conocimiento del codigo (version, nodos, fecha).", annotations=ANN_READ)
+    @guarded("code.graph_status")
+    async def code_graph_status() -> dict:
+        return await app.plane.analysis(current_principal(), "status", None)
+
+    _analysis_tool("code.describe_symbol", "symbol", "Describe un simbolo (clase/funcion/metodo) segun el grafo: archivo, lineas, app. `query` = nombre.")
+    _analysis_tool("code.find_references", "references", "Consumidores/referencias de un simbolo, archivo o endpoint segun el grafo. `query` = objetivo.")
+    _analysis_tool("code.impact_analysis", "impact", "Analisis de impacto de cambiar un objetivo (dependientes, tests, docs). `query` = objetivo.")
+    _analysis_tool("code.resolve_change", "resolve", "Resuelve una peticion de cambio en lenguaje natural a nodos del grafo. `query` = peticion.")
+    _analysis_tool("code.build_context", "context", "Paquete de contexto del grafo para una peticion de cambio. `query` = peticion.")
+    _analysis_tool("code.find_tests", "tests", "Tests relacionados con un objetivo (NO los ejecuta). `query` = objetivo.")
+
+    @server.tool(name="code.propose_change", description="Genera una propuesta de cambio de codigo EN SANDBOX con ai_editor (no escribe el repo). Puede tardar. Un humano debe aprobarla en el panel.", annotations=ANN_WRITE)
+    @guarded("code.propose_change", is_write=True)
+    async def code_propose(request: str) -> dict:
+        return await app.plane.propose(current_principal(), request)
+
+    @server.tool(name="code.list_changes", description="Lista las propuestas de cambio vigentes (en memoria de Django; expiran a las 2 h).", annotations=ANN_READ)
+    @guarded("code.list_changes")
+    async def code_list_changes() -> dict:
+        return await app.plane.list_changes(current_principal())
+
+    @server.tool(name="code.change_status", description="Detalle de una propuesta: estado, compuerta, reportes de validacion/riesgo/impacto, tests requeridos (no ejecutados) y aprobacion.", annotations=ANN_READ)
+    @guarded("code.change_status")
+    async def code_change_status(change_id: str) -> dict:
+        return await app.plane.status(current_principal(), change_id)
+
+    @server.tool(name="code.promote_change", description="Promueve una propuesta YA aprobada por un humano al workspace de desarrollo. Exige confirm=true; las compuertas de ai_editor (aprobacion, seguridad F22, deriva, sintaxis) siguen aplicando.", annotations=ANN_DELETE)
+    @guarded("code.promote_change", is_write=True)
+    async def code_promote(change_id: str, confirm: bool = False) -> dict:
+        return await app.plane.promote(current_principal(), change_id, confirm)
+
+    @server.tool(name="code.rollback_change", description="Revierte una promocion hecha por este proceso de Django (restaura los archivos previos). Exige confirm=true.", annotations=ANN_DELETE)
+    @guarded("code.rollback_change", is_write=True)
+    async def code_rollback(change_id: str, confirm: bool = False) -> dict:
+        return await app.plane.rollback(current_principal(), change_id, confirm)
+
+    @server.tool(name="code.discard_change", description="Descarta una propuesta y limpia su sandbox.", annotations=ANN_WRITE)
+    @guarded("code.discard_change", is_write=True)
+    async def code_discard(change_id: str) -> dict:
+        return await app.plane.discard(current_principal(), change_id)
+
     # ---------------- Resources (solo lectura, sin secretos) ----------------
     @server.resource("resource://sintel/architecture", name="architecture", mime_type="text/markdown", description="Arquitectura de SINTEL (resumen).")
     def res_architecture() -> str:
@@ -213,7 +265,7 @@ def build_server(app: App) -> MCPServer:
     async def mcp_health(_request: Request) -> JSONResponse:
         django_ok = await app.api.reachable()
         body = {"status": "ok" if django_ok else "degraded", "process": "up", "django_api": "reachable" if django_ok else "unreachable", "auth_mode": s.auth_mode,
-                "auth_configured": s.auth_mode == "django_jwt", "code_plane": app.code.status(), "ai_editor": "not_integrated", "graph": "not_integrated", "version": SERVER_VERSION}
+                "auth_configured": s.auth_mode == "django_jwt", "code_plane": app.code.status(), "ai_editor": "via_django_code_plane", "graph": "via_django_code_plane", "version": SERVER_VERSION}
         return JSONResponse(body, status_code=200 if django_ok else 503)
 
     return server

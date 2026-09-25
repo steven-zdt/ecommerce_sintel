@@ -28,8 +28,9 @@ def prepare_crud_change(resource: str, goal: str) -> str:
 
 def prepare_code_change(goal: str) -> str:
     return (f"Prepara un cambio de codigo: {goal}\n"
-            "Usa code.search y code.read para entender el contexto y el impacto (contratos, tests, documentacion). Este MCP NO modifica codigo: describe el cambio propuesto y los tests que se "
-            "requieren; la escritura debe pasar por ai_editor (sandbox, validacion, aprobacion humana y promocion). No pidas ni intentes escribir archivos.")
+            "Usa code.search y code.read (y code.impact_analysis/code.find_tests si tu perfil los incluye) para entender el contexto y el impacto. Este MCP NO escribe archivos: "
+            "genera la propuesta con code.propose_change (sandbox de ai_editor), revisa code.change_status y lista los tests que una persona debe correr. La aprobacion es humana y no puedes darla; "
+            "code.promote_change exige esa aprobacion previa y confirm=true. No ejecutes tests ni intentes escribir archivos.")
 
 
 def review_proposed_change(summary: str) -> str:

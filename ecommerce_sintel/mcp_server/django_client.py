@@ -55,11 +55,12 @@ class DjangoAPI:
             headers["X-Forwarded-Proto"] = "https"
         return headers
 
-    async def call(self, method: str, tail: str, *, token: str, request_id: str = "-", params: dict | None = None, json_body: dict | None = None) -> ApiResponse:
+    async def call(self, method: str, tail: str, *, token: str, request_id: str = "-", params: dict | None = None, json_body: dict | None = None,
+                   timeout: float | None = None) -> ApiResponse:
         """`tail` es la ruta bajo /api/v1/dashboard/ (p. ej. `products/` o `products/<uuid>/`); solo minusculas, digitos, `-`, `_` y `/`."""
         if not _TAIL_RE.match(tail) or ".." in tail:
             raise McpToolError(errors.INVALID_ARGUMENT, "Ruta no permitida.")
-        return await self._request(method, API_PREFIX + tail, token=token, request_id=request_id, params=params, json_body=json_body)
+        return await self._request(method, API_PREFIX + tail, token=token, request_id=request_id, params=params, json_body=json_body, timeout=timeout)
 
     async def report_audit(self, *, token: str, request_id: str, payload: dict) -> None:
         """Copia durable de la auditoria en Django (SecurityEvent MCP_ACTION). Best-effort: un fallo NO afecta a la operacion (ya quedo en los logs del MCP)."""
@@ -86,11 +87,12 @@ class DjangoAPI:
 
     async def probe(self, path: str, *, token: str, request_id: str = "-", params: dict | None = None) -> ApiResponse:
         """GET a una ruta FIJA interna del propio MCP (whoami, schema): el llamador nunca es el LLM."""
-        return await self._request("GET", path, token=token, request_id=request_id, params=params, json_body=None)
+        return await self._request("GET", path, token=token, request_id=request_id, params=params, json_body=None, timeout=None)
 
-    async def _request(self, method, path, *, token, request_id, params, json_body) -> ApiResponse:
+    async def _request(self, method, path, *, token, request_id, params, json_body, timeout=None) -> ApiResponse:
         try:
-            async with self._client.stream(method, path, headers=self._headers(token, request_id), params=params, json=json_body) as resp:
+            async with self._client.stream(method, path, headers=self._headers(token, request_id), params=params, json=json_body,
+                                           **({"timeout": httpx.Timeout(timeout, connect=5.0)} if timeout else {})) as resp:
                 cap = self.s.max_output_bytes * 20 if path.endswith("/schema/") else self.s.max_output_bytes * 2
                 chunks, size, truncated = [], 0, False
                 async for chunk in resp.aiter_bytes():

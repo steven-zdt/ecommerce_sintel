@@ -361,6 +361,8 @@ AI_GLOBAL_ENABLED = config('AI_GLOBAL_ENABLED', default=True, cast=bool)
 # PLAN_LLMDINAMICO F3 (2026-09-25): el endpoint interno provider-config entrega API keys descifradas; ademas del aislamiento de red exige
 # X-AI-Service-Token (mismo AI_SERVICE_TOKEN de F2, sentido ADK -> Django). false (default) = solo monitor (loguea); true = 403 uniforme.
 # INCIDENTE 2026-09-25: rechazar URLs localhost/127.0.0.1 al guardar un proveedor LLM (dentro de Docker apuntan al contenedor). True solo si Django corre fuera de Docker.
+# Plano de codigo del MCP (ai_editor). SOLO DESARROLLO: en produccion el codigo es una copia de la imagen, no un repo; dejar en false.
+AI_EDITOR_CODE_PLANE_ENABLED = config('AI_EDITOR_CODE_PLANE_ENABLED', default=False, cast=bool)
 AI_PROVIDER_ALLOW_LOOPBACK = config('AI_PROVIDER_ALLOW_LOOPBACK', default=False, cast=bool)
 AI_PROVIDER_CONFIG_TOKEN_REQUIRED = config('AI_PROVIDER_CONFIG_TOKEN_REQUIRED', default=False, cast=bool)
 AI_SERVICE_TOKEN_PREVIOUS = config('AI_SERVICE_TOKEN_PREVIOUS', default='')

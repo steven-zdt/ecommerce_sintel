@@ -7,12 +7,12 @@ Principio: `MCP permission != Django permission != Tool permission != business a
   Django responde 401 (invalido/caducado) o 403 (no admin) => el MCP responde 401. Django inalcanzable => falla cerrado.
 - La identidad NUNCA viene de argumentos (`user_id`, `role`, `is_admin` se ignoran). El token viaja reenviado a Django en cada llamada: **Django aplica sus permisos** (no hay RBAC paralelo).
 - **Tokens personales (`smcp_...`)** (2026-09-25): el admin los crea en `POST /api/v1/dashboard/mcp-tokens/` (vigencia 1-90 dias, se muestra UNA vez; solo se guarda el sha256). El MCP los canjea en `POST /api/v1/internal/mcp/exchange/` por un JWT de 15 min del mismo admin con el claim `via=mcp`; Django sigue siendo la autoridad (revocado, caducado o usuario sin `is_superuser`/inactivo => 401 generico auditado; limite 30/min por IP). El canje se cachea `MCP_PAT_CACHE_TTL` s (120 por defecto = lo que tarda en notarse una revocacion).
-- **Frontera `via=mcp`**: un JWT canjeado por el MCP NO puede crear ni revocar tokens (evita que un cliente comprometido se de persistencia) y, cuando exista el plano de codigo con escritura, NO podra aprobar cambios.
+- **Frontera `via=mcp`**: un JWT canjeado por el MCP NO puede crear ni revocar tokens (evita que un cliente comprometido se de persistencia) y, NO puede aprobar cambios de codigo (`POST code/proposals/<id>/decision/` => 403).
 - Un JWT normal de 15 min tambien sirve. `MCP_AUTH_MODE=service_token|oauth` no estan implementados (el servidor no arranca).
 
 ## 2. Perfiles MCP (capa adicional)
 `READ_ONLY` (por defecto para todo admin), `ADMIN_CRUD`, `CODE_REVIEW`, `CODE_CHANGE`, `FULL_MAINTAINER`. Se asignan por email en `MCP_PRINCIPAL_PROFILES` (`email=PERFIL,...`). Un perfil desconocido cae al por defecto.
-Hoy CODE_REVIEW/CODE_CHANGE == READ_ONLY (las Tools de propuesta/promocion no existen) y FULL_MAINTAINER == ADMIN_CRUD; ningun perfil salta la aprobacion humana de `ai_editor`.
+CODE_REVIEW = READ_ONLY + analisis por grafo (`code.graph_status|describe_symbol|find_references|impact_analysis|resolve_change|build_context|find_tests|list_changes|change_status`); CODE_CHANGE = CODE_REVIEW + `code.propose_change|promote_change|rollback_change|discard_change`; FULL_MAINTAINER = ADMIN_CRUD + CODE_CHANGE. Ningun perfil aprueba: la decision es humana (ver sec. 7).
 
 ## 3. Escrituras
 Riesgo por operacion en `registry.py` (create/update medio, delete alto, lecturas bajo). Medio/alto: **preview -> confirmation_token** (HMAC, un solo uso, 5 min, atado a principal+tool+recurso+operacion+objetivo+hash del payload+version).
@@ -31,9 +31,10 @@ Todo texto de la BD (descripciones, mensajes, tickets, campanas) se devuelve com
 `sanitize.redact` (claves sensibles -> `[REDACTED]`, cadenas y listas acotadas), PII enmascarada en recursos sensibles (`orders`, `quotations`, `payment-transactions`: solo lectura), tope de bytes por respuesta.
 Codigo: `redact_text` enmascara `SECRET_KEY = '...'`, `password: ...`, `config('X', default='valor')`. Los tokens jamas entran a logs (`Principal.token` con `repr=False`; auditoria con `redact`).
 
-## 7. Plano de codigo (solo lectura)
+## 7. Plano de codigo (lectura + propuestas en sandbox; promocion solo tras aprobacion humana)
 `MCP_WORKSPACE_ROOT` vacio => desactivado. Rutas relativas normalizadas, sin `..`, sin absolutas/unidades, sin bytes nulos, **sin symlinks**, dentro del workspace, tope 64 KB, solo extensiones de texto, lista de rutas sensibles
 (`.env`, `secret`, `credential`, `.pem`, `.key`, `backup`, `.dump`, `private_media`, `.git/`, `token`...). Compose monta el repo `:ro` y tapa `.env` y `.env.production` con `/dev/null`. `code.search` sin regex del usuario ni shell.
+Escritura (2026-09-25, solo desarrollo, `AI_EDITOR_CODE_PLANE_ENABLED` apagado por defecto): propuestas en sandbox via `ai_editor` (Django). El MCP no escribe archivos; `promote_change` exige `confirm=true` + aprobacion humana registrada por un admin con sesion normal (via=mcp => 403) + compuertas de ai_editor (F22, deriva, sintaxis). `change_id` con formato estricto `chg-<16 hex>`; tests NUNCA se ejecutan. Detalle en CODE_CONTROL_PLANE.md.
 
 ## 8. Limites y abuso
 Rate limit por ventana de 60 s: global (x10), principal (`MCP_RATE_LIMIT`, 60), operacion (escrituras `MCP_WRITE_RATE_LIMIT`, 20) y recurso; `limit<=50` registros, `page<=20`, payload de escritura <= 64 KB, cuerpo HTTP <= 256 KB (`413`),
@@ -47,4 +48,4 @@ Cada escritura y cada denegacion deja una linea JSON (`logger mcp.audit`): princ
 Ademas cada escritura/conflicto se copia (best-effort) a Django como `SecurityEvent MCP_ACTION` (`POST /api/v1/dashboard/mcp/audit/`, lista blanca de campos cortos, sin valores; el usuario del evento es el admin real).
 
 ## Riesgos residuales
-Idempotencia/confirmaciones/rate limit en memoria (se pierden al reiniciar); TOCTOU en update/delete; plano de codigo sin integrar con `ai_editor` (no hay escritura de codigo); la revocacion de un token personal tarda hasta `MCP_PAT_CACHE_TTL` s en notarse.
+Idempotencia/confirmaciones/rate limit en memoria (se pierden al reiniciar); TOCTOU en update/delete; propuestas de codigo en memoria del proceso Django (se pierden al reiniciar); el LLM de `ai_editor` es independiente del chat; la revocacion de un token personal tarda hasta `MCP_PAT_CACHE_TTL` s en notarse.

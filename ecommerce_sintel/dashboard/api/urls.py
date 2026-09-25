@@ -113,6 +113,7 @@ from dashboard.api.content_blocks_views import (
 from operations.api.views import AdminOperationViewSet, AdminDispatcherViewSet
 from dashboard.api.ai_provider_views import AdminAIProviderViewSet, AdminAIChannelConfigViewSet, AdminMCPServerViewSet
 from dashboard.api.mcp_views import AdminMcpAuditView, AdminMcpTokenViewSet, AdminMcpWhoAmIView
+from dashboard.api import code_plane_views as cpv
 
 router = DefaultRouter()
 
@@ -261,6 +262,12 @@ router.register(r'mcp-tokens',        AdminMcpTokenViewSet,         basename='ad
 urlpatterns = [
     path('mcp/whoami/', AdminMcpWhoAmIView.as_view(), name='admin-mcp-whoami'),
     path('mcp/audit/', AdminMcpAuditView.as_view(), name='admin-mcp-audit'),
+    path('code/analysis/', cpv.CodeAnalysisView.as_view(), name='admin-code-analysis'),
+    path('code/proposals/', cpv.CodeProposalListCreateView.as_view(), name='admin-code-proposals'),
+    path('code/proposals/<str:change_id>/', cpv.CodeProposalDetailView.as_view(), name='admin-code-proposal'),
+    path('code/proposals/<str:change_id>/decision/', cpv.CodeProposalDecisionView.as_view(), name='admin-code-decision'),
+    path('code/proposals/<str:change_id>/promote/', cpv.CodeProposalPromoteView.as_view(), name='admin-code-promote'),
+    path('code/proposals/<str:change_id>/rollback/', cpv.CodeProposalRollbackView.as_view(), name='admin-code-rollback'),
     path('metrics/', AdminMetricsView.as_view(), name='admin-metrics'),
     path('whatsapp/connection-status/', AdminWhatsAppConnectionStatusView.as_view(), name='admin-whatsapp-connection-status'),
     path('whatsapp/session-action/', AdminWhatsAppSessionActionView.as_view(), name='admin-whatsapp-session-action'),

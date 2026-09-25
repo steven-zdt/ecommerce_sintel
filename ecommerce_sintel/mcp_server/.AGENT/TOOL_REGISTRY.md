@@ -16,7 +16,8 @@ Fuente de verdad: `policy.py::TOOL_CLASS` / `PROFILE_TOOLS` y `registry.py::RESO
 | `code.search` / `code.read` | READ | todos | solo lectura del workspace, secretos enmascarados |
 
 NO existen (a proposito): `execute_arbitrary_url`, `code.execute_arbitrary_shell`, `code.write_file`, `code.delete_file`, `execute_arbitrary_steps`, SQL, Docker.
-Pendientes (plano de codigo): `code.describe_symbol`, `find_references`, `impact_analysis`, `resolve_change`, `build_context`, `propose_change`, `validate_change`, `run_tests`, `approval_status`, `promote`, `rollback`; `business.audit`.
+Plano de codigo (solo desarrollo, ver CODE_CONTROL_PLANE.md): `code.graph_status`, `describe_symbol`, `find_references`, `impact_analysis`, `resolve_change`, `build_context`, `find_tests` (READ, CODE_REVIEW); `list_changes`, `change_status` (READ); `propose_change`, `discard_change` (WRITE), `promote_change`, `rollback_change` (DESTRUCTIVE, confirm=true) (CODE_CHANGE). Sin Tool de aprobacion ni de ejecucion de tests.
+Pendientes: `business.audit`.
 
 ## Resources (solo lectura, sin secretos)
 `resource://sintel/architecture`, `business-rules`, `apps`, `openapi` (resumen), `tool-registry`, `agent-registry` (no disponible: dice por que), `environment-status`.

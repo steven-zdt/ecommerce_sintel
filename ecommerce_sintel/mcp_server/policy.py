@@ -19,19 +19,24 @@ TOOL_CLASS = {
     "crud.preview_create": READ, "crud.preview_update": READ, "crud.preview_delete": READ,
     "crud.create": WRITE, "crud.update": WRITE, "crud.delete": DESTRUCTIVE,
     "code.search": READ, "code.read": READ,
+    "code.graph_status": READ, "code.describe_symbol": READ, "code.find_references": READ, "code.impact_analysis": READ, "code.resolve_change": READ,
+    "code.build_context": READ, "code.find_tests": READ, "code.list_changes": READ, "code.change_status": READ,
+    "code.propose_change": WRITE, "code.discard_change": WRITE, "code.promote_change": DESTRUCTIVE, "code.rollback_change": DESTRUCTIVE,
 }
 
 _READ_ONLY = {"mcp.whoami", "api.describe", "crud.list", "crud.get", "code.search", "code.read"}
 _CRUD = {"crud.preview_create", "crud.preview_update", "crud.preview_delete", "crud.create", "crud.update", "crud.delete"}
 
-# Los perfiles de codigo (CODE_REVIEW/CODE_CHANGE) reservan las Tools del plano de codigo que aun no existen (impact/propose/validate/tests/approval/promote/rollback):
-# hoy equivalen a READ_ONLY. Cuando se integre ai_editor se anaden aqui, siempre SIN saltarse la aprobacion humana de ai_editor (ni siquiera FULL_MAINTAINER).
+# Plano de codigo (ai_editor, solo desarrollo; Django lo apaga por defecto). NO existe Tool de aprobacion: la decision es de un humano en el panel (Django rechaza via=mcp).
+_CODE_REVIEW = {"code.graph_status", "code.describe_symbol", "code.find_references", "code.impact_analysis", "code.resolve_change", "code.build_context", "code.find_tests",
+                "code.list_changes", "code.change_status"}
+_CODE_CHANGE = {"code.propose_change", "code.discard_change", "code.promote_change", "code.rollback_change"}
 PROFILE_TOOLS = {
     "READ_ONLY": frozenset(_READ_ONLY),
     "ADMIN_CRUD": frozenset(_READ_ONLY | _CRUD),
-    "CODE_REVIEW": frozenset(_READ_ONLY),
-    "CODE_CHANGE": frozenset(_READ_ONLY),
-    "FULL_MAINTAINER": frozenset(_READ_ONLY | _CRUD),
+    "CODE_REVIEW": frozenset(_READ_ONLY | _CODE_REVIEW),
+    "CODE_CHANGE": frozenset(_READ_ONLY | _CODE_REVIEW | _CODE_CHANGE),
+    "FULL_MAINTAINER": frozenset(_READ_ONLY | _CRUD | _CODE_REVIEW | _CODE_CHANGE),
 }
 
 

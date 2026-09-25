@@ -3,7 +3,7 @@ mcp_server/scripts/protocol_smoke.py -- prueba de PROTOCOLO y SEGURIDAD con un c
 
 Uso (dentro de la red de compose, con el SDK del propio MCP):
   docker run --rm --network ecommerce_sintel_network -e MCP_URL=http://ecommerce_sintel_mcp:8200/mcp -e DJANGO_URL=http://django:8000 \
-      -e TOKEN_ADMIN=... -e TOKEN_CUSTOMER=... -e PHASE=readonly|write sintel_ecommerce_mcp:latest python -m mcp_server.scripts.protocol_smoke
+      -e TOKEN_ADMIN=... -e TOKEN_CUSTOMER=... -e PHASE=readonly|write|code sintel_ecommerce_mcp:latest python -m mcp_server.scripts.protocol_smoke
 PHASE=readonly: perfil READ_ONLY (autenticacion, protocolo, perfiles, lecturas, seguridad; arrancar el servidor con MCP_RATE_LIMIT=1000).
 PHASE=write: perfil ADMIN_CRUD (escrituras; MCP_RATE_LIMIT=1000). PHASE=ratelimit: MCP_RATE_LIMIT=60 recien reiniciado.
 Cada comprobacion imprime `## OK|FALLA <descripcion>`. Sale con codigo 1 si alguna falla.
@@ -108,7 +108,10 @@ async def phase_readonly():
         for tool, args in (("crud.create", {"resource": "categories", "data": {"name": "x"}, "idempotency_key": "smoke-key-0001"}),
                            ("crud.update", {"resource": "categories", "target": str(uuid.uuid4()), "changes": {"name": "x"}, "expected_version": "h:0"}),
                            ("crud.delete", {"resource": "categories", "target": str(uuid.uuid4()), "expected_version": "h:0"}),
-                           ("crud.preview_create", {"resource": "categories", "data": {"name": "x"}})):
+                           ("crud.preview_create", {"resource": "categories", "data": {"name": "x"}}),
+                           ("code.propose_change", {"request": "Agregar un comentario a una clase cualquiera"}),
+                           ("code.promote_change", {"change_id": "chg-0123456789abcdef", "confirm": True}),
+                           ("code.impact_analysis", {"query": "AdminCategoryViewSet"})):
             ok, err = await call(s, tool, **args)
             check(f"READ_ONLY no puede {tool}", not ok and err.get("code") == "FORBIDDEN_TOOL", err.get("code", ""))
         ok, err = await call(s, "mcp.whoami", user_id=1, role="superadmin", is_admin=True)
@@ -295,6 +298,43 @@ async def phase_pat():
     await denied(TOKEN_PAT, f"token personal revocado en caliente: rechazado tras el TTL de cache ({PAT_CACHE_TTL}s)")
 
 
+async def phase_code():
+    """Perfil CODE_CHANGE (MCP_PRINCIPAL_PROFILES) y Django con AI_EDITOR_CODE_PLANE_ENABLED=true. No ejecuta tests ni aprueba nada."""
+    async with connect(TOKEN_ADMIN) as s:
+        ok, who = await call(s, "mcp.whoami")
+        check("perfil CODE_CHANGE activo", ok and who["profile"] == "CODE_CHANGE", who.get("profile", "") if ok else str(who))
+        tools = {t.name for t in (await s.list_tools()).tools}
+        check("no existe ninguna Tool de aprobacion/decision", not any(w in t for t in tools for w in ("approve", "decision", "approval")))
+        check("no hay Tools para ejecutar tests", not any("run_tests" in t or "exec" in t for t in tools))
+        check("perfil CODE_CHANGE no puede escribir CRUD", not (await call(s, "crud.delete", resource="categories", target=str(uuid.uuid4()), expected_version="h:0"))[0])
+        ok, st = await call(s, "code.graph_status")
+        check("graph_status devuelve el estado del grafo", ok and st["data"]["result"] is not None, "" if ok else str(st))
+        ok, sym = await call(s, "code.describe_symbol", query="AdminCategoryViewSet")
+        check("describe_symbol resuelve un simbolo real", ok and "AdminCategoryViewSet" in json.dumps(sym["data"]["result"]), "" if ok else str(sym))
+        ok, imp = await call(s, "code.impact_analysis", query="AdminCategoryViewSet")
+        check("impact_analysis responde con datos marcados como no confiables", ok and "data_notice" in imp, "" if ok else str(imp))
+        ok, err = await call(s, "code.find_tests", query="")
+        check("consulta vacia => INVALID_ARGUMENT", not ok and err.get("code") == "INVALID_ARGUMENT", err.get("code", ""))
+        ok, err = await call(s, "code.change_status", change_id="../../etc/passwd")
+        check("change_id malformado => INVALID_ARGUMENT (sin componer rutas)", not ok and err.get("code") == "INVALID_ARGUMENT", err.get("code", ""))
+        ok, err = await call(s, "code.change_status", change_id="chg-0123456789abcdef")
+        check("propuesta inexistente => NOT_FOUND", not ok and err.get("code") == "NOT_FOUND", err.get("code", ""))
+        ok, err = await call(s, "code.promote_change", change_id="chg-0123456789abcdef", confirm=False)
+        check("promote sin confirm=true => CONFIRMATION_REQUIRED", not ok and err.get("code") == "CONFIRMATION_REQUIRED", err.get("code", ""))
+        ok, prop = await call(s, "code.propose_change", request="Agregar un comentario de documentacion a la clase AdminCategoryViewSet en dashboard/api/views.py")
+        check("propose_change responde (sandbox; nunca escribe el repo)", ok and prop["data"]["state"] in ("PROPOSED", "FAILED"), "" if ok else str(err))
+        if ok:
+            cid = prop["data"]["change_id"]
+            ok, det = await call(s, "code.change_status", change_id=cid)
+            check("change_status trae tests requeridos sin ejecutarlos", ok and "required_tests" in det["data"], "" if ok else str(det))
+            ok, pr = await call(s, "code.promote_change", change_id=cid, confirm=True)
+            check("promote sin aprobacion humana no promueve", ok is False or pr.get("ok") is False, str(pr)[:200])
+            ok, ls = await call(s, "code.list_changes")
+            check("list_changes incluye la propuesta", ok and any(c["change_id"] == cid for c in ls["data"]["results"]))
+            ok, dis = await call(s, "code.discard_change", change_id=cid)
+            check("discard_change limpia la propuesta", ok and dis.get("discarded") == cid)
+
+
 async def phase_ratelimit():
     """Requiere el servidor con MCP_RATE_LIMIT=60 (por defecto) recien reiniciado."""
     async with connect(TOKEN_ADMIN) as s:
@@ -309,7 +349,7 @@ async def phase_ratelimit():
 
 async def main() -> int:
     print(f"## fase={PHASE} url={MCP_URL}", flush=True)
-    await {"readonly": phase_readonly, "write": phase_write, "ratelimit": phase_ratelimit, "pat": phase_pat}[PHASE]()
+    await {"readonly": phase_readonly, "write": phase_write, "ratelimit": phase_ratelimit, "pat": phase_pat, "code": phase_code}[PHASE]()
     print(f"## RESUMEN: {len(FAILS)} fallo(s)", FAILS, flush=True)
     return 1 if FAILS else 0
 

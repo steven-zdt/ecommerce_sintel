@@ -32,7 +32,7 @@ Modelo de amenazas y controles: `mcp_server/.AGENT/SECURITY_MODEL.md`.
 | 0 arbitrary code execution | PASS (la capacidad no existe) |
 | 0 secret disclosure | PASS para los secretos de dev comprobados (>= 16 caracteres); no se prueba contra secretos de produccion |
 | 0 SSRF | PASS |
-| 0 bypass of ai_editor approval | N/A hoy: el MCP no escribe codigo ni llama a `ai_editor` |
+| 0 bypass of ai_editor approval | PASS (2026-09-25, dev): no existe Tool de aprobacion; `decision` con JWT `via=mcp` => 403; `promote` sin aprobacion humana/`confirm` => rechazado; deriva de workspace => rechazado. Plano apagado por defecto y en produccion |
 
 ## Hallazgos abiertos (riesgo residual)
 | ID | Sev. | Hallazgo | Mitigacion / decision |
@@ -48,3 +48,7 @@ Modelo de amenazas y controles: `mcp_server/.AGENT/SECURITY_MODEL.md`.
 | M-9 | Info | Los datos de PII de recursos sensibles se enmascaran por nombre de campo (regex), no por clasificacion formal | Revisar al habilitar mas dominios |
 
 Recomendacion: **no promover a produccion** hasta cerrar M-1, decidir M-4 con el equipo, definir el despliegue detras de nginx/Cloudflare y hacer el canary con un cliente y operaciones limitados.
+
+## Adenda 2026-09-25 (plano de codigo)
+Nuevos riesgos residuales: **C-1 (Media)** las propuestas viven en memoria de Django (se pierden al reiniciar; no hay persistencia de aprobaciones); **C-2 (Media)** el humano puede aprobar desde la API sin UI de revision dedicada (el texto de revision se devuelve en `GET code/proposals/<id>/`); **C-3 (Baja)** `propose_change` puede tardar hasta 240 s y ocupa un hilo de Django; **C-4 (Info)** el loop usa el LLM de `ai_editor`, no el registro de proveedores.
+Controles: `AI_EDITOR_CODE_PLANE_ENABLED=false` por defecto y en `.env.production`; `change_id` estricto; salida redactada y marcada como dato no confiable; auditoria durable `code_*`.

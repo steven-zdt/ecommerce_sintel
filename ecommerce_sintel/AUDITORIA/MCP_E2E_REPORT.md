@@ -31,3 +31,9 @@ Tambien: `orders` y `payment-transactions` no admiten escritura (`OPERATION_NOT_
   revocacion desde el panel (204) y rechazo tras el TTL de cache.
 - **Auditoria durable:** un ciclo de escrituras dejo 5 `SecurityEvent MCP_ACTION` (create, 2 update, conflicto, delete) con usuario real, herramienta, recurso, operacion, objetivo y campos cambiados; sin valores ni JWT.
 - Migracion `security.0011_mcp_access_tokens` (modelo + nuevos tipos de evento) aplicada en dev; **hay que aplicarla en produccion al desplegar Django**.
+
+## Adenda 2026-09-25 (plano de codigo, Fases 7-8; solo desarrollo)
+- **Sec. 40 E2E de codigo: PARCIAL -> mayormente cubierto.** Django (scripts funcionales, 29 comprobaciones OK): analisis por grafo, 401/403, `via=mcp` NO aprueba (403), promocion sin aprobacion rechazada, sin `confirm` => 409, deriva de workspace => 409, promocion real de un archivo de prueba + rollback que lo restaura, 5+ eventos `MCP_ACTION code_*`.
+  MCP real (fase `code`, 17 OK): perfil CODE_CHANGE, sin Tool de aprobacion ni de tests, graph_status/describe_symbol/impact_analysis, ids malformados, `promote` sin confirm, propose/status/list/discard. Regresion `readonly` (con secretos reales, 2 comprobados) y `write`: 0 fallos.
+- **No verificado:** una propuesta generada por un LLM real (el proveedor de `ai_editor`, Ollama, esta deshabilitado: el camino probado es el de fallo limpio `state=FAILED`) y la promocion de una propuesta real (se uso un sandbox sintetico con el `Sandbox`/`promote_to_workspace` reales).
+- Sec. 41 (alineamiento de negocio): sigue pendiente de `business.audit`.

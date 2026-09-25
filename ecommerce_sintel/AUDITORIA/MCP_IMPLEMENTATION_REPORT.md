@@ -49,3 +49,7 @@
 3. `business.audit` (Fase 9) y acciones de dominio con endpoint verificado (activate/deactivate/publish...).
 4. Auditoria a `SecurityEvent` de Django (hoy solo logs), idempotencia/rate limit en Redis si hay varias replicas.
 5. Despliegue: definir el servicio en `docker-compose.prod.yml`, ruta `/mcp` en nginx/Cloudflare (nunca publicar `/mcp-health`), canary con un cliente limitado y aprobacion humana.
+
+
+## Adenda 2026-09-25: Fases 7-8 (plano de codigo con ai_editor)
+Implementado como adaptador: `dashboard/api/code_plane_views.py` + `ai_editor/change_store.py` (Django, apagado por defecto) y `mcp_server/code_plane.py` (13 Tools nuevas: analisis por grafo, propose/list/status/promote/rollback/discard). Sin Tool de aprobacion ni de tests. Perfiles CODE_REVIEW/CODE_CHANGE/FULL_MAINTAINER ya efectivos. Detalle y limites: `mcp_server/.AGENT/CODE_CONTROL_PLANE.md`. Pendiente: `business.audit` (Fase 9), acciones de dominio (Fase 6), Redis opcional, canary/produccion (12-13, requieren aprobacion humana).
