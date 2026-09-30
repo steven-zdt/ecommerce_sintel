@@ -59,6 +59,8 @@ Si APPROVED → PaymentCommands.confirm_payment() → confirm_order_payment() �
 Si la Transaction tiene rental_request → RentalRequestCommands.confirm_payment() en vez de confirm_order_payment()
 ```
 
+`confirm_order_payment()` tambien la invoca `technical_services.ServiceCommands.request_service()` **sin pasar por Wompi** cuando el total de una orden de servicio es 0 (visita diagnostica sin costo, `reference='FREE-SERVICE'`, desde 2026-09-30). No existe `Transaction` en ese caso: cualquier codigo que asuma que toda orden `paid` tiene una `Transaction` asociada debe tolerar su ausencia.
+
 ## Reglas globales
 
 Ver `.AGENT.md` en la raíz del proyecto.

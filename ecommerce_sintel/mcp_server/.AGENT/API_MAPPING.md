@@ -24,5 +24,13 @@ Delete: `DELETE <recurso>/<uuid>/` = borrado logico (204); el registro desaparec
 marketing (envios = efectos externos: requieren workflows), support (datos personales de clientes), inventory (vive en `/api/v1/inventory/stock-records/`, no en `/dashboard/`),
 users (SECURITY_SENSITIVE), notifications (EXTERNAL_SIDE_EFFECT). No se reintroducen rutas historicas eliminadas.
 
+## Limites reales al escribir por MCP (verificado en produccion, 2026-09-30)
+
+- **Campos anidados se ignoran sin avisar:** `crud.update` sobre `equipment` acepta `marketing` y `logistics_config` (el preview los muestra y el update responde `ok`), pero Django no los guarda; verificar siempre con `crud.get` tras escribir. Los textos anidados de un equipo se editan desde el panel o con un sub-endpoint aun no habilitado.
+- **`services` create acepta `initial_variant`** (`pricing_strategy`, `estimated_hours`, `complexity_factor`, `fixed_price`; incluso `fixed_price = 0.00`) y crea la variante por defecto. **update lo descarta** (`unknown_fields`), y el MCP no expone `service-variants`: no se puede dar precio a un servicio que ya existe sin variante (ej. id 5 "Mantenimiento y Configuracion de Computadores").
+- **SKU > 100 caracteres da HTTP 500** (`UPSTREAM_ERROR`): el SKU de la variante se autogenera del nombre. Acortar el nombre.
+- Crear servicios nuevos con `is_active: false` y activarlos despues de revisar los textos.
+- El preview de `update` con un campo anidado parcial muestra solo lo enviado: si se necesita conservar el resto del objeto, enviar el objeto completo.
+
 ## Endpoint propio de Django para el MCP
 `GET /api/v1/dashboard/mcp/whoami/` (`dashboard/api/mcp_views.py`): solo lectura, `IsAdminUser`; devuelve `{uuid, email, is_admin, is_staff, is_superuser}`. Existe porque `/auth/profile/` no expone `is_superuser`.

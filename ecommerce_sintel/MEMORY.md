@@ -26,6 +26,13 @@ Toda interacción y modificación de código respeta obligatoriamente los siguie
 
 ## 4. Historial Reciente y Tareas Actuales (Julio 2026)
 
+- **2026-09-30 -- Servicios: visitas a $0, agendado por WhatsApp y optimizacion de cotizacion (commits `da4b5e4`, `daf461e`; desplegado a produccion con `./deploy/deploy.sh`, salud OK):**
+  - `ServiceCommands.request_service()` confirma de inmediato (`confirm_order_payment(..., 'FREE-SERVICE')`) las ordenes de servicio con total 0; el wizard (`ServiceRequestWizard.vue`) muestra "Agendar visita" / "Sin costo" y no abre el modal de Wompi. El detalle publico (`ServiceDetailContent.vue`) agrega "Agendar por WhatsApp" (`useCommunication.openWhatsApp(mensaje)`, numero de `core/footer/`).
+  - Catalogo por MCP en produccion: 9 servicios "Visita Diagnostica y Levantamiento de Informacion para Cotizar | <sistema>" a $0 (activos) y 8 "Mantenimiento Preventivo de <sistema> | por Hora" a 25.000 base (**inactivos**). Correcciones de texto por MCP: marcas Honeywell/Hikvision/ZKTeco/Access Pro, 8 categorias sin punto final y "Camara IP PT Exterior".
+  - Optimizacion (plan `PLAN_IMPLEMENTACION_OPTIMIZACION_CRUD_SERVICIOS.md`, fases 0 y 2 parcial): cotizacion una sola vez por variante y prefetch de materiales; listado admin 88 -> 37 queries. Tests: `technical_services` 206, `payment`+`orders` 88, OK en desarrollo. Detalle en `technical_services/.AGENT/docs/ARQUITECTURA_COMPLETA_SERVICES.md` §24 y `AUDITORIA/SERVICES_OPTIMIZATION_BASELINE.md`.
+  - Limites del MCP al escribir (campos anidados ignorados, SKU >100 da 500, sin `service-variants`): `mcp_server/.AGENT/API_MAPPING.md`.
+  - Pendiente: precio 150.000 del servicio id 5 (sin variante, requiere panel), bajar CCTV de 28.000 a 25.000, activar los 8 de mantenimiento, fases 1/3/4/5 del plan de optimizacion, prueba real de una visita de $0 en produccion. Trabajo sin seguimiento a proposito fuera de los commits: logs, `imagenes_productos/`, `skills-admin/`, `scripts/ai_eval/_out*`, y el movimiento de planes a `AUDITORIA/`.
+
 - **2026-09-25 -- Servidor MCP de administracion (`mcp_server/`, PROMPT_IMPLEMENTAR_MCP_ECOMMERCE_ADMIN_CODE_AGENT_SINTEL):** adapter Streamable HTTP (SDK oficial `mcp` 2.2.0) sobre la API REST del panel.
   Bearer = JWT de un admin validado por Django (`GET /api/v1/dashboard/mcp/whoami/`, nuevo); perfiles MCP por email (`MCP_PRINCIPAL_PROFILES`, por defecto `READ_ONLY`); `api.describe`, `crud.list|get|preview_*|create|update|delete`
   (shop escribible; taxes/services/renting/orders/quotes/payment solo lectura; marketing/support/inventory/users/notifications bloqueados con motivo), fichas de confirmacion HMAC, `idempotency_key`, `expected_version`

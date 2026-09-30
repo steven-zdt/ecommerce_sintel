@@ -2496,6 +2496,30 @@ fase — retomar solo si surge una necesidad concreta.
 
 ---
 
+## 24. Servicios sin costo (visita diagnóstica) y optimización de cotización (2026-09-30)
+
+Commit `da4b5e4`, desplegado a producción el 2026-09-30. Verificado en desarrollo (`technical_services` 206 tests, `payment` + `orders` 88 tests, todos OK).
+
+### 24.1 Servicios con total 0 se confirman al crearse
+
+- `ServiceCommands.request_service()` (`services/commands.py`): al final, si `order.total_amount == 0`, llama a `payment.shared.commands.confirm_order_payment(order, reference='FREE-SERVICE')` — el **mismo camino post-pago** que Wompi/Nequi/COD (SSoT): marca la orden `paid`, activa el `ServiceBooking` (`confirm_slot_on_payment`), crea el ticket de operación y dispara la asignación automática y las notificaciones. Sin esto la orden quedaría en `PENDING_PAYMENT` esperando un pago de $0 que Wompi no puede procesar.
+- Un servicio con precio no cambia: sigue en `PENDING_PAYMENT` hasta que el pago se confirma. Cubierto por `tests_free_service_and_pricing_cache.py`.
+- `confirm_order_payment` es seguro para órdenes solo de servicio: `_deduct_inventory_for_order` omite ítems sin `variant`/`equipment_variant`, y `FulfillmentCommands.ensure_shipment_for_order` no crea `Shipment` si no hay producto físico.
+- Frontend (`ServiceRequestWizard.vue`): `isFreeService` (variante con total 0, sin paquete, sin `CONTRACTOR_RATES`) cambia el paso 4 a "Confirmar visita" / "Sin costo" / botón "Agendar visita". Si `createOrder` devuelve `status === 'paid'` y `total_amount == 0` (`freeConfirmed`), **no** se abre `ServiceCheckoutModal` y la pantalla final dice "Visita agendada".
+- Detalle público (`ServiceDetailContent.vue`): `serviceIsFree` (todas las variantes activas valen 0) cambia "Solicitar servicio" por "Agendar visita" y se añade el botón **"Agendar por WhatsApp"** (`cta-actions`). El número sale de `organization.ContactInfo.phone` vía `core/footer/` (nunca hardcodeado); el botón solo aparece si el número cargó. `composables/useCommunication.js`: `openWhatsApp(message = '')` acepta un texto opcional (ignora el evento de click si se enlaza directo) y se exporta `ensurePhoneLoaded`.
+- Catálogo creado por MCP el 2026-09-30 (producción, activos): 9 servicios "Visita Diagnóstica y Levantamiento de Información para Cotizar | <sistema>" (CCTV, Alarma de Intrusión, Detección de Incendios, Cerco Eléctrico, LPR, GPS, Alarmas de Evacuación, Control de Acceso, Hogar Inteligente), categoría "Diagnóstico de Fallas", nivel Básico, `FIXED` con `fixed_price = 0.00`. Además 8 servicios "Mantenimiento Preventivo de <sistema> | por Hora" a 25.000 base (29.750 con IVA), creados **inactivos**. Límite conocido: el SKU de la variante se autogenera del nombre y `sku` tiene `max_length=100`; un nombre largo da HTTP 500 al crear (ver `mcp_server/.AGENT/API_MAPPING.md`).
+
+### 24.2 Cotización calculada una sola vez por variante
+
+- `ServiceVariantSerializer._get_quotation()` (`api/serializers.py`): `calculated_price` y `price_info` reutilizan la misma cotización por instancia de serializer (antes cada campo llamaba a `ServiceSelector.get_variant_quotation`). Semántica de error igual (`None`); las reglas de precio (SETUP/OPERATIONAL/TAX/DISCOUNT, IVA, descuentos, duración) **no se tocaron**.
+- `ServiceSelector._get_automatic_quotation()` (`services/selectors.py`): si `materials` viene prefetcheado usa `variant.materials.all()`; sin prefetch conserva `select_related('product_variant__product')` (los callers de commands/packages no ganan un N+1). Antes el `select_related` explícito ignoraba el prefetch y lanzaba una query por cotización.
+- Medido en desarrollo (16 servicios, 17 variantes): listado admin 88 → 37 queries, detalle liviano 28 → 18, detalle completo 33 → 23, payload idéntico en los cuatro casos. Baseline y pendientes: `AUDITORIA/SERVICES_OPTIMIZATION_BASELINE.md`.
+- Pendiente (no aplicado): el listado admin aún hace 20 queries de `ServiceCostRule` (2 por variante) y 10 de `ServiceConfiguration` activa (1 por cotización), dentro del motor de precios; optimizarlas requiere cache por request o prefetch de reglas.
+- Imports muertos eliminados: `api/views.py` (6 `*Commands` y 6 `*InputSerializer` sin uso; el CRUD admin vive en `dashboard/api/`), `admin.py` (`Count`, `Q`), `services/commands.py` (`timezone`).
+- Plan de origen: `PLAN_IMPLEMENTACION_OPTIMIZACION_CRUD_SERVICIOS.md` (raíz del repo). Aplicadas la fase 0 y el primer paso de la fase 2; fases 1 (auditoría completa), 3 (consolidación del frontend del CRUD), 4 (`OrderServiceDetail.technician` legacy) y 5 (tests de `dashboard` y frontend) siguen abiertas.
+
+---
+
 ## Conclusión
 
 El módulo **Technical Services** es una capa e-commerce completa para cobro de servicios técnicos y mano de obra calificada en Colombia, que además ya administra su propio ciclo operativo post-venta. Sus características actuales (re-auditadas al 2026-07-17):
