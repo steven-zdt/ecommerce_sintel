@@ -20,8 +20,9 @@
           <div class="srw-success-icon mx-auto mb-3">
             <i class="bi bi-check-lg text-white fs-2"></i>
           </div>
-          <h2 class="fw-bold mb-1">Solicitud enviada</h2>
-          <p class="text-muted">Completa el pago para confirmar tu solicitud de servicio.</p>
+          <h2 class="fw-bold mb-1">{{ freeConfirmed ? 'Visita agendada' : 'Solicitud enviada' }}</h2>
+          <p v-if="freeConfirmed" class="text-muted">Tu visita quedo registrada sin costo. Te contactaremos para confirmar la fecha y la jornada.</p>
+          <p v-else class="text-muted">Completa el pago para confirmar tu solicitud de servicio.</p>
         </div>
 
         <div class="d-flex gap-2 justify-content-center flex-wrap mt-2">
@@ -30,7 +31,7 @@
         </div>
       </div>
 
-      <ServiceCheckoutModal />
+      <ServiceCheckoutModal v-if="!freeConfirmed" />
     </div>
 
     <!-- WIZARD -->
@@ -457,8 +458,8 @@
       <div v-if="step === 4" class="srw-step-screen">
         <div class="container-xl">
           <div class="srw-step-header">
-            <h2 class="srw-step-title">Confirmar y pagar</h2>
-            <p class="srw-step-sub">Revisa el resumen y completa el pago para reservar la programacion.</p>
+            <h2 class="srw-step-title">{{ isFreeService ? 'Confirmar visita' : 'Confirmar y pagar' }}</h2>
+            <p class="srw-step-sub">{{ isFreeService ? 'Revisa el resumen y confirma tu visita sin costo.' : 'Revisa el resumen y completa el pago para reservar la programacion.' }}</p>
           </div>
 
           <div class="row justify-content-center">
@@ -478,8 +479,9 @@
                     </div>
                     <div class="text-end">
                       <div v-if="selectedVariant?.pricing_strategy === 'CONTRACTOR_RATES'" class="fw-bold text-primary fs-5">A convenir</div>
+                      <div v-else-if="isFreeService" class="fw-bold text-success fs-5">Sin costo</div>
                       <div v-else class="fw-bold text-violet fs-5">${{ fmt(selectedVariant?.price_info?.total ?? selectedVariant?.calculated_price) }}</div>
-                      <div class="text-muted small">{{ selectedVariant?.estimated_hours }} h - IVA incl.</div>
+                      <div class="text-muted small">{{ selectedVariant?.estimated_hours }} h<template v-if="!isFreeService"> - IVA incl.</template></div>
                     </div>
                   </div>
                 </div>
@@ -607,8 +609,8 @@
                   @click="submitRequest"
                 >
                   <span v-if="submitting" class="spinner-border spinner-border-sm me-2"></span>
-                  <i v-else class="bi bi-credit-card me-2"></i>
-                  {{ submitting ? 'Preparando pago...' : 'Confirmar y pagar' }}
+                  <i v-else :class="isFreeService ? 'bi bi-calendar-check me-2' : 'bi bi-credit-card me-2'"></i>
+                  {{ submitting ? (isFreeService ? 'Agendando visita...' : 'Preparando pago...') : (isFreeService ? 'Agendar visita' : 'Confirmar y pagar') }}
                 </button>
               </div>
             </div>
@@ -658,9 +660,21 @@ const submitting   = ref(false);
 const orderCreated = ref(false);
 const createdOrder = ref(null);
 const selectedVariant = ref(null);
+// true cuando el backend devolvio la orden ya confirmada (servicio sin costo):
+// en ese caso no se abre el modal de pago.
+const freeConfirmed = ref(false);
 
 // Paso 1 - paquete (opcional; solo aplica si el servicio tiene paquetes configurados)
 const selectedPackageState = reactive({ package: null, additionalCosts: [], breakdown: null });
+
+// Servicio sin costo (visita diagnostica / levantamiento de informacion): el
+// backend confirma la orden al crearla, asi que el ultimo paso agenda en vez de pagar.
+const isFreeService = computed(() => {
+  const v = selectedVariant.value;
+  if (!v || v.pricing_strategy === 'CONTRACTOR_RATES' || selectedPackageState.package) return false;
+  const total = parseFloat(v.price_info?.total ?? v.calculated_price);
+  return Number.isFinite(total) && total === 0;
+});
 function onPackagesLoaded() { /* no-op: PackageSelector maneja su propio estado de visibilidad */ }
 function onPackageSelectionChange(payload) {
   selectedPackageState.package = payload.package;
@@ -924,14 +938,17 @@ async function submitRequest() {
     createdOrder.value = data;
     await uploadAttachments(data.uuid);
     orderCreated.value = true;
-    checkoutStore.openFor({
-      order:          data,
-      serviceName:    service.value?.name,
-      variantSku:     selectedVariant.value?.sku,
-      priceInfo:      selectedVariant.value?.price_info,
-      technicianName: '',
-      durationHours:  selectedVariant.value?.estimated_hours,
-    });
+    freeConfirmed.value = data.status === 'paid' && parseFloat(data.total_amount) === 0;
+    if (!freeConfirmed.value) {
+      checkoutStore.openFor({
+        order:          data,
+        serviceName:    service.value?.name,
+        variantSku:     selectedVariant.value?.sku,
+        priceInfo:      selectedVariant.value?.price_info,
+        technicianName: '',
+        durationHours:  selectedVariant.value?.estimated_hours,
+      });
+    }
   } catch (err) {
     handleError(err, 'Error al enviar la solicitud.');
   } finally {

@@ -95,17 +95,31 @@ class ServiceVariantSerializer(serializers.ModelSerializer):
         # detecta como declarada.
         read_only_fields = ['pricing_source', 'manual_unit_price', 'manual_project_price']
 
+    def _get_quotation(self, obj):
+        """Cotizacion de la variante, calculada UNA sola vez por instancia durante
+        la serializacion: calculated_price y price_info salen de la misma cotizacion
+        (antes cada uno la recalculaba). El cache vive en el serializer, que es por
+        request, asi que no hay datos viejos entre peticiones. Si el calculo falla
+        se cachea None (mismo resultado None que devolvian ambos campos antes)."""
+        cache = self.__dict__.setdefault('_quotation_cache', {})
+        key = obj.pk if obj.pk is not None else id(obj)
+        if key not in cache:
+            from technical_services.services import ServiceSelector
+            try:
+                cache[key] = ServiceSelector.get_variant_quotation(obj)
+            except Exception:
+                cache[key] = None
+        return cache[key]
+
     def get_calculated_price(self, obj):
-        from technical_services.services import ServiceSelector
         try:
-            return float(ServiceSelector.get_variant_quotation(obj)['total_price'])
+            return float(self._get_quotation(obj)['total_price'])
         except Exception:
             return None
 
     def get_price_info(self, obj):
-        from technical_services.services import ServiceSelector
         try:
-            q = ServiceSelector.get_variant_quotation(obj)
+            q = self._get_quotation(obj)
             return {
                 'base': float(q['base_amount']),
                 'labor_cost': float(q['labor_cost']),

@@ -86,15 +86,25 @@
               <h3>Selecciona la opcion, direccion, fecha y paga en linea</h3>
               <p>El paso a paso completo (Servicio, Direccion, Fecha, Pago) se realiza en la siguiente pantalla.</p>
             </div>
-            <RouterLink
-              v-if="serviceHasActiveVariant"
-              :to="{ name: 'service-request', params: { uuid: serviceDetail.uuid } }"
-              class="buy-btn"
-            >
-              <i class="bi bi-bag-check me-2"></i>Solicitar servicio
-            </RouterLink>
-            <div v-else class="unavailable">
-              <i class="bi bi-clock me-1"></i>No disponible
+            <div class="cta-actions">
+              <RouterLink
+                v-if="serviceHasActiveVariant"
+                :to="{ name: 'service-request', params: { uuid: serviceDetail.uuid } }"
+                class="buy-btn"
+              >
+                <i :class="serviceIsFree ? 'bi bi-calendar-check me-2' : 'bi bi-bag-check me-2'"></i>{{ serviceIsFree ? 'Agendar visita' : 'Solicitar servicio' }}
+              </RouterLink>
+              <div v-else class="unavailable">
+                <i class="bi bi-clock me-1"></i>No disponible
+              </div>
+              <button
+                v-if="serviceHasActiveVariant && isWhatsAppReady"
+                type="button"
+                class="whatsapp-btn"
+                @click="scheduleViaWhatsApp"
+              >
+                <i class="bi bi-whatsapp me-2"></i>Agendar por WhatsApp
+              </button>
             </div>
           </div>
         </div>
@@ -344,10 +354,11 @@
 </template>
 
 <script setup>
-import { computed, defineAsyncComponent } from 'vue';
+import { computed, defineAsyncComponent, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { formatCOP } from '@/utils/money';
 import { useToast } from '@/composables/useToast';
+import { useCommunication } from '@/composables/useCommunication';
 import { useCartStore } from '@/store/cart';
 import { useAuthStore } from '@/store/auth';
 import { useAppConfigStore } from '@/store/appConfig';
@@ -412,6 +423,10 @@ const props = defineProps({
 });
 
 const router = useRouter();
+// El numero de WhatsApp sale de organization.ContactInfo (via core/footer/), nunca
+// hardcodeado; el boton solo aparece cuando ya se cargo un numero real.
+const { isWhatsAppReady, ensurePhoneLoaded, openWhatsApp } = useCommunication();
+onMounted(ensurePhoneLoaded);
 const { success, error: showError, info } = useToast();
 const cartStore = useCartStore();
 const authStore = useAuthStore();
@@ -457,6 +472,20 @@ const serviceHasActiveVariant = computed(() =>
   props.serviceDetail?.is_purchasable !== false &&
   (props.serviceDetail?.variants?.some((v) => v.is_active !== false) ?? false)
 );
+
+// Servicio sin costo (visita diagnostica / levantamiento de informacion): todas
+// las variantes activas valen 0 -> el CTA pasa a "Agendar visita".
+const serviceIsFree = computed(() => {
+  const active = (props.serviceDetail?.variants || []).filter((v) => v.is_active !== false);
+  if (!active.length) return false;
+  return active.every((v) => parseFloat(v.price_info?.total ?? v.calculated_price) === 0);
+});
+
+function scheduleViaWhatsApp() {
+  const name = props.serviceDetail?.name || 'servicio';
+  const verb = serviceIsFree.value ? 'agendar una visita' : 'agendar el servicio';
+  openWhatsApp(`Hola, quiero ${verb}: ${name}.\n${window.location.href}`);
+}
 
 const serviceCommercialCode = computed(() => {
   const variantSku = props.serviceDetail?.variants?.find((v) => v.sku)?.sku;
@@ -730,6 +759,29 @@ async function quickAddToCart(product) {
 
 .service-detail-block .buy-btn:hover { background: #115e59; color: #fff; }
 
+.service-detail-block .cta-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .6rem;
+  justify-content: flex-end;
+}
+
+.service-detail-block .whatsapp-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #fff;
+  color: #128c7e;
+  border: 1.5px solid #25d366;
+  border-radius: 999px;
+  padding: .75rem 1.15rem;
+  font-weight: 850;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.service-detail-block .whatsapp-btn:hover { background: #25d366; color: #fff; }
+
 .service-detail-block .unavailable {
   color: #64748b;
   border: 1px solid #e2e8f0;
@@ -888,7 +940,9 @@ async function quickAddToCart(product) {
     align-items: flex-start;
     flex-direction: column;
   }
-  .service-detail-block .buy-btn { width: 100%; }
+  .service-detail-block .buy-btn,
+  .service-detail-block .whatsapp-btn { width: 100%; }
+  .service-detail-block .cta-actions { width: 100%; }
 }
 
 /* Override global de tamaño de badge -- verificado contra el padding real

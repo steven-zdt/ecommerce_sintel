@@ -224,7 +224,16 @@ class ServiceSelector:
         material_cost = Decimal('0.00')
         materials_breakdown = []
 
-        for m in variant.materials.select_related('product_variant__product').all():
+        # Si los materiales ya vienen prefetcheados (listados/detalle:
+        # 'variants__materials__product_variant__product') se usan tal cual; con
+        # .select_related(...) explicito se ignoraba el cache y cada cotizacion
+        # lanzaba una query nueva. Sin prefetch (callers de commands/packages) se
+        # conserva el select_related para no introducir un N+1.
+        if 'materials' in getattr(variant, '_prefetched_objects_cache', {}):
+            variant_materials = variant.materials.all()
+        else:
+            variant_materials = variant.materials.select_related('product_variant__product').all()
+        for m in variant_materials:
             m_price = m.product_variant.discounted_price or m.product_variant.price
             m_subtotal = m_price * m.quantity
             material_cost += m_subtotal

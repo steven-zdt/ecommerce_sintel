@@ -1,7 +1,6 @@
 from datetime import timedelta
 from decimal import Decimal
 from django.db import transaction
-from django.utils import timezone
 from technical_services.models import (
     ServiceCategory, ServiceLevel, ServiceConfiguration,
     TechnicalService, ServiceVariant, ServiceMaterial,
@@ -269,6 +268,17 @@ class ServiceCommands:
         # desde el momento en que el cliente solicita, no solo tras pagar.
         from technical_services.services.operations import ServiceOperationCommands
         ServiceOperationCommands.ensure_for_order(order, actor=user)
+
+        # Servicios sin costo (visita diagnostica / levantamiento de informacion
+        # para cotizar): no hay nada que cobrar, asi que la orden se confirma
+        # de inmediato por el mismo camino post-pago que Wompi/Nequi/COD
+        # (payment.shared.commands.confirm_order_payment) -- activa el
+        # ServiceBooking, dispara la asignacion y las notificaciones. Sin esto
+        # la orden quedaria en PENDING_PAYMENT esperando un pago de $0 que
+        # Wompi no puede procesar.
+        if order.total_amount == 0:
+            from payment.shared.commands import confirm_order_payment
+            confirm_order_payment(order, reference='FREE-SERVICE')
 
         return order
 

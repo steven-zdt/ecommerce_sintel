@@ -100,9 +100,13 @@ export function useCommunication() {
     return msg;
   }
 
-  function buildWhatsAppUrl() {
+  // `message` es opcional: sin el, se usa el mensaje contextual generico. Los
+  // botones que ya conocen la intencion (ej. "Agendar visita" en el detalle de
+  // un servicio) mandan su propio texto.
+  function buildWhatsAppUrl(message = '') {
     if (!phoneDigits.value) return null;
-    return `https://wa.me/${phoneDigits.value}?text=${encodeURIComponent(buildContextMessage())}`;
+    const text = message || buildContextMessage();
+    return `https://wa.me/${phoneDigits.value}?text=${encodeURIComponent(text)}`;
   }
 
   /** Fire-and-forget: la telemetria nunca debe bloquear ni romper la UI real. */
@@ -144,8 +148,10 @@ export function useCommunication() {
     else openPanel();
   }
 
-  function openWhatsApp() {
-    const url = buildWhatsAppUrl();
+  function openWhatsApp(message = '') {
+    // Si se enlaza directo como handler (@click="openWhatsApp") el primer
+    // argumento es el evento del click, no un texto: se ignora.
+    const url = buildWhatsAppUrl(typeof message === 'string' ? message : '');
     if (!url) return;
     trackEvent('channel_click', { channel: 'whatsapp' });
     window.open(url, '_blank', 'noopener,noreferrer');
@@ -179,6 +185,7 @@ export function useCommunication() {
   return {
     isPanelOpen,
     isWhatsAppReady,
+    ensurePhoneLoaded,
     currentModule,
     openPanel,
     closePanel,
