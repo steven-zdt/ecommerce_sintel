@@ -26,6 +26,7 @@ class Resource:
     sensitive: bool = False                          # datos personales o financieros: solo lectura y salida mas acotada
     delete_semantics: str = "soft"                   # soft-delete/is_active=False segun el dominio (regla del proyecto)
     detail_param: str = "uuid"
+    parent_filter: str = ""                          # recursos hijos (p. ej. faqs de un producto): Django exige ?<parent>=<uuid> en el listado y en `create` el campo del cuerpo
     detail_via_list: bool = False                    # Django no expone GET de detalle (solo PATCH): la lectura de un registro se resuelve buscando su uuid en el listado
 
     def allows(self, op: str) -> bool:
@@ -53,6 +54,7 @@ class Resource:
 _PRODUCT_FILTERS = ("search", "is_active", "is_featured")
 _EQUIPMENT_FILTERS = ("search", "category__slug", "brand__slug")
 _NO_FILTERS = ()
+_CHILD_PRODUCT_FILTERS = ("product",)
 
 RESOURCES: tuple = (
     # --- shop (escritura habilitada: catalogo) ---
@@ -60,6 +62,17 @@ RESOURCES: tuple = (
     Resource("categories", "shop", "categories/", "Categorias de productos.", READ_OPS + WRITE_OPS, filters=_NO_FILTERS),
     Resource("brands", "shop", "brands/", "Marcas de productos.", READ_OPS + WRITE_OPS, filters=_NO_FILTERS),
     Resource("taxes", "shop", "taxes/", "Impuestos configurados (solo lectura: afectan precios y facturacion).", filters=_NO_FILTERS),
+    # --- shop: contenido de la pagina de detalle del producto (hijos de un producto; el listado exige product=<uuid>) ---
+    Resource("product-faqs", "shop", "product-faqs/", "Preguntas frecuentes de un producto (pregunta/respuesta).", READ_OPS + WRITE_OPS, filters=_CHILD_PRODUCT_FILTERS, parent_filter="product", detail_via_list=True),
+    Resource("product-services-included", "shop", "product-services-included/", "Servicios incluidos de un producto (titulo, descripcion, icono).", READ_OPS + WRITE_OPS, filters=_CHILD_PRODUCT_FILTERS, parent_filter="product", detail_via_list=True),
+    Resource("product-optional-services", "shop", "product-optional-services/", "Servicios opcionales de un producto (titulo, descripcion, precio opcional).", READ_OPS + WRITE_OPS, filters=_CHILD_PRODUCT_FILTERS, parent_filter="product", detail_via_list=True),
+    Resource("product-included-items", "shop", "product-included-items/", "Que incluye el producto (titulo, descripcion, icono).", READ_OPS + WRITE_OPS, filters=_CHILD_PRODUCT_FILTERS, parent_filter="product", detail_via_list=True),
+    Resource("product-excluded-items", "shop", "product-excluded-items/", "Que NO incluye el producto (titulo, descripcion, icono).", READ_OPS + WRITE_OPS, filters=_CHILD_PRODUCT_FILTERS, parent_filter="product", detail_via_list=True),
+    Resource("product-features", "shop", "product-features/", "Caracteristicas destacadas de un producto (titulo/valor/icono).", READ_OPS + WRITE_OPS, filters=_CHILD_PRODUCT_FILTERS, parent_filter="product", detail_via_list=True),
+    Resource("product-requirements", "shop", "product-requirements/", "Requisitos del producto para su instalacion o uso.", READ_OPS + WRITE_OPS, filters=_CHILD_PRODUCT_FILTERS, parent_filter="product", detail_via_list=True),
+    Resource("product-specification-groups", "shop", "product-specification-groups/", "Grupos de la ficha tecnica de un producto (nombre, orden).", READ_OPS + WRITE_OPS, filters=_CHILD_PRODUCT_FILTERS, parent_filter="product", detail_via_list=True),
+    Resource("product-specifications", "shop", "product-specifications/", "Filas de la ficha tecnica (nombre/valor); al crear exigen `group` (uuid de un grupo del mismo producto).", READ_OPS + WRITE_OPS, filters=_CHILD_PRODUCT_FILTERS, parent_filter="product", detail_via_list=True),
+    Resource("product-functioning-steps", "shop", "product-functioning-steps/", "Pasos de 'como funciona' de un producto (sin subir imagen: usa solo los campos de texto).", READ_OPS + WRITE_OPS, filters=_CHILD_PRODUCT_FILTERS, parent_filter="product", detail_via_list=True),
     # --- services / renting / quotes / orders / payment: solo lectura por ahora ---
     Resource("services", "services", "services/", "Servicios tecnicos ofrecidos.", READ_OPS + WRITE_OPS, filters=_NO_FILTERS),
     Resource("service-categories", "services", "service-categories/", "Categorias de servicios tecnicos.", READ_OPS + WRITE_OPS, filters=_NO_FILTERS),

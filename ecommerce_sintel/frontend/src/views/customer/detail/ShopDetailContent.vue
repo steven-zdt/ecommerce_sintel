@@ -165,7 +165,12 @@
           <span class="section-kicker">Producto</span>
           <h2>Descripcion general</h2>
         </div>
-        <DescriptionSection :text="shopProduct.description" />
+        <div :class="['description-layout', { 'has-photo': descriptionImage }]">
+          <DescriptionSection :text="shopProduct.description" />
+          <figure v-if="descriptionImage" class="description-photo">
+            <img :src="descriptionImage.image" :alt="descriptionImage.alt_text || shopProduct.name" loading="lazy" />
+          </figure>
+        </div>
       </section>
 
       <!-- Alcance -->
@@ -521,6 +526,9 @@ const shopAllImages = computed(() => {
   return shopProduct.value.images.slice().sort((a, b) => (b.is_primary ? 1 : 0) - (a.is_primary ? 1 : 0));
 });
 
+// Foto al lado derecho de "Descripcion general": la 2da imagen de la galeria (para no repetir la principal); si solo hay una, esa.
+const descriptionImage = computed(() => shopAllImages.value[1] || shopAllImages.value[0] || null);
+
 const shopOriginalPrice = computed(() => parseFloat(shopSelectedVariant.value?.price || 0));
 
 // El precio mostrado es el neto con impuestos (price_info.final_price_net,
@@ -821,6 +829,33 @@ async function shopSubmitReview() {
 }
 
 .product-detail-block .section-head { margin-bottom: .9rem; }
+
+/* Descripcion general: texto a la izquierda y foto del producto a la derecha (una columna en movil). */
+.product-detail-block .description-layout.has-photo {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 340px);
+  gap: 1.25rem;
+  align-items: start;
+}
+.product-detail-block .description-photo {
+  margin: 0;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  padding: .75rem;
+}
+.product-detail-block .description-photo img {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 320px;
+  object-fit: contain;
+  border-radius: 8px;
+}
+@media (max-width: 767.98px) {
+  .product-detail-block .description-layout.has-photo { grid-template-columns: 1fr; }
+  .product-detail-block .description-photo { order: -1; }
+}
 
 .product-detail-block .section-kicker {
   display: block;

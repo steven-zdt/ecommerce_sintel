@@ -65,6 +65,8 @@ class Settings:
     principal_profiles: dict
     workspace_root: str
     log_level: str
+    # Interruptor de escritura del panel: si es True, un token cuyo admin activo la escritura en el panel (McpAccessToken.write_enabled_until) recibe ADMIN_CRUD mientras dure la ventana.
+    panel_write_switch: bool = False
 
     def validate(self) -> None:
         if self.auth_mode not in IMPLEMENTED_AUTH_MODES:
@@ -107,4 +109,5 @@ def load() -> Settings:
         principal_profiles=_profiles(os.environ.get("MCP_PRINCIPAL_PROFILES", "")),
         workspace_root=os.environ.get("MCP_WORKSPACE_ROOT", "").strip(),
         log_level=os.environ.get("MCP_LOG_LEVEL", "INFO").upper(),
+        panel_write_switch=_bool("MCP_PANEL_WRITE_SWITCH", False),
     )

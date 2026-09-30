@@ -348,6 +348,8 @@ services:
       MCP_DEFAULT_PROFILE: "READ_ONLY"
       # perfiles por admin (email=PERFIL,...): sin entrada => READ_ONLY. Ejemplo: MCP_PRINCIPAL_PROFILES: "admin@sintel.net.co=ADMIN_CRUD"
       MCP_PRINCIPAL_PROFILES: "${MCP_PRINCIPAL_PROFILES:-}"
+      # interruptor de escritura del panel (/panel/mcp-tokens): true => el admin sube su token a ADMIN_CRUD por ventanas con caducidad
+      MCP_PANEL_WRITE_SWITCH: "${MCP_PANEL_WRITE_SWITCH:-false}"
       MCP_RATE_LIMIT: "${MCP_RATE_LIMIT:-60}"
       MCP_WRITE_RATE_LIMIT: "${MCP_WRITE_RATE_LIMIT:-20}"
       MCP_PAT_CACHE_TTL: "${MCP_PAT_CACHE_TTL:-120}"

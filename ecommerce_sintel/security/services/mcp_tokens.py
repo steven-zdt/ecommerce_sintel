@@ -23,6 +23,8 @@ from security.services.commands import SecurityCommands
 TOKEN_PREFIX = 'smcp_'
 DEFAULT_DAYS = 30
 MAX_DAYS = 90
+DEFAULT_WRITE_MINUTES = 60
+MAX_WRITE_MINUTES = 8 * 60
 EXCHANGE_LIMIT_PER_MINUTE = 30
 LAST_USED_WRITE_INTERVAL = timedelta(minutes=1)
 MCP_CLAIM = 'via'
@@ -85,6 +87,30 @@ class McpTokenCommands:
         return token
 
     @staticmethod
+    @transaction.atomic
+    def set_write(token: McpAccessToken, by_user, enabled: bool, minutes: int | None = None, request=None) -> McpAccessToken:
+        """Interruptor de escritura (perfil ADMIN_CRUD en el MCP) con caducidad automatica. Solo un admin con sesion normal: un cliente MCP no se lo puede dar a si mismo."""
+        if request is not None and is_mcp_authenticated(request):
+            raise McpTokenError('Un cliente MCP no puede activar ni desactivar su propia escritura (usa una sesion normal del panel).')
+        if not _is_admin(by_user) or token.user_id != by_user.pk:
+            raise McpTokenError('Solo el administrador dueno del token puede cambiar su escritura.')
+        if not token.is_active:
+            raise McpTokenError('El token esta revocado o vencido.')
+        if enabled:
+            minutes = DEFAULT_WRITE_MINUTES if minutes is None else int(minutes)
+            if not 1 <= minutes <= MAX_WRITE_MINUTES:
+                raise McpTokenError(f'La ventana de escritura debe estar entre 1 y {MAX_WRITE_MINUTES} minutos.')
+            token.write_enabled_until = min(timezone.now() + timedelta(minutes=minutes), token.expires_at)
+            event = SecurityEvent.MCP_WRITE_ENABLED
+        else:
+            token.write_enabled_until = None
+            event = SecurityEvent.MCP_WRITE_DISABLED
+        token.save(update_fields=['write_enabled_until', 'updated_at'])
+        SecurityCommands.log_event(event, request=request, user=by_user, metadata={
+            'token_uuid': str(token.uuid), 'name': token.name, 'minutes': minutes if enabled else 0})
+        return token
+
+    @staticmethod
     def _rate_limited(request) -> bool:
         ip = (request.META.get('HTTP_X_FORWARDED_FOR', '') or request.META.get('REMOTE_ADDR', '') or 'unknown').split(',')[0].strip()
         key = f'mcp_exchange:{ip}'
@@ -126,8 +152,10 @@ class McpTokenCommands:
         access['mcp_token'] = str(token.uuid)
         SecurityCommands.log_event(SecurityEvent.MCP_TOKEN_EXCHANGED, request=request, user=token.user, metadata={'token_uuid': str(token.uuid), 'name': token.name})
         lifetime = int(access.lifetime.total_seconds())
+        write_until = token.write_enabled_until if token.write_enabled else None
         return {'access': str(access), 'expires_in': lifetime,
-                'user': {'uuid': str(token.user.uuid), 'email': token.user.email, 'is_admin': True}, 'token_uuid': str(token.uuid)}
+                'user': {'uuid': str(token.user.uuid), 'email': token.user.email, 'is_admin': True}, 'token_uuid': str(token.uuid),
+                'write_enabled': write_until is not None, 'write_until_ts': int(write_until.timestamp()) if write_until else None}
 
 
 class McpTokenSelectors:

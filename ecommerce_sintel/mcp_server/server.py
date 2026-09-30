@@ -29,6 +29,7 @@ from .crud import CrudService
 from .django_client import DjangoAPI
 from .errors import McpToolError
 from .limits import Limiter
+from .media import MediaService
 from .openapi import OpenAPIIndex
 from .registry import BLOCKED_DOMAINS, RESOURCES, WRITE_OPS, get_resource
 
@@ -49,6 +50,7 @@ class App:
         self.limiter = Limiter(settings)
         self.openapi = OpenAPIIndex(self.api)
         self.crud = CrudService(settings, self.api, self.limiter, Confirmations(settings.confirmation_secret, settings.confirmation_ttl), IdempotencyStore(), self.openapi)
+        self.media = MediaService(self.crud)
         self.code = CodeReader(settings.workspace_root)
         self.plane = CodePlane(self.api)
         self.auditor = BusinessAuditor(self)
@@ -127,8 +129,8 @@ def build_server(app: App) -> MCPServer:
 
     @server.tool(name="crud.get", description="Lee un registro por UUID; devuelve su `version` (necesaria para actualizar o borrar).", annotations=ANN_READ)
     @guarded("crud.get")
-    async def crud_get(resource: str, target: str) -> dict:
-        return await app.crud.get(current_principal(), resource, target)
+    async def crud_get(resource: str, target: str, parent: str | None = None) -> dict:
+        return await app.crud.get(current_principal(), resource, target, parent)
 
     @server.tool(name="crud.preview_create", description="Previsualiza una creacion (no escribe). Devuelve riesgo y confirmation_token si aplica.", annotations=ANN_READ)
     @guarded("crud.preview_create")
@@ -137,30 +139,41 @@ def build_server(app: App) -> MCPServer:
 
     @server.tool(name="crud.preview_update", description="Previsualiza una actualizacion: campos from -> to, version actual y confirmation_token (no escribe).", annotations=ANN_READ)
     @guarded("crud.preview_update")
-    async def crud_preview_update(resource: str, target: str, changes: dict[str, Any]) -> dict:
-        return await app.crud.preview_update(current_principal(), resource, target, changes)
+    async def crud_preview_update(resource: str, target: str, changes: dict[str, Any], parent: str | None = None) -> dict:
+        return await app.crud.preview_update(current_principal(), resource, target, changes, parent)
 
     @server.tool(name="crud.preview_delete", description="Previsualiza un borrado (logico): efecto, resumen del registro, version y confirmation_token (no escribe).", annotations=ANN_READ)
     @guarded("crud.preview_delete")
-    async def crud_preview_delete(resource: str, target: str) -> dict:
-        return await app.crud.preview_delete(current_principal(), resource, target)
+    async def crud_preview_delete(resource: str, target: str, parent: str | None = None) -> dict:
+        return await app.crud.preview_delete(current_principal(), resource, target, parent)
 
     @server.tool(name="crud.create", description="Crea un registro via la API de Django. Requiere idempotency_key y, segun el riesgo, el confirmation_token de crud.preview_create.", annotations=ANN_WRITE)
     @guarded("crud.create", is_write=True)
     async def crud_create(resource: str, data: dict[str, Any], idempotency_key: str, confirmation_token: str | None = None, confirm: bool = False) -> dict:
         return await app.crud.create(current_principal(), resource, data, idempotency_key, confirmation_token, confirm)
 
+    @server.tool(name="media.preview_product_image", description="Previsualiza la subida de una imagen de producto (PNG/JPEG/WebP en base64; no sube nada). Devuelve confirmation_token ligado al contenido.", annotations=ANN_READ)
+    @guarded("media.preview_product_image")
+    async def media_preview_product_image(product: str, image_base64: str, filename: str, alt_text: str = "", is_primary: bool = False, display_order: int = 0) -> dict:
+        return await app.media.preview(current_principal(), product, image_base64, filename, alt_text, is_primary, display_order)
+
+    @server.tool(name="media.upload_product_image", description="Sube una imagen a la galeria de un producto. Requiere idempotency_key y el confirmation_token de media.preview_product_image (mismo contenido).", annotations=ANN_WRITE)
+    @guarded("media.upload_product_image", is_write=True)
+    async def media_upload_product_image(product: str, image_base64: str, filename: str, idempotency_key: str, confirmation_token: str | None = None,
+                                         alt_text: str = "", is_primary: bool = False, display_order: int = 0) -> dict:
+        return await app.media.upload(current_principal(), product, image_base64, filename, idempotency_key, alt_text, is_primary, display_order, confirmation_token)
+
     @server.tool(name="crud.update", description="Actualiza campos de un registro. Requiere expected_version (VERSION_CONFLICT si cambio) y el confirmation_token de crud.preview_update.", annotations=ANN_WRITE)
     @guarded("crud.update", is_write=True)
     async def crud_update(resource: str, target: str, changes: dict[str, Any], expected_version: str, idempotency_key: str | None = None,
-                          confirmation_token: str | None = None, confirm: bool = False) -> dict:
-        return await app.crud.update(current_principal(), resource, target, changes, expected_version, idempotency_key, confirmation_token, confirm)
+                          confirmation_token: str | None = None, confirm: bool = False, parent: str | None = None) -> dict:
+        return await app.crud.update(current_principal(), resource, target, changes, expected_version, idempotency_key, confirmation_token, confirm, parent)
 
     @server.tool(name="crud.delete", description="Borrado LOGICO (soft-delete) de un registro. Riesgo alto: requiere confirmation_token de crud.preview_delete, expected_version y confirm=true.", annotations=ANN_DELETE)
     @guarded("crud.delete", is_write=True)
     async def crud_delete(resource: str, target: str, expected_version: str, idempotency_key: str | None = None, confirmation_token: str | None = None,
-                          confirm: bool = False) -> dict:
-        return await app.crud.delete(current_principal(), resource, target, expected_version, idempotency_key, confirmation_token, confirm)
+                          confirm: bool = False, parent: str | None = None) -> dict:
+        return await app.crud.delete(current_principal(), resource, target, expected_version, idempotency_key, confirmation_token, confirm, parent)
 
     # ---------------- Codigo (solo lectura) ----------------
     @server.tool(name="code.search", description="Busca texto o un simbolo (def/class) en el workspace de solo lectura. Sin shell, sin regex del usuario, resultados acotados.", annotations=ANN_READ)

@@ -58,6 +58,9 @@ class SecurityEvent(SintelBaseModel):
     MCP_TOKEN_REVOKED = 'MCP_TOKEN_REVOKED'
     MCP_TOKEN_EXCHANGED = 'MCP_TOKEN_EXCHANGED'
     MCP_TOKEN_EXCHANGE_FAILED = 'MCP_TOKEN_EXCHANGE_FAILED'
+    # Interruptor de escritura (perfil ADMIN_CRUD) de un token MCP, accionado por el admin desde el panel con sesion normal.
+    MCP_WRITE_ENABLED = 'MCP_WRITE_ENABLED'
+    MCP_WRITE_DISABLED = 'MCP_WRITE_DISABLED'
     # Acciones ejecutadas por un cliente MCP (escrituras y cambios de codigo): el MCP las audita tambien en sus logs, aqui queda el registro durable.
     MCP_ACTION = 'MCP_ACTION'
     EVENT_CHOICES = [
@@ -92,6 +95,8 @@ class SecurityEvent(SintelBaseModel):
         (MCP_TOKEN_REVOKED, 'Token personal del servidor MCP revocado'),
         (MCP_TOKEN_EXCHANGED, 'Token del servidor MCP canjeado por un JWT corto'),
         (MCP_TOKEN_EXCHANGE_FAILED, 'Canje de token MCP rechazado (invalido, revocado, caducado o sin permisos)'),
+        (MCP_WRITE_ENABLED, 'Escritura (ADMIN_CRUD) activada para un token MCP'),
+        (MCP_WRITE_DISABLED, 'Escritura (ADMIN_CRUD) desactivada para un token MCP'),
         (MCP_ACTION, 'Accion ejecutada por un cliente MCP'),
     ]
 
@@ -139,12 +144,20 @@ class McpAccessToken(SintelBaseModel):
     expires_at = models.DateTimeField(db_index=True)
     last_used_at = models.DateTimeField(null=True, blank=True)
     revoked_at = models.DateTimeField(null=True, blank=True)
+    write_enabled_until = models.DateTimeField(
+        null=True, blank=True,
+        help_text='Interruptor de escritura: mientras sea futuro, el servidor MCP le da a este token el perfil ADMIN_CRUD. Solo lo cambia el admin con sesion normal.')
 
     class Meta:
         ordering = ['-created_at']
 
     def __str__(self):
         return f'{self.name} ({self.token_prefix}...)'
+
+    @property
+    def write_enabled(self) -> bool:
+        from django.utils import timezone
+        return self.is_active and self.write_enabled_until is not None and self.write_enabled_until > timezone.now()
 
     @property
     def is_active(self) -> bool:

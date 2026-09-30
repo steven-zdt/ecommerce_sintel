@@ -1,9 +1,28 @@
 /**
  * Service Worker para Sintel PWA
- * Estrategia: Cache-first para assets, network-first para API
+ * Estrategia: network-first para navegacion (documento HTML) y API,
+ * cache-first solo para assets estaticos reales (imagenes/fuentes/JS/CSS).
+ *
+ * [FIX 2026-09-16, auditoria de coherencia de rutas] Bug real encontrado: la
+ * version anterior trataba CUALQUIER request no-API como "asset estatico" y
+ * lo servia cache-first -- eso incluye la navegacion misma (`/`, `/tienda`,
+ * `/alquiler`, `/servicios`, etc.). Un Service Worker con ese cache activo en
+ * el navegador de un usuario puede seguir sirviendo una version vieja de la
+ * SPA (bundle JS/rutas viejas) indefinidamente, incluso despues de que el
+ * codigo cambio -- exactamente el sintoma real reportado ("no redirecciona a
+ * tienda/renting/servicios" en un navegador con uso previo, mientras un
+ * navegador limpio SI navegaba bien, confirmado con Playwright). Este archivo
+ * no se registra hoy desde ningun punto de entrada de la app (`pwa.js::
+ * registerServiceWorker()` existe pero no se llama desde `main.js`) -- pero
+ * SI hubo un commit historico (674dff8, 2026-07-29) que documentaba esta
+ * funcionalidad como activa, asi que un navegador que visito este proyecto en
+ * ese periodo puede tener un Service Worker de origen `localhost:5173` (o el
+ * dominio real) todavia registrado y sirviendo cache vieja -- el fix de
+ * codigo no llega a un Service Worker YA registrado en un navegador; ver
+ * AUDITORIA/HOME_URL_ROUTING_AUDIT.md para el paso manual de limpieza.
  */
 
-const CACHE_NAME = 'sintel-v1';
+const CACHE_NAME = 'sintel-v2';
 const CACHE_URLS = [
   '/',
   '/index.html',
@@ -47,6 +66,25 @@ self.addEventListener('fetch', event => {
 
   // Skip no-GET requests
   if (request.method !== 'GET') {
+    return;
+  }
+
+  // Navegacion (documento HTML de cualquier ruta, incluye `/`, `/tienda`,
+  // `/alquiler`, `/servicios`, cualquier deep-link) -- SIEMPRE network-first.
+  // Nunca debe servirse cache-first: es lo que carga el bundle JS/rutas
+  // reales del router, tiene que ser siempre la version mas nueva posible.
+  if (request.mode === 'navigate') {
+    event.respondWith(
+      fetch(request)
+        .then(response => {
+          if (response.ok) {
+            const cache = caches.open(CACHE_NAME);
+            cache.then(c => c.put(request, response.clone()));
+          }
+          return response;
+        })
+        .catch(() => caches.match(request).then(cached => cached || caches.match('/')))
+    );
     return;
   }
 

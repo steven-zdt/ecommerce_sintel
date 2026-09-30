@@ -10,6 +10,16 @@ Brief de 29 fases evaluado; auditoria (3 agentes Explore) confirmo que el patron
 commands.py` codigo OTP) -- documentados, no migrados. El "Campaign Engine" del brief (Fase 8)
 ya existe maduro en `marketing.MarketingCampaign` -- no se duplico.
 
+> **[CORREGIDO 2026-09-23, PLAN_AUDITORIA_EMAIL_PRODUCCION_SINTEL_LOOP.md]** El "Campaign Engine"
+> mencionado arriba (`marketing.MarketingCampaign` + `marketing/channels/email_channel.py::
+> EmailChannelAdapter`) envia Email real fuera de `dispatch_notification` (Celery propio,
+> `max_retries=3`) -- para efectos de cualquier auditoria de Email (no solo de arquitectura
+> general) es, en la practica, un **3er canal/bypass**, no solo "un sistema maduro que no se
+> duplico". No crea `NotificationLog` (igual que los otros 2), por lo que tampoco es visible desde
+> el panel de notificaciones. Se deja esta nota para que la proxima auditoria no tenga que
+> re-descubrirlo -- ver `docs/notifications/EMAIL_GAPS.md` GAP #7 y
+> `EMAIL_PRODUCTION_CERTIFICATION.md` para el detalle completo.
+
 Se implemento:
 - **Fix real de auditoria**: `NotificationLog` gano `template_slug` (poblado SIEMPRE, incluso si
   `template` es `None` por un slug roto/inactivo). Antes, `dispatch_notification()` solo hacia

@@ -62,6 +62,22 @@ class DjangoAPI:
             raise McpToolError(errors.INVALID_ARGUMENT, "Ruta no permitida.")
         return await self._request(method, API_PREFIX + tail, token=token, request_id=request_id, params=params, json_body=json_body, timeout=timeout)
 
+    async def upload_product_image(self, *, product: str, filename: str, content_type: str, data: bytes, fields: dict, token: str, request_id: str = "-") -> ApiResponse:
+        """POST multipart a la ruta FIJA `product-catalog-images/` (galeria de producto). Sin URL ni host elegidos por el llamador; el bearer es el del admin."""
+        form = {"product": validate_uuid(product), **{k: str(v) for k, v in fields.items()}}
+        try:
+            resp = await self._client.post(API_PREFIX + "product-catalog-images/", data=form, files={"image": (filename, data, content_type)},
+                                           headers=self._headers(token, request_id), timeout=httpx.Timeout(max(self.s.request_timeout, 30.0), connect=5.0))
+        except httpx.TimeoutException:
+            raise McpToolError(errors.UPSTREAM_ERROR, "Django no respondio a tiempo.")
+        except httpx.HTTPError:
+            raise McpToolError(errors.UPSTREAM_ERROR, "No se pudo contactar con Django.")
+        try:
+            body = resp.json()
+        except ValueError:
+            body = None
+        return ApiResponse(resp.status_code, body)
+
     async def report_audit(self, *, token: str, request_id: str, payload: dict) -> None:
         """Copia durable de la auditoria en Django (SecurityEvent MCP_ACTION). Best-effort: un fallo NO afecta a la operacion (ya quedo en los logs del MCP)."""
         try:

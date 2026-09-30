@@ -14,6 +14,7 @@ const name = ref('');
 const days = ref(30);
 const newToken = ref(null); // { name, token } visible UNA sola vez
 const confirmingRevoke = ref(null);
+const writeMinutes = ref(60);
 
 const activeCount = computed(() => tokens.value.filter(t => t.is_active).length);
 const mcpUrl = `${window.location.origin}/mcp`;
@@ -49,6 +50,16 @@ async function copyToken() {
     toast.success('Token copiado.');
   } catch {
     toast.error('No se pudo copiar: seleccionalo y copialo a mano.');
+  }
+}
+
+async function setWrite(t, enabled) {
+  try {
+    await mcpTokenService.setWrite(t.uuid, enabled, Number(writeMinutes.value));
+    toast.success(enabled ? 'Escritura activada.' : 'Escritura desactivada.');
+    await load();
+  } catch (e) {
+    handleError(e, 'No se pudo cambiar la escritura del token.');
   }
 }
 
@@ -111,18 +122,35 @@ onMounted(load);
       </div>
     </form>
 
+    <div class="card card-body mb-3">
+      <label class="form-label small mb-0">Duracion de la ventana de escritura al activarla (minutos, max. 480)</label>
+      <input v-model="writeMinutes" type="number" min="1" max="480" class="form-control form-control-sm" style="max-width: 160px" />
+      <p class="text-muted small mb-0 mt-1">
+        Con la escritura activa, el cliente MCP con ese token puede crear, editar y borrar (borrado logico) en los recursos habilitados,
+        siempre con vista previa y confirmacion. Se apaga sola al vencer la ventana; solo TU puedes activarla, desde esta pantalla.
+      </p>
+    </div>
+
     <div v-if="loading" class="text-center py-4"><span class="spinner-border"></span></div>
     <div v-else-if="!tokens.length" class="text-muted">Aun no has creado tokens.</div>
     <div v-else class="table-responsive">
       <table class="table table-sm align-middle">
         <thead>
-          <tr><th>Nombre</th><th>Prefijo</th><th>Estado</th><th>Creado</th><th>Vence</th><th>Ultimo uso</th><th></th></tr>
+          <tr><th>Nombre</th><th>Prefijo</th><th>Estado</th><th>Escritura</th><th>Creado</th><th>Vence</th><th>Ultimo uso</th><th></th></tr>
         </thead>
         <tbody>
           <tr v-for="t in tokens" :key="t.uuid">
             <td>{{ t.name }}</td>
             <td><code>{{ t.token_prefix }}…</code></td>
             <td><span class="badge" :class="state(t).cls">{{ state(t).label }}</span></td>
+            <td>
+              <template v-if="t.is_active">
+                <span v-if="t.write_enabled" class="badge bg-danger me-1">Activa hasta {{ fmt(t.write_enabled_until) }}</span>
+                <span v-else class="badge bg-secondary me-1">Solo lectura</span>
+                <button v-if="t.write_enabled" class="btn btn-sm btn-outline-secondary" @click="setWrite(t, false)">Desactivar</button>
+                <button v-else class="btn btn-sm btn-outline-warning" @click="setWrite(t, true)">Activar escritura</button>
+              </template>
+            </td>
             <td>{{ fmt(t.created_at) }}</td>
             <td>{{ fmt(t.expires_at) }}</td>
             <td>{{ fmt(t.last_used_at) }}</td>

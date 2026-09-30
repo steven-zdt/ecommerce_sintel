@@ -22,6 +22,7 @@ from .errors import McpToolError
 WHOAMI = "/api/v1/dashboard/mcp/whoami/"
 EXCHANGE = "/api/v1/internal/mcp/exchange/"
 PAT_PREFIX = "smcp_"
+SWITCH_TTL = 10.0       # con el interruptor del panel activo, un cambio (activar/desactivar escritura) se nota en <= 10 s
 POSITIVE_TTL = 60.0     # un token valido se reconfirma con Django cada minuto (revocacion/desactivacion se nota rapido)
 NEGATIVE_TTL = 5.0      # un fallo no martillea a Django
 
@@ -65,6 +66,9 @@ class DjangoTokenVerifier:
         user = resp.data["user"]
         email = str(user.get("email") or "").lower()
         profile = self.s.principal_profiles.get(email, self.s.default_profile)
+        write_until = resp.data.get("write_until_ts")
+        if self.s.panel_write_switch and resp.data.get("write_enabled") is True and isinstance(write_until, int) and write_until > time.time() and profile == "READ_ONLY":
+            profile = "ADMIN_CRUD"  # ventana de escritura abierta por el admin en el panel (caduca sola)
         return AccessToken(token=resp.data["access"], client_id=email or str(user.get("uuid")), scopes=[profile], expires_at=_jwt_exp(resp.data["access"]),
                            subject=str(user.get("uuid")), claims={"uuid": str(user.get("uuid")), "email": email, "profile": profile, "via_pat": True})
 
@@ -79,6 +83,8 @@ class DjangoTokenVerifier:
         if token.startswith(PAT_PREFIX):
             access = await self._verify_pat(token)
             ttl = min(float(self.s.pat_cache_ttl), 600.0) if access else NEGATIVE_TTL
+            if access and self.s.panel_write_switch:
+                ttl = min(ttl, SWITCH_TTL)
             if len(self._cache) > 500:
                 self._cache.clear()
             self._cache[key] = (now + ttl, access)

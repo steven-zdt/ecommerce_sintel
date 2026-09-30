@@ -95,20 +95,28 @@ class CrudService:
             raise McpToolError(errors.INVALID_ARGUMENT, "idempotency_key invalida (8-128 caracteres: letras, digitos, - _ : .).")
         return key
 
-    async def _fetch(self, principal, resource: Resource, target: str) -> dict:
+    def _parent_params(self, resource: Resource, parent) -> dict:
+        """Recursos hijos: Django exige el uuid del padre para listar; se valida como UUID (no es texto libre)."""
+        if not resource.parent_filter:
+            return {}
+        if not parent:
+            raise McpToolError(errors.INVALID_ARGUMENT, f"'{resource.name}' cuelga de un {resource.parent_filter}: pasa parent con su UUID.")
+        return {resource.parent_filter: validate_uuid(parent)}
+
+    async def _fetch(self, principal, resource: Resource, target: str, parent=None) -> dict:
         target = validate_uuid(target)
         if resource.detail_via_list:
-            return await self._fetch_via_list(principal, resource, target)
+            return await self._fetch_via_list(principal, resource, target, parent)
         resp = await self.api.call("GET", f"{resource.api_tail}{target}/", token=principal.token, request_id=audit.request_id_var.get())
         if not resp.ok or not isinstance(resp.data, dict):
             raise self._map_error(resp, "la lectura")
         return resp.data
 
-    async def _fetch_via_list(self, principal, resource: Resource, target: str) -> dict:
+    async def _fetch_via_list(self, principal, resource: Resource, target: str, parent=None) -> dict:
         """Recursos sin GET de detalle: se busca el uuid en el listado (paginado por Django o lista completa), con tope de paginas."""
         for page_no in range(1, self.s.max_page_depth + 1):
             resp = await self.api.call("GET", resource.api_tail, token=principal.token, request_id=audit.request_id_var.get(),
-                                       params={"page_size": 100, "page": page_no})
+                                       params={"page_size": 100, "page": page_no, **self._parent_params(resource, parent)})
             if not resp.ok:
                 raise self._map_error(resp, "la lectura")
             data = resp.data
@@ -129,6 +137,10 @@ class CrudService:
         await self._available(principal, resource, "list")
         size, page_no = self.limiter.clamp_limit(limit), self.limiter.check_page(page)
         params = {"page_size": size, "page": page_no, **self._filters(resource, filters)}
+        if resource.parent_filter and not params.get(resource.parent_filter):
+            raise McpToolError(errors.INVALID_ARGUMENT, f"El listado de '{resource.name}' exige filters={{'{resource.parent_filter}': '<uuid>'}}.")
+        if resource.parent_filter:
+            params[resource.parent_filter] = validate_uuid(params[resource.parent_filter])
         resp = await self.api.call("GET", resource.api_tail, token=principal.token, request_id=audit.request_id_var.get(), params=params)
         if not resp.ok:
             raise self._map_error(resp, "el listado")
@@ -146,10 +158,10 @@ class CrudService:
             "page_size": size, "has_next": has_next, "next_page": page_no + 1 if has_next else None, "items": items,
             "max_page": self.s.max_page_depth, "pii_masked": resource.sensitive})
 
-    async def get(self, principal, resource_name, target) -> dict:
+    async def get(self, principal, resource_name, target, parent=None) -> dict:
         resource = get_resource(resource_name)
         await self._available(principal, resource, "get")
-        record = await self._fetch(principal, resource, target)
+        record = await self._fetch(principal, resource, target, parent)
         return sanitize.untrusted_wrap({"ok": True, "resource": resource.name, "record": self._clean(resource, record), "version": self._version(record),
                                         "pii_masked": resource.sensitive})
 
@@ -172,11 +184,11 @@ class CrudService:
         return {"ok": True, "operation": "create", "resource": resource.name, "changes": {k: {"to": self._clean_value(v)} for k, v in data.items()},
                 "note": "Preview: no se escribio nada. Django validara los campos al ejecutar. crud.create exige idempotency_key.", **meta}
 
-    async def preview_update(self, principal, resource_name, target, changes) -> dict:
+    async def preview_update(self, principal, resource_name, target, changes, parent=None) -> dict:
         resource = get_resource(resource_name)
         await self._available(principal, resource, "update")
         self._check_data(changes)
-        current = await self._fetch(principal, resource, target)
+        current = await self._fetch(principal, resource, target, parent)
         version = self._version(current)
         diff = {k: {"from": self._clean_value(current[k]), "to": self._clean_value(v)} for k, v in changes.items() if k in current and current[k] != v}
         unchanged = [k for k, v in changes.items() if k in current and current[k] == v]
@@ -185,10 +197,10 @@ class CrudService:
         return {"ok": True, "operation": "update", "resource": resource.name, "target": validate_uuid(target), "changes": diff, "unchanged_fields": unchanged,
                 "unknown_fields": unknown, "version": version, **meta}
 
-    async def preview_delete(self, principal, resource_name, target) -> dict:
+    async def preview_delete(self, principal, resource_name, target, parent=None) -> dict:
         resource = get_resource(resource_name)
         await self._available(principal, resource, "delete")
-        current = await self._fetch(principal, resource, target)
+        current = await self._fetch(principal, resource, target, parent)
         version = self._version(current)
         meta = self._preview_meta(principal, resource, "delete", "crud.delete", validate_uuid(target), {}, version)
         return {"ok": True, "operation": "delete", "resource": resource.name, "target": validate_uuid(target), "version": version,
@@ -246,7 +258,7 @@ class CrudService:
                     target=str((resp.data or {}).get("uuid", "-")) if isinstance(resp.data, dict) else "-", changed_fields=data.keys(), result="ok")
         return result
 
-    async def update(self, principal, resource_name, target, changes, expected_version, idempotency_key=None, confirmation_token=None, confirm=False) -> dict:
+    async def update(self, principal, resource_name, target, changes, expected_version, idempotency_key=None, confirmation_token=None, confirm=False, parent=None) -> dict:
         resource = get_resource(resource_name)
         await self._available(principal, resource, "update")
         self._check_data(changes)
@@ -259,7 +271,7 @@ class CrudService:
             prior = self.idem.lookup(principal.uuid, "crud.update:" + resource.name, key, digest)
             if prior is not None:
                 return {**prior, "idempotent_replay": True}
-        current = await self._fetch(principal, resource, target)
+        current = await self._fetch(principal, resource, target, parent)
         version = self._version(current)
         if version != expected_version:
             await self._log(principal, "write_conflict", tool="crud.update", resource=resource.name, operation="update", target=target, result="version_conflict")
@@ -279,7 +291,7 @@ class CrudService:
         await self._log(principal, "write_result", tool="crud.update", resource=resource.name, operation="update", target=target, changed_fields=changes.keys(), result="ok")
         return result
 
-    async def delete(self, principal, resource_name, target, expected_version, idempotency_key=None, confirmation_token=None, confirm=False) -> dict:
+    async def delete(self, principal, resource_name, target, expected_version, idempotency_key=None, confirmation_token=None, confirm=False, parent=None) -> dict:
         resource = get_resource(resource_name)
         await self._available(principal, resource, "delete")
         target = validate_uuid(target)
@@ -291,7 +303,7 @@ class CrudService:
             prior = self.idem.lookup(principal.uuid, "crud.delete:" + resource.name, key, digest)
             if prior is not None:
                 return {**prior, "idempotent_replay": True}
-        current = await self._fetch(principal, resource, target)
+        current = await self._fetch(principal, resource, target, parent)
         version = self._version(current)
         if version != expected_version:
             await self._log(principal, "write_conflict", tool="crud.delete", resource=resource.name, operation="delete", target=target, result="version_conflict")

@@ -34,6 +34,7 @@ class AdminMcpWhoAmIView(APIView):
 from django.core.exceptions import ValidationError as DjangoValidationError  # noqa: E402
 from django.http import Http404  # noqa: E402
 from rest_framework import serializers, status, viewsets  # noqa: E402
+from rest_framework.decorators import action  # noqa: E402
 from rest_framework.exceptions import ValidationError as DRFValidationError  # noqa: E402
 
 from security.models import McpAccessToken  # noqa: E402
@@ -50,11 +51,18 @@ class McpTokenSerializer(serializers.Serializer):
     last_used_at = serializers.DateTimeField()
     revoked_at = serializers.DateTimeField()
     is_active = serializers.BooleanField()
+    write_enabled = serializers.BooleanField()
+    write_enabled_until = serializers.DateTimeField()
 
 
 class McpTokenCreateSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=100)
     days = serializers.IntegerField(required=False, min_value=1)
+
+
+class McpTokenWriteSerializer(serializers.Serializer):
+    enabled = serializers.BooleanField()
+    minutes = serializers.IntegerField(required=False, min_value=1)
 
 
 class AdminMcpTokenViewSet(viewsets.ViewSet):
@@ -89,6 +97,21 @@ class AdminMcpTokenViewSet(viewsets.ViewSet):
         except McpTokenError as exc:
             raise DRFValidationError({'detail': str(exc)})
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(detail=True, methods=['post'], url_path='write')
+    def write(self, request, uuid=None):
+        """POST /dashboard/mcp-tokens/<uuid>/write/ {enabled, minutes?} -- interruptor de escritura (ADMIN_CRUD) del token, con caducidad automatica."""
+        serializer = McpTokenWriteSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            token = McpTokenSelectors.get_for_user(request.user, uuid)
+        except (McpAccessToken.DoesNotExist, ValueError, DjangoValidationError):
+            raise Http404
+        try:
+            McpTokenCommands.set_write(token, request.user, serializer.validated_data['enabled'], serializer.validated_data.get('minutes'), request=request)
+        except McpTokenError as exc:
+            raise DRFValidationError({'detail': str(exc)})
+        return Response(McpTokenSerializer(token).data)
 
 
 # ---------------------------------------------------------------------------------------------------------------------

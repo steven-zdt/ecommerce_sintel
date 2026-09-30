@@ -704,6 +704,92 @@ class WhatsAppInboundHandoffGateTestCase(TransactionTestCase):
         self.assertEqual(ChatMessage.objects.filter(room=room).count(), 2)
 
 
+class RealBusinessEmailTemplatesTestCase(TransactionTestCase):
+    """
+    Auditoria de Email en produccion (PLAN_AUDITORIA_EMAIL_PRODUCCION_SINTEL_LOOP.md, Fase 6,
+    2026-09-23) -- guarda de regresion permanente del incidente real donde 'order_created',
+    'order_paid', 'rental_cod_review_pending', 'rental_payment_conflict_customer' y
+    'rental_payment_conflict_admin' fallaban silenciosamente en produccion desde julio 2026 por
+    no tener NotificationTemplate sembrado (ver orders/migrations/0018_seed_order_lifecycle_
+    templates.py y renting/migrations/0038_seed_cod_and_payment_conflict_templates.py). Los
+    tests genericos de arriba (NotificationsTestCase) usan una plantilla fabricada
+    ('order-update'), nunca las reales -- por eso el gap paso desapercibido en tests durante
+    meses pese a tener cobertura amplia del pipeline generico.
+    """
+
+    REAL_TEMPLATE_CONTEXTS = {
+        'order_created': {'order_uuid': 'o-1', 'status': 'pending', 'total': '150000', 'user_name': 'Juan'},
+        'order_paid': {'order_uuid': 'o-1', 'status': 'paid', 'total': '150000', 'user_name': 'Juan'},
+        'rental_cod_review_pending': {
+            'request_uuid': 'r-1', 'equipment_name': 'Camara PTZ', 'grand_total': '90000', 'user_name': 'Ana',
+        },
+        'rental_payment_conflict_customer': {
+            'request_uuid': 'r-1', 'equipment_name': 'Camara PTZ', 'grand_total': '90000', 'user_name': 'Ana',
+        },
+        'rental_payment_conflict_admin': {
+            'request_uuid': 'r-1', 'equipment_name': 'Camara PTZ', 'grand_total': '90000', 'user_name': 'Ana',
+        },
+    }
+
+    def setUp(self):
+        # Las migraciones de datos (RunPython) de este proyecto NO se aplican al armar la BD de
+        # tests (confirmado en vivo -- otros tests ya existentes, ej. DispatchNotificationOnceTestCase
+        # via race conditions, dependen de esto). Se siembran aqui las 5 plantillas leyendo el
+        # TEMPLATES real de cada migracion (import_module, mismo mecanismo que usa Django para
+        # cargar migraciones) -- fuente unica de verdad, sin duplicar el copy a mano y sin riesgo
+        # de que este test quede desincronizado si el contenido real cambia.
+        from importlib import import_module
+        self.user = User.objects.create_user(email='real_templates_user@example.com', password='x')
+        order_templates = import_module(
+            'orders.migrations.0018_seed_order_lifecycle_templates'
+        ).TEMPLATES
+        renting_templates = import_module(
+            'renting.migrations.0038_seed_cod_and_payment_conflict_templates'
+        ).TEMPLATES
+        for data in order_templates + renting_templates:
+            NotificationTemplate.objects.update_or_create(
+                slug=data['slug'], defaults={k: v for k, v in data.items() if k != 'slug'},
+            )
+
+    def test_todas_las_plantillas_de_negocio_reales_existen_y_activas(self):
+        for slug in self.REAL_TEMPLATE_CONTEXTS:
+            with self.subTest(slug=slug):
+                self.assertTrue(
+                    NotificationTemplate.objects.filter(slug=slug, is_active=True).exists(),
+                    f"'{slug}' no existe o esta inactiva -- algun caller real de "
+                    f"dispatch_notification() la referencia y fallaria silenciosamente.",
+                )
+
+    def test_plantillas_de_negocio_reales_renderizan_sin_variables_rotas(self):
+        from django.template import Template, Context
+        for slug, ctx in self.REAL_TEMPLATE_CONTEXTS.items():
+            with self.subTest(slug=slug):
+                template = NotificationTemplate.objects.get(slug=slug)
+                subject = Template(template.subject).render(Context(ctx))
+                body = Template(template.email_body).render(Context(ctx))
+                self.assertNotIn('{{', subject, f"'{slug}': subject con variable sin resolver")
+                self.assertNotIn('{{', body, f"'{slug}': email_body con variable sin resolver")
+
+    @patch('notifications.tasks.send_ws_notification_task.delay')
+    @patch('notifications.tasks.send_email_notification_task.delay')
+    @patch('notifications.tasks.send_whatsapp_notification_task.delay')
+    def test_dispatch_notification_despacha_email_para_cada_plantilla_de_negocio_real(
+        self, mock_wa, mock_email, mock_ws,
+    ):
+        for slug, ctx in self.REAL_TEMPLATE_CONTEXTS.items():
+            with self.subTest(slug=slug):
+                NotificationCommands.dispatch_notification(user=self.user, template_slug=slug, context=ctx)
+                mock_email.assert_called_with(user_id=self.user.pk, template_slug=slug, context=ctx)
+
+    def test_plantilla_de_negocio_inexistente_deja_notificationlog_failed_con_error_util(self):
+        NotificationCommands.dispatch_notification(
+            user=self.user, template_slug='slug_que_no_existe_de_verdad', context={},
+        )
+        log = NotificationLog.objects.get(user=self.user, template_slug='slug_que_no_existe_de_verdad')
+        self.assertEqual(log.status, NotificationLog.STATUS_FAILED)
+        self.assertTrue(log.error_message)
+
+
 class DispatchNotificationOnceTestCase(TransactionTestCase):
     """
     Fase 9 (AUDITORIA/24_AUDITORIA_NOTIFICATIONS_SUPPORT.md, 2026-08-01).

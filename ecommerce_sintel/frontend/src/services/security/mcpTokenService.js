@@ -8,6 +8,10 @@ export const mcpTokenService = {
   create(name, days) {
     return useApi().post('dashboard/mcp-tokens/', { name, days }).then(r => r.data);
   },
+  // Interruptor de escritura (perfil ADMIN_CRUD en el MCP) con caducidad automatica.
+  setWrite(uuid, enabled, minutes) {
+    return useApi().post(`dashboard/mcp-tokens/${uuid}/write/`, { enabled, minutes }).then(r => r.data);
+  },
   revoke(uuid) {
     return useApi().delete(`dashboard/mcp-tokens/${uuid}/`).then(r => r.data);
   },
